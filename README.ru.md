@@ -20,7 +20,7 @@ AM Mod — мод сообщества для Akai MPC Sample (прошивка 
 
 ## Возможности
 
-Состояние на 31 октября 2026 года (сборка r24w). **Подтверждено** — проверено на настоящем MPC Sample;
+Состояние на 31 октября 2026 года (сборка r24x). **Подтверждено** — проверено на настоящем MPC Sample;
 **проба** — проходит ARM/QEMU-проверки и эмулятор, ждёт проверки на устройстве.
 
 | Функция | Где | Статус |
@@ -79,7 +79,7 @@ AM Mod — мод сообщества для Akai MPC Sample (прошивка 
 ```bash
 python3 installer/mpc_mod_installer.py                 # окно
 python3 installer/mpc_mod_installer.py cards           # список карт
-python3 installer/mpc_mod_installer.py install am-mod-r24w.zip --card E:
+python3 installer/mpc_mod_installer.py install am-mod-r24x.zip --card E:
 python3 installer/mpc_mod_installer.py install --latest --card /Volumes/MPC
 python3 installer/mpc_mod_installer.py remove --card E:
 ```
@@ -120,7 +120,7 @@ python3 installer/mpc_mod_installer.py remove --card E:
 выполняются так же, как на MPC. Гифки выше записаны в нём:
 
 ```bash
-python3 lab.py autorun am-mod-r24w.zip --no-reboot --yes
+python3 lab.py autorun am-mod-r24x.zip --no-reboot --yes
 ```
 
 Эмулятор удобен для разработки, но не заменяет проверку на устройстве: тайминги, задержка
@@ -136,7 +136,7 @@ updater, извлечённые разделы и rootfs в репозитори
 
 Порядок: получить локальные входные файлы с ожидаемыми хешами → собрать `sd-clone-trial`
 (загрузчик) → собрать патчи значений `sd-k-value-peek` → собрать текущую ревизию
-`sd-mod-session`. Для r24w: `sd-mod-session/build_chords_candidate.py`,
+`sd-mod-session`. Для r24x: `sd-mod-session/build_chords_candidate.py`,
 `verify_chords.py`, `verify_pad_eq.py`, затем `package_update.py` поверх предыдущего пакета. ARM/QEMU-проверки (`verify_*.py`,
 `check_*.c`) используют явно обозначенные адаптеры и не заменяют пробу на устройстве.
 

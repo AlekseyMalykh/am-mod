@@ -20,7 +20,7 @@ the stock app. Nothing is flashed: the mod runs a patched copy of the stock app 
 
 ## Features
 
-Status as of 31 October 2026 (build r24w). **Confirmed** means checked on a real MPC Sample;
+Status as of 31 October 2026 (build r24x). **Confirmed** means checked on a real MPC Sample;
 **trial** means it passes the ARM/QEMU checks and the emulator but waits for a hardware run.
 
 | Feature | Where | Status |
@@ -79,7 +79,7 @@ refuses to start on any other version) and an SD card formatted by the MPC.
 ```bash
 python3 installer/mpc_mod_installer.py                 # window
 python3 installer/mpc_mod_installer.py cards           # list cards
-python3 installer/mpc_mod_installer.py install am-mod-r24w.zip --card E:
+python3 installer/mpc_mod_installer.py install am-mod-r24x.zip --card E:
 python3 installer/mpc_mod_installer.py install --latest --card /Volumes/MPC
 python3 installer/mpc_mod_installer.py remove --card E:
 ```
@@ -120,7 +120,7 @@ firmware in QEMU with the whole device in your browser, and runs SD autorun pack
 way the MPC does. The GIFs above were recorded there:
 
 ```bash
-python3 lab.py autorun am-mod-r24w.zip --no-reboot --yes
+python3 lab.py autorun am-mod-r24x.zip --no-reboot --yes
 ```
 
 Emulator runs are useful for development, but they are not a hardware test: timing, audio
@@ -136,7 +136,7 @@ rootfs in older checks (`/home/user/mpc-rootfs-user-20260808`) need adjusting.
 
 Order: get the local inputs with the expected hashes → build `sd-clone-trial` (the loader)
 → build the value patches in `sd-k-value-peek` → build the current `sd-mod-session`
-revision. For r24w: `sd-mod-session/build_chords_candidate.py`, `verify_chords.py`,
+revision. For r24x: `sd-mod-session/build_chords_candidate.py`, `verify_chords.py`,
 `verify_pad_eq.py`, then `package_update.py` over the previous package. The ARM/QEMU checks (`verify_*.py`, `check_*.c`) use clearly marked
 adapters and do not replace a hardware run.
 

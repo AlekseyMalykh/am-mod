@@ -6,6 +6,7 @@ All builds target MPC Sample firmware 1.3.0.12 and run from the SD card; none of
 
 | Build | Date (2026) | Changes |
 |---|---|---|
+| **r24x** | 31 Oct | Search results light the pads with the shared palette: target white, red and blinking when it would replace a sound, occupied pads dim white. |
 | **r24w** | 31 Oct | The mod is now called **AM Mod**: packages `am-mod-*.zip`, `AM-Mod-Installer.exe`, start screen "AM Mod". No functional changes from r24v. |
 | **r24t–r24v** | 31 Oct | Resample target chosen on a 4×4 bank grid (source outlined, overwrites red). **Live spectrum** of the edited pad behind the EQ curve (dim amber from r24v). |
 | **r24q–r24s** | 31 Oct | **Pan** and Tune bars grow from a centre mark. **Block layout** for the Chords, Steps, Stereo → Mono and Resample windows and the Steps edit menu. Knob FX works inside Chords. |

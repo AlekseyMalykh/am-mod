@@ -342,7 +342,7 @@ static void publish_palette(void){
  if(atomic_load(&dead_files))return;
  struct phone_input p=query;uint64_t now=now_ms();for(unsigned i=0;i<16;++i)if(feedback[i]>now)p.held|=1u<<i;
  for(unsigned i=0;i<16;++i){uint64_t light=search&&!results&&query.enabled?phone_light(&p,i+1):0;
-  if(search&&results&&sample_browser()){unsigned bank=(unsigned)step_native_browser_bank(-1);if(bank<8){void*t=note_native_context();void*program=t?FIELD(t,0xb8,void*):NULL;void*instrument=program?FN(0x286bbe0,void*(*)(void*,int))(program,(int)(bank*16+i)):NULL;uint32_t colour=result_pad_ready&&result_pad==bank*16+i?0xffc247:instrument&&FN(0x2804760,int(*)(void*))(instrument)?0xff4040:0x9a45ff;float power=.6f;uint32_t bits;memcpy(&bits,&power,4);light=colour|((uint64_t)bits<<32);}}
+  if(search&&results&&sample_browser()){unsigned bank=(unsigned)step_native_browser_bank(-1);if(bank<8){void*t=note_native_context();void*program=t?FIELD(t,0xb8,void*):NULL;void*instrument=program?FN(0x286bbe0,void*(*)(void*,int))(program,(int)(bank*16+i)):NULL;/* Shared pad palette: target white (red, blinking, when it would replace a sound), occupied dim white, empty off. */int used=instrument&&FN(0x2804760,int(*)(void*))(instrument),target=result_pad_ready&&result_pad==bank*16+i;uint32_t colour=target?(used?PAD_DANGER:PAD_SELECT):used?PAD_OCCUPIED:0;float power=target?(used&&!pad_blink_on(now_ms())?.25f:PAD_BRIGHT_SELECT):PAD_BRIGHT_OCCUPIED;light=pad_light(colour,power);}}
   if(atomic_exchange(&palette[i],light)!=light)atomic_fetch_add(&palette_generation,1);
  }
 }

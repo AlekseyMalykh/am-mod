@@ -2,7 +2,7 @@
 
 **English** · [Русский](FEATURES.ru.md)
 
-State as of build **r24w** (31 October 2026), MPC Sample firmware **1.3.0.12**.
+State as of build **r24x** (31 October 2026), MPC Sample firmware **1.3.0.12**.
 
 **Statuses:**
 - **Confirmed**: checked on a real MPC Sample.
@@ -61,6 +61,19 @@ Terms: **B1–B3** are the three buttons above the screen, **K1–K3** the three
 | **Pan** and other ranges symmetric around zero (Tune) fill from a centre mark to the left or right | trial (r24q) |
 | **Mod windows** (Chords, Steps, Steps edit menu, Stereo → Mono, Resample) share one block layout: B1–B3 blocks on top, information blocks, a 4×4 grid that mirrors the pads | trial (r24s) |
 
+**Pad colours in mod windows** (Steps, event editor, search, Batch Copy / Extract, Stereo → Mono, Resample). Musical colours (Lights, Chords, sequences) are separate.
+
+| Colour | Meaning |
+|---|---|
+| green | has a sound or events; the source of a copy |
+| white | cursor, chosen value, target |
+| dim white | has a sound, but is not part of the operation |
+| cyan | playback position only |
+| amber | the original value being replaced |
+| red, blinking | will be erased or overwritten |
+| violet | muted |
+| dim grey / off | empty |
+
 ## 3. Typing names with the pads
 
 Works in Save Project / Save Sample and in search. **K1** switches Encoder / Pads and keeps the text typed so far. The basic keypad is confirmed on the device.
@@ -80,7 +93,7 @@ Works in Save Project / Save Sample and in search. **K1** switches Encoder / Pad
 
 - Pressing a pad again cycles its letters. Another pad, or a pause over 1 second, commits the letter.
 - The encoder and +/− move the same cursor. The insertion point is shown as `|`, which never ends up in the name.
-- Colours: letters cyan, digits green, symbols amber, case violet, delete red.
+- Colours: letters white, digits green, symbols amber, case violet, delete red.
 - Latin letters only.
 
 ## 4. Orig Note, key and Lights
@@ -146,7 +159,7 @@ The type/addition layout was inspired by [ChoralRoot FM-1](https://github.com/Qu
 - **Mute**: hold it and press steps, or press it briefly to latch the mode. **Shift+Mute** unmutes the whole sound.
 - **Shift+K3 Other Sounds** dims steps that hold events of other sounds. Encoder click hides or shows the cursor.
 - **C / L** marks on a step light the Chop / 16 Levels button, which opens the event editor (§9). On an empty step with WRITE ON, 16 Levels opens note entry.
-- Colours: events green, edit cursor amber, playhead cyan, events to erase red/orange, muted events violet/red.
+- Pad colours follow the shared palette (§2): events green, cursor white, playhead cyan, events to erase red (blinking), muted events violet, empty steps dim grey.
 - The screen shows the same 16 steps as a 4×4 grid in the pad colours, with a white outline on the cursor step (r24s).
 
 ## 8. Events / Step Edit
@@ -166,7 +179,7 @@ When the selected event has a C or L mark, the Chop or 16 Levels button lights u
 |---|---|
 | Pads choose a variant (slice, note, value). **B3 Apply** applies, B1/B2 cancel. Nothing changes before Apply | confirmed (r16b) |
 | Audition of the chosen variant; the original event is muted while editing, the rest keep playing | L confirmed (r16c), C trial |
-| The original variant is amber, the chosen one cyan | confirmed |
+| The original variant is amber, the chosen one white | confirmed |
 | Levels types: Velocity, Tune, Filter, Layer, Attack, Decay, Probability, Ratchet, Slice, Articulation; Tune pages by octave | confirmed |
 | **Several notes in Tune**: pads add and remove notes (up to 16); Apply replaces the event with separate events as one Undo step | trial (r21) |
 | The sound's Lights colours in the Tune editor | trial |
@@ -188,7 +201,7 @@ When the selected event has a C or L mark, the Chop or 16 Levels button lights u
 
 - Scope: **Folder / Subfolders / Library** and storage (Current / Internal / SD Card), on K3 or Shift+K3.
 - Case-insensitive. Samples: WAV, AIF/AIFF, MP3, FLAC, OGG. Projects: XPJ. Up to 4096 matches.
-- Samples: a pad silently picks the target, **encoder click loads** the sample and stays in the results. **B3 Preview** turns on preview while scrolling. **Shift+click** opens the file's folder with the file selected.
+- Samples: a pad silently picks the target, **encoder click loads** the sample and stays in the results. **B3 Preview** turns on preview while scrolling. **Shift+click** opens the file's folder with the file selected. Pads use the shared palette (§2): the target white, red and blinking when it would replace a sound; occupied pads dim white (r24x).
 - Projects: a click asks for confirmation (B3 Open / B1 Cancel).
 - **K3 Preview Vol 0–100 %**: preview level relative to Main Volume, shown only on an audio file.
 - **Erase** on an audio file in `Samples/User` runs the stock Delete with its stock confirmation.
@@ -202,7 +215,7 @@ When the selected event has a C or L mark, the Chop or 16 Levels button lights u
 - **Shift+K3**: Sound only / **Sound + events**, which copies the sound's events in every sequence (trial, r15e).
 - Occupied targets are marked `!`. B3 shows the number of copies and overwrites, B3 again confirms.
 - Encoder click auditions the row's source. One Undo reverts the whole operation.
-- Colours: sources green, free slots violet, occupied red, targets cyan, current target amber.
+- Pad colours follow the shared palette (§2): sources green, occupied pads dim white, targets white; a target that would overwrite a sound is red and blinks.
 
 ## 13. Batch Extract
 
@@ -244,7 +257,7 @@ While the pad sounds, its **spectrum** (4096-point FFT, 20 Hz–20 kHz) is drawn
 |---|---|
 | Renders the selected pad with its settings and FX onto a chosen pad. Loop plays once for the render, the tail rings out. A silent or failed result is never assigned | confirmed (r20g) |
 | Includes the source pad's direct Pad Links and the Bypass state | confirmed (r23a) |
-| Target picker: target pad bright cyan, free slots violet, occupied red. The result is named "name Resample" | confirmed |
+| Target picker: the target pad is white (red and blinking when it would overwrite a sound), the source green, occupied pads dim white. The result is named "name Resample" | confirmed (colours updated in r24d) |
 | The target page shows the source and the bank as a 4×4 grid: occupied pads grey, the source outlined green, the chosen target white, or red when it would overwrite | trial (r24t) |
 
 ## 17. Limits
