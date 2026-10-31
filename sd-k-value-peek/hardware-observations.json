@@ -1,0 +1,30 @@
+{
+  "observations": [
+    {
+      "revision": "r1",
+      "result": "failed",
+      "user_observed": "Amber K2 visible; encoder press caused black screen; stock UI returned automatically",
+      "journal_signal": "11/SEGV",
+      "crash_device_utc": "2026-10-23T10:57:17Z",
+      "stock_restored_device_utc": "2026-10-23T10:57:24Z",
+      "recovery_seconds": 7,
+      "r2_status": "pending hardware trial",
+      "r2_fix": "mov x19,x0 replaces incorrect ldr x19,[x0,#0x40]",
+      "evidence_directory": "<workspace>\\sd-k-value-peek\\device-results\\20261023-140625-r1-encoder-segv"
+    },
+    {
+      "revision": "r2",
+      "runtime_result": "passed three-minute trial",
+      "ux_result": "needs color correction",
+      "user_observed": "Value peek mostly works; preview/edit color needs separation; multiple yellow values seen",
+      "clone_start_device_utc": "2026-10-23T11:05:56Z",
+      "runtime_limit_device_utc": "2026-10-23T11:08:56Z",
+      "stock_restored_device_utc": "2026-10-23T11:09:04Z",
+      "precheck_to_clone_start_seconds": 20,
+      "return_cause": "RuntimeMaxSec=180 reached; no SEGV in journal",
+      "evidence_directory": "<workspace>\\sd-k-value-peek\\device-results\\20261023-141811-r2-ui-peek-timeout-return"
+    }
+  ],
+  "current_revision": "r3",
+  "current_hardware_status": "pending"
+}

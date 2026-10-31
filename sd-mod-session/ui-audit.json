@@ -1,0 +1,360 @@
+{
+  "screens": [
+    {
+      "name": "16CompressorScreen",
+      "string": 77589552,
+      "vptr": 115457840,
+      "resized": 23003536
+    },
+    {
+      "name": "14CopyModeScreen",
+      "string": 77592200,
+      "vptr": 115459024,
+      "resized": 23046272
+    },
+    {
+      "name": "15EditTempoScreen",
+      "string": 77592336,
+      "vptr": 115459784,
+      "resized": 23056448
+    },
+    {
+      "name": "15FaderModeScreen",
+      "string": 77594440,
+      "vptr": 115460792,
+      "resized": 23071952
+    },
+    {
+      "name": "16FileSelectScreen",
+      "string": 77597048,
+      "vptr": 115462072,
+      "resized": 23104432
+    },
+    {
+      "name": "14FlexBeatScreen",
+      "string": 77600816,
+      "vptr": 115463152,
+      "resized": 23137040
+    },
+    {
+      "name": "14FxSelectScreen",
+      "string": 77603608,
+      "vptr": 115464336,
+      "resized": 23169568
+    },
+    {
+      "name": "17InputConfigScreen",
+      "string": 77604792,
+      "vptr": 115465600,
+      "resized": 23193008
+    },
+    {
+      "name": "19KnobFxOverlayScreen",
+      "string": 77610960,
+      "vptr": 115466840,
+      "resized": 23221504
+    },
+    {
+      "name": "17MassStorageScreen",
+      "string": 77611040,
+      "vptr": 115467472,
+      "resized": 23242640
+    },
+    {
+      "name": "16MidiConfigScreen",
+      "string": 77611712,
+      "vptr": 115468776,
+      "resized": 23262224
+    },
+    {
+      "name": "23NoteRepeatOverlayScreen",
+      "string": 77619392,
+      "vptr": 115470432,
+      "resized": 23301536
+    },
+    {
+      "name": "11PadFxScreen",
+      "string": 77620720,
+      "vptr": 115471360,
+      "resized": 23325248
+    },
+    {
+      "name": "21ProjectSaveLoadScreen",
+      "string": 77622976,
+      "vptr": 115472264,
+      "resized": 23345760
+    },
+    {
+      "name": "17ProjectSaveScreen",
+      "string": 77623240,
+      "vptr": 115473056,
+      "resized": 23370752
+    },
+    {
+      "name": "14QuestionScreen",
+      "string": 77625544,
+      "vptr": 115473992,
+      "resized": 23387568
+    },
+    {
+      "name": "17ResamplePadScreen",
+      "string": 77626288,
+      "vptr": 115474544,
+      "resized": 23401312
+    },
+    {
+      "name": "19ResourcesInfoScreen",
+      "string": 77626360,
+      "vptr": 115475032,
+      "resized": 23406640
+    },
+    {
+      "name": "16SampleModeScreen",
+      "string": 77627528,
+      "vptr": 115479200,
+      "resized": 23462768
+    },
+    {
+      "name": "22SampleRecordModeScreen",
+      "string": 77652064,
+      "vptr": 115485040,
+      "resized": 23579280
+    },
+    {
+      "name": "16SampleSaveScreen",
+      "string": 77658384,
+      "vptr": 115486232,
+      "resized": 23616800
+    },
+    {
+      "name": "18SequenceModeScreen",
+      "string": 77663136,
+      "vptr": 115490360,
+      "resized": 23661232
+    },
+    {
+      "name": "16SongExportScreen",
+      "string": 77673672,
+      "vptr": 115492376,
+      "resized": 23711840
+    },
+    {
+      "name": "10SongScreen",
+      "string": 77675408,
+      "vptr": 115493376,
+      "resized": 23739504
+    },
+    {
+      "name": "14StepEditScreen",
+      "string": 77678104,
+      "vptr": 115494712,
+      "resized": 23766912
+    },
+    {
+      "name": "17TimeCorrectScreen",
+      "string": 77684192,
+      "vptr": 115496048,
+      "resized": 23790448
+    }
+  ],
+  "shift_pairs": [
+    {
+      "name": "Sample Trim K1",
+      "screen_vptr": "0x6e212a0",
+      "visible_anchor": "0x2bb8",
+      "alternative": "0x2f08",
+      "column": 0
+    },
+    {
+      "name": "Sample Trim K2",
+      "screen_vptr": "0x6e212a0",
+      "visible_anchor": "0x3258",
+      "alternative": "0x35a8",
+      "column": 1
+    },
+    {
+      "name": "Sample Trim K3",
+      "screen_vptr": "0x6e212a0",
+      "visible_anchor": "0x38f8",
+      "alternative": "0x3c48",
+      "column": 2
+    },
+    {
+      "name": "Sample Mix empty K2",
+      "screen_vptr": "0x6e212a0",
+      "visible_anchor": "0x4638",
+      "alternative": "0x4cd8",
+      "column": 1
+    },
+    {
+      "name": "Sample Warp/Beats",
+      "screen_vptr": "0x6e212a0",
+      "visible_anchor": "0x6758",
+      "alternative": "0x6aa8",
+      "column": 2
+    },
+    {
+      "name": "Sample MuteGrp/PadLink",
+      "screen_vptr": "0x6e212a0",
+      "visible_anchor": "0x7148",
+      "alternative": "0x7498",
+      "column": 1
+    },
+    {
+      "name": "Compressor Amount/Boost",
+      "screen_vptr": "0x6e1bf30",
+      "visible_anchor": "0x1eb8",
+      "alternative": "0x2208",
+      "column": 2
+    },
+    {
+      "name": "Sequence Q/TimeSig",
+      "screen_vptr": "0x6e23e38",
+      "visible_anchor": "0x2788",
+      "alternative": "0x2a90",
+      "column": 1
+    },
+    {
+      "name": "Sequence Swing/Metro",
+      "screen_vptr": "0x6e23e38",
+      "visible_anchor": "0x2d98",
+      "alternative": "0x30e8",
+      "column": 2
+    },
+    {
+      "name": "StepEdit Q/TimeSig",
+      "screen_vptr": "0x6e24f38",
+      "visible_anchor": "0x15b0",
+      "alternative": "0x18b8",
+      "column": 1
+    },
+    {
+      "name": "FX Select K1",
+      "screen_vptr": "0x6e1d890",
+      "visible_anchor": "0x7d8",
+      "alternative": "0x11c8",
+      "column": 0
+    },
+    {
+      "name": "FX Select K2",
+      "screen_vptr": "0x6e1d890",
+      "visible_anchor": "0xb28",
+      "alternative": "0x1518",
+      "column": 1
+    },
+    {
+      "name": "FX Select K3",
+      "screen_vptr": "0x6e1d890",
+      "visible_anchor": "0xe78",
+      "alternative": "0x1868",
+      "column": 2
+    },
+    {
+      "name": "Input Config K1",
+      "screen_vptr": "0x6e1dd80",
+      "visible_anchor": "0xae0",
+      "alternative": "0x14d0",
+      "column": 0
+    },
+    {
+      "name": "Input Config K2",
+      "screen_vptr": "0x6e1dd80",
+      "visible_anchor": "0xe30",
+      "alternative": "0x1820",
+      "column": 1
+    },
+    {
+      "name": "Input Config K3",
+      "screen_vptr": "0x6e1dd80",
+      "visible_anchor": "0x1180",
+      "alternative": "0x1b70",
+      "column": 2
+    },
+    {
+      "name": "Knob FX K1",
+      "screen_vptr": "0x6e1e258",
+      "visible_anchor": "0x298",
+      "alternative": "0xc88",
+      "column": 0
+    },
+    {
+      "name": "Knob FX K2",
+      "screen_vptr": "0x6e1e258",
+      "visible_anchor": "0x5e8",
+      "alternative": "0xfd8",
+      "column": 1
+    },
+    {
+      "name": "Knob FX K3",
+      "screen_vptr": "0x6e1e258",
+      "visible_anchor": "0x938",
+      "alternative": "0x1328",
+      "column": 2
+    }
+  ],
+  "global_indicator": "exact component name shiftIndicator; 11 constructor references audited",
+  "zoom": "retain native equal values",
+  "hardware_tested": false,
+  "indicator_sites": [
+    {
+      "screen": "Compressor",
+      "name_reference": "0x15f73d4",
+      "treatment": "K3 Amount/Input Boost badge"
+    },
+    {
+      "screen": "FileSelect",
+      "name_reference": "0x160bf90",
+      "treatment": "Remove shared arrow; native file controls are buttons, not 106x38 numeric K blocks"
+    },
+    {
+      "screen": "FxSelect",
+      "name_reference": "0x161af64",
+      "treatment": "K1-K3 Param1-3/4-6 badges"
+    },
+    {
+      "screen": "InputConfig",
+      "name_reference": "0x1622be4",
+      "treatment": "K1-K3 Param1-3/4-6 badges"
+    },
+    {
+      "screen": "KnobFxOverlay",
+      "name_reference": "0x1625ea4",
+      "treatment": "K1-K3 Param1-3/4-6 badges"
+    },
+    {
+      "screen": "ProjectSave",
+      "name_reference": "0x164b008",
+      "treatment": "Remove shared arrow; retain native filename/Save controls"
+    },
+    {
+      "screen": "Sample",
+      "name_reference": "0x167458c",
+      "treatment": "Trim K1-K3, Mix empty K2, Tune K3, Play K2"
+    },
+    {
+      "screen": "SampleSave",
+      "name_reference": "0x168706c",
+      "treatment": "Remove shared arrow; retain native filename/Save controls"
+    },
+    {
+      "screen": "Sequence",
+      "name_reference": "0x1697f90",
+      "treatment": "Q/Time signature K2, Swing/Metronome K3"
+    },
+    {
+      "screen": "SongExport",
+      "name_reference": "0x169e108",
+      "treatment": "Remove shared arrow; retain native filename/Export controls"
+    },
+    {
+      "screen": "StepEdit",
+      "name_reference": "0x16ad4a8",
+      "treatment": "Q/Time signature K2"
+    }
+  ],
+  "pending": [
+    "All listed windows require device inspection",
+    "Native FX-dependent availability of Param4-6 badges requires inspection with effects offering fewer than six parameters",
+    "Shift red/white image selection, repaint and empty Mix K2 require device confirmation"
+  ]
+}

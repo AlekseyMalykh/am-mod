@@ -1,0 +1,60 @@
+{
+  "revision": "r3-yellow-preview-white-edit",
+  "feature": "Sample: focused encoder preview yellow 2000ms; edited value native white 2001ms",
+  "hardware_tested": false,
+  "base_loader_sha256": "249de24030e52e0333b50c3803212789e26633381e05a579fc555e393dde9b1c",
+  "stock_sha256": "b6584cba76e416e432ad202509099d34373dc2c3d6a8fb625f5678bf0193b508",
+  "patched_copy_sha256": "9f59f39b9dc3dbf41b65d4bb0b96442dd83b9829b38788c8b456ba7b5bbf7068",
+  "zip": "mpc-sample-k-value-peek-trial.zip",
+  "zip_sha256": "6355f5a38df4d71e637194041a3ad07c220d7d38cb7e23a502259f76e5184af4",
+  "patches": [
+    {
+      "file": "peek-code.bin",
+      "offset": "0x6d3b000",
+      "size": 640,
+      "sha256": "8ccc407719c5f20d73802e5ec67ef22165693c17dd0b14cda245898ccfa05b61"
+    },
+    {
+      "file": "peek-branch.bin",
+      "offset": "0x16541a4",
+      "size": 4,
+      "sha256": "a0dc670ac8af183a2b91a854876d559deb4021cb2634dbc4a3a934562968285e"
+    },
+    {
+      "file": "peek-rotation.bin",
+      "offset": "0x3b7d360",
+      "size": 4,
+      "sha256": "97799c6e9e7be9d6926ea6ef7b036f5df932654715c9d4cc574bb47c14851c71"
+    },
+    {
+      "file": "peek-colour.bin",
+      "offset": "0x15cdeb4",
+      "size": 4,
+      "sha256": "8766e281ae75a64b677a8428db28daa2da2792308cadefcae139a3910f4e27a8"
+    },
+    {
+      "file": "peek-phdr.bin",
+      "offset": "0xd0",
+      "size": 16,
+      "sha256": "87d5f4bb5b5ef231e6cff0c94d3024d4e5a66c136c52d7d10e5ebccf87274bad"
+    }
+  ],
+  "payload_sha256": {
+    "apply-peek": "2ea8c8a4851cee4fd5278ec6173011ad3fc6bf3673a02c958bcace20c1f58f0a",
+    "autorun.check": "37e9d3f01aa8f94a31cd2aecf7c1c114fe0b65ee9f36cc1983fdac2b384a03c4",
+    "autorun.json": "fee62bfad9cafa72700bdd63810d7a5f6e43bc0037d18bb37139f673945bb785",
+    "autorun.sh": "b25b7cbc299f0a7ad6a1ab0b15756b5aa33e8a53ecde3ac741f32ff4e8afd3be",
+    "peek-branch.bin": "a0dc670ac8af183a2b91a854876d559deb4021cb2634dbc4a3a934562968285e",
+    "peek-code.bin": "8ccc407719c5f20d73802e5ec67ef22165693c17dd0b14cda245898ccfa05b61",
+    "peek-colour.bin": "8766e281ae75a64b677a8428db28daa2da2792308cadefcae139a3910f4e27a8",
+    "peek-phdr.bin": "87d5f4bb5b5ef231e6cff0c94d3024d4e5a66c136c52d7d10e5ebccf87274bad",
+    "peek-rotation.bin": "97799c6e9e7be9d6926ea6ef7b036f5df932654715c9d4cc574bb47c14851c71",
+    "proxy-policy.args": "bf11ff3862e252bd78254ef7b64c6293740df95e6cc1f837eb7a0337a93f0562",
+    "xdg-dbus-proxy": "751a39dd6c4ce06a11839f454607319ea6d90eb334b481233fa6cf6968fc2689"
+  },
+  "limits_seconds": {
+    "clone": 180,
+    "supervisor": 210,
+    "guard": 240
+  }
+}

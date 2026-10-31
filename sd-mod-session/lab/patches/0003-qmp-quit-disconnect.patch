@@ -1,0 +1,21 @@
+diff --git a/lab.py b/lab.py
+index 3ffc53a..b7e2bfb 100644
+--- a/lab.py
++++ b/lab.py
+@@ -73,7 +73,15 @@ def qmp(command, port=None, **arguments):
+             f.write(json.dumps(cmd) + "\n")
+             f.flush()
+             while True:
+-                reply = json.loads(f.readline())
++                try:
++                    line = f.readline()
++                except ConnectionResetError:
++                    if command == "quit":
++                        return {"return": {}}
++                    raise
++                if not line and command == "quit":
++                    return {"return": {}}
++                reply = json.loads(line)
+                 if "event" not in reply:
+                     break
+         return reply

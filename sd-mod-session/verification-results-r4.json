@@ -1,0 +1,41 @@
+{
+  "result": "PASS",
+  "hardware_tested": false,
+  "payload_sha256": {
+    "apply-session": "7f3cbfa99f4ec5c6e8d8e12c0f8f0562d416616e34985f29b71d5bf48a513ec5",
+    "autorun.check": "66c0e64b4815b6c4cbd491dca379417323f59a99a659f3ee8759e5550aaa0ea8",
+    "autorun.json": "ac8b11c82447ef6f751fc264a57631868504af47a42708adeb4db9fee47ca93d",
+    "autorun.sh": "3f7a98dd31f85e0803c79f619edfe51117940e33ddd9b173ab85494e650ad07d",
+    "peek-branch.bin": "a0dc670ac8af183a2b91a854876d559deb4021cb2634dbc4a3a934562968285e",
+    "peek-code.bin": "8ccc407719c5f20d73802e5ec67ef22165693c17dd0b14cda245898ccfa05b61",
+    "peek-colour.bin": "8766e281ae75a64b677a8428db28daa2da2792308cadefcae139a3910f4e27a8",
+    "peek-rotation.bin": "97799c6e9e7be9d6926ea6ef7b036f5df932654715c9d4cc574bb47c14851c71",
+    "project-append.bin": "9dd9a81d0a20f654fa1cafee779d61d5f5e9b078ce602c7cb23fd557f20d65f4",
+    "project-code.bin": "afda2d7a491a5e9fea5c9d326c643a1d7181cae5c455fde4bb4ff8c54f38a02d",
+    "project-dispatch.bin": "036d0265d1358bf07d96523e6d26431a2aa5cce2d45d32a255a6869a776709d4",
+    "project-rows.bin": "4f30802b01d03f82f7964309146e16b1c8c390031c8f3581898a4c67b1d5fc66",
+    "proxy-policy.args": "bf11ff3862e252bd78254ef7b64c6293740df95e6cc1f837eb7a0337a93f0562",
+    "session-phdr.bin": "a12fadf4d496116abbb7ba4c184d078e1c83b45b3a053e950c3c561bc73020cc",
+    "xdg-dbus-proxy": "751a39dd6c4ce06a11839f454607319ea6d90eb334b481233fa6cf6968fc2689"
+  },
+  "patched_copy_sha256": "895716ec16455bd3b3aad8c8575d779117b518f44dbe9f3a4e7fd02ad41b6fba",
+  "checks": [
+    "Archive, payload hashes and native autorun checksum verified",
+    "Actual ARM RAM patcher: exact full hash, only nine declared ranges, RW segment unchanged, repeat refused",
+    "Wrong size, path argument and symlink refused without mutation",
+    "Firmware ARM BusyBox parses generated loader",
+    "Firmware BusyBox supports fractional sleep and constrained runtime-directory cleanup",
+    "Actual native ARM strings, vector growth, map deep copy and row destruction: 256 menu cycles across two PIE bases",
+    "Original four dispatch paths preserved; actual Mod Off RAM syscall and AArch64 O_NOFOLLOW verified",
+    "Included yellow-preview/white-edit hooks passed r3 behavioral checks"
+  ],
+  "project_output": [
+    "PASS Project native row ownership, 128 growth/destruction cycles, stock commands, actual RAM request syscall and no-follow at PIE 10000000",
+    "PASS Project native row ownership, 128 growth/destruction cycles, stock commands, actual RAM request syscall and no-follow at PIE 30000000"
+  ],
+  "limitations": [
+    "UI and audio require device trial",
+    "Display repaint is substituted in ARM menu harness",
+    "Filesystem write permission remains restricted; saving is not enabled"
+  ]
+}

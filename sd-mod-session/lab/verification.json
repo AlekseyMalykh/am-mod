@@ -1,0 +1,45 @@
+{
+  "date": "2026-10-29",
+  "emulator": "orrpunk-art/virtual-mpc-sample",
+  "emulator_commit": "387695c",
+  "qemu": "9.2.4",
+  "host": "Ubuntu 24.04 WSL2 x86_64 TCG",
+  "firmware": "1.3.0.12",
+  "installed": true,
+  "native_stock_app_started": true,
+  "r21d_mono_ui_and_native_conversion_passed": true,
+  "r22_cold_boot_card_and_verified_clone_passed": true,
+  "r22_sequence_colour_shift_k1_passed": true,
+  "small_virtual_sd_failed_save_kept_mod_active": true,
+  "large_sd_autocopy": "2 GiB virtual SD: native 127-sample copy, retained FileIO futures waited after SaveProject returned, syncfs and native startup reload passed; hardware not tested",
+  "large_project_test": {
+    "passed": true,
+    "samples": 127,
+    "copied_files": 128,
+    "native_project_bytes": 210771,
+    "native_startup_reload": true,
+    "additional_copy_key_and_original_note": "F# Dorian / F#; Violet sequence colour verified in native XPJ",
+    "library_sha256": "adfd2c48ed2b39ae9fb7019702b7424f65dfa5d1b410655d4ee644a399788f3c",
+    "final_exact_binary_save_retested": true,
+    "final_project_bytes": 210802
+  },
+  "boot_splash": "ARM frame renderer passed PNG CRC/zlib/pixel/timing tests; bounded native display-command timeout and release passed receivers; actual display daemon absent in QEMU, device test pending",
+  "native_copy_roundtrip": {
+    "passed": true,
+    "project_key": "F# Dorian",
+    "original_note": "F#",
+    "sequence_colour": "Violet",
+    "wave_files": 4,
+    "library_sha256": "e17c83899324745399574bbfb73699bbb5571855995919d776f6fdbe60f85864",
+    "note": "Earlier four-sample roundtrip; superseded by retained-future 127-sample copy and native reload above"
+  },
+  "guard_verification_marker_race": "old race reproduced; fixed guard passes verified/failed/pending/expired/startup-marker cases",
+  "project_key_and_orig_note_archive_verified": true,
+  "chord_recording": {
+    "passed": false,
+    "observed": "Two simultaneous Tune/Poly hits leave one event. Not fixed."
+  },
+  "hardware_tested": false,
+  "emulator_update_selftests_passed": true,
+  "stock_map_url": "http://127.0.0.1:8766/index.html"
+}

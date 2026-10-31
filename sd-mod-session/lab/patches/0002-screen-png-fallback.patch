@@ -1,0 +1,37 @@
+diff --git a/panel/server.py b/panel/server.py
+index 8de4c14..f14f39b 100644
+--- a/panel/server.py
++++ b/panel/server.py
+@@ -23,6 +23,7 @@ import struct
+ import sys
+ import threading
+ import time
++import zlib
+ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+ 
+ HERE = os.path.dirname(os.path.abspath(__file__))
+@@ -464,10 +465,22 @@ class Qmp:
+ 
+     def screen(self):
+         r = self.call({"execute": "screendump", "arguments": {"filename": self.png, "format": "png"}})
++        if r and "error" not in r:
++            with open(self.png, "rb") as f:
++                return f.read()
++        # Minimal QEMU builds can omit libpng; the framebuffer remains available.
++        r = self.call({"execute": "screendump", "arguments": {"filename": self.ppm, "format": "ppm"}})
+         if not r or "error" in r:
+             return None
+-        with open(self.png, "rb") as f:
+-            return f.read()
++        with open(self.ppm, "rb") as f:
++            magic, w, h, maximum, rgb = f.read().split(maxsplit=4)
++        w, h = int(w), int(h)
++        if magic != b"P6" or maximum != b"255" or len(rgb) != w * h * 3:
++            return None
++        def chunk(kind, data):
++            return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
++        rows = b"".join(b"\0" + rgb[y*w*3:(y+1)*w*3] for y in range(h))
++        return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
+ 
+ 
+ class SdCard:

@@ -1,0 +1,6 @@
+{
+  "output": "TEST_R=yes\nTEST_W=yes\nOPEN_READ=denied\n",
+  "stderr": "",
+  "fixture": "disposable regular file, mode 000, no capabilities",
+  "physical_devices_opened": false
+}

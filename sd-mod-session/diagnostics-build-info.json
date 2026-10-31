@@ -1,0 +1,13 @@
+{
+  "revision": "r9b-startup-read-only-diagnostics",
+  "purpose": "collect_current_RAM_and_current_boot_journal_without_mod_launch",
+  "previous_mod_revision": "r9b-visible-mount-sd-saving",
+  "hardware_tested": false,
+  "runtime_tests_run": false,
+  "static_syntax_check": "sh -n passed; no script execution",
+  "payload_sha256": {
+    "autorun.sh": "aea5fd9a30b6a0171e12e87ff78683c5a2a6f3bcc406b81615cf1028445b0aa0",
+    "autorun.json": "f4c033a69646e315ba5af7cfe74de9c0e97b4e160e39414aa659703dab71e052",
+    "autorun.check": "2afc6a880fad4e894dce6d250d3462608988e29c9f0cb275caae1071c2a4301b"
+  }
+}

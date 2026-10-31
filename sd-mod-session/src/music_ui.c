@@ -1,0 +1,669 @@
+#define _GNU_SOURCE
+#include "music_ui.h"
+#include "music_settings.h"
+#include "music_archive.h"
+#include "note_native.h"
+#include "tab_screens.h"
+#include "workflow_ui.h"
+#include "project_exit.h"
+#ifdef MPC_CHORDS
+#include "chords_ui.h"
+#endif
+#ifdef MPC_POWER_BUTTON
+#include "power_control.h"
+#endif
+#ifdef MPC_PAD_EQ
+#include "pad_eq.h"
+#include "pad_eq_native.h"
+#include "resample_ui.h"
+static int eq_page;
+static void eq_close(void){if(eq_page)pad_eq_native_report();eq_page=0;}
+static void eq_paint(void*,unsigned);
+static int choice(unsigned,int,int,int,int);
+#endif
+#include <stdatomic.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/mman.h>
+#include <unistd.h>
+#include <fcntl.h>
+
+/* Components and drawing are accessed only by the existing native UI Timer.
+ * Producer callbacks read numeric atomic flags; menu callbacks only post an
+ * identity request. No worker thread paints or changes a Component. */
+static uintptr_t base;
+static void *sample,*project;
+static _Atomic(uintptr_t) sample_id,project_id,request;
+static _Atomic unsigned dead_sample,dead_project,active,custom,held_count;
+static int lights,key_page,focus,role,last_shift=-1,last_index=-2;
+static uint64_t last_generation;
+static char last_sample[MUSIC_NAME_BYTES];
+static unsigned owned_buttons[112];
+static unsigned log_count;
+static _Atomic unsigned repeat_held;
+static _Atomic unsigned seq_active,global_shift;
+static _Atomic unsigned exit_blocked;
+static int exit_presented,exit_started;
+static char exit_error[160];
+int music_ui_exit_saving(void){return atomic_load(&exit_blocked)!=0;}
+static void*seq_screen;
+static void sequence_paint(void*,void*);
+static unsigned painted_headers[TAB_SCREEN_COUNT];
+static void knob_underlay(void*,void*);
+static void repeat_paint(void*,void*);
+#define OVERLAY_AMBER 0xffffb000u
+#define FIELD(p,off,type) (*(type *)((char *)(p)+(off)))
+#define FN(off,type) ((type)(base+(off)))
+static void sequence_destroy(void*p){if(seq_screen==p){seq_screen=NULL;atomic_store(&seq_active,0);}FN(0x169a0f0,void(*)(void*))(p);}
+static void sequence_delete(void*p){if(seq_screen==p){seq_screen=NULL;atomic_store(&seq_active,0);}FN(0x169a6d0,void(*)(void*))(p);}
+#define SAMPLE_VPTR 0x6e212a0
+#define PROJECT_VPTR 0x6e1f788
+static void report(const char *message)
+{ if (log_count++<48) fprintf(stderr,"MUSIC_UI %s\n",message); }
+
+void music_ui_init(uintptr_t b) { base=b; }
+void music_ui_requested(unsigned code,unsigned down)
+{ if(code==0x0b)atomic_store(&repeat_held,!!down);if(code==0x31)atomic_store(&global_shift,!!down); }
+int music_ui_sequence_visible(void){return atomic_load(&seq_active);}
+int music_ui_active(void) { return atomic_load(&active) || atomic_load(&held_count) || atomic_load(&seq_active); }
+int music_ui_owns(unsigned cc)
+{ return !atomic_load(&repeat_held) && ((atomic_load(&seq_active)&&atomic_load(&global_shift)&&cc==0x10) || (atomic_load(&custom) && (cc==0x10 || cc==0x11 || cc==0x12 || cc==0x64))); }
+int music_ui_button_owns(unsigned code)
+{
+    if(atomic_load(&exit_blocked)&&code!=0x31)return 1;
+    /* Native 0x159f330: note 0x6f -> InputController+0x2d50.
+     * Binding 0x1659848 -> 0x16541a0 advances the native knob focus. */
+    return !atomic_load(&repeat_held) && atomic_load(&custom) && code==0x6f;
+}
+
+/* These are per-class paintOverChildren slots, never the shared no-op entry.
+ * Both tables are in the pinned ELF's GNU_RELRO mapping. */
+int music_ui_install(void (*sp)(void*,void*),void (*pp)(void*,void*),void (*tp)(void*,void*))
+{
+    uintptr_t *slots[9]={(uintptr_t*)(base+SAMPLE_VPTR+0xd8),
+        (uintptr_t*)(base+PROJECT_VPTR+0xd8),(uintptr_t*)(base+0x706e940+0xd8),
+        (uintptr_t*)(base+0x6e1e258+0xd0),(uintptr_t*)(base+0x6e1f060+0xd0),
+        (uintptr_t*)(base+0x6e23e38+0xd8),(uintptr_t*)(base+0x6e23e38),(uintptr_t*)(base+0x6e23e38+8),
+        (uintptr_t*)(base+0x6e1f060+0xd8)};
+    uintptr_t callbacks[9]={(uintptr_t)sp,(uintptr_t)pp,(uintptr_t)tp,(uintptr_t)knob_underlay,(uintptr_t)knob_underlay,(uintptr_t)sequence_paint,(uintptr_t)sequence_destroy,(uintptr_t)sequence_delete,(uintptr_t)repeat_paint};
+    for (unsigned i=0;i<9;++i) if (*slots[i]!=base+(i==6?0x169a0f0:i==7?0x169a6d0:0x10e2e10)) return 0;
+    /* Frozen r16d footer code: only the Knob FX background MOV W9,#c247.
+     * Constructor runs before native main/audio. Never change live code. */
+    uint32_t*amber=(uint32_t*)(base+0x6d3ba84);
+    if(*amber!=0x529848e9u || amber[1]!=0x72bfffe9u)return 0;
+    long ps=sysconf(_SC_PAGESIZE);
+    if (ps!=4096) return 0;
+    void *pages[9]; unsigned writable=0;
+    for (unsigned i=0;i<9;++i) {
+        pages[i]=(void*)((uintptr_t)slots[i]&~(uintptr_t)4095);
+        if (mprotect(pages[i],4096,PROT_READ|PROT_WRITE)) {
+            for (unsigned j=0;j<writable;++j) if (mprotect(pages[j],4096,PROT_READ)) _exit(121);
+            return 0;
+        }
+        ++writable;
+    }
+    void*code=(void*)((uintptr_t)amber&~(uintptr_t)4095);
+    if(mprotect(code,4096,PROT_READ|PROT_WRITE)){
+        for(unsigned i=0;i<9;++i)if(mprotect(pages[i],4096,PROT_READ))_exit(121);
+        return 0;
+    }
+    *amber=0x52800009u|(0xb000u<<5);
+    __builtin___clear_cache((char*)amber,(char*)(amber+1));
+    if(mprotect(code,4096,PROT_READ|PROT_EXEC))_exit(121);
+    for (unsigned i=0;i<9;++i) *slots[i]=callbacks[i];
+    for (unsigned i=0;i<9;++i) if (mprotect(pages[i],4096,PROT_READ)) _exit(121);
+    return 1;
+}
+static int visible(void *p)
+{ return p && FN(0x112fd50,int(*)(void*))(p) && !FN(0x112f6b0,int(*)(void*))(p); }
+int music_ui_chords_available(void){return visible(sample)&&!visible(project)&&!atomic_load(&repeat_held)&&!key_page;}
+int music_ui_shift_active(void){return atomic_load(&global_shift)!=0;}
+static void repaint(void *p)
+{ if (p) FN(0x1149880,void(*)(void*,uint64_t,uint64_t))(p,0,FIELD(p,0x28,uint64_t)); }
+static int shifted(void *p,int is_project)
+{
+    if (!p) return 0;
+    void *c=FIELD(p,is_project ? 0x100 : 0x108,void*);
+    return c && __atomic_load_n((unsigned char*)c+0x22a0,__ATOMIC_ACQUIRE)!=0;
+}
+void music_ui_destroyed(void *p)
+{
+    if ((uintptr_t)p==atomic_load(&sample_id)) {
+        atomic_store(&sample_id,0); atomic_store(&dead_sample,1);
+        atomic_store(&active,0); atomic_store(&custom,0);
+    }
+    if ((uintptr_t)p==atomic_load(&project_id)) {
+        atomic_store(&project_id,0); atomic_store(&dead_project,1);
+        atomic_store(&active,0); atomic_store(&custom,0);
+    }
+}
+void music_ui_request_project(void *p)
+{ atomic_store(&request,(uintptr_t)p); }
+int music_ui_tick(void)
+{
+    if (atomic_exchange(&dead_sample,0)) { sample=0; lights=0; last_index=-2;
+#ifdef MPC_PAD_EQ
+        eq_close();
+#endif
+    }
+    if (atomic_exchange(&dead_project,0)) { project=0; key_page=0; }
+    uintptr_t requested=atomic_exchange(&request,0);
+    if (requested && (requested&~(uintptr_t)1)==atomic_load(&project_id) && visible(project)) {
+        key_page=(requested&1)?2:1; focus=0; repaint(project); report(key_page==2?"MOD_OFF_CONFIRM_OPEN":"PROJECT_KEY_PAGE_OPEN");
+    }
+    int sv=visible(sample)&&!atomic_load(&repeat_held),pv=visible(project);
+    /* Project is a native overlay; underlying Sample can remain showing.
+     * Its hidden Lights controls must not consume the menu's encoder click. */
+    if(pv)sv=0;
+    atomic_store(&seq_active,!pv&&visible(seq_screen)&&!atomic_load(&repeat_held));
+    if (!sv) lights=0;
+#ifdef MPC_PAD_EQ
+    if(!sv||FIELD(sample,0xe50+0x218,int)!=1)eq_close();
+#endif
+    if (!pv&&key_page<3) key_page=0;
+    if(key_page==3&&exit_presented){
+        if(!exit_started){
+            exit_started=1;
+            project_exit_start(base,workflow_project_services());
+        }
+        int saved=project_exit_status();
+        if(saved==2&&exit_started==1){
+            int fd=open("/run/mpc-trial-app/mod-off.request",O_WRONLY|O_CREAT|O_TRUNC|O_CLOEXEC|O_NOFOLLOW,0600);
+            int ok=fd>=0&&write(fd,"1",1)==1;
+            if(fd>=0)close(fd);
+            if(ok){exit_started=2;exit_presented=0;report("MOD_OFF_COPY_SAVED_CONFIRMED");}
+            else{snprintf(exit_error,sizeof(exit_error),"Could not request Mod Off");key_page=4;atomic_store(&exit_blocked,0);}
+        }else if(saved==3){
+            snprintf(exit_error,sizeof(exit_error),"%s",project_exit_message());
+            key_page=4;atomic_store(&exit_blocked,0);report("MOD_OFF_SAVE_FAILED_STAYING_IN_MOD");
+        }
+        repaint(project);
+    }
+    int shift=shifted(key_page ? project : sample,key_page);
+    int index=sample ? FIELD(sample,0x7f0+0x218,int) : -1;
+    if (lights && index!=1) lights=0;
+    uint64_t gen=music_generation();
+    char selected[MUSIC_NAME_BYTES]={0};
+    if (sample) note_native_current(selected,sizeof(selected));
+    int changed=strcmp(selected,last_sample)!=0;
+    if (changed) memcpy(last_sample,selected,strlen(selected)+1);
+#ifdef MPC_PAD_EQ
+    /* Rebind restored project settings before EQ is opened, too. Model
+     * pointers are still resolved exclusively by the queued owner. */
+    if(gen!=last_generation||changed)resample_ui_prime_eq();
+#endif
+    if (shift!=last_shift || index!=last_index || gen!=last_generation || changed) {
+        last_shift=shift; last_index=index; last_generation=gen;
+        if (sv) repaint(sample);
+        if (pv && key_page) repaint(project);
+        if(atomic_load(&seq_active))repaint(seq_screen);
+    }
+    atomic_store(&active,(unsigned)(sv || (pv && key_page)));
+    atomic_store(&custom,(unsigned)((sv && lights) || (pv && key_page)
+#ifdef MPC_PAD_EQ
+        || (sv&&eq_page)
+#endif
+    ));
+    return sample!=NULL || atomic_load(&seq_active) || (project!=NULL && pv);
+}
+static void colour(void *g,uint32_t c) { FN(0x102d5e0,void(*)(void*,uint32_t))(g,c); }
+static void rect(void *g,int x,int y,int w,int h)
+{ FN(0x102e000,void(*)(void*,int,int,int,int))(g,x,y,w,h); }
+static void knob_underlay(void*p,void*g){
+    uintptr_t type=FIELD(p,0,uintptr_t);
+    if(type!=base+0x6e1e258)return;
+    /* This overlay's stock paint is empty. Cover the complete footer before
+     * children paint, including gaps and the parent screen's focus bracket. */
+    colour(g,OVERLAY_AMBER);rect(g,0,198,320,42);
+}
+static void text(void *g,const char *s,int x,int y,int w,int h,float height)
+{
+    uint64_t string=0,font=0;
+    FN(0xf535c0,void(*)(uint64_t*,const char*))(&string,s);
+    FN(0x1082810,void(*)(uint64_t*,int,float))(&font,0,height);
+    FN(0x102dca0,void(*)(void*,const uint64_t*))(g,&font);
+    FN(0x10817b0,void(*)(void*,const uint64_t*,int,int,int,int,int,int,float))
+        (g,&string,x,y,w,h,0x24,1,0.70f);
+    FN(0x1070d60,void(*)(uint64_t*))(&font);
+    FN(0xf0a290,void(*)(uint64_t*))(&string);
+}
+extern void step_pad_string(void*,uint64_t*,uintptr_t);
+static int header_toggled(void *button){
+    /* JUCE Button::toggleState is a Value at +168. Native TextButton paint
+     * reads Value::getValue -> var::operator bool, then destroys the var.
+     * +1d4 is the listener-array size, not a toggle or cached Boolean.
+     * step_pad_string is the generic nontrivial C++ return-in-x8 adapter. */
+    if(!FIELD(button,0x168,void*))return 0;
+    uint64_t value[2]={0,0};
+    step_pad_string((char*)button+0x168,value,base+0xfb5580);
+    int result=FN(0xf31660,int(*)(void*))(value);
+    FN(0xf04380,void(*)(void*))(value);
+    return !!result;
+}
+/* The native Note Repeat rate, as the toggled overlay button shows it,
+ * mapped onto the Chords rate list (1/4 1/8 1/8T 1/16 1/16T 1/32). */
+static _Atomic int repeat_rate=-1;
+static void remember_repeat_rate(const char*title){
+    static const char*const names[]={"1/4","1/8","1/8T","1/16","1/16T","1/32"};
+    char t[16];unsigned n=0;
+    for(const char*s=title;*s&&n<sizeof(t)-1;++s)if(*s!=' ')t[n++]=(char)((*s>='a'&&*s<='z')?*s-32:*s);
+    t[n]=0;
+    for(int i=0;i<6;++i)if(!strcmp(t,names[i])){atomic_store(&repeat_rate,i);return;}
+}
+int music_ui_repeat_rate(void){return atomic_load(&repeat_rate);}
+static void repeat_paint(void*p,void*g){
+    if(FIELD(p,0,uintptr_t)!=base+0x6e1f060)return;
+    /* Native1638da0 lays out six alternative buttons, two per column.
+     * Cover their entire38px hit areas after child paint: this also removes
+     * native focus arms. The underlying Sample footer is never covered. */
+    colour(g,OVERLAY_AMBER);rect(g,0,5,320,33);
+    const unsigned offsets[]={0x1c0,0x3e0,0x600,0x820,0xa40,0xc60};
+    for(unsigned i=0;i<6;++i){
+        void*b=(char*)p+offsets[i];
+        if(FIELD(b,0,uintptr_t)!=base+0x706e940||!FN(0x112fd50,int(*)(void*))(b))continue;
+        const char*title=FIELD(b,0xb8,const char*);
+        int x=FIELD(b,0x20,int),w=FIELD(b,0x28,int);
+        if(!title||!*title||strnlen(title,48)>=48||x<0||w<50||x+w>320)continue;
+        colour(g,0xff000000);text(g,title,x+4,7,w-8,24,16);
+        if(header_toggled(b)){rect(g,x+10,32,w-20,3);remember_repeat_rate(title);}
+    }
+    colour(g,0xff805800);rect(g,106,6,1,29);rect(g,213,6,1,29);
+}
+static void cell(void *g,int i,const char *name,const char *value,int shift,int badge,int enabled,int selected,int options)
+{
+    int x=i==2 ? 213 : i*106,w=i==2 ? 107 : 106;
+    uint32_t ink=!enabled ? 0xff707070 : focus==i ? 0xffffc247 : 0xffffffff;
+    colour(g,0xff000000); rect(g,x,198,w,42);
+    colour(g,ink); text(g,name,x+4,200,badge ? w-22 : w-8,12,12);
+    text(g,value,x+4,214,w-8,19,16);
+    if (badge) { colour(g,shift ? 0xffff4040 : 0xffffffff); text(g,"S",x+w-16,200,11,12,11); }
+    if (focus==i && enabled) {
+        colour(g,ink); rect(g,x,198,w,2); rect(g,x,198,2,34); rect(g,x+w-2,198,2,34);
+    }
+    if (options>0 && options<=49) {
+        int width=w-8;
+        for (int n=0;n<options;++n) {
+            int left=n*width/options,right=(n+1)*width/options;
+            int zero=options==49 && n==24;
+            colour(g,enabled && n==selected ? ink : zero ? 0xff808080 : 0xff3b3b3b);
+            int segment=right-left-1;
+            if (segment<1) segment=1;
+            rect(g,x+4+left,zero ? 234 : 235,segment,zero ? 4 : 2);
+        }
+    }
+}
+static int settings(char *name,struct music_sample *s)
+{ if (!note_native_current(name,MUSIC_NAME_BYTES)) return 0; music_get_sample(name,s); return 1; }
+static int sequence_index(void){
+    void*things=note_native_context(),*seq=things?FIELD(things,0x1c8,void*):NULL;
+    int index=seq?FIELD(seq,0x480,int):-1;
+    return index>=0&&index<128?index:-1;
+}
+int music_ui_sequence_selected(void){return sequence_index();}
+static int clip_map_has_events(void *header,unsigned *budget){
+    void *node=FIELD(header,0x10,void*);
+    while(node&&node!=header&&*budget){
+        --*budget;
+        void *clip=FIELD(node,0x28,void*);
+        if(clip&&FIELD(clip,0x710,uint64_t))return 1;
+        node=FN(0xb51538,void*(*)(void*))(node);
+    }
+    return 0;
+}
+static int sequence_has_events(void *seq){
+    /* Native Sequence has a global EventList at670 and per-track clip maps
+     * at620 (2957030, 2957260). The used flag490 can also be set by changing
+     * a name/length; it does not mean there is a recorded event. */
+    if(FIELD(seq,0x6f8,uint64_t))return 1;
+    /* Track zero uses the separate map628, not vector[0]: stock2957330
+     * and29572e0. Normal pad recordings live here. */
+    unsigned budget=4096;
+    if(clip_map_has_events((char*)seq+0x630,&budget))return 1;
+    void *maps=FIELD(seq,0x620,void*);if(!maps)return 0;
+    uintptr_t first=FIELD(maps,0,uintptr_t),end=FIELD(maps,8,uintptr_t);
+    if(end<first||(end-first)%0xe0||end-first>0xe0*1024u)return 0;
+    for(uintptr_t track=first;track<end;track+=0xe0){
+        if(clip_map_has_events((void*)(track+0xb8),&budget))return 1;
+        if(!budget)return 0;
+    }
+    return 0;
+}
+unsigned music_ui_sequence_presence(unsigned bank){
+    void *project=note_native_context();
+    if(bank>=8||!project||FIELD(project,0,uintptr_t)!=base+0x6ecc648)return 0;
+    int count=FIELD(project,0x125c,int);
+    if(count<0||count>1024||(count&&!FIELD(project,0x1250,void*)))return 0;
+    unsigned mask=0;
+    for(unsigned i=0;i<16&&bank*16+i<(unsigned)count;++i){
+        void *seq=FN(0x2909be0,void*(*)(void*,int))(project,(int)(bank*16+i));
+        if(seq&&FIELD(seq,0,uintptr_t)==base+0x6ecdff0&&sequence_has_events(seq))mask|=1u<<i;
+    }
+    return mask;
+}
+static void sequence_paint(void*p,void*g){
+    seq_screen=p;music_ui_tick();
+#ifdef MPC_POWER_BUTTON
+    if(power_control_busy()){power_control_paint(p,g);return;}
+#endif
+    if(!atomic_load(&seq_active))return;
+    int index=sequence_index();if(index<0)return;
+    int c=music_sequence_colour((unsigned)index);
+    colour(g,0xff000000|music_sequence_colours[c]);rect(g,304,43,7,24);
+    if(atomic_load(&global_shift)){
+        int saved=focus;focus=0;
+        cell(g,0,"Seq Colour",music_sequence_colour_names[c],1,1,1,c,MUSIC_SEQUENCE_COLOURS);
+        focus=saved;
+    }
+}
+#ifdef MPC_PAD_EQ
+static void eq_rect(void*g,int x,int y,int w,int h,uint32_t ink){colour(g,ink);rect(g,x,y,w,h);}
+static void eq_text(void*g,const char*s,int x,int y,int w,int h,unsigned size,uint32_t ink,int centre){
+    (void)centre;colour(g,ink);text(g,s,x,y,w,h,(float)size);
+}
+static void eq_paint(void*g,unsigned pad){struct resample_painter p={g,eq_rect,eq_text};pad_eq_paint(music_get_pad_eq(pad),pad,shifted(sample,0),focus,&p);}
+static int eq_control(unsigned cc,unsigned value){
+    unsigned pad;if(!note_native_pad_index(&pad))return 1;
+    int rel=cc==0x64;if(!rel)focus=(int)cc-0x10;
+    int shift=shifted(sample,0);if(shift&&focus==2)return 1;
+    uint64_t v=music_get_pad_eq(pad),next=v;if(!v)v=pad_eq_default();
+    if(focus==2){
+        int current=(v&(UINT64_C(1)<<24))?0:(int)((v>>21)&7)+1;
+        int selected=choice(value,current,0,PAD_EQ_TYPES,rel);
+        if(!selected)next=pad_eq_edit(v,PAD_EQ_BYPASS,127,0);
+        else next=pad_eq_edit(v,PAD_EQ_TYPE,(unsigned)(selected-1)*128/PAD_EQ_TYPES+1,0);
+    }else{
+        int field=focus==0?PAD_EQ_FREQUENCY:shift?PAD_EQ_Q:PAD_EQ_GAIN;
+        unsigned type=(v>>21)&7;if(field==PAD_EQ_GAIN&&(type==PAD_EQ_LOW_PASS||type==PAD_EQ_HIGH_PASS||type==PAD_EQ_NOTCH))return 1;
+        next=pad_eq_edit(v,field,value,rel);
+    }
+    if(next!=music_get_pad_eq(pad))music_set_pad_eq(pad,next);
+    repaint(sample);return 1;
+}
+#endif
+void music_ui_tab(void *p,void *g)
+{
+    if (FIELD(p,0,uintptr_t)!=base+0x706e940) return;
+    int mode=FIELD(p,0x21c,int);
+    if (mode<0 || mode>2) return;
+    int count=mode==2 ? FIELD(p,0x214,int) : 0,index=mode==2 ? FIELD(p,0x218,int) : -1;
+    int w=FIELD(p,0x28,int),h=FIELD(p,0x2c,int);
+    if ((mode==2 && (count<1 || count>12 || index< -1 || index>=count))
+        || w<50 || w>107 || h<18 || h>45) return;
+    /* Shared top-row button inside the already audited Sample UI screens.
+     * Physical hit areas and native action/toggle/tab bindings are untouched. */
+    void *root=p; int x=0,y=0,found=0; unsigned screen_index=0;
+    for (unsigned depth=0;depth<32 && root;++depth) {
+        uintptr_t vptr=FIELD(root,0,uintptr_t);
+        for (unsigned i=0;i<TAB_SCREEN_COUNT;++i) if (vptr==base+tab_screens[i]) { screen_index=i; found=1; break; }
+        if (found) break;
+        x+=FIELD(root,0x20,int); y+=FIELD(root,0x24,int);
+        root=FIELD(root,0x18,void*);
+    }
+    if (!found || x<0 || x+w>320 || y<0 || y+h>45) return;
+    /* QuestionScreen supplies answer captions through its own native binding.
+     * Button+b8 can still be the identity Answer1/Answer2 here. Do not paint
+     * over the native answer labels, including Erase+pad confirmation. */
+    if (FIELD(root,0,uintptr_t)==base+0x6e1fe48) return;
+    const char *title=FIELD(p,0xb8,const char*);
+    if (!title || !*title || strnlen(title,96)>=96) return;
+    if(FIELD(root,0,uintptr_t)==base+SAMPLE_VPTR&&(uintptr_t)p-(uintptr_t)root==0xe50&&shifted(root,0)&&!atomic_load(&repeat_held)){
+        title="Stereo > Mono";count=0;index=-1;
+    }
+    if (FIELD(root,0,uintptr_t)==base+SAMPLE_VPTR && (uintptr_t)p-(uintptr_t)root==0x7f0) {
+        count=3;
+        if (root==sample && lights && index==1) { index=2; title="Lights"; }
+        else title=index==1 ? "Play" : "Tune";
+    }
+#ifdef MPC_PAD_EQ
+    if(FIELD(root,0,uintptr_t)==base+SAMPLE_VPTR&&(uintptr_t)p-(uintptr_t)root==0xe50&&!shifted(root,0)){count=3;if(root==sample&&eq_page&&index==1){index=2;title="EQ";}}
+#endif
+    unsigned column=(unsigned)((x+w/2)*3/320);
+    if (column<3 && !(painted_headers[screen_index]&(1u<<column))) {
+        painted_headers[screen_index]|=1u<<column;
+        fprintf(stderr,"HEADER_TABS screen=%u column=%u mode=%d count=%d\n",screen_index,column,mode,count);
+    }
+    int enabled=FN(0x10f98d0,int(*)(void*))(p);
+    int selected=index>=0 || (mode==1 && header_toggled(p));
+    uint32_t ink=0xffffffff;
+    if (mode==0) {
+        /* TextButton's own textColourOffId: keep native action colours such
+         * as red Cancel on the common black header background. */
+        ink=FN(0x11353f0,uint32_t(*)(void*,int))(p,0x1000102);
+        if (!(ink&0xffffff)) ink=0xffffffff;
+    }
+    if (!enabled) ink=0xff707070;
+    else if (selected) ink=0xffffc247;
+    int content=h<29 ? h : 29;
+    colour(g,0xff000000); rect(g,0,0,w,h);
+    colour(g,ink); text(g,title,4,1,w-8,content-7,14);
+    if (count<2) {
+        if (selected || (mode==0 && FIELD(p,0x160,int)==2)) { colour(g,ink); rect(g,8,content-4,w-16,1); }
+        return;
+    }
+    int total=count*5+(count-1)*2,left=(w-total)/2;
+    for (int i=0;i<count;++i) {
+        int current=enabled && i==index;
+        colour(g,current ? ink : 0xff606060);
+        rect(g,left+i*7,content-4,5,current ? 3 : 1);
+    }
+}
+void music_ui_sample(void *p,void *g)
+{
+    if (FIELD(p,0,uintptr_t)!=base+SAMPLE_VPTR) return;
+    if (atomic_exchange(&dead_sample,0)) { sample=0; lights=0;
+#ifdef MPC_PAD_EQ
+        eq_close();
+#endif
+    }
+    if (sample!=p) { sample=p; lights=0;
+#ifdef MPC_PAD_EQ
+        eq_close();
+#endif
+        atomic_store(&sample_id,(uintptr_t)p); report("SAMPLE_ROOT_OBSERVED"); }
+    note_native_observe_root(p);
+    music_ui_tick();
+#ifdef MPC_CHORDS
+    if(visible(p)&&chords_ui_paint(p,g))return;
+#endif
+#ifdef MPC_PAD_EQ
+    if(visible(p)&&eq_page){unsigned pad=0;if(note_native_pad_index(&pad))eq_paint(g,pad);return;}
+#endif
+    void *group=(char*)p+0x7f0;
+    int index=FIELD(group,0x218,int);
+    if (!visible(p) || atomic_load(&repeat_held) || index<0 || index>1) return;
+    if (!lights) return;
+    char name[MUSIC_NAME_BYTES],value[48]; struct music_sample s;
+    int ok=settings(name,&s),shift=shifted(p,0);
+    if (!ok) { memset(&s,0,sizeof(s)); s.root=-1; s.tonic=-1; s.scale=-1; }
+    const char *modes[]={"Monochrome","Piano","Tonic","Scale","Degrees"};
+    const char *roles[]={"Tonic","Scale","Other","Original"};
+    if (shift) {
+        snprintf(value,sizeof(value),"%+d",s.transpose); cell(g,0,"Transpose16",value,1,1,ok,s.transpose+24,49);
+        int c=role==3?s.original_colour:s.colour[role];
+        cell(g,1,"Role",roles[role],1,1,ok && s.mode!=MUSIC_MONO,role,4);
+        cell(g,2,"Colour",music_colour_names[c],1,1,ok && s.mode!=MUSIC_MONO,c,12);
+    } else {
+        int project_tonic,project_scale;char tonic_text[32],scale_text[64];
+        music_get_key(&project_tonic,&project_scale);
+        snprintf(tonic_text,sizeof(tonic_text),s.tonic<0 ? "%s (P)" : "%s",music_note_names[s.tonic<0 ? project_tonic : s.tonic]);
+        snprintf(scale_text,sizeof(scale_text),s.scale<0 ? "%s (P)" : "%s",music_scale_names[s.scale<0 ? project_scale : s.scale]);
+        cell(g,0,"Lights",modes[s.mode],0,1,ok,music_mode_ui_index(s.mode),5);
+        cell(g,1,"Tonic",tonic_text,0,1,ok,s.tonic+1,13);
+        cell(g,2,"Scale",scale_text,0,1,ok,s.scale+1,9);
+    }
+    if (!ok || s.root<0) {
+        colour(g,0xff000000); rect(g,0,180,320,16); colour(g,0xffff4040);
+        text(g,"Set Orig Note: Tune > Shift+K1",2,180,316,15,11);
+    }
+}
+void music_ui_project(void *p,void *g)
+{
+    if (FIELD(p,0,uintptr_t)!=base+PROJECT_VPTR) return;
+    if (atomic_exchange(&dead_project,0)) { project=0; key_page=0; }
+    if (project!=p) { project=p; key_page=0; atomic_store(&project_id,(uintptr_t)p); report("PROJECT_ROOT_OBSERVED"); }
+    music_ui_tick();
+    if (!visible(p)) return;
+    if(!key_page)return; /* Native menu paints its own six rows, including white Mod Off last. */
+    if(key_page==3||key_page==4){
+        colour(g,0xff000000);rect(g,0,0,320,240);
+        colour(g,key_page==4?0xffff4040:0xffffc247);
+        text(g,key_page==4?"Project copy failed":"Saving project copy",4,65,312,28,20);
+        colour(g,0xffffffff);
+        if(key_page==3){
+            text(g,"SD / Projects / Mod-Exit-...",4,108,312,22,15);
+            text(g,"Please keep the card inserted",4,143,312,22,14);
+            text(g,"The mod will close after saving",4,177,312,22,13);
+            exit_presented=1;
+        }else{
+            text(g,"Back",0,6,106,23,14);text(g,"Retry",214,6,106,23,14);
+            text(g,exit_error,4,109,312,36,12);
+            text(g,"The mod is still running",4,170,312,22,14);
+        }
+        return;
+    }
+    if(key_page==2){
+        colour(g,0xff000000);rect(g,0,0,320,240);colour(g,0xffffffff);text(g,"Cancel",0,6,106,23,14);
+        colour(g,0xffff4040);text(g,"Mod Off",214,6,106,23,14);text(g,"Exit the mod?",8,65,304,25,20);
+        colour(g,0xffffffff);text(g,"Return to the stock application",8,105,304,20,14);
+        text(g,"A separate project copy will be",8,139,304,20,13);text(g,"saved to SD before leaving.",8,163,304,20,13);
+        text(g,"B1: cancel  |  B3: confirm",8,202,304,20,13);return;
+    }
+    int tonic,scale; music_get_key(&tonic,&scale);
+    colour(g,0xff000000); rect(g,0,0,320,240);
+    colour(g,0xffffffff); text(g,"Back",4,1,98,22,14); text(g,"Key / Scale",30,55,260,28,22);
+    char key[48]; music_key_text(tonic,scale,key,sizeof(key));
+    colour(g,0xffffc247); text(g,key,10,95,300,26,20);
+    colour(g,0xffffffff); text(g,"Default for sample Lights",10,137,300,18,13);
+    text(g,"Save the project to keep changes",6,158,308,18,12);
+    if (music_archive_status()==2) {
+        colour(g,0xffff4040); text(g,"Mod settings could not serialize",2,178,316,16,11);
+    }
+    cell(g,0,"Tonic",music_note_names[tonic],0,0,1,tonic,12);
+    cell(g,1,"Scale",music_scale_names[scale],0,0,1,scale,8);
+    cell(g,2,"","",0,0,0,0,0);
+}
+static int choice(unsigned value,int current,int lo,int hi,int relative)
+{
+    int n=relative ? current+(value>64 ? (int)value-128 : (int)value) : lo+(int)((value&127)*(unsigned)(hi-lo+1)/128);
+    return n<lo ? lo : n>hi ? hi : n;
+}
+int music_ui_control(void *event)
+{
+    music_ui_tick();
+    if(atomic_load(&seq_active)&&atomic_load(&global_shift)&&FIELD(event,8,unsigned char)==0x10){
+        int index=sequence_index();if(index>=0)music_set_sequence_colour((unsigned)index,FIELD(event,9,unsigned char)*MUSIC_SEQUENCE_COLOURS/128u);
+        repaint(seq_screen);return 1;
+    }
+    if (!atomic_load(&custom)) return 0;
+    if(key_page>=2)return 1;
+    unsigned cc=FIELD(event,8,unsigned char),v=FIELD(event,9,unsigned char);
+    if (cc!=0x10 && cc!=0x11 && cc!=0x12 && cc!=0x64) return 0;
+#ifdef MPC_PAD_EQ
+    if(eq_page&&!key_page)return eq_control(cc,v);
+#endif
+    int rel=cc==0x64;
+    if (!rel) focus=(int)cc-0x10;
+    if (key_page) {
+        if (focus==2) return 1;
+        int tonic,scale; music_get_key(&tonic,&scale);
+        if (focus==0) tonic=choice(v,tonic,0,11,rel);
+        if (focus==1) scale=choice(v,scale,0,7,rel);
+        music_set_key(tonic,scale); repaint(project); report("PROJECT_KEY_EDITED"); return 1;
+    }
+    char name[MUSIC_NAME_BYTES]; struct music_sample s;
+    if (!settings(name,&s)) return 1;
+    int field,current,lo=0,hi;
+    if (shifted(sample,0)) {
+        if (focus==0) { field=MUSIC_TRANSPOSE; current=s.transpose; lo=-24; hi=24; }
+        else {
+            if (s.mode==MUSIC_MONO) return 1;
+            if (focus==1) { role=choice(v,role,0,3,rel); repaint(sample); return 1; }
+            field=role==3?MUSIC_ORIGINAL_COLOUR:MUSIC_COLOUR0+role; current=role==3?s.original_colour:s.colour[role]; hi=11;
+        }
+    } else {
+        if (focus==0) { field=MUSIC_MODE; current=music_mode_ui_index(s.mode); hi=4; }
+        else if (focus==1) { field=MUSIC_LOCAL_TONIC; current=s.tonic; lo=-1; hi=11; }
+        else { field=MUSIC_LOCAL_SCALE; current=s.scale; lo=-1; hi=7; }
+    }
+    int next=choice(v,current,lo,hi,rel);
+    if(field==MUSIC_MODE)next=music_mode_from_ui_index(next);
+    if (!music_set_sample(name,field,next)) report("SAMPLE_SETTING_REJECTED");
+    note_native_tick(); repaint(sample); return 1;
+}
+int music_ui_button(void *event)
+{
+    unsigned code=FIELD(event,8,unsigned char),down=FIELD(event,9,unsigned char)!=0;
+    if (code>=112) return 0;
+    if (owned_buttons[code]) {
+        if (!down) { owned_buttons[code]=0; atomic_fetch_sub(&held_count,1); }
+        return 1;
+    }
+    music_ui_tick();
+    if(key_page==3)return code==0x31?0:1;
+    if (!down) return 0;
+    if(key_page==4&&visible(project)){
+        if(code==0x31)return 0;
+        if(code==0x0c){key_page=0;repaint(project);music_ui_tick();}
+        else if(code==0x0e){key_page=3;exit_presented=exit_started=0;atomic_store(&exit_blocked,1);repaint(project);}
+        return 1;
+    }
+    /* Note Repeat's B buttons must never open underlying Sample pages. */
+    if(atomic_load(&repeat_held))return 0;
+    if(code==0x51||code==0x52)return 0;
+    if(code==0x0e&&visible(sample)&&shifted(sample,0)&&!key_page){
+        if(workflow_mono_open(sample)){
+            return 1; /* The new workflow owns the matching B3 release. */
+        }
+    }
+#ifdef MPC_PAD_EQ
+    if(visible(sample)&&!key_page){
+        if(eq_page&&(code==0x0c||code==0x0d||code==0x0e)){eq_close();repaint(sample);music_ui_tick();return 0;}
+        if(!eq_page&&code==0x0e&&!shifted(sample,0)&&FIELD(sample,0xe50+0x218,int)==1){
+            eq_page=1;lights=0;focus=0;owned_buttons[code]=1;atomic_fetch_add(&held_count,1);resample_ui_prime_eq();repaint(sample);music_ui_tick();report("PAD_EQ_OPEN");return 1;
+        }
+    }
+#endif
+    if(key_page==2&&visible(project)){
+        if(code==0x31)return 0;
+        if(code==0x0c){key_page=0;repaint(project);music_ui_tick();report("MOD_OFF_CANCEL");}
+        else if(code==0x0e){
+            key_page=3;exit_presented=exit_started=0;exit_error[0]=0;
+            atomic_store(&exit_blocked,1);repaint(project);report("MOD_OFF_SAVE_COPY_REQUESTED");
+        }
+        owned_buttons[code]=1;atomic_fetch_add(&held_count,1);return 1;
+    }
+    if (atomic_load(&custom) && code==0x6f) {
+        int shift=shifted(key_page ? project : sample,key_page);
+        int count=key_page ? 2 : 3;
+        if (!key_page && shift
+#ifdef MPC_PAD_EQ
+            && !eq_page
+#endif
+        ) {
+            char name[MUSIC_NAME_BYTES]; struct music_sample s;
+            if (!settings(name,&s) || s.mode==MUSIC_MONO) count=1;
+        }
+        focus=(focus+(shift ? count-1 : 1))%count;
+        owned_buttons[code]=1; atomic_fetch_add(&held_count,1);
+        repaint(key_page ? project : sample);
+        report(shift ? "FOCUS_PREVIOUS" : "FOCUS_NEXT");
+        return 1;
+    }
+    if (key_page && visible(project)) {
+        if (code==0x31) return 0; /* native Shift remains a real modifier */
+        if (code==0x0c) { key_page=0; repaint(project); music_ui_tick(); }
+        owned_buttons[code]=1; atomic_fetch_add(&held_count,1); return 1;
+    }
+    if (!visible(sample)) return 0;
+    if (lights && code!=0x31 && code!=0x0d) {
+        if (code==0x0c || code==0x0e) { lights=0; repaint(sample); music_ui_tick(); return 0; }
+        /* Screen and transport buttons keep their native behaviour. */
+        return 0;
+    }
+    if (code!=0x0d || shifted(sample,0)) return 0;
+    int index=FIELD(sample,0x7f0+0x218,int);
+    if (lights) { lights=0; repaint(sample); music_ui_tick(); return 0; }
+    if (index!=1) return 0;
+    lights=1; focus=0; owned_buttons[code]=1; atomic_fetch_add(&held_count,1); report("LIGHTS_PAGE_OPEN");
+    repaint(sample); music_ui_tick(); return 1;
+}

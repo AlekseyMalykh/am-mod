@@ -1,0 +1,21 @@
+{
+  "date": "2026-10-23",
+  "payload_sha256": {
+    "autorun.sh": "249de24030e52e0333b50c3803212789e26633381e05a579fc555e393dde9b1c",
+    "autorun.json": "2f1425efe141d60a7e81b842716067f1a6713bcef5e018a1a0841bdc519813a4",
+    "autorun.check": "f6a77d2ad6947a638ba6da87ac8a5e0c25b70d16ce9aa8fa4738e596fed80946",
+    "xdg-dbus-proxy": "751a39dd6c4ce06a11839f454607319ea6d90eb334b481233fa6cf6968fc2689",
+    "proxy-policy.args": "bf11ff3862e252bd78254ef7b64c6293740df95e6cc1f837eb7a0337a93f0562"
+  },
+  "report_sha256": "b67516d37fcc3ad1358729090022e81243f1e5e9715f2bc000d946f31ab64154",
+  "report_copy": "<workspace>\\sd-clone-trial\\device-results\\20261023-133537-3min-ui-audio-confirmed\\autorun\\MPC_CLONE_TRIAL.txt",
+  "verified": {
+    "ram_executable_identity": true,
+    "three_minute_limit": true,
+    "stock_process_restored": true,
+    "gui_observed_by_user": true,
+    "sample_playback_reported_by_user": true,
+    "usual_controls_reported_by_user": true
+  },
+  "scope": "Basic runtime launch and return only; not an exhaustive functional test."
+}

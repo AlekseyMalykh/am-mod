@@ -1,0 +1,17 @@
+[
+  {
+    "test": "masked",
+    "code": 0,
+    "output": "RAW_DEVICE_MASK_IDENTITIES_VERIFIED\n"
+  },
+  {
+    "test": "unmasked",
+    "code": 1,
+    "output": "CHECK_FAILED: not_systemd_inaccessible_node /run/mpc-mask-identity-ug5vpeyj/dummy-block actual=63:678:6000:0:e7:0:0\n"
+  },
+  {
+    "test": "wrong_identity",
+    "code": 1,
+    "output": "CHECK_FAILED: not_systemd_inaccessible_node /run/mpc-mask-identity-ug5vpeyj/dummy-block actual=63:27:6000:0:0:0:0\n"
+  }
+]

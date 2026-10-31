@@ -1,0 +1,394 @@
+{
+  "revision": "r4-project-mod-off",
+  "user_report": "Mod Off worked normally",
+  "journal": "sd-mod-session\\device-results\\20261023-145756-r4-mod-off-confirmed\\autorun\\MPC_CLONE_TRIAL.txt",
+  "observed": [
+    "CLONE_PROCESS_VERIFIED",
+    "MOD_OFF_REQUESTED",
+    "STOCK_PROCESS_RESTORED"
+  ],
+  "scope": "User confirmed normal operation; session duration >180s was verified on PC only",
+  "later_trials": [
+    {
+      "revision": "r6-permanent-k-values",
+      "patched_copy_sha256": "8d7e71d0c58e4a882c32c2cb6319620bf867cb71e1b73b692efafdaa6a10bfda",
+      "observed": [
+        "Permanent name and value visible in Sample Trim photos",
+        "Grey background and weak focus marker need correction",
+        "Other windows retain old display",
+        "Short power-button press does not show stock confirmation",
+        "Journal confirms clone and Mod Off then stock process restored"
+      ],
+      "clone_verified_utc": "2026-10-23T12:28:25Z",
+      "mod_off_utc": "2026-10-23T12:36:06Z",
+      "stock_restored_utc": "2026-10-23T12:36:13Z",
+      "scope": "Limited user visual observation and returned journal, not full functional validation; power-dialog cause undetermined"
+    },
+    {
+      "revision": "r7-black-k-footers",
+      "user_report": "Values for knobs stopped displaying",
+      "scope": "User photos show missing permanent numeric values in Sample Trim, Amp Env and Filter. User confirmed Project Mod Off present. Returned journal matches r7 SHA and confirms clone, Mod Off and stock process restoration. Exact rendering cause still unconfirmed.",
+      "followup": "r7a removes the additional Slider position guard; not hardware-tested",
+      "screens": [
+        "Sample Trim",
+        "Sample Amp Env",
+        "Sample Filter"
+      ],
+      "mod_off_menu_present": true,
+      "journal": "sd-mod-session\\device-results\\20261023-200055-r7-missing-values\\MPC_CLONE_TRIAL.txt",
+      "patched_copy_sha256": "4eb7cd4d100f653e8077933cf7fc0ffff4833b3b448a4d63ab24715063ea39f8",
+      "clone_verified_utc": "2026-10-23T16:48:08Z",
+      "mod_off_utc": "2026-10-23T16:52:02Z",
+      "stock_restored_utc": "2026-10-23T16:52:09Z"
+    },
+    {
+      "revision": "r7a-slider-guard-fix",
+      "user_report": "Numeric values still did not appear",
+      "scope": "User reports missing values after r7a; returned journal matches r7a patched SHA and confirms clone, Mod Off and stock restoration. Position-guard hypothesis did not resolve symptom.",
+      "followup": "r7b corrects a static PIE-addressing defect in the screen table; not hardware-tested",
+      "journal": "sd-mod-session\\device-results\\20261023-200637-r7a-missing-values\\MPC_CLONE_TRIAL.txt",
+      "patched_copy_sha256": "5264eca72bf0529dd385a79bf13fa6ecdbe5e7e561a095e222189568b97356ef"
+    },
+    {
+      "revision": "r7b-relative-screen-addresses",
+      "user_report": "Values appeared; request centered alignment, friendly Seq names and Shift indicators",
+      "scope": "User confirms values restored, including Seq display; returned journal matches r7b SHA and confirms clone, Mod Off and stock restoration. Full all-screen validation not established.",
+      "zoom": "User compared stock and confirmed equal Zoom numeric values are native behavior; retain it",
+      "next_design": "Remove global arrow in all menus, mark only knobs with Shift alternatives; idle white, held Shift red; Mix K2 needs an idle marker in its otherwise empty position",
+      "journal": "sd-mod-session\\device-results\\20261023-203758-r7b-values-confirmed\\MPC_CLONE_TRIAL.txt",
+      "patched_copy_sha256": "14b9d1623bf23e4a9a009ab9799995a1ecfbf6fd85dcc81de877ee89fcc881e2",
+      "clone_verified_utc": "2026-10-23T17:00:54Z",
+      "mod_off_utc": "2026-10-23T17:08:32Z",
+      "stock_restored_utc": "2026-10-23T17:08:39Z"
+    },
+    {
+      "revision": "r8-centered-shift-markers",
+      "patched_copy_sha256": "e21434d6e0d4e33e8366b4176188b31c586f8f0f875c8f5a32bde20e61a22fb7",
+      "user_report": [
+        "Selected amber changes to white on editing; user requests stable selection colour",
+        "Discrete scales such as Mono/Poly lost segments and became empty/full bars"
+      ],
+      "journal": "sd-mod-session/device-results/20261023-204855-r8-colour-segments-report/MPC_CLONE_TRIAL.txt",
+      "clone_verified_utc": "2026-10-23T17:32:49Z",
+      "mod_off_utc": "2026-10-23T17:37:49Z",
+      "stock_restored_utc": "2026-10-23T17:37:56Z",
+      "scope": "Limited report and matching journal; full Shift/context validation not established",
+      "followup": "r8a restores discrete mode and stable amber focus; not hardware tested"
+    },
+    {
+      "revision": "r8a-focus-and-discrete-scales",
+      "patched_copy_sha256": "f746b4e61112617c9da51d6da4811527c92909c09ca92f481cbf97030b1b29b8",
+      "journal": "sd-mod-session\\device-results\\20261023-210338-returned-before-r8b\\MPC_CLONE_TRIAL.txt",
+      "clone_verified_utc": "2026-10-23T17:50:30Z",
+      "mod_off_utc": "2026-10-23T17:55:36Z",
+      "stock_restored_utc": "2026-10-23T17:55:43Z",
+      "scope": "Returned journal confirms matching clone, Mod Off and stock process restoration only; colour and segmented-scale appearance not explicitly confirmed by user"
+    },
+    {
+      "revision": "r8b-loop-lock-alignment",
+      "user_report": "Loop lock position works well",
+      "scope": "User confirmation of lock icon only; no returned r8b journal yet; no saving functionality in r8b",
+      "journal": "sd-mod-session\\device-results\\20261023-212448-returned-r8b-lock-confirmed\\MPC_CLONE_TRIAL.txt",
+      "journal_scope": "Returned journal retained; see raw evidence for process lifecycle, icon appearance confirmed separately by user"
+    },
+    {
+      "revision": "r9-scoped-sd-saving",
+      "user_report": "Stock interface remains; clone does not start",
+      "journal": "sd-mod-session\\device-results\\20261023-213343-r9-data-limit\\MPC_CLONE_TRIAL.txt",
+      "observed": [
+        "DATA_STAGE_FAILED: 256MiB data limit",
+        "ABORT: DATA_PREFLIGHT_FAILED"
+      ],
+      "scope": "Preflight rejected full /data size before stock stop; no save or clone observation",
+      "followup": "r9a uses RAM OverlayFS copy-up; not hardware verified"
+    },
+    {
+      "revision": "r9a-ram-overlay-sd-saving",
+      "journal": "sd-mod-session\\device-results\\20261023-214545-r9a-sandbox-probe\\MPC_CLONE_TRIAL.txt",
+      "user_report": "Stock interface remains; clone does not start",
+      "observed": [
+        "COPY_HASH_VERIFIED",
+        "MOD_SESSION_PATCH_VERIFIED",
+        "UNEXPECTED_WRITABLE_DISK: /data",
+        "ABORT: SANDBOX_PROBE_FAILED"
+      ],
+      "scope": "Preflight rejected mount enumeration before stopping stock or creating RAM overlay; 384MiB capacity not reached. Effective /data identity/type checks passed, but old mounted entry was counted as writable disk. Full reboot before attempt not confirmed by user."
+    },
+    {
+      "revision": "r9b-visible-mount-sd-saving",
+      "user_report": "Full boot without card, insert and confirm launch; screen blanks after about20s then project loads, Project has no Mod Off",
+      "evidence": "sd-mod-session\\device-results\\20261023-215214-r9b-returned-stale-report",
+      "observed": [
+        "All17 card payload hashes match r9b receipt",
+        "Returned main report is byte-identical to previous r9a report; no r9b LAUNCHER_SHA256 marker",
+        "Old already-attempted note also unchanged"
+      ],
+      "scope": "Mod launch not confirmed. No fresh device report, so r9b failure stage cannot be determined. Do not attribute to RAM limit, overlay, or recovery without current RAM/journal evidence.",
+      "followup": "r9c launch with durable SD entry/events/console and syncfs checkpoints; not hardware verified",
+      "collector_not_run": "User had already powered MPC off before collector instructions; previous boot RAM unavailable. Collector not executed on device."
+    },
+    {
+      "revision": "r9c-durable-startup-journal",
+      "user_report": "Confirmed r9c prompt; waited about a minute; no screen blanking; device left powered on. No status during preparation makes timing of card removal unclear.",
+      "backup": "sd-mod-session\\card-backups\\20261023-221043-r9c-returned-mixed-content",
+      "observed": [
+        "All18 active payload hashes match r9c receipt",
+        "No MPC_MOD_ENTRY/EVENTS/CONSOLE files",
+        "MPC_CLONE_TRIAL.txt starts with RIFF/WAVE bytes; status WAV starts with old textual trial report",
+        "Read-only chkdsk reports corruption in volume allocation bitmap"
+      ],
+      "scope": "SD filesystem corruption confirmed; precise cause of absent r9c launch/entry not established. No indication of firmware modification. Do not continue writing packages before SD repair.",
+      "backup_scope": "43 accessible files copied without errors; System Volume Information excluded",
+      "repair_status": "User ran CHKDSK /F: no problems or repairs reported. Subsequent read-only scan also no problems.",
+      "later_fresh_evidence": {
+        "journal": "sd-mod-session\\device-results\\20261023-221859-r9c-realpath-fortify\\MPC_CLONE_TRIAL.txt",
+        "entry_utc": "2026-10-23T18:59:50Z",
+        "abort_utc": "2026-10-23T18:59:53Z",
+        "observed": [
+          "Correct r9c launcher SHA and verified entry/controller hash",
+          "JOURNAL_HELPER_READY",
+          "Repeated buffer overflow detected in journal-flush helper",
+          "ABORT: SD_JOURNAL_CHECKPOINT_FAILED",
+          "No STOCK_STOP_REQUESTED or clone start"
+        ],
+        "scope": "Fresh report became visible after user CHKDSK /F and subsequent reads; previous reads were inconsistent/stale. User CHKDSK /F and repeated read-only CHKDSK report no errors and no repairs. Do not infer that /F repaired corruption or card caused launch failure."
+      },
+      "diagnosed_code_defect": "stage_data.c passes512-byte array to realpath; ARM __realpath_chk call has size0x200 and aborts. r9d changes to realpath(path,NULL) and frees allocated result."
+    },
+    {
+      "revision": "r9d-realpath-flush-fix",
+      "journal": "sd-mod-session\\device-results\\20261023-222857-r9d-overlay-start\\MPC_CLONE_TRIAL.txt",
+      "user_report": "Screen blanked; mod not present; stock interface returned. MPC left on.",
+      "fresh_view": "Only after user fsutil volume dismount D: did current r9d entry/events/full report become visible; prior reads were stale/inconsistent.",
+      "observed": [
+        "JOURNAL_HELPER_READY and SD_JOURNAL_FLUSHED",
+        "SANDBOX_PROBE_PASSED",
+        "STOCK_STOP_REQUESTED at19:16:59Z",
+        "systemd Mounted MPC mod data with changes only in RAM at19:17:01Z",
+        "ABORT: DATA_LAYER_START_FAILED",
+        "No CLONE_START_REQUESTED",
+        "All3 data mounts unmounted; STOCK_PROCESS_RESTORED at19:17:07Z"
+      ],
+      "scope": "Fixes for realpath and mount enumeration passed this preflight. Kernel mounted OverlayFS successfully. Rejection occurs in post-mount validation; BusyBox image lacks overlayfs text expected by loader. Save and app/UI behavior not tested.",
+      "followup": "r9e uses numeric magic794c7630 for overlay and1021994 for tmpfs, adds actual type diagnostics. Not hardware verified."
+    },
+    {
+      "revision": "r9e-numeric-overlay-type",
+      "journal": "sd-mod-session\\device-results\\20261023-225352-r9e-400MiB-reserve\\MPC_CLONE_TRIAL.txt",
+      "user_report": "Mod Off present. Insufficient space on drive / Clear undo history dialog after actions, always for Sample Record, repeats about20sec after Cancel. User exited via Mod Off and native Eject.",
+      "observed": [
+        "Overlay host and clone magic794c7630 verified; BusyBox label UNKNOWN",
+        "CLONE_PROCESS_VERIFIED19:36:14Z",
+        "MOD_OFF_REQUESTED19:44:16Z",
+        "STOCK_PROCESS_RESTORED19:44:23Z",
+        "Repeated Auto save error in clone log",
+        "systemd clone memory peak598.1M, MemoryMax800M"
+      ],
+      "scope": "Overlay clone launch and voluntary recovery confirmed; recording/save not successful. Peak alone does not establish a memory leak; periodic series unavailable.",
+      "static_finding": "DiskSpaceMonitor ctor argument at0x14ef938=0x19000000 (400MiB), stored+0x130, subtracted from free space by0x1db36f0 and sample duration calculations. Current upper cap384MiB is below reserve even when empty.",
+      "followup": "r9f cap512MiB leaves at most112MiB above reserve before existing changes; bounded memory snapshots added. No warning/Undo bypass."
+    },
+    {
+      "revision": "r9f-native-reserve-headroom",
+      "evidence_type": "user_report_only",
+      "user_report_ru": "Запись через ресэмплинг сработала; ошибка нехватки места, по наблюдению пользователя, больше не появляется.",
+      "observed": [
+        "User reports successful resampling recording",
+        "Insufficient-space dialog has not recurred so far; duration and resource values not yet known"
+      ],
+      "scope": "Initial short recording success reported; persistence on SD, reopen in stock, long sessions, RAM trend and full capacity not yet verified. Current device journal not collected.",
+      "followup": "Save short sample under a new name in External/MPC-Sample/Mod-Saves/Samples, wait completion, Mod Off, then reopen sample in stock. Collect report after native Eject."
+    },
+    {
+      "revision": "r9f-native-reserve-headroom",
+      "journal": "sd-mod-session\\device-results\\20261023-231205-r9f-save-path\\MPC_CLONE_TRIAL.txt",
+      "user_report_ru": "Ресэмплинг работает, предупреждение места пока не повторяется. Сэмпл успешно сохранён в Internal и вручную удалён. Сэмпл в External: Sample Save Failed. Штатные назначения MPC-Sample/Projects и MPC-Sample/Samples; в Save Sample только Internal/External. Раннее сообщение об успехе проекта в External пока не подтверждено повторным открытием.",
+      "observed": [
+        "Correct r9f controller SHA in fresh report",
+        "CLONE_PROCESS_VERIFIED19:55:10Z; stock restored20:04:34Z",
+        "No Auto save error in collected report; memory.events oom/oom_kill=0",
+        "Anon518037504 at tick40,518107136 before stop; upper grew6512 to12400 KiB during user actions",
+        "No saved files found in current PC view under MPC-Sample"
+      ],
+      "scope": "Short recording and Internal sample save/delete user-confirmed. External save not verified. Near-stable anon between two samples does not prove absence of all leaks.",
+      "diagnosis": "Loader allows only Mod-Saves; native sample save destination outside it is read-only. Earlier instructions incorrectly assumed folder picker.",
+      "followup": "r9g grants exactly native Projects and Samples subdirectories, parent/other SD locations remain RO; new-name save/reopen device trial pending."
+    },
+    {
+      "revision": "r9g-native-sd-save-folders",
+      "journal": "sd-mod-session\\device-results\\20261023-232119-r9g-external-failed\\MPC_CLONE_TRIAL.txt",
+      "user_report": "External sample save still fails; Samples/User suggested; project named dmendrums showed save success but cannot be found.",
+      "observed": [
+        "Current r9g controller SHA verified on returned card and report",
+        "Probe and clone both confirmed exactly one Projects and one Samples writable exFAT mount",
+        "CLONE_PROCESS_VERIFIED20:10:01Z; MOD_OFF20:13:38Z; STOCK_PROCESS_RESTORED20:13:45Z; SD_SAVE_FLUSHED",
+        "Full card filename inventory found no dmendrums or any project/sample file apart from status WAV",
+        "Native code0x14fa7b4/0x14fb6a4 appends string User at0x45a0650 to sample folder"
+      ],
+      "scope": "Two native write exceptions alone did not fix save. Samples/User is already inside Samples allowance. Actual destination/error not logged by r9g; do not infer successful project persistence or exact further cause.",
+      "followup": "r9h adds bounded RAM-only libc file operation diagnostics, read-only mount/disk metadata, upper-file names before stop. No permissions widened; device trial pending."
+    },
+    {
+      "revision": "r9h-save-path-diagnostics",
+      "journal": "sd-mod-session\\device-results\\20261023-233536-r9h-save-diagnostics\\MPC_CLONE_TRIAL.txt",
+      "user_report": "Sample samp on External failed; project prod showed progress with no error but not found. User authorized complete SD wipe and fresh mod copy.",
+      "observed": [
+        "Actual r9h controller and diagnostic library loaded; clone verified20:24:54Z, Mod Off20:27:56Z, stock returned20:28:03Z",
+        "Trace fopen samp.tmp.wav and samp.wav failed errno30 at /media/113d9b21-4468-4666-a0ca-b9d9dacd52f8/MPC-Sample/Samples/User",
+        "mkdir Projects/prod_[ProjectData] failed errno30; dependent sample writes failed errno2",
+        "Selected save path was old SD partition7 ext4 /dev/mmcblk1p7, not autorun/allowed exFAT partition1 /media/9E44-0A9E",
+        "Device exposed old Anbernic partitions2,5,6,7 alongside exFAT partition1; Windows Get-Partition confirmed seven GPT entries",
+        "Full Windows-visible inventory contained no prod or samp; log cap1024 was reached after relevant failed operations"
+      ],
+      "scope": "External sample and project failure localized to app selecting another SD partition, kept RO by sandbox. Successful project progress was not durable save. Samples/User itself was not missing permission under selected exFAT target.",
+      "card_rebuild": {
+        "authorized_by_user": true,
+        "date": "2026-10-24",
+        "verified_D_backup": "sd-mod-session\\card-backups\\20261023-233536-r9h-save-diagnostics",
+        "windows_visible_files_verified": 48,
+        "other_partitions_raw_backed_up": false,
+        "removed_partition_count": 7,
+        "new_partition_count": 1,
+        "new_partition_style": "GPT",
+        "filesystem": "exFAT",
+        "label": "MPCMOD",
+        "volume_bytes": 62234034176,
+        "revision_reinstalled": "r9h-save-path-diagnostics",
+        "payload_files_verified": 19,
+        "root_documents_and_version": 5,
+        "license_files": 7,
+        "first_pass": "Clear-Disk removed old partitions; subsequent RAW-only guard stopped with empty GPT disk. Continuation refreshed storage cache and created one data partition without clearing again.",
+        "post_rebuild_device_save_verified": false
+      }
+    },
+    {
+      "revision": "r9h-save-path-diagnostics",
+      "date": "2026-10-24",
+      "journal": "sd-mod-session\\device-results\\20261024-015833-r9h-clean-card-save-success\\MPC_CLONE_TRIAL.txt",
+      "backup": "sd-mod-session\\card-backups\\20261024-015833-r9h-clean-card-save-success",
+      "user_report": "Saving succeeded after complete SD rebuild. User has only checked saving; native reopen not yet tried.",
+      "observed": [
+        "Actual selected save root /media/MPCMOD on the single-partition card",
+        "samp.tmp.wav fopen success, rename to samp.wav success",
+        "Mod Off, SD_SAVE_FLUSHED and STOCK_PROCESS_RESTORED in fresh report",
+        "Windows found MPC-Sample/Samples/User/samp.wav,142126 bytes; stereo44100Hz32bit,0.401sec with audio data present",
+        "Windows found MPC-Sample/Projects/proj.xpj,45699 bytes, and14 WAVs in proj_[ProjectData]",
+        "Project gzip CRC decoded; ACVS1.3.0.12 native header and JSON parsed;14 unique WAV basenames referenced,all14 present",
+        "All saved WAV RIFF/chunk bounds inspected and backups reread with SHA256 match"
+      ],
+      "scope": "Persistent external files after Mod Off and card transfer now confirmed for this short trial. Actual project name is proj. Native app reopen, playback and persistence after full reboot remain unverified.",
+      "followup": "Boot stock without card, insert SD and Cancel autorun, open samp and proj; then return report. Remove temporary IO diagnostics from normal build after save/reopen confirmation."
+    },
+    {
+      "revision": "r9h-save-path-diagnostics",
+      "date": "2026-10-24",
+      "evidence_type": "user_confirmation",
+      "user_report_ru": "В стандартном режиме проект загрузился и сэмпл тоже.",
+      "scope": "Native stock load of saved project and standalone sample user-confirmed after prior actual-file inspection. Long sessions/capacity and broad project compatibility remain unverified.",
+      "followup": "Proceed to requested phone pad input research; keep frozen working r9h."
+    },
+    {
+      "revision": "r10-pad-phone-input-experimental",
+      "date": "2026-10-24",
+      "journal": "<workspace>\\sd-mod-session\\device-results\\20261024-023919-r10-input-thread-failure\\MPC_CLONE_TRIAL.txt",
+      "backup": "<workspace>\\sd-mod-session\\card-backups\\20261024-023919-r10-input-thread-failure",
+      "user_report_ru": "K1: Encoder, при вращении Encoder only; пэды без цвета и ввода.",
+      "observed": [
+        "BRIDGE_READY r10",
+        "NAMING_READY encoder_and_plus_minus_preserved",
+        "CONTROL_THREAD_MISMATCH repeated; no PADS_ON"
+      ],
+      "scope": "The hardware control callback thread differs from the naming paint/UI thread. Direct UI-only gate prevents keyboard activation. Native UI Timer fires and processes the fault. Runtime source-thread routing must change before next trial."
+    },
+    {
+      "revision": "r10a-pad-phone-input-ui-queue",
+      "date": "2026-10-24",
+      "journal": "<workspace>\\sd-mod-session\\device-results\\20261024-025836-r10a-working-keyboard\\MPC_CLONE_TRIAL.txt",
+      "backup": "<workspace>\\sd-mod-session\\card-backups\\20261024-025836-r10a-working-before-r10b",
+      "user_report_ru": "Уже работает прекрасно; запросил _ на пэде13, различимые курсорные клавиши, отклик нажатий и более яркое удаление.",
+      "observed": [
+        "BRIDGE_READY r10a_UI_FIFO",
+        "FIFO_BUTTON_ON_UI",
+        "FIFO_CONTROLLER_ON_UI",
+        "PADS_ON and PADS_OFF",
+        "FIFO_PAD_ON_UI",
+        "STOCK_PROCESS_RESTORED"
+      ],
+      "scope": "User confirms working keyboard; actual input/colour layout observed by user, FIFO routing and Mod Off confirmed by journal. Broad save/reload, stress and full control-combination coverage not asserted."
+    },
+    {
+      "revision": "r10b-pad-keyboard-feedback",
+      "journal": "<workspace>\\sd-mod-session\\device-results\\20261024-033658-r10b-returned\\MPC_CLONE_TRIAL.txt",
+      "observed": [
+        "BRIDGE_READY r10b_UI_FIFO",
+        "CLONE_PROCESS_VERIFIED",
+        "NAMING_READY r10b_UI_FIFO",
+        "FIFO_PAD_ON_UI",
+        "MOD_OFF_REQUESTED",
+        "STOCK_PROCESS_RESTORED"
+      ],
+      "scope": "Returned journal confirms r10b launch, naming pad events and normal Mod Off recovery. No separate user confirmation of new RGB colours or pulse duration."
+    },
+    {
+      "revision": "r11-sample-original-note-ui",
+      "date": "2026-10-24",
+      "evidence_type": "user_confirmation",
+      "user_report_ru": "С дополнительным указанием ноты стало супер удобно! Работает прекрасно.",
+      "scope": "User confirms the Original Note / note-aware Semi Tune UI works on MPC. No returned r11 journal or exhaustive note calculations asserted. Selection-local RAM lifetime remains; project persistence and Lights modes are not implemented."
+    },
+    {
+      "revision": "r11-sample-original-note-ui",
+      "date": "2026-10-24",
+      "evidence_type": "returned_journal",
+      "journal": "<workspace>\\sd-mod-session\\device-results\\20261024-040639-r11-returned\\MPC_CLONE_TRIAL.txt",
+      "backup": "<workspace>\\sd-mod-session\\card-backups\\20261024-040639-r11-before-r12",
+      "observed": [
+        "CLONE_PROCESS_VERIFIED",
+        "BRIDGE_READY r11_UI_FIFO sample_note",
+        "TUNE_READY r11 temporary_selection_note",
+        "ROOT_CHANGED pitch_untouched RAM_only",
+        "MOD_OFF_REQUESTED",
+        "STOCK_PROCESS_RESTORED"
+      ],
+      "scope": "Returned journal corroborates user-confirmed Original Note UI and normal Mod Off recovery. r12 persistence and lighting are not device verified."
+    },
+    {
+      "revision": "r12-project-music-lights",
+      "date": "2026-10-24",
+      "evidence_type": "user_report_and_returned_journal",
+      "journal": "<workspace>\\sd-mod-session\\device-results\\20261024-124744-r12-returned\\MPC_CLONE_TRIAL.txt",
+      "backup": "<workspace>\\sd-mod-session\\card-backups\\20261024-124744-r12-before-r12a",
+      "user_report_ru": "Цвета после Tune/тональности/Lights обновляются только при повторном включении 16 Levels; клики энкодера не переключают поля Lights. Запрошены сегментные шкалы.",
+      "observed": [
+        "BRIDGE_READY r12_UI_FIFO project_music_lights",
+        "MUSIC_UI LIGHTS_PAGE_OPEN",
+        "MUSIC_UI PROJECT_KEY_PAGE_OPEN",
+        "MUSIC_UI PROJECT_KEY_EDITED",
+        "MUSIC_ARCHIVE EXTENSION_WRITTEN native_archive",
+        "MOD_OFF_REQUESTED",
+        "STOCK_PROCESS_RESTORED"
+      ],
+      "scope": "Journal confirms launch, both custom pages, native archive serialization callbacks and Mod Off after about32min. Serialization messages alone do not prove SD commit or metadata restoration. User reports usable RGB after mode reentry; live refresh and encoder navigation need r12a hardware trial."
+    },
+    {
+      "revision": "r12a-live-lights-encoder",
+      "date": "2026-10-24",
+      "evidence_type": "user_report_and_returned_journal",
+      "journal": "<workspace>\\sd-mod-session\\device-results\\20261024-132034-r12a-returned\\MPC_CLONE_TRIAL.txt",
+      "backup": "<workspace>\\sd-mod-session\\card-backups\\20261024-132034-r12a-before-r12b",
+      "user_report_ru": "На Trim у Tune остаются2 сегмента, активный Tune отличается от остальных; запрошен общий компактный вид верхних кнопок в других окнах.",
+      "observed": [
+        "BRIDGE_READY r12a_UI_FIFO live_lights_encoder_segments",
+        "MUSIC_LIGHTING REFRESH_ALL_QUEUED",
+        "MUSIC_UI FOCUS_NEXT",
+        "STOCK_PROCESS_RESTORED"
+      ],
+      "scope": "Confirms r12a callbacks for queued layer refresh, forward focus and stock recovery. No FOCUS_PREVIOUS observed in bounded log. User did not explicitly confirm complete RGB accuracy or project metadata reload. Header rendering is the next requested change."
+    }
+  ],
+  "card_transfer_observation": {
+    "user_report": "Simply removed SD from PC without Windows Eject",
+    "required_workflow": "Windows Eject before physical removal; native MPC Eject after Mod Off on return",
+    "causality": "Improper removal can leave stale/pending state; exact cause of previous inconsistent reads not proven"
+  }
+}

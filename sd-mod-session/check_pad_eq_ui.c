@@ -1,0 +1,121 @@
+#define PAD_EQ_PROOF_MAIN audio_proof_main
+#include "check_pad_eq_native.c"
+#include "src/music_ui.h"
+static unsigned char screen[0x1600],controller[0x22b0];
+static unsigned char sequence_screen[0x300],sequence_model[0x800],empty_sequence[0x800],current_things[0x1300];
+static void *sequence_array[128];
+static unsigned char repeat_screen[0xf00];static int repeat_drawing;
+static void*current_context;
+static int sequence_only,project_open;
+static unsigned char project_screen[0x2000];
+static unsigned draws,repaints,primes;static char captions[8192];static unsigned current_pad=18;
+static unsigned char fx_screen[0x300],fx_header[0x240];
+static uintptr_t value_source[7][2],value_vtable[3],var_vtable[24],var_type;
+static unsigned values_read,values_destroyed,header_bars;static int header_testing,header_disabled;
+static uint32_t draw_ink,header_caption_ink;
+extern void check_header_value_get(void);
+void check_header_value_fill(void*out,void*source){++values_read;F(out,0,uintptr_t)=(uintptr_t)&var_type;F(out,8,uint64_t)=F(source,8,uint64_t);}
+static int var_bool(void*type,void*data){assert(type==&var_type);return *(uint64_t*)data!=0;}
+static void var_destroy(void*type,void*data){assert(type==&var_type);(void)data;++values_destroyed;}
+int note_native_current(char*name,size_t size){assert(size>7);strcpy(name,"Shared");return 1;}
+int note_native_pad_index(unsigned*out){*out=current_pad;return 1;}
+void*note_native_context(void){return current_context;}
+void note_native_observe_root(void*p){assert(p==screen);}
+int note_native_tick(void){return 1;}
+int music_archive_status(void){return 0;}
+int project_exit_start(uintptr_t b,void*s){(void)b;(void)s;assert(!"Unexpected save in EQ test");return 0;}
+int project_exit_status(void){return 0;}
+const char*project_exit_message(void){return "";}
+void*workflow_project_services(void){return NULL;}
+void resample_ui_prime_eq(void){++primes;}
+static int shown(void*p){if(p>=(void*)repeat_screen&&p<(void*)(repeat_screen+sizeof(repeat_screen)))return ((char*)p-(char*)repeat_screen-0x1c0)%0x440==0;assert(p==screen||p==sequence_screen||p==project_screen);if(p==project_screen)return project_open;return p==sequence_screen?sequence_only:!sequence_only;}
+static int blocked(void*p){assert(p==screen||p==sequence_screen||p==project_screen);return 0;}
+static int enabled(void*p){assert(p==screen+0xe50||p==fx_header);return p!=fx_header||!header_disabled;}
+static void ui_repaint(void*p,uint64_t a,uint64_t b){assert((p==screen||p==sequence_screen||p==project_screen)&&!a&&!b);++repaints;}
+static void draw_colour(void*g,uint32_t c){assert(g==screen&&(c>>24)==255);draw_ink=c;}
+static void draw_rect(void*g,int x,int y,int w,int h){assert(g==screen&&x>=0&&y>=0&&w>0&&h>0&&x+w<=320&&y+h<=240);if(repeat_drawing)assert(y>=5&&y+h<=38);if(header_testing&&y==25)++header_bars;++draws;}
+static void font_make(void*p,int type,float size){assert(p&&!type&&size>=10&&size<=26);*(uintptr_t*)p=0;}
+static void font_set(void*g,const void*f){assert(g==screen&&f);}
+static void font_delete(void*f){assert(f);}
+static void draw_text(void*g,const uint64_t*s,int x,int y,int w,int h,int flags,int lines,float scale){(void)x;(void)y;(void)w;(void)h;(void)flags;(void)lines;(void)scale;assert(g==screen&&s);const char*str=*(const char*const*)s;if(header_testing&&!strcmp(str,"Bypass"))header_caption_ink=draw_ink;assert(strlen(captions)+strlen(str)+2<sizeof(captions));strcat(captions,str);strcat(captions,"\n");}
+static int key(unsigned code,int down){unsigned char e[16]={0};e[8]=code;e[9]=down;return music_ui_button(e);}
+static void knob(unsigned cc,unsigned v){unsigned char e[16]={0};e[8]=cc;e[9]=v;assert(music_ui_control(e));}
+static void paint_ui(void){captions[0]=0;music_ui_sample(screen,screen);}
+static void noop_paint(void*p,void*g){(void)p;(void)g;}
+int workflow_mono_open(void*p){(void)p;return 0;}
+int main(int argc,char**argv){
+ assert(!audio_proof_main(argc,argv));assert(F((void*)base,0x16739f4,uint32_t)==0x91394280); /* Native constructor: B3 Filter group is SampleScreen+e50, not Chop Split+a10. */phase="physical EQ tab controls";music_reset();
+ patch(0x112fd50,shown);patch(0x112f6b0,blocked);patch(0x1149880,ui_repaint);patch(0x102d5e0,draw_colour);patch(0x102e000,draw_rect);patch(0x1082810,font_make);patch(0x102dca0,font_set);patch(0x1070d60,font_delete);patch(0x10817b0,draw_text);
+ F(screen,0,uintptr_t)=base+0x6e212a0;F(screen,0x108,void*)=controller;F(screen,0x7f0+0x218,int)=-1;F(screen,0xe50+0x218,int)=0;
+ music_ui_init(base);paint_ui();assert(!key(0x0e,1)&&!music_ui_owns(0x10)); /* First native Filter page untouched. */
+ assert(primes>0);unsigned before_primes=primes;
+ F(screen,0xe50+0x218,int)=1;assert(key(0x0e,1)&&key(0x0e,0)&&primes>before_primes&&music_ui_owns(0x10));paint_ui();assert(strstr(captions,"EQ")&&strstr(captions,"Bypass")&&strstr(captions,"Type"));
+ /* Construct the actual native B3 group location/layout. The old a10 fixture
+  * tested the implementation's guessed address and missed this regression. */
+ void*header=screen+0xe50;F(header,0,uintptr_t)=base+0x706e940;F(header,0x18,void*)=screen;F(header,0x20,int)=214;F(header,0x24,int)=6;F(header,0x28,int)=106;F(header,0x2c,int)=29;F(header,0x21c,int)=2;F(header,0x214,int)=2;
+ FN(0xf535c0,void(*)(void*,const char*))((char*)header+0xb8,"Filter Env");patch(0x10f98d0,enabled);captions[0]=0;unsigned old_draws=draws;music_ui_tab(header,screen);assert(strstr(captions,"EQ")&&draws==old_draws+4);
+ F(controller,0x22a0,unsigned char)=1;captions[0]=0;music_ui_tab(header,screen);assert(strstr(captions,"Stereo > Mono")&&!strstr(captions,"EQ"));F(controller,0x22a0,unsigned char)=0;
+ knob(0x12,20);knob(0x10,72);knob(0x11,22);uint64_t saved=music_get_pad_eq(18);assert(saved&&pad_eq_published(18)==saved&&!music_get_pad_eq(19));
+ F(controller,0x22a0,unsigned char)=1;knob(0x11,90);uint64_t q=music_get_pad_eq(18);assert((q&~(UINT64_C(127)<<14))==(saved&~(UINT64_C(127)<<14)));knob(0x12,127);assert(music_get_pad_eq(18)==q);paint_ui();assert(strstr(captions,"Q"));
+ F(controller,0x22a0,unsigned char)=0;knob(0x12,1);paint_ui();assert(strstr(captions,"BYPASS"));
+ current_pad=19;paint_ui();assert(strstr(captions,"BYPASS"));current_pad=18;
+ assert(!key(0x0e,1)&&!music_ui_owns(0x10));F(screen,0xe50+0x218,int)=0;paint_ui();assert(!strstr(captions,"EQ"));
+ F(screen,0xe50+0x218,int)=1;assert(key(0x0e,1)&&key(0x0e,0));assert(!key(0x0c,1)&&!music_ui_owns(0x10));
+ assert(key(0x0e,1)&&key(0x0e,0));music_ui_destroyed(screen);paint_ui();assert(!music_ui_owns(0x10)&&!strstr(captions,"EQ"));
+ puts("PASS EQ tab UI: stock Filter and Envelope untouched, third-page entry/exit through B keys, exact K1 frequency/K2 gain/K3 type/Shift K2 Q, Shift K3 inert, bypass via type, per-pad selection and black graph");
+ phase="native header Boolean versus unrelated listener count";
+ value_vtable[2]=(uintptr_t)check_header_value_get;var_vtable[6]=(uintptr_t)var_bool;var_vtable[23]=(uintptr_t)var_destroy;var_type=(uintptr_t)var_vtable;
+ for(unsigned i=0;i<7;++i)value_source[i][0]=(uintptr_t)value_vtable;
+ F(fx_screen,0,uintptr_t)=base+0x6e1d890;F(fx_header,0,uintptr_t)=base+0x706e940;F(fx_header,0x18,void*)=fx_screen;
+ F(fx_header,0x28,int)=106;F(fx_header,0x2c,int)=29;F(fx_header,0xb8,const char*)="Bypass";F(fx_header,0x21c,int)=1;F(fx_header,0x168,void*)=value_source[6];
+ header_testing=1;
+ for(unsigned on=0;on<2;++on)for(unsigned listeners=0;listeners<4;++listeners)for(unsigned pressed=0;pressed<3;++pressed){
+  value_source[6][1]=on;F(fx_header,0x1d4,int)=(int)listeners;F(fx_header,0x160,int)=(int)pressed;header_bars=0;header_caption_ink=0;
+  music_ui_tab(fx_header,screen);assert(header_caption_ink==(on?0xffffc247u:0xffffffffu)&&header_bars==on);
+ }
+ header_disabled=1;music_ui_tab(fx_header,screen);assert(header_caption_ink==0xff707070u);header_disabled=0;header_testing=0;
+ assert(values_read==values_destroyed&&values_read==25);
+ puts("PASS real native Value::getValue and var Boolean/destructor dispatch: both Bypass states ignore listener count and pressed feedback; disabled colour retained");
+ phase="Note Repeat overlay excludes custom Sample controls";
+ F(screen,0x7f0+0x218,int)=1;paint_ui();assert(key(0x0d,1)&&key(0x0d,0)&&music_ui_owns(0x10));
+ music_ui_requested(0x0b,1);assert(!music_ui_owns(0x10)&&!key(0x0d,1));paint_ui();assert(!strstr(captions,"Set Orig Note"));music_ui_requested(0x0b,0);
+ phase="real Seq vtable slots and Shift K1 colour selection";
+ F((void*)base,0x6d3ba84,uint32_t)=0x529848e9;F((void*)base,0x6d3ba88,uint32_t)=0x72bfffe9;
+ assert(music_ui_install(noop_paint,noop_paint,noop_paint));
+ assert(F((void*)base,0x6d3ba84,uint32_t)==(0x52800009u|(0xb000u<<5)));
+ F(repeat_screen,0,uintptr_t)=base+0x6e1f060;
+ const char*divisions[]={"1/8","1/8T","1/16","1/16T","1/32","1/32T"};
+ for(unsigned i=0;i<6;++i){void*b=repeat_screen+0x1c0+i*0x220;F(b,0,uintptr_t)=base+0x706e940;F(b,0xb8,const char*)=divisions[i];F(b,0x20,int)=(i/2)*106+(i>=4);F(b,0x28,int)=106;F(b,0x1d4,int)=3;value_source[i][1]=i==2;F(b,0x168,void*)=value_source[i];}
+ uintptr_t*rvt=F(repeat_screen,0,uintptr_t*);unsigned before_repeat=draws;
+ ((void(*)(void*,void*))rvt[0xd0/8])(repeat_screen,screen);assert(draws==before_repeat);
+ repeat_drawing=1;captions[0]=0;((void(*)(void*,void*))rvt[0xd8/8])(repeat_screen,screen);repeat_drawing=0;
+ assert(strstr(captions,"1/8\n")&&strstr(captions,"1/16\n")&&strstr(captions,"1/32\n")&&!strstr(captions,"1/8T"));
+ puts("PASS Repeat header38px amber with only visible native divisions, no white focus arms or footer clearing; Knob FX background saturated amber startup patch");
+ F(sequence_screen,0,uintptr_t)=base+0x6e23e38;F(current_things,0x1c8,void*)=sequence_model;F(sequence_model,0x480,int)=11;current_context=current_things;
+ uintptr_t*vt=F(sequence_screen,0,uintptr_t*);void(*paint_sequence)(void*,void*)=(void(*)(void*,void*))vt[0xd8/8];
+ F(current_things,0,uintptr_t)=base+0x6ecc648;F(current_things,0x1250,void*)=sequence_array;F(current_things,0x125c,int)=128;
+ F(sequence_model,0,uintptr_t)=F(empty_sequence,0,uintptr_t)=base+0x6ecdff0;F(sequence_model,0x490,unsigned char)=1;
+ F(sequence_model,0x6f8,uint64_t)=1;F(empty_sequence,0x490,unsigned char)=1; /* initialized length but no events */
+ sequence_array[11]=sequence_model;sequence_array[12]=empty_sequence;
+ assert(music_ui_sequence_presence(0)==(1u<<11)&&!music_ui_sequence_presence(1)&&!music_ui_sequence_presence(8));
+ unsigned char track_map[0xe0]={0},clip_node[0x30]={0},empty_clip[0x800]={0};void *map_bounds[]={track_map,track_map+sizeof(track_map)};
+ void *map_header=track_map+0xb8;F(empty_sequence,0x620,void*)=map_bounds;
+ F(map_header,8,void*)=F(map_header,16,void*)=F(map_header,24,void*)=clip_node;
+ F(clip_node,0,unsigned)=1;F(clip_node,8,void*)=map_header;F(clip_node,0x28,void*)=empty_clip;
+ assert(music_ui_sequence_presence(0)==(1u<<11));
+ F(empty_clip,0x710,uint64_t)=1;assert(music_ui_sequence_presence(0)==((1u<<11)|(1u<<12)));
+ F(empty_clip,0x710,uint64_t)=0;assert(music_ui_sequence_presence(0)==(1u<<11));
+ F(empty_sequence,0x620,void*)=NULL;map_header=empty_sequence+0x630;
+ F(map_header,8,void*)=F(map_header,16,void*)=F(map_header,24,void*)=clip_node;F(clip_node,8,void*)=map_header;
+ F(empty_clip,0x710,uint64_t)=1;assert(music_ui_sequence_presence(0)==((1u<<11)|(1u<<12)));
+ F(empty_clip,0x710,uint64_t)=0;assert(music_ui_sequence_presence(0)==(1u<<11));
+ F(sequence_model,0x6f8,uint64_t)=0;assert(!music_ui_sequence_presence(0));F(sequence_model,0x6f8,uint64_t)=1;
+ sequence_only=1;paint_sequence(sequence_screen,screen);assert(music_ui_sequence_visible()&&music_ui_active());music_ui_requested(0x31,1);knob(0x10,127);assert(music_sequence_colour(11)==12&&music_sequence_colour(12)==0);
+ F(sequence_model,0x480,int)=12;knob(0x10,11);assert(music_sequence_colour(12)==1&&music_sequence_colour(11)==12);
+ captions[0]=0;paint_sequence(sequence_screen,screen);assert(strstr(captions,"Seq Colour")&&strstr(captions,"Green"));
+ music_ui_requested(0x31,0);assert(!music_ui_owns(0x10));current_context=NULL;
+ sequence_only=0;F(screen,0x7f0+0x218,int)=1;paint_ui();assert(key(0x0d,1)&&key(0x0d,0)&&music_ui_owns(0x10));
+ F(project_screen,0,uintptr_t)=base+0x6e1f788;F(project_screen,0x100,void*)=controller;project_open=1;music_ui_project(project_screen,screen);
+ assert(!music_ui_owns(0x10)&&!key(0x6f,1)); /* Native Project menu owns its encoder even above Lights. */
+ puts("PASS native Seq screen hook: twelve colours by native sequence index, global and clip event presence, empty initialized slots excluded, Shift K1 only; Note Repeat keeps its controls");return 0;
+}

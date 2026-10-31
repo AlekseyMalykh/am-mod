@@ -1,0 +1,43 @@
+name: Installer
+
+on:
+  push:
+    paths: ["installer/**", ".github/workflows/installer.yml"]
+  pull_request:
+    paths: ["installer/**"]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m unittest discover -s installer -v
+
+  windows-exe:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install pyinstaller==6.11.1
+      - run: pyinstaller --onefile --windowed --name MPC-Sample-Mod-Installer installer/mpc_mod_installer.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MPC-Sample-Mod-Installer
+          path: dist/MPC-Sample-Mod-Installer.exe
+      - name: Attach to the release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" dist/MPC-Sample-Mod-Installer.exe --clobber

@@ -1,0 +1,58 @@
+{
+  "revision": "r9h-save-path-diagnostics",
+  "status": "BUILD_AND_STATIC_INSPECTION_ONLY",
+  "runtime_tests_run": false,
+  "hardware_tested": false,
+  "saving_device_verified": false,
+  "payload_sha256": {
+    "apply-session": "c5fb5d187d06219b973dd8b086f69e43bfb36d5740a327300af2ba8a648b4491",
+    "autorun.check": "b8c75367ea36c646e0314bd4dda9c2c883c0851330130f15d6cee1a6a38ce4ec",
+    "autorun.json": "950675b4ba2278ae73c8f05f4879422d944ff46c412bce0493d091ca84d2ff87",
+    "autorun.sh": "f3777cf6e62d10bf7f01cb3fb6ffd490e7ce72f8c67d22eefc6621ccacee5bc0",
+    "mod-launcher.sh": "468f272dc09b63fa7b949641b83d692058137380e31e6f2252afaaee2c4563f7",
+    "project-append.bin": "9dd9a81d0a20f654fa1cafee779d61d5f5e9b078ce602c7cb23fd557f20d65f4",
+    "project-code.bin": "afda2d7a491a5e9fea5c9d326c643a1d7181cae5c455fde4bb4ff8c54f38a02d",
+    "project-dispatch.bin": "036d0265d1358bf07d96523e6d26431a2aa5cce2d45d32a255a6869a776709d4",
+    "project-rows.bin": "4f30802b01d03f82f7964309146e16b1c8c390031c8f3581898a4c67b1d5fc66",
+    "proxy-policy.args": "bf11ff3862e252bd78254ef7b64c6293740df95e6cc1f837eb7a0337a93f0562",
+    "save-io.so": "1493599d55d7f98cf52bbb137e587397bad8a61eaf3249401c924cecae731018",
+    "session-phdr.bin": "f3cbb3948639c859ab74b6b81e3f60877d653c0f75b245462462e8f490ab2cb5",
+    "stage-data": "81e6424627d7f96ed49c53d13a907ca8917d4a295f2d489afa0ddaae6e935377",
+    "ui-indicator-bounds.bin": "a5724120707b6fe02b5d9525cf0934ac2e40a4334395f3a898cb75701ea052c0",
+    "ui-indicator-render.bin": "ea959d18f32090ebfbdcf6c515f8005a30d95ffdc3988ab082d3f0a644ffe41b",
+    "values-code.bin": "d9478ac872337df979e28aebbd4ceba5f5d9b63d7208db750780033a0bb2a711",
+    "values-label-render.bin": "6697e48454ff087b6e2252bc829b7dcd0283d22930271d82e51828754b47ea6a",
+    "values-render.bin": "4696c2d3c7aedc2d4a12969002fef675e9d531f25fb61cba0f4b0c94900fcd2c",
+    "xdg-dbus-proxy": "751a39dd6c4ce06a11839f454607319ea6d90eb334b481233fa6cf6968fc2689"
+  },
+  "patched_copy_sha256": "d50c712efa80179235c52274e8103fa9818abcb3384b48aeaae530077c800263",
+  "changed_payloads_from_r9g": [
+    "autorun.check",
+    "autorun.json",
+    "autorun.sh",
+    "mod-launcher.sh",
+    "save-io.so"
+  ],
+  "findings": [
+    "Fresh r9g report confirms actual clone and two native writable save folders; sample External failure persists",
+    "Full returned card inventory found no dmendrums; no external project persistence confirmation",
+    "Native path building appends User; Samples/User covered by existing subtree allowance",
+    "Diagnostic preload library pinned by SHA, mounted RO in clone; environment enabled only at clone exec, not stock or recovery",
+    "Bounded RAM log up to1024 records; first16 relevant statfs calls, read-only disk/mount snapshot and upper file names added",
+    "UI/app bytes, helper binaries, D-Bus policy, two write exceptions and RAM quotas unchanged",
+    "ARM shared-library compilation with warnings as errors, non-executable stack/read-only relocation inspection; selected imports match native app symbols",
+    "Generated entry/controller hashes, payload/archive hashes and shell syntax inspected; no library/runtime/controller tests run"
+  ],
+  "pending": [
+    "Native stock reopen/playback of samp and proj after full reboot",
+    "Remove temporary IO diagnostics from ordinary build after save/reopen confirmation",
+    "Longer audio/load/capacity work remains unverified",
+    "Add ambiguous-SD preflight and honest project save failure UI",
+    "N10 startup status and temporary Internal label remain open"
+  ],
+  "device_observation": "After clean single-partition SD rebuild, fresh r9h trace and PC files confirm samp.wav and proj.xpj with14 WAV assets. Native project gzip/ACVS/JSON read; referenced WAV basenames all present. User has not reopened in stock yet.",
+  "post_rebuild_saving_verified": false,
+  "device_saved_files_confirmed": true,
+  "stock_reopen_verified": false,
+  "full_reboot_reopen_verified": false
+}

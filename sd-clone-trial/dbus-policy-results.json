@@ -1,0 +1,20 @@
+[
+  {
+    "arch": "amd64",
+    "read": "PASS",
+    "denied": [
+      "Mount",
+      "Set"
+    ],
+    "mutating_calls_reached_service": 0
+  },
+  {
+    "arch": "arm64",
+    "read": "PASS",
+    "denied": [
+      "Mount",
+      "Set"
+    ],
+    "mutating_calls_reached_service": 0
+  }
+]

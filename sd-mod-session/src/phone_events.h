@@ -1,0 +1,17 @@
+#ifndef MPC_PHONE_EVENTS_H
+#define MPC_PHONE_EVENTS_H
+#include <stdint.h>
+enum { PHONE_CONTROLLER = 1, PHONE_BUTTON, PHONE_PAD, PHONE_STEP_PAD, PHONE_STEP_SHORTCUT_PAD, PHONE_WORKFLOW_PAD, PHONE_RESAMPLE_PAD };
+#define PHONE_EVENT_CAPACITY 128
+struct phone_event {
+    uint64_t generation, when_ms, step_ticket, workflow_ticket;
+    unsigned kind, pad, down, up;
+    _Alignas(8) unsigned char native[16];
+    _Alignas(8) unsigned char midi[24]; /* Only native inline messages (size1..8). */
+};
+/* Fixed RAM FIFO: producer never touches editor pointers; consumer is UI Timer.
+ * No allocation, observer thread or message payload with a component pointer. */
+int phone_events_push(const struct phone_event *event);
+int phone_events_pop(struct phone_event *event);
+unsigned phone_events_pending(void);
+#endif

@@ -1,0 +1,14 @@
+{
+  "zip": "mpc-sample-unmodified-clone-trial.zip",
+  "zip_sha256": "e19e43765f1a6fe40ea1b04fd87bf25b66a729b201a5299a6a2f3419b042f9af",
+  "autorun_check": "2c26c7003df352c6677e828b7756ed8e84f9836dd753a71b74ac409a9171dbde",
+  "script_sha256": "249de24030e52e0333b50c3803212789e26633381e05a579fc555e393dde9b1c",
+  "hardware_tested": true,
+  "hardware_validation_scope": "Basic runtime launch and return only; not an exhaustive functional test.",
+  "timing_seconds": {
+    "CLONE_SECONDS": 180,
+    "SUPERVISOR_SECONDS": 210,
+    "GUARD_SECONDS": 240,
+    "PROXY_SECONDS": 330
+  }
+}

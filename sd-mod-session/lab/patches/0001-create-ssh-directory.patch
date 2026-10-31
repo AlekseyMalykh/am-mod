@@ -1,0 +1,12 @@
+diff --git a/scripts/build-images.sh b/scripts/build-images.sh
+index 323cf0f..422ba12 100755
+--- a/scripts/build-images.sh
++++ b/scripts/build-images.sh
+@@ -19,6 +19,7 @@ mkdir -p "$OUT/keys"
+ STAGE=/tmp/layer
+ rm -rf "$STAGE"; cp -a /lab/overlay/lab-layer "$STAGE"
+ install -m 600 "$OUT/keys/host_ed25519" "$STAGE/etc/ssh/mpclab_host_ed25519_key"
++install -d -m 700 "$STAGE/root/.ssh"
+ install -m 600 "$OUT/keys/id_ed25519.pub" "$STAGE/root/.ssh/authorized_keys"
+ install -D -m 755 "$OUT/bridge/mpclab-audio-bridge" "$STAGE/opt/mpclab/bin/mpclab-audio-bridge"
+ chmod 700 "$STAGE/root/.ssh"
