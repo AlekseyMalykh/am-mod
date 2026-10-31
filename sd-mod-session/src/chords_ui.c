@@ -222,6 +222,14 @@ static void text(void*g,const char*s,int x,int y,int w,int h,float height){
  FN(0x10817b0,void(*)(void*,const uint64_t*,int,int,int,int,int,int,float))(g,&string,x,y,w,h,0x24,1,.7f);
  FN(0x1070d60,void(*)(uint64_t*))(&font);FN(0xf0a290,void(*)(uint64_t*))(&string);
 }
+/* Shift badge as the native K panel draws it (values_ui.S): a 10x12 frame
+ * with "S", white, red while Shift is held. bx = column*106+94, top = y. */
+static void shift_badge(void *g,int bx,int top,int on)
+{
+    colour(g,on ? 0xffff4747 : 0xffffffff);
+    rect(g,bx,top,10,1); rect(g,bx,top+11,10,1); rect(g,bx,top,1,12); rect(g,bx+9,top,1,12);
+    text(g,"S",bx+1,top+1,8,10,10.0f);
+}
 int chords_ui_paint(void*root,void*g){
  if(!chords_active())return 0;
  struct chord_config c;chords_get(&c);char line[128],name[MUSIC_NAME_BYTES]={0};
@@ -279,7 +287,7 @@ int chords_ui_paint(void*root,void*g){
   else if(i==2)snprintf(line,sizeof(line),"%s",shift?chords_arp_rate_names[c.arp_rate]:chords_arp_names[c.arp]);
   else snprintf(line,sizeof(line),"%+d",i==0?c.octave:c.inversion);
   text(g,title,x+4,200,w-8,13,12);text(g,line,x+4,215,w-8,18,16);
-  if(i!=1){colour(g,shift?0xffff4040:0xffffffff);text(g,"S",x+w-14,200,12,13,10);colour(g,i==focus?0xffffc247:0xffffffff);}
+  if(i!=1){shift_badge(g,i*106+94,200,shift);colour(g,i==focus?0xffffc247:0xffffffff);}
   if(i==focus){rect(g,x,198,w,2);rect(g,x,198,2,34);rect(g,x+w-2,198,2,34);}
   int count=i==0?(shift?2:5):i==1?7:(shift?ARP_RATES:ARP_PATTERNS);
   int selected=i==0?(shift?c.arp_range-1:c.octave+2):i==1?c.inversion+3:(shift?c.arp_rate:c.arp);

@@ -88,6 +88,7 @@ void step_layer_sample(void*i,int layer,uintptr_t*out,uintptr_t fn){(void)i;asse
 static unsigned char copy_context_data[0x100],copy_current[0x100],copy_mode[0x90],copy_controls[0x3400],copy_screen[0x148],copy_program[0x1400],sounds[128][0x2300];
 static unsigned char browser_things[0xc0];static int browser_context_live,sample_loads,loaded_pad,selected_pad,copy_closes;
 void *note_native_context(void){return browser_context_live?browser_things:NULL;}
+int note_native_sample_visible(void){return 0;} /* autoload stays idle in this check */
 static void select_pad(void*p,int n){assert(p==browser_things&&n>=0&&n<128);selected_pad=n;}
 static void sample_action(void*p,const struct file_result*f){assert(p==service+0x10&&f->file);assert(!strcmp(filename(f),"Kick drum.wav"));loaded_pad=selected_pad;++sample_loads;}
 static unsigned char copy_layers[128][0xb00];

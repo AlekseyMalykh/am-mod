@@ -15,6 +15,10 @@
 #include <unistd.h>
 #include <math.h>
 #include <strings.h>
+#include <ftw.h>
+#include <glob.h>
+#include <dirent.h>
+#include <sys/stat.h>
 #include "pad_palette.h"
 #define FN(o,t) ((t)(base+(o)))
 #define FIELD(p,o,t) (*(t*)((char*)(p)+(o)))
@@ -97,9 +101,11 @@ static unsigned result_pad;
 static int result_pad_ready;
 enum { FILE_SAMPLES=0,FILE_PROJECTS=1 };
 static int project_confirm,selected_audio,delete_after_locate;
+static int delete_confirm;static char delete_dir[1024]; /* project folder (Mod-Exit-...) to delete */
 static int search_preview_on;
 static uint64_t search_preview_file;
 static uint64_t project_candidate;
+static void *constructed_files; /* FilesScreen built at start (autoload) */
 static uint64_t locate_file,locate_parent,locate_deadline;
 static int locating,locate_row;
 static char browser_message[80];static uint64_t browser_message_until;
@@ -244,7 +250,7 @@ static void volume_set(unsigned v){
 }
 static const char* filename(const struct file_result*f){const char*p=(const char*)(uintptr_t)f->file;if(!p)return "";const char*n=strrchr(p,'/');return n?n+1:p;}
 static int current_selection(struct file_result*out){
- memset(out,0,sizeof(*out));if(!files||!sample_browser())return 0;
+ memset(out,0,sizeof(*out));if(!files)return 0;
  if(search){if(!results||!match_count)return 0;FN(0xf187a0,void(*)(void*,const void*))(out,&entries[matches[selected]]);out->engaged=1;}
  else workflow_directory(base+0x15b7090,(char*)files+0xff0,&out->file);
  return out->engaged;
@@ -257,19 +263,84 @@ static int selected_is_audio(void){
  int ok=audio_path((char*)(uintptr_t)f.file)&&FN(0xf41ac0,int(*)(const void*))(&f);
  FN(0xf0a290,void(*)(uint64_t*))(&f.file);return ok;
 }
+/* A project is Name.xpj plus Name_[ProjectData]/ beside it. The stock Delete
+ * (with its own question) removes the .xpj; once that file is gone we remove
+ * its _[ProjectData] folder too. Nothing is removed while the .xpj exists. */
+static char pending_xpj[1024],pending_data[1100];static uint64_t pending_since;
+static int remove_entry(const char*p,const struct stat*s,int type,struct FTW*f){(void)s;(void)f;return type==FTW_DP?rmdir(p):unlink(p);}
+static void project_cleanup_tick(void){
+ if(!pending_xpj[0])return;
+ if(access(pending_xpj,F_OK)==0){if(now_ms()-pending_since>10*60*1000){pending_xpj[0]=0;pending_data[0]=0;}return;}
+ struct stat s;if(pending_data[0]&&!lstat(pending_data,&s)&&S_ISDIR(s.st_mode)){
+  int r=nftw(pending_data,remove_entry,16,FTW_DEPTH|FTW_PHYS);
+  fprintf(stderr,"BROWSER PROJECT_DATA_REMOVED rc=%d dir=%s\n",r,pending_data);
+ }
+ pending_xpj[0]=0;pending_data[0]=0;
+}
+static void remember_project(const char*xpj){
+ size_t n=strlen(xpj);if(n<5||n>=sizeof(pending_xpj))return;
+ snprintf(pending_xpj,sizeof(pending_xpj),"%s",xpj);
+ snprintf(pending_data,sizeof(pending_data),"%.*s_[ProjectData]",(int)(n-4),xpj);
+ pending_since=now_ms();
+}
+/* A project folder holds only Name.xpj files and their Name_[ProjectData]
+ * folders (Mod-Exit-Last, old Mod-Exit-<date>). Anything else is left alone. */
+static int project_folder(const char*dir){
+ if(!dir||!strstr(dir,"/MPC-Sample/Projects/"))return 0;
+ DIR*d=opendir(dir);if(!d)return 0;int xpj=0,other=0;struct dirent*e;
+ while((e=readdir(d))){const char*n=e->d_name;if(!strcmp(n,".")||!strcmp(n,".."))continue;
+  size_t l=strlen(n);
+  if(l>4&&!strcasecmp(n+l-4,".xpj"))++xpj;
+  else if(l>14&&!strcmp(n+l-14,"_[ProjectData]"))continue;
+  else ++other;}
+ closedir(d);return xpj>0&&!other;
+}
+/* A loose Name_[ProjectData] folder (no project beside it, or renamed by a
+ * disk check, e.g. "test1_[ProjectData]-1") holding only audio files. */
+static int data_folder(const char*dir){
+ if(!dir||!strstr(dir,"/MPC-Sample/Projects/"))return 0;
+ const char*leaf=strrchr(dir,'/');if(!leaf||!strstr(leaf,"_[ProjectData]"))return 0;
+ DIR*d=opendir(dir);if(!d)return 0;int other=0;struct dirent*e;
+ while((e=readdir(d))){const char*n=e->d_name;if(!strcmp(n,".")||!strcmp(n,".."))continue;if(!audio_path(n))++other;}
+ closedir(d);return !other;
+}
+static void browse_to(const char*dir){
+ void*m=FIELD(files,0xff0+0x188,void*);void*b=m?FIELD(m,0x30,void*):NULL;if(!b)return;
+ uint64_t str=0,f=0;FN(0xf535c0,void(*)(void*,const char*))(&str,dir);FN(0xf75630,void(*)(void*,const void*))(&f,&str);
+ FN(0x1db1020,void(*)(void*,const void*,int))(b,&f,1);
+ FN(0xf0a290,void(*)(void*))(&f);FN(0xf0a290,void(*)(void*))(&str);
+}
+static void close_delete_confirm(void){delete_confirm=0;delete_dir[0]=0;atomic_store(&custom,0);atomic_fetch_add(&epoch,1);repaint(files);}
+static void delete_project_folder(void){
+ char dir[1024];snprintf(dir,sizeof(dir),"%s",delete_dir);
+ int ok=project_folder(dir)||data_folder(dir);int r=ok?nftw(dir,remove_entry,16,FTW_DEPTH|FTW_PHYS):-1;
+ fprintf(stderr,"BROWSER PROJECT_FOLDER_DELETED rc=%d dir=%s\n",r,dir);
+ close_delete_confirm();
+ browser_say(r==0?"Project folder deleted":"Could not delete the folder");
+ char*slash=strrchr(dir,'/');if(slash&&slash>dir){*slash=0;browse_to(dir);}
+}
 static void request_delete(void){
  struct file_result f={0};if(!current_selection(&f))return;
  const char*p=(char*)(uintptr_t)f.file;
- int ok=p&&strstr(p,"/Samples/User/")&&audio_path(p)&&FN(0xf41ac0,int(*)(void*))(&f);
+ /* Samples: audio files in User. Projects: a user's .xpj (never factory
+  * content). Both go to the same stock Delete entry with its own question. */
+ int project=!sample_browser();
+ {struct stat st;if(project&&p&&!search&&!stat(p,&st)&&S_ISDIR(st.st_mode)){
+   if(project_folder(p)||data_folder(p)){snprintf(delete_dir,sizeof(delete_dir),"%s",p);delete_confirm=1;atomic_store(&custom,1);atomic_fetch_add(&epoch,1);}
+   else browser_say("Delete: not a project folder");
+   FN(0xf0a290,void(*)(uint64_t*))(&f.file);repaint(files);return;}}
+ int ok=p&&(project?(strstr(p,"/Projects/")&&browser_tree_accepts(p,1)):(strstr(p,"/Samples/User/")&&audio_path(p)))&&FN(0xf41ac0,int(*)(void*))(&f);
  fprintf(stderr,"BROWSER NATIVE_DELETE_%s file=%s\n",ok?"REQUEST":"REJECT",p?p:"");
- if(!ok){FN(0xf0a290,void(*)(uint64_t*))(&f.file);browser_say("Delete: choose an audio file in User");return;}
+ if(!ok){FN(0xf0a290,void(*)(uint64_t*))(&f.file);browser_say(project?"Delete: choose a project file":"Delete: choose an audio file in User");return;}
  if(search){FN(0xf0a290,void(*)(uint64_t*))(&f.file);locate_result();if(locating)delete_after_locate=1;return;}
  /* Pin the same selected File property used by native sample actions.
   *16056c0 snapshots this value (+160+50) before its modal confirmation;
   * stale asynchronous list notifications cannot choose the previous file. */
  void*s=FIELD(files,0x120,void*);FN(0x15001a0,void(*)(void*,const void*))((char*)s+0x160,&f);
  /* EXACT stock B3 Delete entry16056c0 ->14fc8f0, original confirmation.
-  * No custom unlink, folder deletion or second dialog. */
+  * No custom unlink of the chosen file and no second dialog; a project's
+  * _[ProjectData] folder goes only after the stock question removed its .xpj. */
+ if(project)remember_project(p);
  FN(0x16056c0,void(*)(void*))(files);
  FN(0xf0a290,void(*)(uint64_t*))(&f.file);repaint(files);
 }
@@ -428,13 +499,48 @@ int workflow_install(void(*fp)(void*,void*),void(*cp)(void*,void*)){
  for(unsigned i=0;i<2;++i)if(*slots[i]!=base+0x10e2e10)return 0;
  for(unsigned i=0;i<2;++i){void*page=(void*)((uintptr_t)slots[i]&~(uintptr_t)4095);if(mprotect(page,4096,PROT_READ|PROT_WRITE))return 0;*slots[i]=(uintptr_t)callbacks[i];if(mprotect(page,4096,PROT_READ))_exit(121);}return 1;
 }
-void workflow_destroyed(void*p){if((uintptr_t)p==atomic_load(&chop_id)){atomic_store(&dead_chop,1);atomic_store(&chop_available,0);}if((uintptr_t)p==atomic_load(&files_id)){atomic_store(&dead_files,1);atomic_store(&active,0);atomic_store(&custom,0);atomic_fetch_add(&epoch,1);}if((uintptr_t)p==atomic_load(&copy_id)){atomic_store(&dead_copy,1);atomic_store(&active,0);atomic_store(&custom,0);atomic_fetch_add(&epoch,1);}}
+void workflow_destroyed(void*p){if(p==constructed_files)constructed_files=NULL;if((uintptr_t)p==atomic_load(&chop_id)){atomic_store(&dead_chop,1);atomic_store(&chop_available,0);}if((uintptr_t)p==atomic_load(&files_id)){atomic_store(&dead_files,1);atomic_store(&active,0);atomic_store(&custom,0);atomic_fetch_add(&epoch,1);}if((uintptr_t)p==atomic_load(&copy_id)){atomic_store(&dead_copy,1);atomic_store(&active,0);atomic_store(&custom,0);atomic_fetch_add(&epoch,1);}}
 int workflow_active(void){return atomic_load(&active);}
 int workflow_blocks_sample_controls(void){return atomic_load(&custom)||atomic_load(&button_routes)||atomic_load(&split_forwarded)||batch_job||batch_leaving;}
 int workflow_jobs_busy(void){return batch_job||mono_job;}
 uint64_t workflow_ticket(void){return atomic_load(&epoch);}
 void workflow_fault(void){atomic_fetch_add(&epoch,1);fault=1;}
+/* Open the last project when the mod starts: the newest .xpj on the card,
+ * which is Mod-Exit-Last unless a project saved later exists (work done in
+ * the stock firmware after leaving the mod). Uses the browser's own open
+ * callback (BrowserLogic+0x30, invoker 0x1500840) of the FilesScreen built
+ * at start, the same path as opening a project from search. */
+static int autoload_done;static uint64_t autoload_after;
+void workflow_files_constructed(void*p){constructed_files=p;}
+static int newest_project(char*out,size_t size){
+ const char*patterns[]={"/media/*/MPC-Sample/Projects/*.xpj","/media/*/MPC-Sample/Projects/*/*.xpj"};
+ time_t best=0;out[0]=0;
+ for(unsigned k=0;k<2;++k){glob_t g;if(glob(patterns[k],0,NULL,&g))continue;
+  for(size_t i=0;i<g.gl_pathc;++i){const char*f=g.gl_pathv[i];struct stat s;
+   if(strstr(f,"/Mod-Exit-saving-")||strstr(f,"/Mod-Exit-Last-old/"))continue;
+   if(!stat(f,&s)&&S_ISREG(s.st_mode)&&s.st_size>0&&s.st_mtime>=best&&strlen(f)<size){best=s.st_mtime;snprintf(out,size,"%s",f);}}
+  globfree(&g);}
+ return out[0]!=0;
+}
+static void autoload_tick(void){
+ if(autoload_done)return;
+ if(!note_native_sample_visible()){autoload_after=0;return;}
+ if(!autoload_after){autoload_after=now_ms()+2500;return;}
+ if(now_ms()<autoload_after)return;
+ autoload_done=1;
+ void*f=constructed_files;void*s=f?FIELD(f,0x120,void*):NULL;
+ if(!s||!FIELD(s,0x40,uintptr_t)||FIELD(s,0x48,uintptr_t)!=base+0x1500840){fprintf(stderr,"AUTOLOAD SKIPPED no_open_callback\n");return;}
+ char path[1024];if(!newest_project(path,sizeof(path))){fprintf(stderr,"AUTOLOAD SKIPPED no_project\n");return;}
+ uint64_t string=0,file=0;
+ FN(0xf535c0,void(*)(uint64_t*,const char*))(&string,path);
+ FN(0xf75630,void(*)(uint64_t*,const uint64_t*))(&file,&string);
+ fprintf(stderr,"AUTOLOAD OPEN %s\n",path);
+ FN(0x14fc6a0,void(*)(void*,const void*,int))(s,&file,1);
+ FN(0xf0a290,void(*)(uint64_t*))(&file);FN(0xf0a290,void(*)(uint64_t*))(&string);
+}
 int workflow_tick(void){
+ project_cleanup_tick();
+ autoload_tick();
  if(mono){
   if(mono_job)batch_copy_poll(&mono_progress);
   if(atomic_load(&dead_chop)||current_program()!=mono_program||atomic_load(&fault)){
@@ -453,6 +559,7 @@ int workflow_tick(void){
  if(batch_job)batch_job_tick();
  if(batch_leaving)batch_exit_tick();
  int v=visible(files);if(search&&!v)close_search();
+ if(delete_confirm&&!v){delete_confirm=0;delete_dir[0]=0;atomic_store(&custom,0);}
  selected_audio=v&&(search&&results?(sample_browser()&&match_count>0):selected_is_audio());
  if(volume_service||(v&&sample_browser()))volume_refresh();
  if(locating)locate_tick();
@@ -502,7 +609,7 @@ int workflow_control(void*e,uint64_t ticket){
  if(batch)return batch_control(e);
  if(!visible(files))return 0;
  unsigned cc=FIELD(e,8,unsigned char),v=FIELD(e,9,unsigned char);int d=v>64?(int)v-128:(int)v;
- if(project_confirm)return 1;
+ if(project_confirm||delete_confirm)return 1;
  if(cc==0x12&&selected_audio&&(!search||results)&&(!shift||(search&&results))){volume_set(v);return 1;}
  if(!search)return 0;
  if(results){if(cc==0x64||cc==0x11)selected=clamp(cc==0x64?selected+d:(int)(v*match_count/128),0,match_count?(int)match_count-1:0);}
@@ -545,7 +652,8 @@ int workflow_button(void*e,uint64_t ticket){
  if(batch_leaving||batch_job||(batch||(visible(copy_root)&&FIELD(e,8,unsigned char)==0x0d)))return batch_button(e);
  if(!visible(files))return 0;
  unsigned code=FIELD(e,8,unsigned char),down=FIELD(e,9,unsigned char);if(code==0x31){shift=!!down;repaint(files);return 0;}
- if(code==0x09&&sample_browser()&&(!search||results)){if(down)request_delete();return 1;}
+ if(delete_confirm){if(down){if(code==0x0c)close_delete_confirm();else if(code==0x0e)delete_project_folder();}return 1;}
+ if(code==0x09&&(!search||results)){if(down)request_delete();return 1;}
  if(!search&&shift&&code==0x0d)return 1; /* Eject is reserved for stock after Mod Off. */
  if(!search){if(code==0x0e&&shift){if(down)start_search();return 1;}
   /* Stock toggles auto-preview but may leave the current one-shot voice
@@ -605,6 +713,11 @@ static void storage_paint(void*p,void*g){
  if(b)workflow_directory(base+0x1db08c0,b,&directory);
  if(!directory)return;
  char name[80],address[512];
+ /* The B2 storage tab (white text on black like B1/B3): in the mod both pages read "Internal" because the
+  * card the mod runs from is mounted like internal storage. Name the page
+  * after the folder actually open: /media/... is the SD card. */
+ {const char*d=(const char*)(uintptr_t)directory;const char*tab=!strncmp(d,"/media/",7)?"External":"Internal";
+  colour(g,0xff000000);rect(g,108,5,104,25);colour(g,WHITE);text(g,tab,107,6,106,22,14);}
  if(storage_caption((char*)(uintptr_t)directory,name,sizeof(name),address,sizeof(address))){
   component_caption(p,0x418,g,name,13);component_caption(p,0x11d0,g,address,11);
  }
@@ -616,6 +729,11 @@ static void query_view(char*out,size_t size){
 void workflow_files_paint(void*p,void*g){
  if(atomic_exchange(&dead_files,0)){clear_locate();files=NULL;close_search();}
  if(files!=p){clear_locate();if(files)close_search();files=p;atomic_store(&files_id,(uintptr_t)p);atomic_store(&dead_files,0);atomic_fetch_add(&epoch,1);}workflow_tick();if(!visible(p))return;
+ if(delete_confirm){const char*leaf=strrchr(delete_dir,'/');
+  colour(g,0xff000000);rect(g,0,5,320,235);colour(g,WHITE);text(g,"Cancel",0,6,106,23,14);colour(g,RED);text(g,"Delete",214,6,106,23,14);
+  colour(g,AMBER);text(g,"Delete project folder?",8,60,304,24,19);colour(g,WHITE);text(g,leaf?leaf+1:delete_dir,8,94,304,30,15);
+  text(g,"The folder and its samples are removed.",8,140,304,20,13);text(g,"This cannot be undone.",8,162,304,20,13);
+  text(g,"B3: delete  |  B1: cancel",8,196,304,20,12);return;}
  if(!search){storage_paint(p,g);if(shift){colour(g,0xff000000);rect(g,107,6,213,25);colour(g,WHITE);text(g,"Search",214,6,106,23,14);}else if(selected_audio)volume_paint(g);if(browser_message[0]&&now_ms()<browser_message_until){colour(g,0xff000000);rect(g,0,181,320,15);colour(g,AMBER);text(g,browser_message,0,181,320,15,10);}return;}
  if(project_confirm){colour(g,0xff000000);rect(g,0,5,320,235);colour(g,WHITE);text(g,"Cancel",0,6,106,23,14);text(g,"Open",214,6,106,23,14);colour(g,AMBER);text(g,"Open project?",8,64,304,24,19);struct file_result candidate={project_candidate,1,{0}};text(g,filename(&candidate),8,98,304,38,15);colour(g,WHITE);text(g,"Unsaved changes may be lost.",8,150,304,20,13);text(g,"B3: confirm  |  B1: cancel",8,180,304,20,12);return;}
  colour(g,0xff000000);rect(g,0,5,320,235);colour(g,WHITE);

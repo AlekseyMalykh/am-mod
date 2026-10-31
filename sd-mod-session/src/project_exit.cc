@@ -20,6 +20,7 @@ extern "C" {
 #include <sys/mman.h>
 #include <unistd.h>
 #include <ctime>
+#include <ftw.h>
 #define F(p,o,T) (*reinterpret_cast<T*>(reinterpret_cast<char*>(p)+(o)))
 static std::atomic<int> state{0};
 static char message[160], destination[1400];
@@ -71,19 +72,28 @@ static std::string projects_root(){
         throw std::runtime_error("SD Projects location changed");
     return dir;
 }
+/* One recovery copy: Projects/Mod-Exit-Last.xpj. A new copy is written into a
+ * staging folder first; only after it is saved and flushed does it replace
+ * the previous one, so a failed save never loses the last good copy. */
+static int remove_entry(const char*p,const struct stat*,int type,struct FTW*){return type==FTW_DP?rmdir(p):unlink(p);}
+static void remove_tree(const std::string&root,const std::string&path){
+    if(path.compare(0,root.size()+10,root+"/Mod-Exit-"))return; /* only our own folders */
+    struct stat st{};if(lstat(path.c_str(),&st)||!S_ISDIR(st.st_mode))return;
+    nftw(path.c_str(),remove_entry,16,FTW_DEPTH|FTW_PHYS);
+}
 static void save(void *saver){
-    uint64_t string=0,file=0;
+    uint64_t string=0,file=0;std::string root,staging;
     try{
         /* Date-time first so copies sort chronologically in the browser;
          * mkdtemp keeps the name unique without replacing older copies. */
-        char stamp[32]="";time_t now=time(nullptr);struct tm local{};
-        if(localtime_r(&now,&local))strftime(stamp,sizeof(stamp),"%Y%m%d-%H%M-",&local);
-        auto folder=projects_root()+"/Mod-Exit-"+stamp+"XXXXXX";
+        root=projects_root();
+        auto folder=root+"/Mod-Exit-saving-XXXXXX";
         char unique[1200];
         if(folder.size()>=sizeof(unique))throw std::runtime_error("SD path too long");
         std::strcpy(unique,folder.c_str());
         if(!mkdtemp(unique))throw std::runtime_error("Cannot create SD recovery folder");
-        std::snprintf(destination,sizeof(destination),"%s/Project.xpj",unique);
+        staging=unique;
+        std::snprintf(destination,sizeof(destination),"%s/Mod-Exit-Last.xpj",unique);
         unsigned serial=music_archive_saved_count();
         FN(0xf535c0,void(*)(uint64_t*,const char*))(&string,destination);
         FN(0xf75630,void(*)(uint64_t*,const uint64_t*))(&file,&string);
@@ -110,13 +120,42 @@ static void save(void *saver){
             stat_result,stat_error,(unsigned)st.st_mode,(long long)st.st_size,flushed,flush_error);
         close(fd);
         if(!valid||flushed)throw std::runtime_error("Could not flush project copy to SD");
-        const char*leaf=std::strrchr(unique,'/');
-        std::snprintf(message,sizeof(message),"Saved copy: %.120s",leaf?leaf+1:unique);
+        /* Place the copy as Projects/Mod-Exit-Last.xpj + Mod-Exit-Last_[ProjectData]
+         * so the browser lists it as one project (the stock browser hides
+         * _[ProjectData] folders). The previous copy (and the older
+         * Mod-Exit-Last folder layout) moves to Mod-Exit-Last-old first and is
+         * removed only after the new one is in place. */
+        const std::string xpj=root+"/Mod-Exit-Last.xpj",data=root+"/Mod-Exit-Last_[ProjectData]",
+            legacy=root+"/Mod-Exit-Last",old=root+"/Mod-Exit-Last-old",
+            new_xpj=staging+"/Mod-Exit-Last.xpj",new_data=staging+"/Mod-Exit-Last_[ProjectData]";
+        remove_tree(root,old);
+        if(mkdir(old.c_str(),0755))throw std::runtime_error("Could not replace the previous copy");
+        struct stat entry{};
+        int had_xpj=!lstat(xpj.c_str(),&entry),had_data=!lstat(data.c_str(),&entry),had_legacy=!lstat(legacy.c_str(),&entry)&&S_ISDIR(entry.st_mode);
+        auto restore=[&]{
+            if(had_xpj)rename((old+"/Mod-Exit-Last.xpj").c_str(),xpj.c_str());
+            if(had_data)rename((old+"/data").c_str(),data.c_str());
+            if(had_legacy)rename((old+"/legacy").c_str(),legacy.c_str());
+        };
+        if((had_xpj&&rename(xpj.c_str(),(old+"/Mod-Exit-Last.xpj").c_str()))||
+           (had_data&&rename(data.c_str(),(old+"/data").c_str()))||
+           (had_legacy&&rename(legacy.c_str(),(old+"/legacy").c_str()))){restore();throw std::runtime_error("Could not replace the previous copy");}
+        int has_new_data=!lstat(new_data.c_str(),&entry);
+        if(rename(new_xpj.c_str(),xpj.c_str())||(has_new_data&&rename(new_data.c_str(),data.c_str()))){
+            rename(xpj.c_str(),new_xpj.c_str());restore();
+            throw std::runtime_error("Could not replace the previous copy");
+        }
+        rmdir(staging.c_str());staging.clear();
+        remove_tree(root,old);
+        {int dir=open(root.c_str(),O_RDONLY|O_CLOEXEC|O_DIRECTORY);if(dir>=0){syncfs(dir);close(dir);}}
+        std::snprintf(destination,sizeof(destination),"%s",xpj.c_str());
+        std::snprintf(message,sizeof(message),"Saved copy: Mod-Exit-Last");
         std::fprintf(stderr,"MOD_EXIT COPY_READY path=%s\n",destination);
         state.store(2,std::memory_order_release);
     }catch(const std::exception&e){
         copying=false;
         release_futures();
+        if(!staging.empty())remove_tree(root,staging);
         if(file)FN(0xf0a290,void(*)(uint64_t*))(&file);
         if(string)FN(0xf0a290,void(*)(uint64_t*))(&string);
         std::snprintf(message,sizeof(message),"%s",e.what());
@@ -125,6 +164,7 @@ static void save(void *saver){
     }catch(...){
         copying=false;
         release_futures();
+        if(!staging.empty())remove_tree(root,staging);
         if(file)FN(0xf0a290,void(*)(uint64_t*))(&file);
         if(string)FN(0xf0a290,void(*)(uint64_t*))(&string);
         std::snprintf(message,sizeof(message),"Native project copy failed");

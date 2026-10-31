@@ -3,6 +3,7 @@
 #include <stdint.h>
 void workflow_init(uintptr_t base);
 void workflow_registry_bind(void *services);
+void workflow_files_constructed(void *files);
 void *workflow_project_services(void);
 int workflow_jobs_busy(void); /* UI thread; protects an in-flight copy/mono job. */
 void workflow_master_volume_bind(void *parameter,void *control);

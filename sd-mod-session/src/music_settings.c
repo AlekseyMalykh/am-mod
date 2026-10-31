@@ -32,6 +32,19 @@ int music_set_sequence_colour(unsigned sequence,unsigned colour){
     atomic_fetch_add(&generation,1);return 1;
 }
 
+int music_pad_colour(unsigned pad){
+    if(pad>=128)return 0;
+    pthread_mutex_lock(&mutex);int v=project.pad_colours[pad];pthread_mutex_unlock(&mutex);return v;
+}
+int music_set_pad_colour(unsigned pad,unsigned colour){
+    if(pad>=128||colour>=MUSIC_SEQUENCE_COLOURS)return 0;
+    pthread_mutex_lock(&mutex);project.pad_colours[pad]=(unsigned char)colour;pthread_mutex_unlock(&mutex);
+    atomic_fetch_add(&generation,1);return 1;
+}
+int music_pad_colours_used(void){
+    int used=0;pthread_mutex_lock(&mutex);for(unsigned i=0;i<128&&!used;++i)used=project.pad_colours[i]!=0;pthread_mutex_unlock(&mutex);return used;
+}
+
 static void sample_default(struct music_sample *p,const char *name)
 {
     memset(p,0,sizeof(*p)); p->root=-1; p->tonic=-1; p->scale=-1;
@@ -145,8 +158,12 @@ int music_encode(const struct music_project *p,char *out,size_t size)
 {
     if (p->count>MUSIC_MAX_SAMPLES) return 0;
     unsigned extended=0;
+    unsigned pads=0;
     for(unsigned i=0;i<128;++i){if(p->sequence_colours[i]>=MUSIC_SEQUENCE_COLOURS)return 0;if(p->sequence_colours[i]>=5)extended=1;}
-    int n=snprintf(out,size,"MPCS1%c %d %d %u\n",extended?'6':'5',p->tonic,p->scale,p->count);
+    for(unsigned i=0;i<128;++i){if(p->pad_colours[i]>=MUSIC_SEQUENCE_COLOURS)return 0;if(p->pad_colours[i])pads=1;}
+    /* Version 7 only when a pad colour is set, so older builds keep reading
+     * projects that do not use the feature. */
+    int n=snprintf(out,size,"MPCS1%c %d %d %u\n",pads?'7':extended?'6':'5',p->tonic,p->scale,p->count);
     if (n<0 || (size_t)n>=size) return 0;
     size_t used=(size_t)n; const char hex[]="0123456789abcdef";
     for (unsigned i=0;i<p->count;++i) {
@@ -171,6 +188,12 @@ int music_encode(const struct music_project *p,char *out,size_t size)
     if(size-used<=129)return 0;
     for(unsigned i=0;i<128;++i)out[used++]=hex[p->sequence_colours[i]];
     out[used++]='\n';out[used]=0;
+    if(pads){
+        n=snprintf(out+used,size-used,"PAD128\n");if(n!=7||(size_t)n>=size-used)return 0;used+=(size_t)n;
+        if(size-used<=129)return 0;
+        for(unsigned i=0;i<128;++i)out[used++]=hex[p->pad_colours[i]];
+        out[used++]='\n';out[used]=0;
+    }
     return (int)used;
 }
 static int number(const char **cursor,const char *end,int *out,char delimiter)
@@ -187,8 +210,8 @@ static int number(const char **cursor,const char *end,int *out,char delimiter)
 static int unhex(char c) { return c>='0' && c<='9' ? c-'0' : c>='a' && c<='f' ? c-'a'+10 : -1; }
 int music_decode(const char *in,size_t size,struct music_project *out)
 {
-    if (size<12 || size>=MUSIC_PAYLOAD_BYTES || (memcmp(in,"MPCS12 ",7)&&memcmp(in,"MPCS13 ",7)&&memcmp(in,"MPCS14 ",7)&&memcmp(in,"MPCS15 ",7)&&memcmp(in,"MPCS16 ",7))) return 0;
-    int version13=in[5]>='3',version14=in[5]>='4',version15=in[5]>='5',version16=in[5]=='6';
+    if (size<12 || size>=MUSIC_PAYLOAD_BYTES || (memcmp(in,"MPCS12 ",7)&&memcmp(in,"MPCS13 ",7)&&memcmp(in,"MPCS14 ",7)&&memcmp(in,"MPCS15 ",7)&&memcmp(in,"MPCS16 ",7)&&memcmp(in,"MPCS17 ",7))) return 0;
+    int version13=in[5]>='3',version14=in[5]>='4',version15=in[5]>='5',version16=in[5]>='6',version17=in[5]=='7';
     const char *s=in+7,*end=in+size; int count;
     music_defaults(out);
     if (!number(&s,end,&out->tonic,' ') || !number(&s,end,&out->scale,' ')
@@ -230,10 +253,16 @@ int music_decode(const char *in,size_t size,struct music_project *out)
         }
     }
     if(version15){
-        if(end-s!=136||memcmp(s,"SEQ128\n",7))return 0;
+        if(end-s!=(version17?272:136)||memcmp(s,"SEQ128\n",7))return 0;
         s+=7;
         for(unsigned i=0;i<128;++i){int v=unhex(*s++);if(v<0||v>=(version16?MUSIC_SEQUENCE_COLOURS:5))return 0;out->sequence_colours[i]=(unsigned char)v;}
         if(*s++!='\n')return 0;
+        if(version17){
+            if(memcmp(s,"PAD128\n",7))return 0;
+            s+=7;
+            for(unsigned i=0;i<128;++i){int v=unhex(*s++);if(v<0||v>=MUSIC_SEQUENCE_COLOURS)return 0;out->pad_colours[i]=(unsigned char)v;}
+            if(*s++!='\n')return 0;
+        }
     }
     return s==end;
 }
@@ -248,18 +277,21 @@ uint64_t music_light_snapshot(const struct music_sample *p,int semitones)
     for(unsigned i=0;i<3;++i)if(p->colour[i]<0||p->colour[i]>11)return 0;
     if (p->tonic>=0) tonic=p->tonic;
     if (p->scale>=0) scale=p->scale;
-    uint64_t v=(uint64_t)(p->root+1) | ((uint64_t)(p->mode&3)<<4) | ((uint64_t)(p->transpose+24)<<6)
+    int mode=p->mode==MUSIC_TONIC||p->mode==MUSIC_DEGREES?MUSIC_SCALE:p->mode;
+    uint64_t v=(uint64_t)(p->root+1) | ((uint64_t)(mode&3)<<4) | ((uint64_t)(p->transpose+24)<<6)
         | ((uint64_t)(semitones+96)<<12) | ((uint64_t)tonic<<20) | ((uint64_t)scale<<24);
     for (unsigned i=0;i<3;++i) v|=(uint64_t)p->colour[i]<<(28+i*4);
-    v|=(uint64_t)(p->mode>>2)<<40;
+    v|=(uint64_t)(mode>>2)<<40;
     v|=(uint64_t)p->original_colour<<41;
     return v;
 }
 void music_publish(const struct music_sample *p,int semitones)
 { atomic_store(&published,music_light_snapshot(p,semitones)); }
 uint64_t music_published(void) { return atomic_load(&published); }
-int music_mode_ui_index(int mode){return mode==MUSIC_SCALE?4:mode==MUSIC_DEGREES?3:mode;}
-int music_mode_from_ui_index(int index){return index==4?MUSIC_SCALE:index==3?MUSIC_DEGREES:index;}
+/* The Lights page offers Monochrome, Piano and Scale. Tonic and Degrees were
+ * dropped in r25f; projects that chose them light as Scale. */
+int music_mode_ui_index(int mode){return mode==MUSIC_MONO?0:mode==MUSIC_PIANO?1:2;}
+int music_mode_from_ui_index(int index){return index<=0?MUSIC_MONO:index==1?MUSIC_PIANO:MUSIC_SCALE;}
 int music_transposition(void) { uint64_t v=music_published(); return v ? (int)((v>>6)&63)-24 : 0; }
 uint64_t music_pitch_light(uint64_t v,int semitones,int *replace)
 {

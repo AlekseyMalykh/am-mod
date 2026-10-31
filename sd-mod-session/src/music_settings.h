@@ -11,12 +11,16 @@ extern "C" {
 enum { MUSIC_MONO, MUSIC_PIANO, MUSIC_TONIC, MUSIC_SCALE, MUSIC_DEGREES };
 enum { MUSIC_ROOT, MUSIC_MODE, MUSIC_TRANSPOSE, MUSIC_COLOUR0, MUSIC_COLOUR1, MUSIC_COLOUR2, MUSIC_LOCAL_TONIC, MUSIC_LOCAL_SCALE, MUSIC_ORIGINAL_COLOUR };
 struct music_sample { char name[MUSIC_NAME_BYTES]; int root,mode,transpose,colour[3],tonic,scale,original_colour; };
-struct music_project { int tonic,scale; unsigned count; struct music_sample samples[MUSIC_MAX_SAMPLES]; uint64_t pad_eq[128]; unsigned char sequence_colours[128]; };
+struct music_project { int tonic,scale; unsigned count; struct music_sample samples[MUSIC_MAX_SAMPLES]; uint64_t pad_eq[128]; unsigned char sequence_colours[128]; unsigned char pad_colours[128]; };
 #define MUSIC_SEQUENCE_COLOURS 13
 extern const char *const music_sequence_colour_names[MUSIC_SEQUENCE_COLOURS];
 extern const uint32_t music_sequence_colours[MUSIC_SEQUENCE_COLOURS];
 int music_sequence_colour(unsigned sequence);
 int music_set_sequence_colour(unsigned sequence,unsigned colour);
+/* Pad colour in Sample (Trim page 2, Shift+K1): same palette, 0 = Stock. */
+int music_pad_colour(unsigned pad);
+int music_set_pad_colour(unsigned pad,unsigned colour);
+int music_pad_colours_used(void);
 extern const char *const music_note_names[12];
 extern const char *const music_scale_names[8];
 extern const char *const music_colour_names[12];

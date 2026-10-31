@@ -137,8 +137,12 @@ int phone_pad(struct phone_input *s, unsigned pad, int down, uint64_t now_ms)
         if (pad == 12 && was_held) { phone_commit(s); s->uppercase = 0; }
         return 1;
     }
-    if (s->held & bit) return 1; /* Pressure/repeated down is not another tap. */
+    /* A duplicate down right after the first is not another tap. A down long
+     * after it means the release was lost (another window took it, a mode
+     * change): treat it as a new tap so the pad never stays locked. */
+    if ((s->held & bit) && now_ms >= s->down_ms[pad - 1] && now_ms - s->down_ms[pad - 1] < PHONE_DUPLICATE_DOWN_MS) return 1;
     s->held |= bit;
+    s->down_ms[pad - 1] = now_ms;
     phone_tick(s, now_ms);
     if (pad == 12) { phone_commit(s); s->uppercase = 1; return 1; }
     if (pad == 4) { phone_commit(s); s->numeric = !s->numeric; return 1; }

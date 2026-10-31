@@ -2,7 +2,7 @@
 
 **English** · [Русский](FEATURES.ru.md)
 
-State as of build **r24x** (31 October 2026), MPC Sample firmware **1.3.0.12**.
+State as of build **r25x** (1 November 2026), MPC Sample firmware **1.3.0.12**.
 
 **Statuses:**
 - **Confirmed**: checked on a real MPC Sample.
@@ -11,6 +11,18 @@ State as of build **r24x** (31 October 2026), MPC Sample firmware **1.3.0.12**.
 A confirmation covers that specific trial, not every combination of features in later builds. Build history: [CHANGELOG](../CHANGELOG.md).
 
 Terms: **B1–B3** are the three buttons above the screen, **K1–K3** the three knobs below it, "encoder" is the large DATA wheel.
+
+## r25x update — 1 November 2026
+
+The author confirmed the current features on an MPC Sample with r25w. r25x removes temporary diagnostic messages and prepares the public documentation; feature behaviour is unchanged. ARM/QEMU checks are listed in the release notes and do not establish coverage of every setting combination on hardware.
+
+- **Pad Colour:** Sample → B1 → **Mix** → **Shift+K1**. 13 choices including **Stock**, saved per pad in the project. While holding Shift, an encoder press toggles Pad Colour focus and turning changes the colour. Kit Volume loses its frame during colour editing and native focus is restored afterwards. Mute and Erase keep their native status colours.
+- **Erase in Open Project:** project files use the native confirmation and also remove the companion `_[ProjectData]` directory. A project folder or a loose `_[ProjectData]` folder has a separate question: **B1 Cancel, B3 Delete**. Its samples are deleted too; this cannot be undone.
+- **One exit copy:** `MPC-Sample/Projects/Mod-Exit-Last.xpj` and `Mod-Exit-Last_[ProjectData]`. The previous copy is replaced after the new save succeeds; staging is not listed as another project.
+- **Latest project at startup:** opens the newest `.xpj` on SD in Projects or one directory level below it. Normally this is Mod-Exit-Last; a project saved later in the stock app takes priority. Selection uses file modification time, not a history of manually opened projects.
+- **Storage labels:** browser B2 shows **Internal / External** from the actual path. Internal remains temporary in the mod.
+- **Lights:** three modes — **Monochrome, Piano, Scale**. Older Tonic/Degrees settings load as Scale. Tonic, scale, Transpose16 and group colours remain available.
+- **Interface:** framed **S** badges, white normally and red with Shift; Zoom: Loop lock at the right edge; a Seq Colour swatch. Pad-name entry has cursor and repaint fixes.
 
 ## Contents
 
@@ -40,7 +52,7 @@ Terms: **B1–B3** are the three buttons above the screen, **K1–K3** the three
 | Starts when the card is inserted into a running MPC, and when the MPC boots with the card inside | confirmed (r23a) |
 | On start the stock app closes: the screen and the pads go dark for a few seconds, then the mod appears. The same on Mod Off. Do not power off or pull the card meanwhile | expected behaviour |
 | **Project → Mod Off**: the last item of the Project menu (Shift+Pad 16), with a confirmation: B1 Cancel, B3 Mod Off | confirmed |
-| On Mod Off the mod saves a separate copy of the project with its samples to `MPC-Sample/Projects/Mod-Exit-<id>/`, then the stock app returns. If saving fails, the mod stays on with Back and Retry | confirmed |
+| On Mod Off the mod saves a separate copy of the project with its samples to `MPC-Sample/Projects/Mod-Exit-Last.xpj` + `Mod-Exit-Last_[ProjectData]`, then the stock app returns. If saving fails, the mod stays on with Back and Retry | confirmed |
 | **Power key** (short press): stock question → project copy to SD (*Saving project copy* screen) → power off | confirmed (r23) |
 | Saving projects and samples to **External** (`MPC-Sample/Projects`, `MPC-Sample/Samples`, including subfolders); the stock app opens them | confirmed |
 | **Internal** is temporary in the mod: anything saved there is lost when the mod stops | — |
@@ -53,7 +65,7 @@ Terms: **B1–B3** are the three buttons above the screen, **K1–K3** the three
 |---|---|
 | **K1–K3 panel**: parameter name and value always visible, centred, on black. The selected field has an amber name, value, bracket and bar. Continuous parameters show a bar, switches show segments | confirmed |
 | Readable labels instead of internal names: **Length**, **Q**, **Time Sig** | confirmed |
-| **S** marks next to parameters that change with Shift: white, red while Shift is held. For example, Sample → Mix shows **Kit Volume** on K2 with Shift | confirmed |
+| Framed **S** marks next to parameters that change with Shift: white, red while Shift is held. For example, Sample → Mix shows **Kit Volume** on K2 with Shift | confirmed |
 | Loop lock moved to the right edge of K3 | confirmed |
 | **Top buttons and tabs**: one black background, centred labels, compact page indicators (amber for the selected one). Tab groups look different from single actions | trial (coverage of all screens) |
 | Confirmation dialogs show the real answer labels instead of internal `Answer1 / Answer2` | confirmed |
@@ -105,7 +117,7 @@ Works in Save Project / Save Sample and in search. **K1** switches Encoder / Pad
 | **Lights**: pad colours for 16 Levels Tune by note | Sample → B2: Tune → Play → **Lights** | partly confirmed |
 
 Lights: K1 is the mode, K2 the tonic, K3 the scale; with Shift, K1 is Transpose16, K2 the colour group, K3 its colour.
-- Modes: **Monochrome** (stock colours), **Piano** (white and black keys), **Tonic** (tonic highlighted), **Degrees** (one colour per degree), **Scale** (tonic / in scale / out of scale).
+- Modes: **Monochrome** (stock colours), **Piano** (white and black keys), **Scale** (tonic / in scale / out of scale). Older Tonic/Degrees values load as Scale.
 - Tonic and scale either follow the project (shown as **(P)**) or are set per sound. 12 colours including Off; the sample's original pitch has its own colour.
 - **Transpose16 −24…+24** shifts the 16 Levels Tune layout without changing normal pad playback.
 - Colours follow Orig Note, Semi Tune, pad number and Transpose16. Without an Orig Note the stock colours are used.
@@ -201,7 +213,7 @@ When the selected event has a C or L mark, the Chop or 16 Levels button lights u
 
 - Scope: **Folder / Subfolders / Library** and storage (Current / Internal / SD Card), on K3 or Shift+K3.
 - Case-insensitive. Samples: WAV, AIF/AIFF, MP3, FLAC, OGG. Projects: XPJ. Up to 4096 matches.
-- Samples: a pad silently picks the target, **encoder click loads** the sample and stays in the results. **B3 Preview** turns on preview while scrolling. **Shift+click** opens the file's folder with the file selected. Pads use the shared palette (§2): the target white, red and blinking when it would replace a sound; occupied pads dim white (r24x).
+- Samples: a pad silently picks the target, **encoder click loads** the sample and stays in the results. **B3 Preview** turns on preview while scrolling. **Shift+click** opens the file's folder with the file selected. Pads use the shared palette (§2): the target white, red and blinking when it would replace a sound; occupied pads dim white (r25x).
 - Projects: a click asks for confirmation (B3 Open / B1 Cancel).
 - **K3 Preview Vol 0–100 %**: preview level relative to Main Volume, shown only on an audio file.
 - **Erase** on an audio file in `Samples/User` runs the stock Delete with its stock confirmation.

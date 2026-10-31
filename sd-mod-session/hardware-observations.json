@@ -217,12 +217,12 @@
     {
       "revision": "r9g-native-sd-save-folders",
       "journal": "sd-mod-session\\device-results\\20261023-232119-r9g-external-failed\\MPC_CLONE_TRIAL.txt",
-      "user_report": "External sample save still fails; Samples/User suggested; project named dmendrums showed save success but cannot be found.",
+      "user_report": "External sample save still fails; Samples/User suggested; project named example-kit showed save success but cannot be found.",
       "observed": [
         "Current r9g controller SHA verified on returned card and report",
         "Probe and clone both confirmed exactly one Projects and one Samples writable exFAT mount",
         "CLONE_PROCESS_VERIFIED20:10:01Z; MOD_OFF20:13:38Z; STOCK_PROCESS_RESTORED20:13:45Z; SD_SAVE_FLUSHED",
-        "Full card filename inventory found no dmendrums or any project/sample file apart from status WAV",
+        "Full card filename inventory found no example-kit or any project/sample file apart from status WAV",
         "Native code0x14fa7b4/0x14fb6a4 appends string User at0x45a0650 to sample folder"
       ],
       "scope": "Two native write exceptions alone did not fix save. Samples/User is already inside Samples allowance. Actual destination/error not logged by r9g; do not infer successful project persistence or exact further cause.",
@@ -236,7 +236,7 @@
         "Actual r9h controller and diagnostic library loaded; clone verified20:24:54Z, Mod Off20:27:56Z, stock returned20:28:03Z",
         "Trace fopen samp.tmp.wav and samp.wav failed errno30 at /media/113d9b21-4468-4666-a0ca-b9d9dacd52f8/MPC-Sample/Samples/User",
         "mkdir Projects/prod_[ProjectData] failed errno30; dependent sample writes failed errno2",
-        "Selected save path was old SD partition7 ext4 /dev/mmcblk1p7, not autorun/allowed exFAT partition1 /media/9E44-0A9E",
+        "Selected save path was old SD partition7 ext4 /dev/mmcblk1p7, not autorun/allowed exFAT partition1 /media/1234-ABCD",
         "Device exposed old Anbernic partitions2,5,6,7 alongside exFAT partition1; Windows Get-Partition confirmed seven GPT entries",
         "Full Windows-visible inventory contained no prod or samp; log cap1024 was reached after relevant failed operations"
       ],

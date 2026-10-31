@@ -5,6 +5,8 @@
 
 #define PHONE_MAX_CHARS 128
 #define PHONE_MULTITAP_MS 1000
+/* A second down within this time while still held is a duplicate, not a tap. */
+#define PHONE_DUPLICATE_DOWN_MS 120
 
 /* UI-thread state. Text is Unicode so native encoder edits are preserved. */
 struct phone_input {
@@ -13,6 +15,7 @@ struct phone_input {
     uint64_t last_ms;
     size_t pending_position;
     unsigned held, pending_pad, cycle;
+    uint64_t down_ms[16]; /* last down per pad: a lost release must not lock a pad */
     int enabled, numeric, uppercase, pending, shift;
 };
 void phone_init(struct phone_input *s, size_t limit);

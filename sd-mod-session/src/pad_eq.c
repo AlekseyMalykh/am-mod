@@ -156,5 +156,9 @@ void pad_eq_paint(uint64_t v,unsigned pad,int shift,int focus,const struct resam
             int fill=(int)(value*(unsigned)(w-8)/127);if(enabled&&fill)p->rect(p->user,x+4,235,fill,2,ink);
         }
     }
-    p->text(p->user,"S",197,200,11,12,11,shift?0xffff4040u:white,1);
+    {   /* Shift badge as the native K panel draws it: 10x12 frame with "S". */
+        uint32_t c=shift?0xffff4747u:white;int bx=200,top=200;
+        p->rect(p->user,bx,top,10,1,c);p->rect(p->user,bx,top+11,10,1,c);p->rect(p->user,bx,top,1,12,c);p->rect(p->user,bx+9,top,1,12,c);
+        p->text(p->user,"S",bx+1,top+1,8,10,10,c,1);
+    }
 }

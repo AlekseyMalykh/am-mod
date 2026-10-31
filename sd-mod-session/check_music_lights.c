@@ -5,13 +5,14 @@
 static uint32_t light(struct music_sample*s,unsigned pad,int reference){int replace=0;music_publish(s,0);uint64_t v=music_pad_light(music_published(),pad,reference,&replace);assert(replace);return (uint32_t)v;}
 int main(void){
  music_reset();struct music_sample s;music_get_sample("Bass",&s);assert(s.root==-1&&s.original_colour==4);
- assert(MUSIC_SCALE==3&&MUSIC_DEGREES==4&&music_mode_ui_index(MUSIC_SCALE)==4&&music_mode_ui_index(MUSIC_DEGREES)==3);
- for(int mode=0;mode<=4;++mode)assert(music_mode_from_ui_index(music_mode_ui_index(mode))==mode);
+ assert(MUSIC_SCALE==3&&MUSIC_DEGREES==4&&music_mode_ui_index(MUSIC_MONO)==0&&music_mode_ui_index(MUSIC_PIANO)==1&&music_mode_ui_index(MUSIC_SCALE)==2);
+ /* r25f: Tonic and Degrees are no longer offered; stored values show and light as Scale. */
+ assert(music_mode_ui_index(MUSIC_TONIC)==2&&music_mode_ui_index(MUSIC_DEGREES)==2&&music_mode_from_ui_index(2)==MUSIC_SCALE&&music_mode_from_ui_index(1)==MUSIC_PIANO&&music_mode_from_ui_index(0)==MUSIC_MONO);
  assert(music_set_sample("Bass",MUSIC_ROOT,0)&&music_set_sample("Bass",MUSIC_MODE,MUSIC_DEGREES));music_get_sample("Bass",&s);
  for(int t=-24;t<=24;++t){s.transpose=t;music_publish(&s,0);assert(music_transposition()==t);}
  s.transpose=0;assert(light(&s,0,0)==music_colours[4]);
- const unsigned pads[]={2,4,5,7,9,11,12};const unsigned colours[]={1,2,3,6,7,8,0};
- for(unsigned i=0;i<7;++i)assert(light(&s,pads[i],0)==music_colours[colours[i]]);
+ {struct music_sample scale=s;scale.mode=MUSIC_SCALE;struct music_sample tonic=s;tonic.mode=MUSIC_TONIC;
+  assert(music_light_snapshot(&s,0)==music_light_snapshot(&scale,0)&&music_light_snapshot(&tonic,0)==music_light_snapshot(&scale,0));}
  assert(light(&s,1,0)==music_colours[10]);
  s.mode=MUSIC_PIANO;assert(light(&s,0,0)==music_colours[4]&&light(&s,12,0)==0xffffff&&light(&s,1,0)==0x2030ff);
  s.transpose=2;assert(light(&s,2,4)==music_colours[4]);
@@ -38,6 +39,11 @@ int main(void){
  music_snapshot(&p);n=music_encode(&p,text,sizeof(text));assert(n>0&&!memcmp(text,"MPCS16",6)&&music_decode(text,(size_t)n,&q));
  for(unsigned i=0;i<128;++i)assert(q.sequence_colours[i]==i%MUSIC_SEQUENCE_COLOURS);
  text[n-2]='f';assert(!music_decode(text,(size_t)n,&q));
+ assert(!music_pad_colours_used()&&music_set_pad_colour(5,3)&&music_set_pad_colour(127,12)&&!music_set_pad_colour(128,1)&&!music_set_pad_colour(1,MUSIC_SEQUENCE_COLOURS));
+ music_snapshot(&p);n=music_encode(&p,text,sizeof(text));assert(n>0&&!memcmp(text,"MPCS17",6)&&music_decode(text,(size_t)n,&q));
+ assert(q.pad_colours[5]==3&&q.pad_colours[127]==12&&!q.pad_colours[0]&&q.sequence_colours[1]==1&&music_pad_colour(5)==3&&music_pad_colours_used());
+ assert(!music_decode(text,(size_t)n-1,&q));text[n-2]='f';assert(!music_decode(text,(size_t)n,&q));
+ assert(music_set_pad_colour(5,0)&&music_set_pad_colour(127,0)&&!music_pad_colours_used());
  const char old[]="MPCS12 0 0 1\n0 3 0 0 1 10 -1 -1\n42617373\n";assert(music_decode(old,sizeof(old)-1,&q)&&q.samples[0].original_colour==4&&q.samples[0].mode==MUSIC_SCALE);
  music_reset();for(unsigned i=0;i<MUSIC_MAX_SAMPLES;++i){char name[32];snprintf(name,sizeof(name),"sample%u",i);assert(music_set_sample(name,MUSIC_MODE,MUSIC_DEGREES));}
  assert(!music_set_sample("overflow",MUSIC_ROOT,0));music_snapshot(&p);n=music_encode(&p,text,sizeof(text));assert(n>0&&music_decode(text,(size_t)n,&q)&&q.count==MUSIC_MAX_SAMPLES);

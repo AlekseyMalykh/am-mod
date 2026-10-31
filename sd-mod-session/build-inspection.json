@@ -35,7 +35,7 @@
   ],
   "findings": [
     "Fresh r9g report confirms actual clone and two native writable save folders; sample External failure persists",
-    "Full returned card inventory found no dmendrums; no external project persistence confirmation",
+    "Full returned card inventory found no example-kit; no external project persistence confirmation",
     "Native path building appends User; Samples/User covered by existing subtree allowance",
     "Diagnostic preload library pinned by SHA, mounted RO in clone; environment enabled only at clone exec, not stock or recovery",
     "Bounded RAM log up to1024 records; first16 relevant statfs calls, read-only disk/mount snapshot and upper file names added",

@@ -1484,6 +1484,14 @@ static void text_align(void *g,const char *s,int x,int y,int w,int h,float heigh
     FN(0x1070d60,void(*)(uint64_t*))(&font);FN(0xf0a290,void(*)(uint64_t*))(&string);
 }
 static void text(void*g,const char*s,int x,int y,int w,int h,float height){text_align(g,s,x,y,w,h,height,0x24);}
+/* Shift badge as the native K panel draws it (values_ui.S): a 10x12 frame
+ * with "S", white, red while Shift is held. bx = column*106+94, top = y. */
+static void shift_badge(void *g,int bx,int top,int on)
+{
+    colour(g,on ? 0xffff4747 : 0xffffffff);
+    rect(g,bx,top,10,1); rect(g,bx,top+11,10,1); rect(g,bx,top,1,12); rect(g,bx+9,top,1,12);
+    text(g,"S",bx+1,top+1,8,10,10.0f);
+}
 static void left_text(void*g,const char*s,int x,int y,int w,int h,float height){text_align(g,s,x,y,w,h,height,0x21);}
 static void right_text(void*g,const char*s,int x,int y,int w,int h,float height){text_align(g,s,x,y,w,h,height,0x22);}
 static void outline(void *g,int x,int y,int w,int h)
@@ -1562,8 +1570,7 @@ void step_native_paint(void *p,void *g)
             ? (int)lroundf(FIELD(&slots[cursor%16].first,0x10,float)*127) : velocity;
         if(shift)cell(g,213,"Other Sounds",show_other_sounds?"On":"Off",focus==3,show_other_sounds,2);
         else{snprintf(value,sizeof(value),"%d",vel);cell(g,213,"Velocity",value,focus==3,vel,0);}
-        colour(g,shift ? RED : WHITE);text(g,"S",91,200,11,12,11);text(g,"S",197,200,11,12,11);
-        text(g,"S",304,200,11,12,11);
+        shift_badge(g,94,200,shift);shift_badge(g,200,200,shift);shift_badge(g,306,200,shift);
     }
     if (menu) {
         colour(g,0xff000000);rect(g,0,5,320,235);

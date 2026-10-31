@@ -489,7 +489,7 @@ static void music_sample_paint(void *p,void *g)
 {
     if (!ui_known) { ui_thread=pthread_self(); ui_known=1; }
     if (!on_ui()) return;
-    music_ui_sample(p,g); workflow_sample_paint(p,g);
+    music_ui_sample(p,g); workflow_sample_paint(p,g); note_native_sample_overlay(p,g);
 #ifdef MPC_RESAMPLE_TRIAL
     resample_ui_paint(p,g);
 #endif
@@ -540,7 +540,7 @@ static void workflow_copy(void*p,void*g){
  start_timer();}
 }
 static void files_dtor(void*p){workflow_destroyed(p);ORIG(H_FILES_DTOR,void(*)(void*))(p);}
-static void*files_ctor(void*p,void*services){void*r=ORIG(H_FILES_CTOR,void*(*)(void*,void*))(p,services);workflow_registry_bind(services);return r;}
+static void*files_ctor(void*p,void*services){void*r=ORIG(H_FILES_CTOR,void*(*)(void*,void*))(p,services);workflow_registry_bind(services);workflow_files_constructed(p);return r;}
 static void master_volume_ctor(void*p,void*parameter,void*control){ORIG(H_MASTER_VOLUME_CTOR,void(*)(void*,void*,void*))(p,parameter,control);workflow_master_volume_bind(parameter,control);}
 static void file_preview(void*p,const int*mode,const void*file){if(mode&&workflow_preview_prepare(p,*mode))ORIG(H_FILE_PREVIEW,void(*)(void*,const int*,const void*))(p,mode,file);}
 static void private_preview_worker(void*payload){
@@ -676,13 +676,18 @@ static void name_cursor_paint(void*p,void*g){
     if(!on_ui()||p!=editor||!state.enabled||!visible())return;
     int w=FIELD(p,0x28,int),h=FIELD(p,0x2c,int);
     if(w<24||w>320||h<12||h>100)return;
-    char display[PHONE_MAX_CHARS*4+8];phone_view(&state,(size_t)(w/12>2?w/12-1:2),display,sizeof(display));
+    /* Same size as the stock name field (about 0.86 of its height). The
+     * window of characters is sized from the monospace advance (~0.46 of the
+     * font height) so the caret is always inside and nothing gets squeezed. */
+    float font_h=h*.86f;if(font_h<16.f)font_h=16.f;if(font_h>56.f)font_h=56.f;
+    int columns=(int)((float)(w-14)/(font_h*.47f));if(columns<2)columns=2;
+    char display[PHONE_MAX_CHARS*4+8];phone_view(&state,(size_t)columns,display,sizeof(display));
     FN(0x102d5e0,void(*)(void*,uint32_t))(g,0xff000000);
     FN(0x102e000,void(*)(void*,int,int,int,int))(g,3,2,w-6,h-4);
     uint64_t str=0,font=0;FN(0xf535c0,void(*)(uint64_t*,const char*))(&str,display);
-    FN(0x1082810,void(*)(uint64_t*,int,float))(&font,0,h<24?16.f:20.f);
+    FN(0x1082810,void(*)(uint64_t*,int,float))(&font,0,font_h);
     FN(0x102dca0,void(*)(void*,const uint64_t*))(g,&font);FN(0x102d5e0,void(*)(void*,uint32_t))(g,0xffffffff);
-    FN(0x10817b0,void(*)(void*,const uint64_t*,int,int,int,int,int,int,float))(g,&str,6,2,w-12,h-4,0x21,1,.75f);
+    FN(0x10817b0,void(*)(void*,const uint64_t*,int,int,int,int,int,int,float))(g,&str,7,2,w-14,h-4,0x21,1,1.f);
     FN(0x1070d60,void(*)(uint64_t*))(&font);FN(0xf0a290,void(*)(uint64_t*))(&str);
 }
 static int install_name_cursor(void){
@@ -835,6 +840,7 @@ static void buttons_ui(void *event,uint64_t route)
     if(!naming&&on_ui()&&chords_ui_button(event))return;
 #endif
     if (!naming && on_ui() && step_native_active() && step_native_button(event,route)==1) return;
+    if (!naming && on_ui() && note_native_button(event)) return;
     if (!naming && on_ui() && music_ui_button(event)) return;
     int shift_event=FIELD(event,8,unsigned char)==0x31;
     if(naming&&shift_event)state.shift=FIELD(event,9,unsigned char)!=0;
@@ -935,6 +941,7 @@ static void buttons(void *event)
     }
 #endif
     if(native_code==0x31)atomic_store(&native_shift_requested,native_down);
+    if(native_code==0x09&&native_down)fprintf(stderr,"ERASE_ROUTE naming=%u workflow_active=%d owns=%d\n",atomic_load(&naming_active),workflow_active(),workflow_owns(PHONE_BUTTON,0x09));
 #ifdef MPC_RESAMPLE_TRIAL
     resample_ui_requested(native_code,(int)native_down);
     if(resample_running()&&(native_code==0x51||native_code==0x52)){forward_buttons(event);return;}
@@ -1117,8 +1124,12 @@ static void process_events(void)
             phone_pad(&state,e.pad+1,(int)e.down,e.when_ms);
             if (e.down) feedback_until[e.pad]=now_ms()+FEEDBACK_MIN_MS;
             write_native();
-            if (e.pad==3 || e.pad==11) { lights(); repaint(); }
+            /* The caret and text are drawn by our field paint: repaint after
+             * every pad, or a cursor move (pads 1/3) stays invisible until
+             * something else redraws the screen. */
+            if (e.pad==3 || e.pad==11) lights();
             else feedback_refresh(now_ms());
+            repaint();
         }
         /* Close the session between queued actions, even if a later native
          * button opens another naming window before the next timer tick. */
@@ -1204,6 +1215,31 @@ static void sequence_palette_tick(void){
     atomic_store(&sequence_palette_enabled,1);
 }
 #endif
+/* Sample pad layout: the user's Pad Colour (Trim page 2, Shift+K1) keeps the
+ * native brightness of each pad (dim loaded, bright playing) and replaces
+ * only its hue. Stock (0) passes the native colour through. */
+static int pad_colour_light(unsigned pad,uint64_t *out){
+    if(pad>=16||!music_pad_colours_used()||atomic_load(&led_enabled))return 0;
+    /* Temporary native indications keep priority: Mute mode, held Mute
+     * (0x23) and held Erase (0x09) show the native colours as they are. */
+    if(atomic_load(&native_mute_mode)||atomic_load(&native_buttons_down[0x23])||atomic_load(&native_buttons_down[0x09]))return 0;
+    unsigned enabled=0,mode=0,origin=0;music_lighting_levels_state(&enabled,&mode,&origin);
+    if(enabled||step_native_active()
+#ifdef MPC_CHORDS
+       ||chords_active()
+#endif
+       )return 0;
+    if(music_ui_sequence_visible()&&!(step_native_transport_state()&4u))return 0;
+    int bank=step_native_browser_bank(-1);if(bank<0||bank>=8)return 0;
+    int chosen=music_pad_colour((unsigned)bank*16+pad);if(!chosen)return 0;
+    unsigned old=(unsigned)atomic_load(&original_lights[pad]);
+    unsigned level=(old>>16)&255;if(((old>>8)&255)>level)level=(old>>8)&255;if((old&255)>level)level=old&255;
+    if(!level)return 0;
+    unsigned colour=music_sequence_colours[chosen];
+    unsigned red=((colour>>16)&255)*level/255,green=((colour>>8)&255)*level/255,blue=(colour&255)*level/255;
+    float intensity=1;uint32_t bits;memcpy(&bits,&intensity,4);
+    *out=(uint64_t)((red<<16)|(green<<8)|blue)|((uint64_t)bits<<32);return 1;
+}
 static void rgb(void *s,uint32_t colour,unsigned pad)
 {
     if (pad < 16) {
@@ -1240,6 +1276,7 @@ static void rgb(void *s,uint32_t colour,unsigned pad)
 #ifdef MPC_SEQUENCE_COLOURS
             || sequence_light(pad,&replacement)
 #endif
+            || pad_colour_light(pad,&replacement)
         ) {
             uint32_t packed=FN(0x23b00c0,uint32_t(*)(const uint64_t*))(&replacement);
             ORIG(H_RGB,void(*)(void*,uint32_t,unsigned))(s,packed,pad);return;
@@ -1296,6 +1333,7 @@ static void send_step_lights(void)
 #ifdef MPC_SEQUENCE_COLOURS
             || sequence_light(i,&light)
 #endif
+            || pad_colour_light(i,&light)
         ) {
             if (force_palette || !(owned&bit) || previous[i]!=light) {
                 previous[i]=light;
@@ -1433,6 +1471,8 @@ static void load(void)
     if (!voice_guard_install(base)) note("VOICE_GUARD UNAVAILABLE");
 #endif
     if (!values_bipolar_install(base)) note("VALUES_BIPOLAR UNAVAILABLE");
+    if (!values_shift_pairs_install(base)) note("VALUES_SHIFT_PAIRS UNAVAILABLE");
+    if (!values_loop_lock_install(base)) note("VALUES_LOOP_LOCK UNAVAILABLE");
 #ifdef MPC_PAD_EQ
     if (!pad_eq_native_install(base)) _exit(121);
     if (!pad_eq_history_install(base)) _exit(121);

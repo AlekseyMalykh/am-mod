@@ -6,6 +6,8 @@ All builds target MPC Sample firmware 1.3.0.12 and run from the SD card; none of
 
 | Build | Date (2026) | Changes |
 |---|---|---|
+| **r25x** | 1 Nov | Public release of the author-confirmed r25w functionality; temporary Erase-route and project-open callback diagnostics removed; unnamed-storage diagnostic absent; English/Russian README and FEATURES updated; release/source privacy audit. |
+| **r24y–r25w** | 31 Oct–1 Nov | Per-pad Pad Colour on Sample → Mix → Shift+K1 with encoder focus and project persistence; project/folder Erase confirmation and companion-data cleanup; one Mod-Exit-Last project; newest-project autoload; Internal/External labels; three Lights modes; framed Shift badges and text-cursor fixes. Author confirmed current functions on 1 Nov. |
 | **r24x** | 31 Oct | Search results light the pads with the shared palette: target white, red and blinking when it would replace a sound, occupied pads dim white. |
 | **r24w** | 31 Oct | The mod is now called **AM Mod**: packages `am-mod-*.zip`, `AM-Mod-Installer.exe`, start screen "AM Mod". No functional changes from r24v. |
 | **r24t–r24v** | 31 Oct | Resample target chosen on a 4×4 bank grid (source outlined, overwrites red). **Live spectrum** of the edited pad behind the EQ curve (dim amber from r24v). |

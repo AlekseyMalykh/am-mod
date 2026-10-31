@@ -18,9 +18,21 @@ the stock app. Nothing is flashed: the mod runs a patched copy of the stock app 
 > release packages**: the mod patches the copy of the app already on your MPC Sample.
 > Use at your own risk. See [NOTICE](NOTICE.md).
 
+## r25x update — 1 November 2026
+
+The author confirmed the current features on an MPC Sample with r25w. r25x removes temporary diagnostic messages and prepares the public documentation; feature behaviour is unchanged. ARM/QEMU checks are listed in the release notes and do not establish coverage of every setting combination on hardware.
+
+- **Pad Colour:** Sample → B1 → **Mix** → **Shift+K1**. 13 choices including **Stock**, saved per pad in the project. While holding Shift, an encoder press toggles Pad Colour focus and turning changes the colour. Kit Volume loses its frame during colour editing and native focus is restored afterwards. Mute and Erase keep their native status colours.
+- **Erase in Open Project:** project files use the native confirmation and also remove the companion `_[ProjectData]` directory. A project folder or a loose `_[ProjectData]` folder has a separate question: **B1 Cancel, B3 Delete**. Its samples are deleted too; this cannot be undone.
+- **One exit copy:** `MPC-Sample/Projects/Mod-Exit-Last.xpj` and `Mod-Exit-Last_[ProjectData]`. The previous copy is replaced after the new save succeeds; staging is not listed as another project.
+- **Latest project at startup:** opens the newest `.xpj` on SD in Projects or one directory level below it. Normally this is Mod-Exit-Last; a project saved later in the stock app takes priority. Selection uses file modification time, not a history of manually opened projects.
+- **Storage labels:** browser B2 shows **Internal / External** from the actual path. Internal remains temporary in the mod.
+- **Lights:** three modes — **Monochrome, Piano, Scale**. Older Tonic/Degrees settings load as Scale. Tonic, scale, Transpose16 and group colours remain available.
+- **Interface:** framed **S** badges, white normally and red with Shift; Zoom: Loop lock at the right edge; a Seq Colour swatch. Pad-name entry has cursor and repaint fixes.
+
 ## Features
 
-Status as of 31 October 2026 (build r24x). **Confirmed** means checked on a real MPC Sample;
+Status as of 1 November 2026 (build r25x). **Confirmed** means checked on a real MPC Sample;
 **trial** means it passes the ARM/QEMU checks and the emulator but waits for a hardware run.
 
 | Feature | Where | Status |
@@ -28,7 +40,7 @@ Status as of 31 October 2026 (build r24x). **Confirmed** means checked on a real
 | **Readable K1–K3 panel**: parameter names and values always visible, amber focus, `S` marks for Shift functions | all standard screens | confirmed |
 | **Type names with the pads** (phone keypad: ABC on pad 14, DEF on 15…, delete on 16) | Save Project / Save Sample, Search | confirmed |
 | **Orig Note** of a sample, project **Key / Scale** | Sample → Tune → Shift+K1; Project → Key/Scale | confirmed |
-| **Scale lighting** for 16 Levels Tune: Piano / Tonic / Scale colours, Transpose16 | Sample → Tune/Play/**Lights** | partly confirmed |
+| **Scale lighting** for 16 Levels Tune: Monochrome / Piano / Scale colours, Transpose16 | Sample → Tune/Play/**Lights** | partly confirmed |
 | **Steps**: 16-step sequencer on the physical pads, grid 1/4…1/64 and triplets, velocity, mute steps, copy/paste | Shift+SEQ → B2 Steps | confirmed |
 | **Events editor** with Chop / 16 Levels choice and audition, event move on the grid | Step Edit / Steps | confirmed |
 | **Poly**: chords recorded and edited as separate notes | Seq | confirmed |
@@ -70,7 +82,7 @@ Every feature with its controls and status: [docs/FEATURES.md](docs/FEATURES.md)
 You need an MPC Sample on firmware **1.3.0.12** (the mod checks the app's SHA-256 and
 refuses to start on any other version) and an SD card formatted by the MPC.
 
-**Installer (Windows):** download `AM-Mod-Installer.exe` and the
+**Installer (Windows):** download `MPC-Sample-Mod-Installer.exe` and the
 `am-mod-*.zip` package from [Releases](../../releases), run the installer, pick the zip
 (or press *Latest release*) and the SD card, press **Install**.
 
@@ -79,7 +91,7 @@ refuses to start on any other version) and an SD card formatted by the MPC.
 ```bash
 python3 installer/mpc_mod_installer.py                 # window
 python3 installer/mpc_mod_installer.py cards           # list cards
-python3 installer/mpc_mod_installer.py install am-mod-r24x.zip --card E:
+python3 installer/mpc_mod_installer.py install am-mod-r25x.zip --card E:
 python3 installer/mpc_mod_installer.py install --latest --card /Volumes/MPC
 python3 installer/mpc_mod_installer.py remove --card E:
 ```
@@ -107,7 +119,7 @@ never touches `MPC-Sample/` (your projects and samples).
 3. Work as usual. Save projects and samples to **External** (the SD card): in the mod,
    Internal storage is temporary and is lost when the mod stops.
 4. To leave: **Project** (Shift+Pad 16) → **Mod Off** → confirm. The mod saves a copy of
-   the project to `MPC-Sample/Projects/Mod-Exit-…` and the stock app returns. Then eject
+   the project to `MPC-Sample/Projects/Mod-Exit-Last.xpj` and the stock app returns. Then eject
    the card as usual; in Windows use *Eject*.
 
 The power key also works in the mod: it asks, saves a project copy to the card and powers
@@ -120,7 +132,7 @@ firmware in QEMU with the whole device in your browser, and runs SD autorun pack
 way the MPC does. The GIFs above were recorded there:
 
 ```bash
-python3 lab.py autorun am-mod-r24x.zip --no-reboot --yes
+python3 lab.py autorun am-mod-r25x.zip --no-reboot --yes
 ```
 
 Emulator runs are useful for development, but they are not a hardware test: timing, audio
@@ -136,7 +148,7 @@ rootfs in older checks (`/home/user/mpc-rootfs-user-20260808`) need adjusting.
 
 Order: get the local inputs with the expected hashes → build `sd-clone-trial` (the loader)
 → build the value patches in `sd-k-value-peek` → build the current `sd-mod-session`
-revision. For r24x: `sd-mod-session/build_chords_candidate.py`, `verify_chords.py`,
+revision. For r25x: `sd-mod-session/build_chords_candidate.py`, `verify_chords.py`,
 `verify_pad_eq.py`, then `package_update.py` over the previous package. The ARM/QEMU checks (`verify_*.py`, `check_*.c`) use clearly marked
 adapters and do not replace a hardware run.
 

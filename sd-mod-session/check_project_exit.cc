@@ -1,3 +1,4 @@
+#include <dirent.h>
 /* Production worker and real host filesystem; native saver/DI/string calls are receivers.
  * Full native SaveProject and reload are exercised separately in the QEMU lab. */
 #include <cassert>
@@ -31,8 +32,8 @@ static int save_receiver(void *p,const uint64_t *file,bool samples,bool copy,boo
     assert(p==object&&samples&&copy&&native_options);
     std::string path=(const char*)*file;
     assert(path.find(std::string(storage)+"/MPC-Sample/Projects/Mod-Exit-")==0);
-    assert(path.substr(path.size()-12)=="/Project.xpj");
-    folders.push_back(path.substr(0,path.size()-12));
+    assert(path.substr(path.size()-18)=="/Mod-Exit-Last.xpj");
+    folders.push_back(path.substr(0,path.size()-18));
     if(failure==1)return 0;
     std::ofstream output(path);output<<"native project fixture";output.close();
     if(failure!=2)++saved;
@@ -70,14 +71,18 @@ int main(){
     strcpy(metadata,"/tmp/mpc-exit-meta-XXXXXX");int fd=mkstemp(metadata);assert(fd>=0);close(fd);
     {std::ofstream file(metadata);file<<root<<'\n';}
     std::string previous;
-    for(unsigned n=0;n<2;++n){assert(project_exit_start(base,services));assert(wait_job()==2);std::string path=project_exit_path();assert(path!=previous);std::ifstream file(path);std::string contents;std::getline(file,contents);assert(contents=="native project fixture");previous=path;}
+    for(unsigned n=0;n<2;++n){assert(project_exit_start(base,services));assert(wait_job()==2);std::string path=project_exit_path();assert(path==root+"/Projects/Mod-Exit-Last.xpj");std::ifstream file(path);std::string contents;std::getline(file,contents);assert(contents=="native project fixture");previous=path;}
+    {unsigned entries=0;DIR*d=opendir((root+"/Projects").c_str());assert(d);while(auto*e=readdir(d))if(e->d_name[0]!='.')++entries,assert(!strcmp(e->d_name,"Mod-Exit-Last.xpj"));closedir(d);assert(entries==1);}
     failure=1;assert(project_exit_start(base,services));assert(wait_job()==3&&strstr(project_exit_message(),"copy"));
     failure=2;assert(project_exit_start(base,services));assert(wait_job()==3&&strstr(project_exit_message(),"settings"));
     failure=3;assert(project_exit_start(base,services));assert(wait_job()==3&&strstr(project_exit_message(),"copy"));
     assert(!unlink(metadata));assert(!symlink("/etc/passwd",metadata));assert(project_exit_start(base,services));assert(wait_job()==3&&strstr(project_exit_message(),"unavailable"));assert(!unlink(metadata));
     F(object,0,uintptr_t)=0;assert(!project_exit_start(base,services)&&project_exit_status()==3);
-    for(auto &folder:folders){unlink((folder+"/Project.xpj").c_str());assert(!rmdir(folder.c_str()));}
+    /* Failed saves removed their staging folders and kept the last good copy. */
+    {std::ifstream kept(root+"/Projects/Mod-Exit-Last.xpj");std::string contents;std::getline(kept,contents);assert(contents=="native project fixture");}
+    for(auto &folder:folders)assert(access(folder.c_str(),F_OK)!=0);
+    assert(!unlink((root+"/Projects/Mod-Exit-Last.xpj").c_str()));
     assert(!rmdir((root+"/Projects").c_str()));assert(!rmdir(root.c_str()));assert(!rmdir(storage));
     munmap(memory,0x7500000);
-    puts("PASS production exit-copy worker: unique SD folders/no overwrite, native Save As options, serializer counter proof, reopened/flushed result, save/metadata/service failures stay errors; native saver is a receiver");
+    puts("PASS production exit-copy worker: one Mod-Exit-Last copy replaced only after a good save, staging removed on failure, native Save As options, serializer counter proof, reopened/flushed result, save/metadata/service failures stay errors; native saver is a receiver");
 }

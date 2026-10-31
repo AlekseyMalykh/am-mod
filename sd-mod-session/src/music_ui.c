@@ -227,6 +227,14 @@ static void text(void *g,const char *s,int x,int y,int w,int h,float height)
     FN(0x1070d60,void(*)(uint64_t*))(&font);
     FN(0xf0a290,void(*)(uint64_t*))(&string);
 }
+/* Shift badge as the native K panel draws it (values_ui.S): a 10x12 frame
+ * with "S", white, red while Shift is held. bx = column*106+94, top = y. */
+static void shift_badge(void *g,int bx,int top,int on)
+{
+    colour(g,on ? 0xffff4747 : 0xffffffff);
+    rect(g,bx,top,10,1); rect(g,bx,top+11,10,1); rect(g,bx,top,1,12); rect(g,bx+9,top,1,12);
+    text(g,"S",bx+1,top+1,8,10,10.0f);
+}
 extern void step_pad_string(void*,uint64_t*,uintptr_t);
 static int header_toggled(void *button){
     /* JUCE Button::toggleState is a Value at +168. Native TextButton paint
@@ -276,7 +284,7 @@ static void cell(void *g,int i,const char *name,const char *value,int shift,int 
     colour(g,0xff000000); rect(g,x,198,w,42);
     colour(g,ink); text(g,name,x+4,200,badge ? w-22 : w-8,12,12);
     text(g,value,x+4,214,w-8,19,16);
-    if (badge) { colour(g,shift ? 0xffff4040 : 0xffffffff); text(g,"S",x+w-16,200,11,12,11); }
+    if (badge) shift_badge(g,i*106+94,200,shift);
     if (focus==i && enabled) {
         colour(g,ink); rect(g,x,198,w,2); rect(g,x,198,2,34); rect(g,x+w-2,198,2,34);
     }
@@ -351,7 +359,10 @@ static void sequence_paint(void*p,void*g){
     colour(g,0xff000000|music_sequence_colours[c]);rect(g,304,43,7,24);
     if(atomic_load(&global_shift)){
         int saved=focus;focus=0;
-        cell(g,0,"Seq Colour",music_sequence_colour_names[c],1,1,1,c,MUSIC_SEQUENCE_COLOURS);
+        cell(g,0,"Seq Colour","",1,1,1,c,MUSIC_SEQUENCE_COLOURS);
+        /* Swatch beside the name, as in Pad Colour. */
+        colour(g,0xff000000|music_sequence_colours[c]);rect(g,6,218,11,11);
+        colour(g,0xffffc247);text(g,music_sequence_colour_names[c],18,214,84,19,16);
         focus=saved;
     }
 }
@@ -475,7 +486,7 @@ void music_ui_sample(void *p,void *g)
     char name[MUSIC_NAME_BYTES],value[48]; struct music_sample s;
     int ok=settings(name,&s),shift=shifted(p,0);
     if (!ok) { memset(&s,0,sizeof(s)); s.root=-1; s.tonic=-1; s.scale=-1; }
-    const char *modes[]={"Monochrome","Piano","Tonic","Scale","Degrees"};
+    const char *modes[]={"Monochrome","Piano","Scale"};
     const char *roles[]={"Tonic","Scale","Other","Original"};
     if (shift) {
         snprintf(value,sizeof(value),"%+d",s.transpose); cell(g,0,"Transpose16",value,1,1,ok,s.transpose+24,49);
@@ -487,7 +498,7 @@ void music_ui_sample(void *p,void *g)
         music_get_key(&project_tonic,&project_scale);
         snprintf(tonic_text,sizeof(tonic_text),s.tonic<0 ? "%s (P)" : "%s",music_note_names[s.tonic<0 ? project_tonic : s.tonic]);
         snprintf(scale_text,sizeof(scale_text),s.scale<0 ? "%s (P)" : "%s",music_scale_names[s.scale<0 ? project_scale : s.scale]);
-        cell(g,0,"Lights",modes[s.mode],0,1,ok,music_mode_ui_index(s.mode),5);
+        cell(g,0,"Lights",modes[music_mode_ui_index(s.mode)],0,1,ok,music_mode_ui_index(s.mode),3);
         cell(g,1,"Tonic",tonic_text,0,1,ok,s.tonic+1,13);
         cell(g,2,"Scale",scale_text,0,1,ok,s.scale+1,9);
     }
@@ -510,7 +521,7 @@ void music_ui_project(void *p,void *g)
         text(g,key_page==4?"Project copy failed":"Saving project copy",4,65,312,28,20);
         colour(g,0xffffffff);
         if(key_page==3){
-            text(g,"SD / Projects / Mod-Exit-...",4,108,312,22,15);
+            text(g,"SD / Projects / Mod-Exit-Last",4,108,312,22,15);
             text(g,"Please keep the card inserted",4,143,312,22,14);
             text(g,"The mod will close after saving",4,177,312,22,13);
             exit_presented=1;
@@ -525,7 +536,7 @@ void music_ui_project(void *p,void *g)
         colour(g,0xff000000);rect(g,0,0,320,240);colour(g,0xffffffff);text(g,"Cancel",0,6,106,23,14);
         colour(g,0xffff4040);text(g,"Mod Off",214,6,106,23,14);text(g,"Exit the mod?",8,65,304,25,20);
         colour(g,0xffffffff);text(g,"Return to the stock application",8,105,304,20,14);
-        text(g,"A separate project copy will be",8,139,304,20,13);text(g,"saved to SD before leaving.",8,163,304,20,13);
+        text(g,"A project copy is saved to SD as",8,139,304,20,13);text(g,"Projects/Mod-Exit-Last (replaced).",8,163,304,20,13);
         text(g,"B1: cancel  |  B3: confirm",8,202,304,20,13);return;
     }
     int tonic,scale; music_get_key(&tonic,&scale);
@@ -581,7 +592,7 @@ int music_ui_control(void *event)
             field=role==3?MUSIC_ORIGINAL_COLOUR:MUSIC_COLOUR0+role; current=role==3?s.original_colour:s.colour[role]; hi=11;
         }
     } else {
-        if (focus==0) { field=MUSIC_MODE; current=music_mode_ui_index(s.mode); hi=4; }
+        if (focus==0) { field=MUSIC_MODE; current=music_mode_ui_index(s.mode); hi=2; }
         else if (focus==1) { field=MUSIC_LOCAL_TONIC; current=s.tonic; lo=-1; hi=11; }
         else { field=MUSIC_LOCAL_SCALE; current=s.scale; lo=-1; hi=7; }
     }
