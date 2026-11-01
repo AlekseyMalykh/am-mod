@@ -6,7 +6,6 @@
 
 [r26d: fixes and new features](docs/RELEASE_NOTES-r26d.md)
 
-These notes describe the r26d source changes. Downloadable builds are listed in [Releases](../../releases).
 
 AM Mod is a community mod for the Akai MPC Sample (firmware **1.3.0.12**) that starts from the SD card.
 It adds a step sequencer on the pads, a chord mode, typing names with the pads, scale
@@ -22,7 +21,7 @@ the stock app. Nothing is flashed: the mod runs a patched copy of the stock app 
 > release packages**: the mod patches the copy of the app already on your MPC Sample.
 > Use at your own risk. See [NOTICE](NOTICE.md).
 
-## r26d source update — 1 November 2026
+## r26d update — 1 November 2026
 
 - **Pad Colour across sound views:** Sample and Events sound pads use their assigned colours; FX Select keeps its native status colours. Events names use each sound's colour. In Steps, ordinary events use the selected sound's Pad Colour (Stock keeps the standard green).
 - **Steps background:** empty steps are off; events of other sounds have a very dim white background, enabled by default. **Shift+K3 → Other Sounds** switches it off/on. If other sounds play on every step, this background can cover all 16 pads of a page. The selected sound's own events take priority and keep their colour.
@@ -45,7 +44,7 @@ The author confirmed the current features on an MPC Sample with r25w. r25x remov
 
 ## Features
 
-Status as of 1 November 2026 (source build r26d). **Confirmed** means checked on a real MPC Sample;
+Status as of 1 November 2026 (build r26d). **Confirmed** means checked on a real MPC Sample;
 **trial** means the specified automated checks passed; hardware coverage is pending as noted.
 
 | Feature | Where | Status |
@@ -113,7 +112,7 @@ refuses to start on any other version) and an exFAT SD card with a supported vol
 ```bash
 python3 installer/mpc_mod_installer.py                 # window
 python3 installer/mpc_mod_installer.py cards           # list cards
-python3 installer/mpc_mod_installer.py install am-mod-r26a.zip --card E:
+python3 installer/mpc_mod_installer.py install am-mod-r26d.zip --card E:
 python3 installer/mpc_mod_installer.py install --latest --card /Volumes/MPC
 python3 installer/mpc_mod_installer.py remove --card E:
 ```
@@ -154,7 +153,7 @@ firmware in QEMU with the whole device in your browser, and runs SD autorun pack
 way the MPC does. The GIFs above were recorded there:
 
 ```bash
-python3 lab.py autorun am-mod-r26a.zip --no-reboot --yes
+python3 lab.py autorun am-mod-r26d.zip --no-reboot --yes
 ```
 
 Emulator runs are useful for development, but they are not a hardware test: timing, audio

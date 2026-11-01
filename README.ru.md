@@ -6,7 +6,6 @@
 
 [r26d: исправленные баги и новые функции](docs/RELEASE_NOTES-r26d.ru.md)
 
-Здесь описаны изменения исходников r26d. Готовые сборки находятся в [Releases](../../releases).
 
 AM Mod — мод сообщества для Akai MPC Sample (прошивка **1.3.0.12**), который запускается с SD-карты.
 Поверх штатного приложения он добавляет шаговый секвенсор на пэдах, режим аккордов, ввод
@@ -22,7 +21,7 @@ AM Mod — мод сообщества для Akai MPC Sample (прошивка 
 > изменяет копию приложения, которая уже есть на вашем MPC Sample. Используйте на свой
 > риск. См. [NOTICE](NOTICE.md).
 
-## Изменения исходников r26d — 1 ноября 2026
+## Обновление r26d — 1 ноября 2026
 
 - **Pad Colour в окнах звуков:** пэды Sample и Events используют назначенные цвета; FX Select сохраняет штатную служебную подсветку. Имена звуков в строках Events тоже цветные. В Steps обычные события окрашены в Pad Colour выбранного звука; Stock сохраняет штатный зелёный.
 - **Фон Steps:** пустые шаги погашены; события других звуков отмечены очень слабым белым светом. Этот обзор включён по умолчанию и переключается через **Shift+K3 → Other Sounds**. Если другие звуки играют на каждом шаге, фон может занимать все 16 пэдов страницы. Собственные события выбранного звука имеют приоритет и сохраняют свой цвет.
@@ -45,7 +44,7 @@ AM Mod — мод сообщества для Akai MPC Sample (прошивка 
 
 ## Возможности
 
-Состояние на 1 ноября 2026 года (исходники r26d). **Подтверждено** — проверено на настоящем MPC Sample;
+Состояние на 1 ноября 2026 года (сборка r26d). **Подтверждено** — проверено на настоящем MPC Sample;
 **проба** — указанные автоматические проверки пройдены; аппаратная проверка уточняется отдельно.
 
 | Функция | Где | Статус |
@@ -113,7 +112,7 @@ AM Mod — мод сообщества для Akai MPC Sample (прошивка 
 ```bash
 python3 installer/mpc_mod_installer.py                 # окно
 python3 installer/mpc_mod_installer.py cards           # список карт
-python3 installer/mpc_mod_installer.py install am-mod-r26a.zip --card E:
+python3 installer/mpc_mod_installer.py install am-mod-r26d.zip --card E:
 python3 installer/mpc_mod_installer.py install --latest --card /Volumes/MPC
 python3 installer/mpc_mod_installer.py remove --card E:
 ```
@@ -154,7 +153,7 @@ python3 installer/mpc_mod_installer.py remove --card E:
 выполняются так же, как на MPC. Гифки выше записаны в нём:
 
 ```bash
-python3 lab.py autorun am-mod-r26a.zip --no-reboot --yes
+python3 lab.py autorun am-mod-r26d.zip --no-reboot --yes
 ```
 
 Эмулятор удобен для разработки, но не заменяет проверку на устройстве: тайминги, задержка

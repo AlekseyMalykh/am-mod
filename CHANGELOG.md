@@ -1,6 +1,6 @@
 # Changelog
 
-## r26d — author approved, 1 November 2026
+## r26d — 1 November 2026
 
 User-facing list of fixes and new features: [English](docs/RELEASE_NOTES-r26d.md) · [Русский](docs/RELEASE_NOTES-r26d.ru.md).
 
