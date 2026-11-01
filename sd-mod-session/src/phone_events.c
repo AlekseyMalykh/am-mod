@@ -14,18 +14,25 @@ static int same_knob_context(const struct phone_event *a,const struct phone_even
         a->step_ticket == b->step_ticket && a->workflow_ticket == b->workflow_ticket &&
         !memcmp(a->native,b->native,8) && !memcmp(a->native+10,b->native+10,6);
 }
-/* Absolute K1-K3 positions can replace an older position in the trailing
- * knob run. Move the replacement to its actual arrival position: K1,K2,K1
+/* Scaled/Pickup need the initial physical position and direction changes.
+ * Only replace the latest point of a monotonic movement after its initial
+ * point has been retained. Move the replacement to its arrival position: K1,K2,K1
  * must leave focus on K1. Never cross a button/pad, relative encoder,
  * ownership/generation change or native source. A fast sweep then needs
- * at most three slots instead of overflowing and bypassing older UI work. */
+ * at most six slots for a straight sweep of all three knobs. */
 static int replace_knob(const struct phone_event *event)
 {
     if (!absolute_knob(event)) return 0;
+    unsigned latest=write_pos;
     for (unsigned back=0;back<count;++back) {
         unsigned pos=(write_pos+PHONE_EVENT_CAPACITY-1-back)%PHONE_EVENT_CAPACITY;
         if (!same_knob_context(&events[pos],event)) break;
         if (events[pos].native[8] != event->native[8]) continue;
+        if (latest==write_pos) { latest=pos;continue; }
+        int before=(int)events[latest].native[9]-(int)events[pos].native[9];
+        int after=(int)event->native[9]-(int)events[latest].native[9];
+        if (before*after<0) return 0; /* Retain the turning point. */
+        pos=latest;
         while ((pos+1)%PHONE_EVENT_CAPACITY != write_pos) {
             unsigned next=(pos+1)%PHONE_EVENT_CAPACITY;
             events[pos]=events[next];pos=next;

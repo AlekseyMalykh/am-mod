@@ -9,8 +9,9 @@ struct phone_event {
     _Alignas(8) unsigned char native[16];
     _Alignas(8) unsigned char midi[24]; /* Only native inline messages (size1..8). */
 };
-/* Fixed RAM FIFO; trailing absolute K1-K3 movements retain their latest
- * positions and arrival order, without crossing an action/context boundary.
+/* Fixed RAM FIFO; trailing absolute K1-K3 movements retain their initial
+ * positions, turning points and latest positions in arrival order, without
+ * crossing an action/context boundary (native Scaled/Pickup need this history).
  * Producer never touches editor pointers; consumer is UI Timer.
  * No allocation, observer thread or message payload with a component pointer. */
 int phone_events_push(const struct phone_event *event);
