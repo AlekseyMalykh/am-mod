@@ -1,5 +1,31 @@
 # Changelog
 
+## r26k candidate — wait for native dialogs before startup project restore
+
+- Prevent autoload from starting a second project while a native modal is open, including startup missing-sample/error dialogs that permit other component input. Restart the quiet interval after dialogs close; log the selected XPJ path.
+- Reproduce the old ordering in ARM tests and the full native VM; verify deferred restore, the valid B fixture and a complete Mod Off copy with available sample data. Other reported load errors and recovery-copy naming remain separate investigation items.
+- Preserve the device-confirmed K implementation and all r26j OptoCat changes. [English](docs/RELEASE_NOTES-r26k.md) · [Русский](docs/RELEASE_NOTES-r26k.ru.md). Hardware trial pending; not published.
+
+## r26j candidate — OptoCat Shift controls and bounded gain
+
+- Add Shift+K1 Attack (1–100 ms), Shift+K2 Release (100–4000 ms) and Shift+K3 Knee (0–12 dB), with names/values and per-event Shift capture. Preserve the default optical response.
+- Connect Attack to paw strike speed and Release to its return, including timing changes during a gesture. Preserve the artwork, eyes, sleep and no repeated hits on steady input.
+- Reduce Opto Gain from a maximum of +18 dB to +6 dB. Actual native Duck In Boost=100% measures +6.02060 dB; Opto's master adapter measures +5.99996 dB. Verify the boost ceiling during parameter changes.
+- Preserve the device-confirmed r26i native K/takeover path. ARM/QEMU/UBSan and the full preload constructor pass; the new controls await a device trial. [English](docs/RELEASE_NOTES-r26j.md) · [Русский](docs/RELEASE_NOTES-r26j.ru.md).
+
+## r26i — restore native knob delivery and takeover (issue #2)
+
+- Forward unclaimed native K1–K3 on the original input thread, retaining FIFO, in-flight action and naming boundaries. Custom controls keep UI routing.
+- Remove r26h's formula hook from the production library; audit the original RotaryFixedConnection and TrimParameter instructions without modifying them.
+- Preserve OptoCat and prior mod features; expand bounded RAM input diagnostics. ARM/QEMU/UBSan cover original-thread delivery, action boundaries and unchanged takeover code. The author confirmed the K parameter fix on a physical MPC Sample after testing r26i on 2 November 2026. This confirms the reported hardware fix; it does not establish coverage of every control combination. [English](docs/RELEASE_NOTES-r26i.md) · [Русский](docs/RELEASE_NOTES-r26i.ru.md).
+
+## r26h candidate — Scaled endpoints and OptoCat (issue #2)
+
+- Correct exact Scaled limits for first/reset or repeated-endpoint events through the native range/skew/quantisation and setter. Interior motion, disabled bindings, Pickup and Jump remain unchanged.
+- Preserve the complete OptoCat compressor from `81189e0`, including DSP, animation and Type controls, in both candidate builders.
+- Execute production permanent K rendering and the native display timeout between real takeover calls: no direct parameter/history/focus interference in the isolated fixture. Full GUI timing and hardware input remain unverified.
+- Add bounded endpoint diagnostics. ARM/QEMU and UBSan cover native takeover, rendering, routing with OptoCat, compressor DSP/animation/native adapter and the full preload constructor. Hardware confirmation remains pending. [English](docs/RELEASE_NOTES-r26h.md) · [Русский](docs/RELEASE_NOTES-r26h.ru.md).
+
 ## r26g candidate — preserve Scaled/Pickup takeover history (issue #2)
 
 - Replace r26f's last-value-only knob merging: preserve each knob's initial physical position and all direction changes, merging only later points within the same monotonic movement. Scaled and Pickup need that history to reach their limits and detect pickup crossings.

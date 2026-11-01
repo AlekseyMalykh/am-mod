@@ -29,6 +29,7 @@
 #ifdef MPC_CHORDS
 #include "chords.h"
 #include "chords_ui.h"
+#include "takeover_native.h"
 #endif
 #include "step_native.h"
 #include "workflow_ui.h"
@@ -91,6 +92,7 @@ static uint64_t feedback_until[16]; /* UI only; minimum visible pulse for quick 
 #define FEEDBACK_MIN_MS 100
 static _Atomic unsigned naming_active, input_fault;
 static _Atomic unsigned requested_pads;
+static _Atomic unsigned ui_dispatching;
 static _Atomic uint64_t generation, consumed_generation[16];
 static _Atomic(uintptr_t) editor_identity;
 static _Atomic int editor_destroyed;
@@ -100,7 +102,7 @@ static _Atomic unsigned light_mask;
 static _Atomic unsigned log_count;
 struct native_timer { uintptr_t *vtable; int64_t id; int32_t interval; int32_t padding; };
 static struct native_timer timer;
-static void process_events(void);
+static unsigned process_events(void);
 static void queue_failed(void);
 static void send_step_lights(void);
 static void send_record_light(void);
@@ -353,7 +355,11 @@ static void tick(void *unused)
     (void)unused;
     if (!on_ui()) { atomic_store(&requested_pads,0); atomic_store(&input_fault,1); return; }
     if (atomic_exchange(&editor_destroyed,0)) stop();
-    process_events();
+    /* Publish the page/ownership resulting from a queued action before
+     * allowing native input to bypass this batch. Nested ticks count too. */
+    atomic_fetch_add(&ui_dispatching,1);
+    unsigned action_batch=process_events();
+    if(!action_batch)atomic_fetch_sub(&ui_dispatching,1);
 #ifdef MPC_POWER_BUTTON
     if(power_control_take_stop()){
         unsigned char e[16];unsigned ready;
@@ -397,6 +403,7 @@ static void tick(void *unused)
 #endif
     send_step_lights();send_record_light();
     music_lighting_tick();
+    if(action_batch)atomic_fetch_sub(&ui_dispatching,1);
     if (editor && !visible()) stop();
     if (!editor) {
         if (!note_running && !music_running && !step_running && !workflow_running && !resample_active && !step_native_active() && !phone_events_pending()
@@ -941,13 +948,41 @@ static int forward_main_volume(void*event)
 }
 static void controller(void *event)
 {
+#ifdef MPC_CHORDS
+    { static _Atomic unsigned raw_reports;
+      unsigned cc=FIELD(event,8,unsigned char),v=FIELD(event,9,unsigned char);
+      if(cc>=0x10&&cc<=0x12&&atomic_fetch_add(&raw_reports,1)<1024)
+          fprintf(stderr,"TAKEOVER RAW t=%llu cc=%u value=%u queued=%u replay=%u\n",
+              (unsigned long long)now_ms(),cc,v,phone_events_pending(),atomic_load(&ui_dispatching));
+    }
+#endif
     /* Physical Main Volume is global, including custom search/Batch views.
      * Never queue it behind modal ownership or discard it on a new ticket. */
     if(forward_main_volume(event))return;
 #ifdef MPC_POWER_BUTTON
     if(power_control_busy())return;
 #endif
-    if (atomic_load(&naming_active) || note_native_active() || music_ui_active() || step_native_active() || workflow_active() || resample_running() || phone_events_pending()
+    /* Observing Sample/Seq is not ownership of its native parameter knobs.
+     * Keep native K1-K3 on the original input thread, without the UI timer's
+     * 50ms batching or coalescing. Custom controls still cross to the UI.
+     * An outstanding FIFO action is a barrier (page/Shift/ownership may
+     * change there); never let a fresh movement overtake that action. */
+    unsigned native_cc=FIELD(event,8,unsigned char);
+    int custom_owned=atomic_load(&naming_active)||resample_running()||
+        note_native_owns(native_cc)||music_ui_owns(native_cc)||
+        step_native_owns(native_cc)||workflow_owns(PHONE_CONTROLLER,native_cc)
+#ifdef MPC_CHORDS
+        ||chords_ui_owns(native_cc)
+#endif
+#ifdef MPC_COMPRESSOR
+        ||compressor_ui_owns(PHONE_CONTROLLER,native_cc)
+#endif
+        ;
+    if(native_cc>=0x10&&native_cc<=0x12&&!custom_owned&&
+       !phone_events_pending()&&!atomic_load(&ui_dispatching)){
+        ORIG(H_CONTROLLER,void(*)(void*))(event);return;
+    }
+    if (custom_owned || atomic_load(&ui_dispatching) || atomic_load(&naming_active) || note_native_active() || music_ui_active() || step_native_active() || workflow_active() || resample_running() || phone_events_pending()
 #ifdef MPC_COMPRESSOR
         ||compressor_ui_owns(PHONE_CONTROLLER,FIELD(event,8,unsigned char))
 #endif
@@ -1083,12 +1118,14 @@ static void pad_event(void *event)
     ORIG(H_PAD,void(*)(void*))(event);
 }
 
-static void process_events(void)
+static unsigned process_events(void)
 {
     static unsigned seen;
+    atomic_fetch_add(&ui_dispatching,1);
     struct phone_event e;
-    unsigned budget = PHONE_EVENT_CAPACITY;
+    unsigned budget = PHONE_EVENT_CAPACITY,processed=0;
     while (budget-- && phone_events_pop(&e)) {
+        ++processed;
         int current = !atomic_load(&editor_destroyed) && editor &&
             e.generation == atomic_load(&generation) && visible();
         if (e.kind == PHONE_CONTROLLER) {
@@ -1186,6 +1223,8 @@ static void process_events(void)
         if (atomic_exchange(&editor_destroyed,0)) stop();
         else if (editor && !visible()) stop();
     }
+    atomic_fetch_sub(&ui_dispatching,1);
+    return processed;
 }
 
 /* Hook the shared final sender, including callers which inline 0x159f910.
@@ -1532,6 +1571,7 @@ static void load(void)
 #ifdef MPC_CHORDS
     /* Optional: without it Stop-Stop keeps the stock unguarded release. */
     if (!voice_guard_install(base)) note("VOICE_GUARD UNAVAILABLE");
+    if (!takeover_native_check(base)) _exit(121);
 #endif
     if (!values_bipolar_install(base)) note("VALUES_BIPOLAR UNAVAILABLE");
     if (!values_shift_pairs_install(base)) note("VALUES_SHIFT_PAIRS UNAVAILABLE");

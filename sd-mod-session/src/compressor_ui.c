@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "compressor.h"
 #include "phone_events.h"
+#include "music_ui.h"
 #include <stdatomic.h>
 #include <stdio.h>
 #include <sys/mman.h>
@@ -17,9 +18,13 @@ static unsigned painted_type=~0u;
 static int reported;
 static struct comp_animation animation;
 static double next_frame;
+#define T_SHIFT (UINT64_C(1)<<63)
 static double seconds(void){struct timespec t;if(clock_gettime(CLOCK_MONOTONIC,&t))return 0;return t.tv_sec+t.tv_nsec*1e-9;}
 void compressor_ui_init(uintptr_t b){base=b;}
-uint64_t compressor_ui_ticket(void){return atomic_load(&epoch);}
+/* Capture Shift with each queued movement. A later release must not redirect
+ * an already queued Attack movement to Threshold, or merge both sweeps. */
+uint64_t compressor_ui_ticket(void){return atomic_load(&epoch)|(music_ui_shift_active()?T_SHIFT:0);}
+static int current_ticket(uint64_t ticket){return (ticket&~T_SHIFT)==atomic_load(&epoch);}
 static int visible(void){return root&&FN(0x112fd50,int(*)(void*))(root)&&!FN(0x112f6b0,int(*)(void*))(root);}
 static void repaint(void){if(root)FN(0x1149880,void(*)(void*,uint64_t,uint64_t))(root,0,F(root,0x28,uint64_t));}
 static void colour(void*g,uint32_t v){FN(0x102d5e0,void(*)(void*,uint32_t))(g,v);}
@@ -48,7 +53,7 @@ int compressor_ui_button(void*e,uint64_t ticket){
  unsigned code=F(e,8,unsigned char),down=F(e,9,unsigned char)!=0;
  if(code>=112)return 0;
  if(atomic_load(&owned[code])){if(!down)atomic_store(&owned[code],0);return 1;}
- if(ticket!=compressor_ui_ticket()||!visible())return 1; /* Never replay a stale Type press in another screen. */
+ if(!current_ticket(ticket)||!visible())return 1; /* Never replay a stale Type press in another screen. */
  if(!down)return 0;
  if(code==0x0d){compressor_select(compressor_type()==COMP_DUCK?COMP_OPTO:COMP_DUCK);repaint();}
  else if(compressor_type()==COMP_OPTO&&code==0x0e){compressor_bypass();repaint();}
@@ -57,10 +62,11 @@ int compressor_ui_button(void*e,uint64_t ticket){
  atomic_store(&owned[code],1);return 1;
 }
 int compressor_ui_control(void*e,uint64_t ticket){
- if(ticket!=compressor_ui_ticket()||!visible()||compressor_type()!=COMP_OPTO)return 1;
+ if(!current_ticket(ticket)||!visible()||compressor_type()!=COMP_OPTO)return 1;
  unsigned cc=F(e,8,unsigned char),value=F(e,9,unsigned char);
  if(cc<0x10||cc>0x12)return 0;
- compressor_knob(cc-0x10,value);repaint();return 1;
+ if(ticket&T_SHIFT)compressor_shift_knob(cc-0x10,value);else compressor_knob(cc-0x10,value);
+ repaint();return 1;
 }
 static void paint(void*p,void*g){
  if(F(p,0,uintptr_t)!=base+SCREEN)return;
@@ -87,13 +93,18 @@ static void paint(void*p,void*g){
  colour(g,0xff707070);text(g,"--",4,1,98,22,14);
  colour(g,c.bypass?0xffffc247:0xffffffff);text(g,"Bypass",217,1,99,22,14);
  uint32_t*pixels=compressor_image_pixels(base);
- if(pixels){compressor_animation_frame(&animation,pixels,seconds(),compressor_input_level(),c.threshold,c.gain,c.bypass,compressor_hits());colour(g,0xffffffff);compressor_image_draw(g);}
+ if(pixels){compressor_animation_frame(&animation,pixels,seconds(),compressor_input_level(),&c,compressor_hits());colour(g,0xffffffff);compressor_image_draw(g);}
  colour(g,0xffb0b0b0);text(g,"OptoCat",4,35,80,14,11);
  snprintf(value,sizeof(value),"GR %.1f dB",compressor_reduction());text(g,value,4,180,92,16,11);
- const char*names[]={"Threshold","Ratio","Gain"};
+ int shifted=music_ui_shift_active();
+ const char*normal_names[]={"Threshold","Ratio","Gain"},*shift_names[]={"S Attack","S Release","S Knee"};
+ const char**names=shifted?shift_names:normal_names;
  for(int k=0;k<3;++k){int x=k==0?0:k==1?106:213,w=k==2?107:106;
   colour(g,0xff000000);rect(g,x,198,w,38);colour(g,0xffffc247);text(g,names[k],x+2,199,w-4,15,12);
-  if(k==0)snprintf(value,sizeof(value),"%.1f dB",c.threshold);
+  if(shifted&&k==0)snprintf(value,sizeof(value),"%.2f ms",c.attack);
+  else if(shifted&&k==1)snprintf(value,sizeof(value),"%.0f ms",c.release);
+  else if(shifted)snprintf(value,sizeof(value),"%.1f dB",c.knee);
+  else if(k==0)snprintf(value,sizeof(value),"%.1f dB",c.threshold);
   else if(k==1)snprintf(value,sizeof(value),"%.1f:1",c.ratio);
   else snprintf(value,sizeof(value),"%+.1f dB",c.gain);
   colour(g,0xffffffff);text(g,value,x+2,215,w-4,19,15);

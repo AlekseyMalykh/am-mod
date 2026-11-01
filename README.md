@@ -4,12 +4,15 @@
 
 **English** · [Русский](README.ru.md)
 
-[r26d: fixes and new features](docs/RELEASE_NOTES-r26d.md)
+[Feedback and help](docs/FEEDBACK.md) · [Known issues](docs/KNOWN_ISSUES.md) · [Discussions](https://github.com/AlekseyMalykh/am-mod/discussions)
 
-[r26e candidate: experimental FAT32 support](docs/RELEASE_NOTES-r26e.md). The currently published r26d release still requires exFAT.
+[r26i: native K1–K3 input and takeover](docs/RELEASE_NOTES-r26i.md)
 
-[r26g candidate: Scaled/Pickup takeover correction](docs/RELEASE_NOTES-r26g.md), including experimental FAT32 support. Replaces the r26f test build; device confirmation is pending.
+[r26j candidate: OptoCat Shift controls, paw timing and +6 dB gain limit](docs/RELEASE_NOTES-r26j.md). Local device-test build; not yet published as a release.
 
+[r26k candidate: wait for native dialogs before startup restore](docs/RELEASE_NOTES-r26k.md). Preserves r26j; other project-error reports remain under investigation.
+
+The author confirmed the K parameter fix on a physical MPC Sample after testing r26i. OptoCat is preserved. Experimental FAT32 support is included in this source version; the currently published r26d download still requires exFAT.
 
 AM Mod is a community mod for the Akai MPC Sample (firmware **1.3.0.12**) that starts from the SD card.
 It adds a step sequencer on the pads, a chord mode, typing names with the pads, scale

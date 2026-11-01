@@ -1,0 +1,29 @@
+name: Feature request / Предложить функцию
+description: Describe a concrete improvement / Опишите желаемое улучшение.
+title: "[Feature] "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        English and Russian are welcome. For early ideas and conversation, use [Ideas](https://github.com/AlekseyMalykh/am-mod/discussions/categories/ideas).
+        Для обсуждения предварительных идей используйте Ideas. Конкретный запрос можно оставить здесь.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What would this help you do? / Какую задачу это решит?
+      description: Describe the workflow and current difficulty. / Опишите сценарий и неудобство.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behaviour / Желаемое поведение
+      description: Screen, controls and an example, if relevant. / Экран, управление и пример.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives / Альтернативы
+      description: Current workaround, related discussion or examples. / Текущий обходной путь, обсуждение или примеры.

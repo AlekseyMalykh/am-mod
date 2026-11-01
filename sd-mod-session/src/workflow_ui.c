@@ -527,6 +527,15 @@ static int newest_project(char*out,size_t size){
 }
 static void autoload_tick(void){
  if(autoload_done)return;
+ /* isCurrentlyBlockedByAnotherModalComponent on Sample is not a global
+  * load-completion signal: a modal can allow events on other components.
+  * Wait for the actual top modal (native 10f87a0, index zero) to disappear
+  * before starting another project load, then require a quiet UI interval. */
+ if(FN(0x10f87a0,void*(*)(int))(0)){
+  static unsigned reported;
+  if(!reported++){fprintf(stderr,"AUTOLOAD WAIT_NATIVE_MODAL\n");}
+  autoload_after=0;return;
+ }
  if(!note_native_sample_visible()){autoload_after=0;return;}
  if(!autoload_after){autoload_after=now_ms()+2500;return;}
  if(now_ms()<autoload_after)return;
@@ -536,7 +545,7 @@ static void autoload_tick(void){
  uint64_t string=0,file=0;
  FN(0xf535c0,void(*)(uint64_t*,const char*))(&string,path);
  FN(0xf75630,void(*)(uint64_t*,const uint64_t*))(&file,&string);
- autoload_done=1;fprintf(stderr,"AUTOLOAD FULL_PROJECT_REQUESTED\n");
+ autoload_done=1;fprintf(stderr,"AUTOLOAD FULL_PROJECT_REQUESTED path=%s\n",path);
  FN(0x14fc6a0,void(*)(void*,const void*,int))(s,&file,0);
  FN(0xf0a290,void(*)(uint64_t*))(&file);FN(0xf0a290,void(*)(uint64_t*))(&string);
 }
