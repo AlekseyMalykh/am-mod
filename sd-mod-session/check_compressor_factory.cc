@@ -5,18 +5,19 @@
 static bool showing=true;
 static unsigned wakes,repaints,type_labels,indicators,native_calls;
 static unsigned shifted,shift_labels;
+static unsigned white_badges,red_badges;static uint32_t ink;
 extern "C" int music_ui_shift_active(void){return shifted!=0;}
 static void(*native_specific)(void*,void*,void*);
 extern "C" void compressor_phone_wake(void){++wakes;}
 static int visible(void*){return showing;}
 static int modal(void*){return 0;}
 static void repaint(void*,uint64_t,uint64_t){++repaints;}
-static void colour(void*,uint32_t){}
+static void colour(void*,uint32_t value){ink=value;}
 static void rectangle(void*,int x,int y,int w,int h){assert(x>=0&&y>=0&&w>=0&&h>=0&&x+w<=320&&y+h<=240);if(w==5&&y==25){assert(h==1||h==3);++indicators;}}
 static void font_create(uint64_t*f,int,float){*f=0;}
 static void font_destroy(uint64_t*){}
 static void font_set(void*,const uint64_t*){}
-static void text(void*,const uint64_t*s,int x,int y,int w,int h,int,int,float){assert(x>=0&&y>=0&&x+w<=320&&y+h<=240);const char*t=reinterpret_cast<const char*>(*s);if(!strcmp(t,"Type"))++type_labels;if(!strcmp(t,"S Attack"))shift_labels|=1;if(!strcmp(t,"S Release"))shift_labels|=2;if(!strcmp(t,"S Knee"))shift_labels|=4;}
+static void text(void*,const uint64_t*s,int x,int y,int w,int h,int,int,float){assert(x>=0&&y>=0&&x+w<=320&&y+h<=240);const char*t=reinterpret_cast<const char*>(*s);if(!strcmp(t,"Type"))++type_labels;if(!strcmp(t,"Attack"))shift_labels|=1;if(!strcmp(t,"Release"))shift_labels|=2;if(!strcmp(t,"Knee"))shift_labels|=4;if(!strcmp(t,"S")){assert(y==201&&w==8&&h==10&&(x==95||x==201||x==307));if(ink==0xffff4747)++red_badges;else{assert(ink==0xffffffff);++white_badges;}}}
 static void redirect(uintptr_t base,uintptr_t offset,void*fn){uint32_t code[]={0x58000050,0xd61f0200};memcpy(reinterpret_cast<void*>(base+offset),code,8);memcpy(reinterpret_cast<void*>(base+offset+8),&fn,8);__builtin___clear_cache(reinterpret_cast<char*>(base+offset),reinterpret_cast<char*>(base+offset+16));}
 static void counted(void*p,void*b,void*m){++native_calls;native_specific(p,b,m);}
 struct ImageRef {
@@ -101,7 +102,7 @@ extern "C" int modern_fx_probe(uintptr_t base,const char**phase){
  assert(after.attack==100&&after.threshold==before.threshold&&after.gain==before.gain);
  shifted=1;control(2,127,ticket);compressor_config(&after);assert(after.gain==6&&after.knee==6);
  for(unsigned k=0;k<3;++k){control(k,0,shift_ticket);compressor_config(&after);assert((k==0?after.attack:k==1?after.release:after.knee)==(k==0?1:k==1?100:0));control(k,127,shift_ticket);compressor_config(&after);assert((k==0?after.attack:k==1?after.release:after.knee)==(k==0?100:k==1?4000:12));}
- reinterpret_cast<void(*)(void*,void*)>(ui[27])(screen,nullptr);assert(shift_labels==7);
+ reinterpret_cast<void(*)(void*,void*)>(ui[27])(screen,nullptr);assert(shift_labels==7&&red_badges==3);
  control(0,64,shift_ticket);control(1,86,shift_ticket);control(2,64,shift_ticket);
  shifted=0;control(2,85,ticket); /* -12 + round(85*72/127)/4 = 0dB. */
  compressor_config(&after);assert(after.gain==0&&after.threshold==before.threshold&&after.ratio==before.ratio);
@@ -110,7 +111,7 @@ extern "C" int modern_fx_probe(uintptr_t base,const char**phase){
  unsigned settled=native_calls;for(unsigned i=300;i<320;++i)audio_block(i);
  assert(settled==native_calls&&compressor_reduction()>5);
  assert(compressor_audio_blocks()>=320&&compressor_input_level()>-12&&compressor_hits()>0);
- reinterpret_cast<void(*)(void*,void*)>(ui[27])(screen,nullptr);assert(type_labels==3&&indicators==6);
+ reinterpret_cast<void(*)(void*,void*)>(ui[27])(screen,nullptr);assert(type_labels==3&&indicators==6&&white_badges==3);
  assert(button(0x0e,1,ticket)&&button(0x0e,0,ticket));for(unsigned i=0;i<80;++i)audio_block(i);assert(compressor_reduction()==0);
  *phase="real stereo meter, bypass, silence and mono";
  for(unsigned block=0;block<400;++block){

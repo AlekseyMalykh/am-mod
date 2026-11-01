@@ -34,7 +34,7 @@ if '--reboot-stock' in sys.argv:
     sys.exit(0)
 if '--install' in sys.argv:
     lab.wait_app()
-    lab.run_autorun(str(R.parent/('am-mod-'+baseline['revision']+'-optocat.zip')),reboot=False,confirm=False,log=lambda message:print(message,flush=True))
+    lab.run_autorun(str(R.parent/('am-mod-'+baseline['revision']+'-optocat-s.zip')),reboot=False,confirm=False,log=lambda message:print(message,flush=True))
     sys.exit(0)
 if '--status' in sys.argv:
     status();sys.exit(0)
@@ -127,6 +127,9 @@ tap('SCREEN 3') # Native Duck bypass must not disable the independent OptoCat pa
 tap('SCREEN 2');snapshot('opto')
 until(lambda:q(settings)&1==1,'B2 did not select OptoCat')
 time.sleep(1);watch=raster()
+snapshot('opto-badges')
+request('/control',dict(name='SHIFT',action='press'));time.sleep(1);snapshot('opto-shift')
+request('/control',dict(name='SHIFT',action='release'));time.sleep(.5)
 request('/control',dict(name='K3',action='set',value=127));time.sleep(1)
 gain=raster();assert gain!=watch,'Gain did not change the rendered kitten'
 snapshot('opto-gain')
@@ -158,7 +161,7 @@ proof=dict(passed=True,base_revision=baseline['revision'],library_sha256=sha,pid
     b2_outside_compressor_preserved=True,physical_device_tested=False,audio_asserted=True,animation_verified=True,
     untraced=tracer==0,
     audio_blocks_before=count_before,audio_blocks_after=u(blocks),signal_hits=u(hits),peak_reduction_db=peak_gr,
-    stereo_meters_verified=True,meter_peak_input=peak_in,meter_peak_output=peak_out,meter_green_pixels=meter_pixels,
+    stereo_meters_verified=True,shift_badges_captured=True,meter_peak_input=peak_in,meter_peak_output=peak_out,meter_green_pixels=meter_pixels,
     raster_watch=watch,raster_gain=gain,raster_sleep=sleep,
     scope='Full QEMU native app/audio: Shift+Pad 5, exact master binding, B2 Type, K1/K3, real pad audio through OptoCat with GR/hit telemetry, native image pixels change for Gain/Bypass, Duck return and screen exit.')
 (O/'verification.json').write_text(json.dumps(proof,indent=2)+'\n')

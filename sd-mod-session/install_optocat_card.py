@@ -9,6 +9,7 @@ R=Path(__file__).resolve().parent
 baseline=json.loads((R/'compressor_base.json').read_text())
 O=R/'build/compressor'/baseline['revision']
 parser=argparse.ArgumentParser();parser.add_argument('--card',choices=['E'],required=True)
+parser.add_argument('--from-version',choices=[baseline['revision']+'-optocat'])
 parser.add_argument('--prepare-only',action='store_true');args=parser.parse_args()
 CARD=Path(args.card+':/')
 K=ctypes.WinDLL('kernel32',use_last_error=True)
@@ -43,7 +44,13 @@ def replace(p,body):
  os.replace(temp,p);assert digest(p)==hashlib.sha256(body).hexdigest()
 identity()
 previous=json.loads((CARD/'MPC_MOD_VERSION.json').read_text(encoding='utf-8-sig'))
-assert previous['revision']==baseline['revision'],'Refuse to replace a different version silently'
+if previous['revision']!=baseline['revision']:
+ assert args.from_version==previous['revision'],'Refuse to replace a different version silently'
+ prior=json.loads((O/'deployed-optocat-build-info.json').read_text())
+ receipt=json.loads((O/'deployed-optocat-receipt.json').read_text())
+ assert previous['revision']==prior['revision']==receipt['revision']
+ assert previous['payload_sha256']==prior['payload_sha256'] and previous['library_sha256']==receipt['library_sha256']
+ assert prior['zip_sha256']==receipt['zip_sha256']==previous['zip_sha256']
 old=previous['payload_sha256']
 for name,h in old.items():
  assert len(PurePosixPath(name).parts)==1 and name not in ('.','..')
@@ -51,17 +58,17 @@ for name,h in old.items():
 snapshot=O/'card-preflight.json'
 cached=json.loads(snapshot.read_text()) if snapshot.exists() and not args.prepare_only else None
 current_inventory=inventory()
-if cached and cached.get('serial')=='30989DE5' and cached.get('revision')==previous['revision'] and cached.get('inventory')==current_inventory:
+if cached and cached.get('serial')=='30989DE5' and cached.get('revision') in (baseline['revision'],previous['revision']) and cached.get('inventory')==current_inventory:
  before=cached['music_sha256'];print('Using unchanged preflight inventory; full music hashes will be verified after the write',flush=True)
 else:
  print('Hashing samples/projects...',flush=True);before=music()
-print('Identified E: 30989DE5,',baseline['revision'],'; music files:',len(before),flush=True)
+print('Identified E: 30989DE5,',previous['revision'],'; music files:',len(before),flush=True)
 if args.prepare_only:
  O.mkdir(parents=True,exist_ok=True)
- (O/'card-preflight.json').write_text(json.dumps(dict(serial='30989DE5',revision=baseline['revision'],music_sha256=before,inventory=current_inventory),indent=2)+'\n')
+ (O/'card-preflight.json').write_text(json.dumps(dict(serial='30989DE5',revision=previous['revision'],music_sha256=before,inventory=current_inventory),indent=2)+'\n')
  raise SystemExit(0)
 info=json.loads((O/'build-info.json').read_text())
-assert info['revision']==baseline['revision']+'-optocat' and info['full_vm_verified']
+assert info['revision']==baseline['revision']+'-optocat-s' and info['full_vm_verified']
 assert info['live_verification']['audio_asserted'] and info['live_verification']['animation_verified']
 assert info['live_verification']['untraced'],'Require the final normal VM run'
 assert info['verification']['passed'] and info['verification']['ubsan'] and info['compile_verification']['full_preload_constructor']
@@ -99,7 +106,7 @@ except BaseException:
   if digest(CARD/'autorun'/name)!=digest(source):replace(CARD/'autorun'/name,source.read_bytes())
  replace(CARD/'MPC_MOD_VERSION.json',(backup/'MPC_MOD_VERSION.json').read_bytes())
  raise
-receipt=dict(revision=info['revision'],drive='E:',serial='30989DE5',backup=str(backup),previous_revision=baseline['revision'],
+receipt=dict(revision=info['revision'],drive='E:',serial='30989DE5',backup=str(backup),previous_revision=previous['revision'],
  updated_mod_files=ordered,music_files_verified_unchanged=len(before),music_bytes=sum((CARD/name).stat().st_size for name in before),
  library_sha256=info['library_sha256'],zip_sha256=info['zip_sha256'],full_vm_verified=True,hardware_tested=False,
  windows_safe_eject_still_required=True)

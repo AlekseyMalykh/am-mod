@@ -35,6 +35,12 @@ static void text(void*g,const char*s,int x,int y,int w,int h,float size){
  FN(0x10817b0,void(*)(void*,const uint64_t*,int,int,int,int,int,int,float))(g,&str,x,y,w,h,0x24,1,.7f);
  FN(0x1070d60,void(*)(uint64_t*))(&font);FN(0xf0a290,void(*)(uint64_t*))(&str);
 }
+static void shift_badge(void*g,int x,int held){
+ /* Same 10x12 badge and ink as music_ui.c/native K panels. */
+ colour(g,held?0xffff4747:0xffffffff);
+ rect(g,x,200,10,1);rect(g,x,211,10,1);rect(g,x,200,1,12);rect(g,x+9,200,1,12);
+ text(g,"S",x+1,201,8,10,10);
+}
 int compressor_ui_tick(void){
  unsigned show=(unsigned)visible();
  if(atomic_exchange(&active,show)!=show)atomic_fetch_add(&epoch,1);
@@ -102,10 +108,11 @@ static void paint(void*p,void*g){
  colour(g,0xffb0b0b0);text(g,"OptoCat",4,35,80,14,11);
  snprintf(value,sizeof(value),"GR %.1f dB",compressor_reduction());text(g,value,4,180,92,16,11);
  int shifted=music_ui_shift_active();
- const char*normal_names[]={"Threshold","Ratio","Gain"},*shift_names[]={"S Attack","S Release","S Knee"};
+ const char*normal_names[]={"Threshold","Ratio","Gain"},*shift_names[]={"Attack","Release","Knee"};
  const char**names=shifted?shift_names:normal_names;
  for(int k=0;k<3;++k){int x=k==0?0:k==1?106:213,w=k==2?107:106;
-  colour(g,0xff000000);rect(g,x,198,w,38);colour(g,0xffffc247);text(g,names[k],x+2,199,w-4,15,12);
+  colour(g,0xff000000);rect(g,x,198,w,38);colour(g,0xffffc247);text(g,names[k],x+4,200,w-22,12,12);
+  shift_badge(g,k*106+94,shifted);
   if(shifted&&k==0)snprintf(value,sizeof(value),"%.2f ms",c.attack);
   else if(shifted&&k==1)snprintf(value,sizeof(value),"%.0f ms",c.release);
   else if(shifted)snprintf(value,sizeof(value),"%.1f dB",c.knee);
