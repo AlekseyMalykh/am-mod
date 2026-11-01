@@ -1,5 +1,12 @@
 # Changelog
 
+## Installer 1.0.1 — 1 November 2026
+
+- Stop installation before any writes on FAT32/MS-DOS, an unverified filesystem or an unsupported SD volume name; the current mod requires exFAT and an ASCII name without spaces.
+- Read the actual filesystem and volume name on macOS with `diskutil`, and the device label on Linux. Unlisted paths no longer bypass metadata checks.
+- Keep GUI validation errors visible and show the SD requirements at startup. Add regression tests on Windows, macOS and Linux.
+- Add prominent English/Russian installation requirements. The r26a mod payload is unchanged; FAT32 support has not been added.
+
 **English** · Russian: [docs/FEATURES.ru.md](docs/FEATURES.ru.md), [sd-mod-session/IMPLEMENTATION_HISTORY_RU.md](sd-mod-session/IMPLEMENTATION_HISTORY_RU.md)
 
 All builds target MPC Sample firmware 1.3.0.12 and run from the SD card; none of them writes the firmware. Details of each build are in `sd-mod-session/R*_RU.md` (Russian). "Confirmed" means checked on a real MPC Sample.

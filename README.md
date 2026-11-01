@@ -88,8 +88,17 @@ Every feature with its controls and status: [docs/FEATURES.md](docs/FEATURES.md)
 
 ## Install
 
+> [!IMPORTANT]
+> **The current mod requires an exFAT SD card. FAT32 / MS-DOS (FAT32) is not supported:** files may copy successfully, but the mod will not start and may leave no log files.
+>
+> **Use a card volume name such as `MPC` or `MPCSAMPLE`.** Only ASCII letters, digits, `.`, `_` and `-` are supported; spaces and Cyrillic letters in the card name prevent startup. This restriction applies to the card name, not your sample/project names.
+>
+> Check the filesystem before installing: Finder → select the SD volume → ⌘I → Format on macOS; drive Properties → File system on Windows. Installer **1.0.1+** checks the filesystem and card name before writing; older installers can report success on an incompatible card.
+>
+> Keep your existing projects and samples on a compatible card. **Before reformatting a FAT32 card to exFAT, back up its entire contents: formatting erases the card.** The installer does not format or convert cards. Renaming a volume does not require formatting.
+
 You need an MPC Sample on firmware **1.3.0.12** (the mod checks the app's SHA-256 and
-refuses to start on any other version) and an SD card formatted by the MPC.
+refuses to start on any other version) and an exFAT SD card with a supported volume name.
 
 **Installer (Windows):** download `MPC-Sample-Mod-Installer.exe` and the
 `am-mod-*.zip` package from [Releases](../../releases), run the installer, pick the zip

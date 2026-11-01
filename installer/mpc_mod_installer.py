@@ -31,7 +31,10 @@ import io
 import json
 import os
 import platform
+import plistlib
+import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import threading
@@ -39,7 +42,7 @@ import urllib.request
 import zipfile
 from pathlib import Path, PurePosixPath
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 REPO = "AlekseyMalykh/am-mod"
 VERSION_FILE = "MPC_MOD_VERSION.json"
 AUTORUN = "autorun"
@@ -174,9 +177,25 @@ def installed_revision(root: Path) -> str:
         return "?"
 
 
-def _windows_cards() -> list[Card]:
+def _windows_card(root: Path) -> Card | None:
     import ctypes
     from ctypes import wintypes
+    k = ctypes.WinDLL("kernel32", use_last_error=True)
+    label = ctypes.create_unicode_buffer(261)
+    fs = ctypes.create_unicode_buffer(261)
+    serial, maxlen, flags = wintypes.DWORD(), wintypes.DWORD(), wintypes.DWORD()
+    if not k.GetVolumeInformationW(str(root), label, 261, ctypes.byref(serial), ctypes.byref(maxlen),
+                                   ctypes.byref(flags), fs, 261):
+        return None
+    try:
+        size = shutil.disk_usage(root).total
+    except OSError:
+        size = 0
+    return Card(root, label.value, fs.value, size)
+
+
+def _windows_cards() -> list[Card]:
+    import ctypes
     k = ctypes.WinDLL("kernel32", use_last_error=True)
     cards = []
     mask = k.GetLogicalDrives()
@@ -186,18 +205,33 @@ def _windows_cards() -> list[Card]:
         drive = f"{chr(65 + i)}:\\"
         if k.GetDriveTypeW(drive) != 2:  # DRIVE_REMOVABLE
             continue
-        label = ctypes.create_unicode_buffer(261)
-        fs = ctypes.create_unicode_buffer(261)
-        serial, maxlen, flags = wintypes.DWORD(), wintypes.DWORD(), wintypes.DWORD()
-        if not k.GetVolumeInformationW(drive, label, 261, ctypes.byref(serial), ctypes.byref(maxlen),
-                                       ctypes.byref(flags), fs, 261):
-            continue  # no media in the reader
-        try:
-            size = shutil.disk_usage(drive).total
-        except OSError:
-            size = 0
-        cards.append(Card(Path(drive), label.value, fs.value, size))
+        card = _windows_card(Path(drive))
+        if card:
+            cards.append(card)
     return cards
+
+
+def _mac_card(root: Path) -> Card:
+    try:
+        result = subprocess.run(["diskutil", "info", "-plist", str(root)],
+                                capture_output=True, check=True, timeout=10)
+        info = plistlib.loads(result.stdout)
+        if not isinstance(info, dict) or Path(info.get("MountPoint", "")) != root:
+            return Card(root)
+        return Card(root, info.get("VolumeName", ""), info.get("FilesystemType", ""),
+                    info.get("TotalSize", 0))
+    except (OSError, subprocess.SubprocessError, plistlib.InvalidFileException, ValueError):
+        # Keep the card visible, but check_card must reject unverified metadata.
+        return Card(root)
+
+
+def _linux_label(device: str) -> str:
+    try:
+        result = subprocess.run(["lsblk", "--nodeps", "--noheadings", "--output", "LABEL", device],
+                                capture_output=True, text=True, check=True, timeout=10)
+        return result.stdout.rstrip("\r\n")
+    except (OSError, subprocess.SubprocessError):
+        return ""
 
 
 def _posix_cards() -> list[Card]:
@@ -207,8 +241,7 @@ def _posix_cards() -> list[Card]:
         for p in sorted(base.iterdir()) if base.exists() else []:
             try:
                 if p.is_dir() and not p.is_symlink() and os.path.ismount(p):
-                    st = os.statvfs(p)
-                    cards.append(Card(p, p.name, "", st.f_blocks * st.f_frsize))
+                    cards.append(_mac_card(p))
             except OSError:
                 pass
         return cards
@@ -218,7 +251,7 @@ def _posix_cards() -> list[Card]:
         return cards
     for line in mounts:
         dev, mnt, fs, *_ = line.split()
-        mnt = mnt.encode().decode("unicode_escape")
+        mnt = re.sub(r"\\([0-7]{3})", lambda m: chr(int(m[1], 8)), mnt)
         if fs.lower() not in ("vfat", "exfat", "fuseblk", "msdos"):
             continue
         if not mnt.startswith(("/media/", "/run/media/", "/mnt/")):
@@ -227,7 +260,7 @@ def _posix_cards() -> list[Card]:
             st = os.statvfs(mnt)
         except OSError:
             continue
-        cards.append(Card(Path(mnt), Path(mnt).name, fs, st.f_blocks * st.f_frsize))
+        cards.append(Card(Path(mnt), _linux_label(dev), fs, st.f_blocks * st.f_frsize))
     return cards
 
 
@@ -245,8 +278,14 @@ def card_from_arg(arg: str) -> Card:
             pass
     if not p.is_dir():
         raise InstallError(f"{arg} is not a mounted card.")
-    # Not detected as removable: allowed (some readers report as fixed), but checked.
-    return Card(p, p.name, "", shutil.disk_usage(p).total)
+    # Some Windows readers report as fixed. Read their actual volume metadata too.
+    if os.name == "nt" and p.resolve() == Path(p.anchor):
+        card = _windows_card(p)
+        if card:
+            return card
+    raise InstallError(f"Cannot verify the filesystem and volume name of {p}. "
+                       "Choose the SD card root shown by the cards command or Refresh; "
+                       "if needed, connect the card through a card reader.")
 
 
 def check_card(card: Card, log=print) -> None:
@@ -264,8 +303,18 @@ def check_card(card: Card, log=print) -> None:
             return False
     if resolved == system or inside(home, resolved) or inside(Path(sys.executable).resolve(), resolved):
         raise InstallError(f"{root} looks like a system disk, not an SD card.")
-    if card.fs and card.fs.lower() not in ("exfat", "fat32", "vfat", "msdos", "fuseblk"):
-        raise InstallError(f"{root} uses {card.fs}; the MPC Sample reads exFAT/FAT32 cards.")
+    if not card.fs:
+        raise InstallError(f"Cannot verify the filesystem of {root}. Installation stopped before writing files. "
+                           "The current AM Mod requires an exFAT card.")
+    if card.fs.lower() != "exfat":
+        raise InstallError(f"{root} uses {card.fs}. The current AM Mod requires exFAT; "
+                           "it will not start on FAT32/MS-DOS cards. "
+                           "Back up your projects and samples before changing the filesystem.")
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", card.label):
+        raise InstallError("The current AM Mod requires a verified SD volume name containing only "
+                           "A-Z, a-z, 0-9, dot, underscore or hyphen (for example MPC). "
+                           "Names with spaces or Cyrillic letters are not supported. "
+                           "Set the card's volume name and press Refresh; formatting is not needed to rename it.")
     if card.size and card.size > 2.2e12:
         raise InstallError(f"{root} is {card.size / 1e12:.1f} TB; that is not an SD card.")
     a = root / AUTORUN
@@ -471,8 +520,9 @@ def gui() -> None:
             try:
                 fn()
             except (InstallError, OSError) as e:
-                log(f"ERROR: {e}")
-                win.after(0, lambda: messagebox.showerror("AM Mod", str(e)))
+                error = str(e)
+                log(f"ERROR: {error}")
+                win.after(0, lambda message=error: messagebox.showerror("AM Mod", message))
         threading.Thread(target=worker, daemon=True).start()
 
     def latest() -> None:
@@ -506,7 +556,8 @@ def gui() -> None:
     ttk.Button(btns, text="Install", command=do_install).pack(side="left", padx=(6, 0))
 
     log("Firmware 1.3.0.12 only. The mod runs a patched copy of the stock app in RAM; it does not flash the MPC.")
-    log("Start: power on the MPC without the card, wait for the normal screen, insert the card, confirm Start.")
+    log("SD: exFAT required. FAT32/MS-DOS is not supported by the current mod. Volume name: MPC, for example; no spaces or Cyrillic.")
+    log("Start: insert the card and power on, or insert it after the normal screen appears. The mod starts automatically.")
     log("Exit: Project (Shift+Pad 16) > Mod Off.")
     refresh()
     win.mainloop()
