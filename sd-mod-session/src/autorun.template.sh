@@ -311,6 +311,8 @@ data_layer_stop() {
 }
 
 storage_host_check() {
+    save_fs=$(cat "$R/storage-meta/sd-filesystem") || return 1
+    case "$save_fs" in exfat|vfat) ;; *) return 1 ;; esac
     save_path=$(cat "$R/storage-meta/save-path") || return 1
     save_sd=${save_path%/MPC-Sample}
     [ "$save_path" = "$save_sd/MPC-Sample" ] || return 1
@@ -322,18 +324,20 @@ storage_host_check() {
         [ "$(stat -c '%d:%i' "$save_path/$save_child")" = "$(cat "$R/storage-meta/save-$save_child-identity")" ] || return 1
         [ "$(stat -c %d "$save_path/$save_child")" = "$(stat -c %d "$save_sd")" ] || return 1
     done
-    awk -v p="$save_sd" '$2==p && $3=="exfat" && $4 ~ /(^|,)rw(,|$)/ {n++} END {exit n!=1}' /proc/mounts
+    awk -v p="$save_sd" -v fs="$save_fs" '$2==p && $3==fs && $4 ~ /(^|,)rw(,|$)/ {n++} END {exit n!=1}' /proc/mounts
 }
 
 sandbox_check() {
     echo 'SANDBOX_CHECK_BEGIN'
+    save_fs=$(cat "$APP/storage-meta/sd-filesystem") || return 1
+    case "$save_fs" in exfat) save_magic=2011bab0 ;; vfat) save_magic=4d44 ;; *) return 1 ;; esac
     save_path=$(cat "$APP/storage-meta/save-path") || return 1
     [ "$(readlink -f "$save_path")" = "$save_path" ] || return 1
     [ "$(stat -c '%d:%i' "$save_path")" = "$(cat "$APP/storage-meta/save-identity")" ] || return 1
     for save_child in Projects Samples; do
         [ "$(readlink -f "$save_path/$save_child")" = "$save_path/$save_child" ] || return 1
         [ "$(stat -c '%d:%i' "$save_path/$save_child")" = "$(cat "$APP/storage-meta/save-$save_child-identity")" ] || return 1
-        [ "$(stat -f -c %t "$save_path/$save_child")" = 2011bab0 ] || return 1
+        [ "$(stat -f -c %t "$save_path/$save_child")" = "$save_magic" ] || return 1
     done
     [ "$(stat -c '%d:%i' /data)" = "$(cat "$APP/storage-meta/data-image-identity")" ] || return 1
     data_type=$(cat "$APP/storage-meta/data-image-type") || return 1
@@ -361,7 +365,7 @@ sandbox_check() {
     # Exactly two accessible disk-backed mounts may be writable: native SD folders.
     # Only hidden rows at the exact /data path are exempt, after the opened
     # mount ID, pinned dev/inode and RAM filesystem type have all been checked.
-    awk -v save="$save_path" -v data_type="$data_type" -v data_id="$data_mount_id" '
+    awk -v save="$save_path" -v save_fs="$save_fs" -v data_type="$data_type" -v data_id="$data_mount_id" '
       {
         for (s=7;s<=NF && $s!="-";s++) {}
         if (s>NF) {bad=1; next}
@@ -375,8 +379,8 @@ sandbox_check() {
           next
         }
         if (fs ~ /^(ext[234]|exfat|vfat|f2fs|btrfs|xfs|ntfs|ntfs3|fuseblk|overlay)$/ && opts !~ /(^|,)ro(,|$)/) {
-          if (target==(save "/Projects") && fs=="exfat" && opts ~ /(^|,)rw(,|$)/) allowed_projects++;
-          else if (target==(save "/Samples") && fs=="exfat" && opts ~ /(^|,)rw(,|$)/) allowed_samples++;
+          if (target==(save "/Projects") && fs==save_fs && opts ~ /(^|,)rw(,|$)/) allowed_projects++;
+          else if (target==(save "/Samples") && fs==save_fs && opts ~ /(^|,)rw(,|$)/) allowed_samples++;
           else { print "UNEXPECTED_WRITABLE_DISK: " target " id=" $1 " fs=" fs " opts=" opts; bad=1 }
         }
       }
@@ -660,7 +664,8 @@ case "$DIR" in *' '*|*'%'*|*'\'*) early_fail UNSUPPORTED_AUTORUN_PATH ;; esac
 SD=${DIR%/autorun}
 case "${SD#/media/}" in ''|*[!A-Za-z0-9._-]*) early_fail UNSUPPORTED_SD_NAME ;; esac
 [ "$(readlink -f "$SD")" = "$SD" ] || early_fail SD_NOT_CANONICAL
-awk -v p="$SD" '$2==p && $3=="exfat" && $4 ~ /(^|,)rw(,|$)/ {ok=1} END {exit !ok}' /proc/mounts || early_fail SD_NOT_RW_EXFAT
+SD_FS=$(awk -v p="$SD" '$2==p && ($3=="exfat" || $3=="vfat") && $4 ~ /(^|,)rw(,|$)/ {n++; fs=$3} END {if(n!=1) exit 1; print fs}' /proc/mounts) || early_fail SD_NOT_RW_EXFAT_OR_FAT32
+case "$SD_FS:$(stat -f -c %t "$SD")" in exfat:2011bab0|vfat:4d44) ;; *) early_fail SD_FILESYSTEM_MAGIC_MISMATCH ;; esac
 [ "$(stat -f -c %T /run)" = tmpfs ] || early_fail RUN_NOT_TMPFS
 relaunch=0
 if [ -d "$R" ] && [ -f "$R/recovered" ]; then
@@ -700,6 +705,7 @@ printf '%s\n' "$DIR/MPC_CLONE_TRIAL.txt" > "$R/report-path"
 stat -c %d "$DIR" > "$R/sd-device"
 printf '%s\n' "$DIR" > "$R/storage-meta/journal-dir"
 stat -c '%d:%i' "$DIR" > "$R/storage-meta/journal-identity"
+printf '%s\n' "$SD_FS" > "$R/storage-meta/sd-filesystem"
 touch "$R/events.txt"
 exit_mode=main
 trap 'on_exit $?' EXIT

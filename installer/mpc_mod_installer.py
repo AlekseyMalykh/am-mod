@@ -42,7 +42,7 @@ import urllib.request
 import zipfile
 from pathlib import Path, PurePosixPath
 
-__version__ = "1.0.1"
+__version__ = "1.0.2"
 REPO = "AlekseyMalykh/am-mod"
 VERSION_FILE = "MPC_MOD_VERSION.json"
 AUTORUN = "autorun"
@@ -114,6 +114,13 @@ class Package:
         except (ValueError, KeyError, IndexError, TypeError):
             raise InstallError("autorun.json is not a valid MPC autorun manifest.")
         self.revision = self._revision()
+        # Older packages have no capability declaration and require exFAT.
+        self.filesystems = {"exfat"}
+        for line in self.files["autorun.sh"].decode("utf-8", "replace").splitlines():
+            if line.startswith("# sd-filesystems="):
+                self.filesystems = set(line.split("=", 1)[1].split(","))
+                if not self.filesystems or not self.filesystems <= {"exfat", "vfat"}:
+                    raise InstallError("Invalid SD filesystem declaration in autorun.sh.")
 
     def _revision(self) -> str:
         for line in self.files["autorun.sh"].decode("utf-8", "replace").splitlines():
@@ -305,10 +312,9 @@ def check_card(card: Card, log=print) -> None:
         raise InstallError(f"{root} looks like a system disk, not an SD card.")
     if not card.fs:
         raise InstallError(f"Cannot verify the filesystem of {root}. Installation stopped before writing files. "
-                           "The current AM Mod requires an exFAT card.")
-    if card.fs.lower() != "exfat":
-        raise InstallError(f"{root} uses {card.fs}. The current AM Mod requires exFAT; "
-                           "it will not start on FAT32/MS-DOS cards. "
+                           "AM Mod requires an exFAT or FAT32 card.")
+    if card.fs.lower() not in ("exfat", "fat32", "vfat", "msdos"):
+        raise InstallError(f"{root} uses {card.fs}. AM Mod supports exFAT and FAT32/MS-DOS (FAT32). "
                            "Back up your projects and samples before changing the filesystem.")
     if not re.fullmatch(r"[A-Za-z0-9._-]+", card.label):
         raise InstallError("The current AM Mod requires a verified SD volume name containing only "
@@ -379,6 +385,10 @@ def _sync(root: Path) -> None:
 
 def install(pkg: Package, card: Card, log=print, dry_run: bool = False) -> dict:
     check_card(card, log)
+    filesystem = "exfat" if card.fs.lower() == "exfat" else "vfat"
+    if filesystem not in pkg.filesystems:
+        raise InstallError(f"Package {pkg.revision} does not support {card.fs}. "
+                           "FAT32 requires AM Mod r26e or later; select a compatible package. Nothing was written.")
     root = card.root
     log(f"Package: {pkg.name}  revision {pkg.revision}  ({len(pkg.files)} files, sha256 {pkg.sha256[:12]}...)")
     need = sum(len(b) for b in pkg.files.values())
@@ -556,7 +566,7 @@ def gui() -> None:
     ttk.Button(btns, text="Install", command=do_install).pack(side="left", padx=(6, 0))
 
     log("Firmware 1.3.0.12 only. The mod runs a patched copy of the stock app in RAM; it does not flash the MPC.")
-    log("SD: exFAT required. FAT32/MS-DOS is not supported by the current mod. Volume name: MPC, for example; no spaces or Cyrillic.")
+    log("SD: exFAT or experimental FAT32/MS-DOS (FAT32). FAT32 requires package r26e or later. Volume name: MPC, for example; no spaces or Cyrillic.")
     log("Start: insert the card and power on, or insert it after the normal screen appears. The mod starts automatically.")
     log("Exit: Project (Shift+Pad 16) > Mod Off.")
     refresh()

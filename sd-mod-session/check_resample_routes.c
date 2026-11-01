@@ -18,6 +18,8 @@ int note_native_active(void){return 0;}
 int note_native_owns(unsigned cc){(void)cc;return 0;}
 void note_native_button_requested(unsigned c,unsigned d){(void)c;(void)d;}
 int music_ui_active(void){return 1;} /* Ordinary Sample is active, not modal. */
+void music_ui_requested(unsigned c,unsigned d){(void)c;(void)d;}
+int music_ui_exit_saving(void){return 0;}
 int music_ui_owns(unsigned cc){(void)cc;return 0;}
 int music_ui_button_owns(unsigned c){(void)c;return 0;}
 int step_native_active(void){return 0;}

@@ -1,5 +1,19 @@
 # Changelog
 
+## r26f candidate — knob endpoints (issue #2)
+
+- Fix a reproduced input-queue overflow where a fast K1/K2/K3 sweep delivered its newest value immediately, then older queued values overwrote the endpoint. Retain the latest absolute positions and their final focus order within the trailing knob run.
+- Preserve button/pad actions, relative encoder increments and ownership/source/generation boundaries. The physical Main Volume path is unchanged.
+- ARM and UBSan checks reproduce the old failure (0 became 28), verify both endpoints on all three knobs, exercise 50,000 concurrent updates and check naming/resampling input routes. Full preload constructor validation passes. Warp verification on a physical MPC remains pending; the issue is not closed by fixture tests.
+- Includes r26e's experimental FAT32 support. [English](docs/RELEASE_NOTES-r26f.md) · [Русский](docs/RELEASE_NOTES-r26f.ru.md).
+
+## r26e candidate — experimental FAT32 support
+
+- Add experimental FAT32 support alongside exFAT in native autorun, the session controller, sandbox checks, diagnostics and the ARM save/journal flush helper. Pin the detected filesystem and retain canonical path, device/inode and write-scope checks. Physical MPC FAT32 testing is pending.
+- Installer 1.0.2 accepts FAT32 on Windows, macOS and Linux. It rejects older exFAT-only packages on FAT32 before backup or writes; existing projects and samples do not need reformatting.
+- Preserve the r26d application library and its pad-colour, project restoration and Filter/EQ changes. FAT32's per-file size limit still applies.
+- Validation and hardware status: [English](docs/RELEASE_NOTES-r26e.md) · [Русский](docs/RELEASE_NOTES-r26e.ru.md).
+
 ## r26d — 1 November 2026
 
 User-facing list of fixes and new features: [English](docs/RELEASE_NOTES-r26d.md) · [Русский](docs/RELEASE_NOTES-r26d.ru.md).
