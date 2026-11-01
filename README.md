@@ -6,6 +6,8 @@
 
 [r26i: native K1–K3 input and takeover](docs/RELEASE_NOTES-r26i.md)
 
+[r26j candidate: OptoCat Shift controls, paw timing and +6 dB gain limit](docs/RELEASE_NOTES-r26j.md). Local device-test build; not yet published as a release.
+
 The author confirmed the K parameter fix on a physical MPC Sample after testing r26i. OptoCat is preserved. Experimental FAT32 support is included in this source version; the currently published r26d download still requires exFAT.
 
 AM Mod is a community mod for the Akai MPC Sample (firmware **1.3.0.12**) that starts from the SD card.

@@ -1,5 +1,12 @@
 # Changelog
 
+## r26j candidate — OptoCat Shift controls and bounded gain
+
+- Add Shift+K1 Attack (1–100 ms), Shift+K2 Release (100–4000 ms) and Shift+K3 Knee (0–12 dB), with names/values and per-event Shift capture. Preserve the default optical response.
+- Connect Attack to paw strike speed and Release to its return, including timing changes during a gesture. Preserve the artwork, eyes, sleep and no repeated hits on steady input.
+- Reduce Opto Gain from a maximum of +18 dB to +6 dB. Actual native Duck In Boost=100% measures +6.02060 dB; Opto's master adapter measures +5.99996 dB. Verify the boost ceiling during parameter changes.
+- Preserve the device-confirmed r26i native K/takeover path. ARM/QEMU/UBSan and the full preload constructor pass; the new controls await a device trial. [English](docs/RELEASE_NOTES-r26j.md) · [Русский](docs/RELEASE_NOTES-r26j.ru.md).
+
 ## r26i — restore native knob delivery and takeover (issue #2)
 
 - Forward unclaimed native K1–K3 on the original input thread, retaining FIFO, in-flight action and naming boundaries. Custom controls keep UI routing.

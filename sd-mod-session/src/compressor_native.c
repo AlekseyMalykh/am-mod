@@ -11,7 +11,8 @@
  * actual AC50CompressorMeterConnector owner, not the first effect observed. */
 static uintptr_t table[125],image;
 static _Atomic(uintptr_t) owner;
-static _Atomic uint64_t settings=UINT64_C(120)<<2|UINT64_C(20)<<10|UINT64_C(48)<<17;
+static _Atomic uint64_t settings=UINT64_C(120)<<2|UINT64_C(20)<<10|UINT64_C(48)<<17|
+    UINT64_C(36)<<25|UINT64_C(110)<<34|UINT64_C(24)<<43;
 static _Atomic unsigned reduction,input_level=0xc2700000u,hits,blocks;
 static unsigned since_hit;
 static int above;
@@ -22,7 +23,10 @@ static float wet[2][8192];
 static void (*original_process)(void*,void*,void*);
 static void (*original_destroy)(void*),(*original_delete)(void*);
 static struct comp_config decode(uint64_t v){
- struct comp_config c={-48+(float)((v>>2)&255)*.25f,1+(float)((v>>10)&127)*.1f,-12+(float)((v>>17)&255)*.25f,(unsigned)((v>>1)&1)};return c;
+ struct comp_config c={-48+(float)((v>>2)&255)*.25f,1+(float)((v>>10)&127)*.1f,
+  -12+(float)((v>>17)&255)*.25f,(unsigned)((v>>1)&1),
+  1+(float)((v>>25)&511)*.25f,100+(float)((v>>34)&511)*10,
+  (float)((v>>43)&63)*.25f};return c;
 }
 unsigned compressor_type(void){return (unsigned)(atomic_load_explicit(&settings,memory_order_acquire)&1);}
 int compressor_ready(void){return atomic_load_explicit(&owner,memory_order_acquire)!=0;}
@@ -34,7 +38,14 @@ void compressor_config(struct comp_config*c){if(c)*c=decode(atomic_load(&setting
 void compressor_knob(unsigned k,unsigned value){
  if(k>2||value>127)return;
  uint64_t v=atomic_load(&settings);unsigned shift=k==0?2:k==1?10:17,bits=k==1?127:255;
- unsigned x=k==0?(value*192+63)/127:k==1?(value*70+63)/127:(value*120+63)/127;
+ unsigned x=k==0?(value*192+63)/127:k==1?(value*70+63)/127:(value*72+63)/127;
+ v=(v&~((uint64_t)bits<<shift))|((uint64_t)x<<shift);atomic_store_explicit(&settings,v,memory_order_release);
+}
+void compressor_shift_knob(unsigned k,unsigned value){
+ if(k>2||value>127)return;
+ uint64_t v=atomic_load(&settings);unsigned shift=k==0?25:k==1?34:43,bits=k==2?63:511;
+ unsigned x=k==0?(unsigned)lroundf((powf(100,(float)value/127)-1)*4):
+  k==1?(unsigned)lroundf((100*powf(40,(float)value/127)-100)/10):(value*48+63)/127;
  v=(v&~((uint64_t)bits<<shift))|((uint64_t)x<<shift);atomic_store_explicit(&settings,v,memory_order_release);
 }
 void compressor_bypass(void){atomic_fetch_xor_explicit(&settings,2,memory_order_release);}
