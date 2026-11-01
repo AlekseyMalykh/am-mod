@@ -23,8 +23,11 @@ int comp_opto_process(struct comp_opto*s,const struct comp_config*c,float *const
   /* Max-channel RMS detection also works for anti-phase stereo. */
   float peak=fmaxf(fabsf(l),fabsf(r));if(peak>16)peak=16;
   s->rms=detector*s->rms+(1-detector)*peak*peak;
-  float level=10*log10f(fmaxf(s->rms,1e-12f)),over=level-c->threshold,target;
-  if(over<=-3)target=0;else if(over>=3)target=slope*over;else target=slope*(over+3)*(over+3)/12;
+  if(!(s->phase&3u)){
+   float level=10*log10f(fmaxf(s->rms,1e-12f)),over=level-c->threshold;
+   s->desired=over<=-3?0:over>=3?slope*over:slope*(over+3)*(over+3)/12;
+  }
+  float target=s->desired;
   float a=target>s->fast?attack:release,b=target>s->slow?memory_attack:memory_release;
   s->fast=target+a*(s->fast-target);s->slow=target+b*(s->slow-target);
   s->gr=.7f*s->fast+.3f*s->slow;

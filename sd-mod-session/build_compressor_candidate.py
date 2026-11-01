@@ -7,8 +7,8 @@ O=R/'build/compressor';O.mkdir(parents=True,exist_ok=True)
 frozen=json.loads((runtime/'sd-mod-session/build/r23a/build-info.json').read_text())
 sources=list(dict.fromkeys(frozen['compile_verification']['linked_sources']+
  ['src/chords.c','src/chords_ui.c','src/voice_guard.c','src/values_bipolar.c','src/filter_spectrum.cc']+
- ['src/compressor_dsp.c','src/compressor_native.c','src/compressor_ui.c']))
-tracked=sources+[str(p.relative_to(R)) for p in (R/'src').glob('*.h')]+['build_compressor_candidate.py']
+ ['src/compressor_dsp.c','src/compressor_native.c','src/compressor_ui.c','src/compressor_animation.c','src/compressor_image.cc']))
+tracked=sources+[str(p.relative_to(R)) for p in (R/'src').glob('*.h')]+['src/optocat_atlas.inc','graphics/build_optocat.cjs','graphics/optocat_shapes.js','build_compressor_candidate.py']
 sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
 before={s:sha(R/s) for s in tracked}
 common=['-O2','-g','-fPIC','-Wall','-Wextra','-Werror','-Ibuild','-I'+str(runtime/'sd-mod-session/build'),

@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#include <time.h>
 #define F(p,o,T) (*(T*)((char*)(p)+(o)))
 #define FN(o,T) ((T)(base+(o)))
 #define SCREEN 0x6e1bf30
@@ -14,6 +15,9 @@ static _Atomic unsigned active,owned[112];
 static _Atomic uint64_t epoch=1;
 static unsigned painted_type=~0u;
 static int reported;
+static struct comp_animation animation;
+static double next_frame;
+static double seconds(void){struct timespec t;if(clock_gettime(CLOCK_MONOTONIC,&t))return 0;return t.tv_sec+t.tv_nsec*1e-9;}
 void compressor_ui_init(uintptr_t b){base=b;}
 uint64_t compressor_ui_ticket(void){return atomic_load(&epoch);}
 static int visible(void){return root&&FN(0x112fd50,int(*)(void*))(root)&&!FN(0x112f6b0,int(*)(void*))(root);}
@@ -30,7 +34,8 @@ int compressor_ui_tick(void){
  unsigned show=(unsigned)visible();
  if(atomic_exchange(&active,show)!=show)atomic_fetch_add(&epoch,1);
  if(show&&painted_type!=compressor_type()){painted_type=compressor_type();repaint();}
- if(show&&compressor_type()==COMP_OPTO)repaint();
+ double now=seconds();
+ if(show&&compressor_type()==COMP_OPTO&&now>=next_frame){next_frame=now+1./30;repaint();}
  return show!=0;
 }
 int compressor_ui_owns(unsigned kind,unsigned code){
@@ -60,7 +65,7 @@ int compressor_ui_control(void*e,uint64_t ticket){
 static void paint(void*p,void*g){
  if(F(p,0,uintptr_t)!=base+SCREEN)return;
  compressor_phone_wake();
- if(root!=p){root=p;atomic_fetch_add(&epoch,1);}
+ if(root!=p){root=p;compressor_animation_init(&animation);atomic_fetch_add(&epoch,1);}
  if(!compressor_ready()){
   /* Native 15edf90 creates the meter and stores it at screen+2698
    * (15ee064..68). Its +80 is the exact master Colour instance.
@@ -81,8 +86,10 @@ static void paint(void*p,void*g){
  colour(g,0xff000000);rect(g,0,34,320,164);rect(g,0,0,106,29);rect(g,213,0,107,29);
  colour(g,0xff707070);text(g,"--",4,1,98,22,14);
  colour(g,c.bypass?0xffffc247:0xffffffff);text(g,"Bypass",217,1,99,22,14);
- colour(g,0xffffffff);text(g,"OptoCat",20,64,280,34,26);text(g,"Optical leveler",20,106,280,22,15);
- snprintf(value,sizeof(value),"Reduction %.1f dB",compressor_reduction());text(g,value,20,147,280,22,15);
+ uint32_t*pixels=compressor_image_pixels(base);
+ if(pixels){compressor_animation_frame(&animation,pixels,seconds(),compressor_input_level(),c.threshold,c.gain,c.bypass,compressor_hits());colour(g,0xffffffff);compressor_image_draw(g);}
+ colour(g,0xffb0b0b0);text(g,"OptoCat",4,35,80,14,11);
+ snprintf(value,sizeof(value),"GR %.1f dB",compressor_reduction());text(g,value,4,180,92,16,11);
  const char*names[]={"Threshold","Ratio","Gain"};
  for(int k=0;k<3;++k){int x=k==0?0:k==1?106:213,w=k==2?107:106;
   colour(g,0xff000000);rect(g,x,198,w,38);colour(g,0xffffc247);text(g,names[k],x+2,199,w-4,15,12);

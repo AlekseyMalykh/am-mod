@@ -12,7 +12,10 @@
 static uintptr_t table[125],image;
 static _Atomic(uintptr_t) owner;
 static _Atomic uint64_t settings=UINT64_C(120)<<2|UINT64_C(20)<<10|UINT64_C(48)<<17;
-static _Atomic unsigned reduction;
+static _Atomic unsigned reduction,input_level=0xc2700000u,hits,blocks;
+static unsigned since_hit;
+static int above;
+static float last_hit_level=-120;
 static struct comp_opto opto;
 static float mix;
 static float wet[2][8192];
@@ -36,8 +39,12 @@ void compressor_knob(unsigned k,unsigned value){
 }
 void compressor_bypass(void){atomic_fetch_xor_explicit(&settings,2,memory_order_release);}
 float compressor_reduction(void){unsigned v=atomic_load_explicit(&reduction,memory_order_relaxed);float f;memcpy(&f,&v,4);return f;}
+float compressor_input_level(void){unsigned v=atomic_load_explicit(&input_level,memory_order_relaxed);float f;memcpy(&f,&v,4);return f;}
+unsigned compressor_hits(void){return atomic_load_explicit(&hits,memory_order_relaxed);}
+unsigned compressor_audio_blocks(void){return atomic_load_explicit(&blocks,memory_order_relaxed);}
 static void failed(void){atomic_fetch_and_explicit(&settings,~UINT64_C(1),memory_order_release);atomic_store(&reduction,0);}
 static void process(void*self,void*buffer,void*midi){
+ atomic_fetch_add_explicit(&blocks,1,memory_order_relaxed);
  uint64_t v=atomic_load_explicit(&settings,memory_order_acquire);unsigned type=(unsigned)(v&1);
  if(!type&&mix==0){original_process(self,buffer,midi);return;}
  if((uintptr_t)self!=atomic_load_explicit(&owner,memory_order_acquire)||!buffer){failed();original_process(self,buffer,midi);return;}
@@ -46,6 +53,12 @@ static void process(void*self,void*buffer,void*midi){
  if(!frames)return;
  struct comp_config c=decode(v);float*dest[]={wet[0],wet[1]};
  if(!comp_opto_process(&opto,&c,data,dest,(unsigned)channels,(size_t)frames)){failed();original_process(self,buffer,midi);return;}
+ float level=10*log10f(fmaxf(opto.rms,1e-12f));unsigned level_bits;memcpy(&level_bits,&level,4);atomic_store_explicit(&input_level,level_bits,memory_order_relaxed);
+ unsigned cooldown=(unsigned)(opto.rate*.230);if(since_hit<cooldown)since_hit+=(unsigned)frames;
+ int over=level>c.threshold;
+ if(!c.bypass&&over&&(!above||level-last_hit_level>=3)&&since_hit>=cooldown){atomic_fetch_add_explicit(&hits,1,memory_order_relaxed);last_hit_level=level;since_hit=0;}
+ if(!over)last_hit_level=-120;
+ above=over;
  /* No serial compression: both paths see the same dry buffer during a
   * ten-millisecond switch fade. Steady Opto skips the native processor. */
  if(!type||mix<1)original_process(self,buffer,midi);
@@ -69,7 +82,7 @@ int compressor_native_bind(uintptr_t base,void*processor){
  memcpy(table,n-2,sizeof(table));original_process=(void(*)(void*,void*,void*))n[7];
  original_destroy=(void(*)(void*))n[0];original_delete=(void(*)(void*))n[1];
  table[2]=(uintptr_t)destroyed;table[3]=(uintptr_t)deleted;table[9]=(uintptr_t)process;
- comp_opto_init(&opto,rate);mix=0;image=base;
+ comp_opto_init(&opto,rate);mix=0;image=base;since_hit=(unsigned)(rate*.230);
  atomic_store_explicit(&owner,(uintptr_t)processor,memory_order_release);
  __atomic_store_n((uintptr_t*)processor,(uintptr_t)(table+2),__ATOMIC_RELEASE);return 1;
 }

@@ -4,7 +4,8 @@
 #include <stdint.h>
 enum { COMP_DUCK, COMP_OPTO, COMP_TYPES };
 struct comp_config { float threshold,ratio,gain; unsigned bypass; };
-struct comp_opto { double rate; float rms,fast,slow,linear,gr,target; unsigned phase; };
+struct comp_opto { double rate; float rms,fast,slow,linear,gr,target,desired; unsigned phase; };
+struct comp_animation { double time,hit_time; float level,pose; unsigned last_hit,sleeping; };
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -19,6 +20,13 @@ void compressor_config(struct comp_config*);
 void compressor_knob(unsigned,unsigned);
 void compressor_bypass(void);
 float compressor_reduction(void);
+float compressor_input_level(void);
+unsigned compressor_hits(void);
+unsigned compressor_audio_blocks(void);
+void compressor_animation_init(struct comp_animation*);
+void compressor_animation_frame(struct comp_animation*,uint32_t*,double,float,float,float,unsigned,unsigned);
+uint32_t*compressor_image_pixels(uintptr_t);
+int compressor_image_draw(void*);
 void compressor_ui_init(uintptr_t);
 void compressor_phone_wake(void);
 int compressor_ui_install(void);

@@ -17,9 +17,37 @@ static void font_set(void*,const uint64_t*){}
 static void text(void*,const uint64_t*s,int x,int y,int w,int h,int,int,float){assert(x>=0&&y>=0&&x+w<=320&&y+h<=240);if(!strcmp(reinterpret_cast<const char*>(*s),"Type"))++type_labels;}
 static void redirect(uintptr_t base,uintptr_t offset,void*fn){uint32_t code[]={0x58000050,0xd61f0200};memcpy(reinterpret_cast<void*>(base+offset),code,8);memcpy(reinterpret_cast<void*>(base+offset+8),&fn,8);__builtin___clear_cache(reinterpret_cast<char*>(base+offset),reinterpret_cast<char*>(base+offset+16));}
 static void counted(void*p,void*b,void*m){++native_calls;native_specific(p,b,m);}
+struct ImageRef {
+ void*data;
+ ImageRef():data(nullptr){}
+ ImageRef(const ImageRef&)=delete;
+ ImageRef(ImageRef&&r):data(r.data){r.data=nullptr;}
+ ~ImageRef(){if(data&&__atomic_sub_fetch(reinterpret_cast<unsigned*>(static_cast<char*>(data)+8),1,__ATOMIC_ACQ_REL)==0)reinterpret_cast<void(*)(void*)>((*reinterpret_cast<uintptr_t**>(data))[1])(data);}
+};
+struct ContextRef {
+ void*data;
+ ContextRef():data(nullptr){}
+ ContextRef(const ContextRef&)=delete;
+ ContextRef(ContextRef&&r):data(r.data){r.data=nullptr;}
+ ~ContextRef(){if(data)reinterpret_cast<void(*)(void*)>((*reinterpret_cast<uintptr_t**>(data))[1])(data);}
+};
+static void check_image(uintptr_t base){
+ uint32_t*source=compressor_image_pixels(base);assert(source);
+ for(unsigned i=0;i<320*164;++i)source[i]=0xff000000u|((i*17)&255)*0x010101u;
+ uintptr_t type=base+0x6d794c8;
+ auto create=reinterpret_cast<ImageRef(*)(void*,int,int,int,bool)>(base+0x100dd30);
+ ImageRef destination=create(&type,2,320,240,true);assert(destination.data);
+ auto vt=*reinterpret_cast<uintptr_t**>(destination.data);
+ ContextRef context=reinterpret_cast<ContextRef(*)(void*)>(vt[2])(destination.data);
+ uintptr_t graphics[]={0,reinterpret_cast<uintptr_t>(context.data),0};assert(compressor_image_draw(graphics));
+ auto out=*reinterpret_cast<uint32_t**>(static_cast<char*>(destination.data)+56);
+ assert(!memcmp(out+320*34,source,320*164*4));
+ assert(out[0]==0&&out[320*239]==0);puts("PASS real native software Image creation and single blit; pixels match at y34, header/footer untouched");
+}
 static int button(unsigned code,unsigned down,uint64_t ticket){unsigned char e[16]{};e[8]=static_cast<unsigned char>(code);e[9]=static_cast<unsigned char>(down);return compressor_ui_button(e,ticket);}
 extern "C" int modern_fx_probe(uintptr_t base,const char**phase){
  native_base=base;
+ *phase="OptoCat native software Image ABI";check_image(base);
  *phase="native Colour parameter descriptors";
  reinterpret_cast<void(*)()>(base+0xc034d0)();
  reinterpret_cast<void(*)(float)>(base+0xd8d320)(48000.f);
@@ -66,6 +94,7 @@ extern "C" int modern_fx_probe(uintptr_t base,const char**phase){
  for(unsigned i=0;i<300;++i)audio_block(i);
  unsigned settled=native_calls;for(unsigned i=300;i<320;++i)audio_block(i);
  assert(settled==native_calls&&compressor_reduction()>5);
+ assert(compressor_audio_blocks()>=320&&compressor_input_level()>-12&&compressor_hits()>0);
  reinterpret_cast<void(*)(void*,void*)>(ui[27])(screen,nullptr);assert(type_labels==2&&indicators==4);
  assert(button(0x0e,1,ticket)&&button(0x0e,0,ticket));for(unsigned i=0;i<80;++i)audio_block(i);assert(compressor_reduction()==0);
  assert(button(0x0d,1,ticket)&&button(0x0d,0,ticket)&&compressor_type()==COMP_DUCK);audio_block(0);assert(native_calls>settled);
