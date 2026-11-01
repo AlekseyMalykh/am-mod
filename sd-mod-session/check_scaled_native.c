@@ -12,6 +12,9 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include "src/phone_events.h"
+#ifdef CHECK_SCALED_ENDPOINTS
+#include "src/takeover_endpoints.h"
+#endif
 static uintptr_t base;
 #define FIELD(p,o,t) (*(t*)((char*)(p)+(o)))
 #define FN(o,t) ((t)(base+(o)))
@@ -51,7 +54,8 @@ static void load_elf(const char *path,uintptr_t address)
 
 static float parameter=.45f;
 static unsigned writes;
-static int enabled_fixture(void*p){(void)p;return 1;}
+static int enabled=1;
+static int enabled_fixture(void*p){(void)p;return enabled;}
 static float value_fixture(void*p){(void)p;return parameter;}
 static void set_fixture(void*p,float value){(void)p;parameter=value;++writes;}
 static void boolean_fixture(void*p,int v){(void)p;(void)v;}
@@ -99,5 +103,37 @@ int main(int argc,char**argv){
   assert(parameter-direct<0.00001f&&direct-parameter<0.00001f);
  }
  puts("PASS actual native Pickup/Scaled/Jump: initial positions, both endpoints, direction changes, three knobs and five initial parameter values match direct native processing");
+#ifdef CHECK_SCALED_ENDPOINTS
+ float reference[3][3];
+ const unsigned inside[][5]={{20,70,90,30,60},{1,126,64,10,125},{126,1,40,70,15}};
+ for(int mode=0;mode<3;++mode)for(unsigned path=0;path<3;++path){setup(mode);for(unsigned i=0;i<5;++i)movement(inside[path][i]);reference[mode][path]=parameter;}
+ for(unsigned end=0;end<=127;end+=127){setup(1);movement(end);assert(parameter==.45f&&!writes);}
+ /* Installation is fail-closed and leaves a mismatched instruction intact. */
+ uint32_t saved=FIELD((void*)base,0x15f5694,uint32_t);FIELD((void*)base,0x15f5694,uint32_t)=0xd503201f;
+ assert(!takeover_endpoints_install(base)&&FIELD((void*)base,0x15f5694,uint32_t)==0xd503201f);
+ FIELD((void*)base,0x15f5694,uint32_t)=saved;
+ assert(takeover_endpoints_install(base)&&takeover_endpoints_install(base));
+ assert(FIELD((void*)base,0x15f5690,uint32_t)==0xd503233f);
+ for(unsigned initial=1;initial<10;initial+=2)for(unsigned end=0;end<=127;end+=127){
+  setup(1);parameter=(float)initial/10;movement(end);assert(parameter==(end?1.f:0.f)&&writes==1);
+  /* Same physical end, different parameter/selection; no movement history. */
+  parameter=(float)initial/10;FIELD(binding,0x148,float)=parameter;movement(end);assert(parameter==(end?1.f:0.f));
+  /* The following interior movement must retain ordinary Scaled semantics. */
+  movement(end?100:20);assert(parameter>=0&&parameter<=1);
+ }
+ for(int mode=0;mode<3;++mode)for(unsigned path=0;path<3;++path){setup(mode);for(unsigned i=0;i<5;++i)movement(inside[path][i]);assert(parameter-reference[mode][path]<.00001f&&reference[mode][path]-parameter<.00001f);}
+ /* Non-linear and quantised native ranges must also reach their limits. */
+ const double ranges[][5]={{0,100,1,1,0},{-48,18,.1,.35,0},{-100,100,1,2,1}};
+ for(unsigned r=0;r<3;++r)for(unsigned end=0;end<=127;end+=127){
+  setup(1);
+  for(unsigned field=0;field<4;++field)FIELD(slider_fixture,0x250+field*8,double)=ranges[r][field];
+  FIELD(slider_fixture,0x270,unsigned char)=(unsigned char)ranges[r][4];
+  movement(end);assert(parameter==(end?1.f:0.f)&&writes==1);
+ }
+ for(int mode=0;mode<=2;mode+=2){setup(mode);movement(127);assert(parameter==(mode==0?.45f:1.f));}
+ enabled=0;setup(1);movement(127);assert(parameter==.45f&&!writes&&FIELD(binding,0x144,float)==-1);enabled=1;
+ setup(1);FIELD(binding,0x9b,unsigned char)=0;stub(0x142fc50,noop_fixture);__builtin___clear_cache((char*)base,(char*)(base+0x7500000));movement(127);assert(parameter==.45f&&!writes);
+ puts("PASS real native Scaled exact limits: first single event, stale value at unchanged end, subsequent interior motion; Pickup/Jump/interior/disabled/inactive unchanged; guarded BTI/PAC relay and idempotent install");
+#endif
  return 0;
 }

@@ -29,6 +29,7 @@
 #ifdef MPC_CHORDS
 #include "chords.h"
 #include "chords_ui.h"
+#include "takeover_endpoints.h"
 #endif
 #include "step_native.h"
 #include "workflow_ui.h"
@@ -941,6 +942,13 @@ static int forward_main_volume(void*event)
 }
 static void controller(void *event)
 {
+#ifdef MPC_CHORDS
+    { static _Atomic unsigned raw_reports;
+      unsigned cc=FIELD(event,8,unsigned char),v=FIELD(event,9,unsigned char);
+      if(cc>=0x10&&cc<=0x12&&(v<=1||v>=126)&&atomic_fetch_add(&raw_reports,1)<96)
+          fprintf(stderr,"TAKEOVER RAW cc=%u value=%u queued=%u\n",cc,v,phone_events_pending());
+    }
+#endif
     /* Physical Main Volume is global, including custom search/Batch views.
      * Never queue it behind modal ownership or discard it on a new ticket. */
     if(forward_main_volume(event))return;
@@ -1532,6 +1540,7 @@ static void load(void)
 #ifdef MPC_CHORDS
     /* Optional: without it Stop-Stop keeps the stock unguarded release. */
     if (!voice_guard_install(base)) note("VOICE_GUARD UNAVAILABLE");
+    if (!takeover_endpoints_install(base)) _exit(121);
 #endif
     if (!values_bipolar_install(base)) note("VALUES_BIPOLAR UNAVAILABLE");
     if (!values_shift_pairs_install(base)) note("VALUES_SHIFT_PAIRS UNAVAILABLE");

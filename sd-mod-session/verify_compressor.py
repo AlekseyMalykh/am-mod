@@ -4,6 +4,7 @@ import hashlib,json,os,subprocess
 R=Path(__file__).resolve().parent
 baseline=json.loads((R/'compressor_base.json').read_text())
 O=R/'build/compressor'/baseline['revision'];O.mkdir(parents=True,exist_ok=True)
+(O.parent/'art').mkdir(exist_ok=True)
 runtime=Path(os.environ.get('MPC_RUNTIME_ROOT',str(R.parent))).resolve()
 stock=runtime/'extracted_v1.3.0/partitions/part3/usr/bin/MPC Sample'
 sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()

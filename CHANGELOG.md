@@ -1,5 +1,12 @@
 # Changelog
 
+## r26h candidate — Scaled endpoints and OptoCat (issue #2)
+
+- Correct exact Scaled limits for first/reset or repeated-endpoint events through the native range/skew/quantisation and setter. Interior motion, disabled bindings, Pickup and Jump remain unchanged.
+- Preserve the complete OptoCat compressor from `81189e0`, including DSP, animation and Type controls, in both candidate builders.
+- Execute production permanent K rendering and the native display timeout between real takeover calls: no direct parameter/history/focus interference in the isolated fixture. Full GUI timing and hardware input remain unverified.
+- Add bounded endpoint diagnostics. ARM/QEMU and UBSan cover native takeover, rendering, routing with OptoCat, compressor DSP/animation/native adapter and the full preload constructor. Hardware confirmation remains pending. [English](docs/RELEASE_NOTES-r26h.md) · [Русский](docs/RELEASE_NOTES-r26h.ru.md).
+
 ## r26g candidate — preserve Scaled/Pickup takeover history (issue #2)
 
 - Replace r26f's last-value-only knob merging: preserve each knob's initial physical position and all direction changes, merging only later points within the same monotonic movement. Scaled and Pickup need that history to reach their limits and detect pickup crossings.
