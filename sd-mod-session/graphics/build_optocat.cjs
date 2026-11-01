@@ -39,5 +39,15 @@ for(const [name,level,reach,eyes,asleep] of [['watch',-36,0,0,false],['swat',-6,
  if(asleep)sandbox.sleep();else{sandbox.awake(154-(level+48)*71/48,reach,0);sandbox.bow(154-(level+48)*71/48,0);}
  fs.writeFileSync(path.join(output,name+'.png'),canvas.toBufferSync('png'));
 }
+// Inspect every baked reach pose at low, middle and high bow positions.
+const sequence=new Canvas(9*128,3*164),review=sequence.getContext('2d');
+gain.value=0;
+for(let row=0;row<3;row++)for(let reach=0;reach<9;reach++){
+ c.clearRect(0,0,320,180);c.fillStyle='#000';c.fillRect(0,0,320,180);
+ c.lineCap='round';c.lineJoin='round';
+ const by=154-row*71/2;sandbox.awake(by,reach/8,0);sandbox.bow(by,0);
+ review.drawImage(canvas,92,12,128,164,reach*128,row*164,128,164);
+}
+fs.writeFileSync(path.join(output,'anatomy-sequence.png'),sequence.toBufferSync('png'));
 fs.writeFileSync(path.join(output,'atlas.json'),JSON.stringify({frames:offsets.length-1,bytes:data.length,crop,eyes:4,looks:7,reach:9},null,2));
 console.log(JSON.stringify({frames:offsets.length-1,bytes:data.length}));
