@@ -1,6 +1,6 @@
 """Local QEMU native UI smoke check. Never accesses a physical MPC or SD card."""
 from pathlib import Path
-import hashlib,json,struct,subprocess,sys,time,urllib.request,urllib.error
+import hashlib,json,struct,subprocess,sys,time,threading,urllib.request,urllib.error
 sys.path.insert(0,'/opt/mpc-sample-lab')
 import lab
 ssh_options=lab.ssh_base
@@ -88,9 +88,33 @@ def raster():
     data=q(image);assert data,'OptoCat native software image is missing'
     pixels=q(data+56);assert pixels
     return hashlib.sha256(memory(pixels,320*164*4)).hexdigest()
-def green_meter_pixels():
-    data=q(image);pixels=q(data+56)
-    return memory(pixels,320*164*4).count(struct.pack('<I',0xff00ffa7))
+def capture_meters():
+    # Keep real pad audio running while the slow TCG/SSH readback completes.
+    # A one-shot can decay below the floor between separate remote reads.
+    data=q(image);pixels=q(data+56);offset=pixels%4096;count=(offset+320*164*4+4095)//4096
+    stopped=threading.Event();errors=[]
+    def pulse():
+        try:
+            deadline=time.monotonic()+30
+            while not stopped.is_set() and time.monotonic()<deadline:
+                request('/control',dict(name='PAD 1',action='press',value=100));stopped.wait(.15)
+                request('/control',dict(name='PAD 1',action='release'));stopped.wait(.4)
+        except Exception as error:errors.append(error)
+        finally:request('/control',dict(name='PAD 1',action='release'))
+    thread=threading.Thread(target=pulse,daemon=True);thread.start()
+    try:
+        for _ in range(5):
+            time.sleep(.6)
+            commands=[f'dd if=/proc/{pid}/mem bs=1 skip={address} count={size} 2>/dev/null' for address,size in ((meter_input,8),(meter_output,8),(reduction,4))]
+            commands.append(f'dd if=/proc/{pid}/mem bs=4096 skip={pixels//4096} count={count} 2>/dev/null')
+            raw=lab.guest('\n'.join(commands),timeout=60)
+            ins=struct.unpack('<ff',raw[:8]);outs=struct.unpack('<ff',raw[8:16]);gr=struct.unpack('<f',raw[16:20])[0]
+            green=raw[20+offset:20+offset+320*164*4].count(struct.pack('<I',0xff00ffa7))
+            if max(ins)>1e-5 and max(outs)>1e-5 and green:
+                snapshot('opto-audio');return max(ins),max(outs),green,gr
+        raise AssertionError(f'Meter readback: input={ins}, output={outs}, green pixels={green}')
+    finally:
+        stopped.set();thread.join(timeout=25);assert not thread.is_alive() and not errors,errors
 tap('SAMPLE');snapshot('sample-before')
 request('/control',dict(name='SHIFT',action='press'));time.sleep(.3)
 tap('PAD 5')
@@ -107,19 +131,16 @@ request('/control',dict(name='K3',action='set',value=127));time.sleep(1)
 gain=raster();assert gain!=watch,'Gain did not change the rendered kitten'
 snapshot('opto-gain')
 request('/control',dict(name='K3',action='set',value=51));time.sleep(.5)
+request('/control',dict(name='K1',action='set',value=79));time.sleep(.5)
 before=q(settings)
 request('/control',dict(name='K1',action='set',value=0));time.sleep(1)
 after=q(settings);assert (before>>2)&255!=(after>>2)&255,'K1 did not change Opto threshold'
-count_before=u(blocks);hit_before=u(hits);peak_gr=0;peak_in=peak_out=0;meter_pixels=0
+count_before=u(blocks);hit_before=u(hits);peak_gr=0
 for _ in range(3):
     tap('PAD 1');peak_gr=max(peak_gr,f(reduction))
-    peak_in=max(peak_in,*struct.unpack('<ff',memory(meter_input,8)))
-    peak_out=max(peak_out,*struct.unpack('<ff',memory(meter_output,8)))
-    meter_pixels=max(meter_pixels,green_meter_pixels())
     time.sleep(.3)
 assert u(blocks)>count_before and u(hits)>hit_before and peak_gr>.1,'Live audio did not reach OptoCat DSP'
-assert peak_in>1e-5 and peak_out>1e-5 and meter_pixels>0,'Real audio did not reach the displayed input/output meters'
-snapshot('opto-audio')
+peak_in,peak_out,meter_pixels,meter_gr=capture_meters();peak_gr=max(peak_gr,meter_gr)
 tap('SCREEN 3');assert (q(settings)^after)&2,'B3 did not toggle Opto bypass'
 time.sleep(1);sleep=raster();assert sleep!=watch and sleep!=gain
 snapshot('opto-sleep')
