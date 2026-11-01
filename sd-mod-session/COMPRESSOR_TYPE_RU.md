@@ -1,6 +1,6 @@
-# r26d + OptoCat — B2 Type в Shift + Pad 5
+# r26g + OptoCat — B2 Type в Shift + Pad 5
 
-Пробная сборка поверх r26d. ARM normal/UBSan и полный конструктор библиотеки
+Пробная сборка поверх r26g. ARM normal/UBSan и полный конструктор библиотеки
 проверены отдельно; эти проверки не заменяют физическую пробу MPC.
 
 На экране компрессора B2 подписана **Type**. Под надписью два сегмента
@@ -41,7 +41,7 @@ AC50CompressorMeterConnector штатного экрана. Если владе�
 `package_compressor_candidate.py` не обращаются к физической SD.
 
 Разработка ведётся в `codex/compressor-type-r26d` от коммита r26d
-`9841eab7dff0f7d3230f8e88b9a09886f240b400`. Основная ветка не изменена.
+`9841eab7dff0f7d3230f8e88b9a09886f240b400`. Основная ветка не изменена. В feature-ветку включены коммиты r26e–r26g: поддержка FAT32 и исправления Scaled/Pickup ручек.
 Сохранение в проект остаётся отдельным шагом до слияния.
 
 Для сборки в Linux/WSL нужны ARM64 GCC/G++, qemu-aarch64 и локальная
@@ -51,5 +51,5 @@ AC50CompressorMeterConnector штатного экрана. Если владе�
 Исходники самого мода берутся из этой ветки, а не из runtime-папки.
 Последовательно запустить `verify_compressor.py`,
 `build_compressor_candidate.py`, `package_compressor_candidate.py`.
-В `build/compressor/base` нужен официальный `am-mod-r26d.zip`;
-сборщик проверяет его опубликованный SHA256.
+В `build/compressor/base` нужен базовый `am-mod-r26g.zip`;
+сборщик проверяет SHA256 из `compressor_base.json`.

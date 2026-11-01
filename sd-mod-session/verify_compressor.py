@@ -1,7 +1,9 @@
 """Pinned ARM tests; no physical card or device access."""
 from pathlib import Path
 import hashlib,json,os,subprocess
-R=Path(__file__).resolve().parent;O=R/'build/compressor';O.mkdir(exist_ok=True)
+R=Path(__file__).resolve().parent
+baseline=json.loads((R/'compressor_base.json').read_text())
+O=R/'build/compressor'/baseline['revision'];O.mkdir(parents=True,exist_ok=True)
 runtime=Path(os.environ.get('MPC_RUNTIME_ROOT',str(R.parent))).resolve()
 stock=runtime/'extracted_v1.3.0/partitions/part3/usr/bin/MPC Sample'
 sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
@@ -9,7 +11,7 @@ assert sha(stock)=='b6584cba76e416e432ad202509099d34373dc2c3d6a8fb625f5678bf0193
 tracked=['src/compressor.h','src/compressor_dsp.c','src/compressor_native.c','src/compressor_ui.c',
  'src/phone_native.c','check_compressor_dsp.c','check_compressor_factory.cc','check_modern_fx.cc',
  'check_modern_fx.c','check_fx_native.c','verify_compressor.py','src/compressor_animation.c',
- 'src/compressor_image.cc','src/optocat_atlas.inc','check_compressor_animation.c']
+ 'src/compressor_image.cc','src/optocat_atlas.inc','check_compressor_animation.c','compressor_base.json']
 before={s:sha(R/s) for s in tracked}
 for name,extra in [('normal',[]),('ubsan',['-fsanitize=undefined','-static-libubsan','-fno-sanitize-recover=all'])]:
  common=['-O1','-g','-Wall','-Wextra','-Werror','-mbranch-protection=standard','-ffunction-sections','-fdata-sections',*extra]

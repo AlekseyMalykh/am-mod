@@ -6,6 +6,8 @@ from pathlib import Path,PurePosixPath
 from ctypes import wintypes
 import argparse,ctypes,hashlib,json,os,shutil,stat,uuid,zipfile
 R=Path(__file__).resolve().parent
+baseline=json.loads((R/'compressor_base.json').read_text())
+O=R/'build/compressor'/baseline['revision']
 parser=argparse.ArgumentParser();parser.add_argument('--card',choices=['E'],required=True)
 parser.add_argument('--prepare-only',action='store_true');args=parser.parse_args()
 CARD=Path(args.card+':/')
@@ -30,6 +32,9 @@ def music():
   assert not p.is_symlink(),p
   if p.is_file():result[p.relative_to(CARD).as_posix()]=digest(p)
  return result
+def inventory():
+ return {p.relative_to(CARD).as_posix():[p.stat().st_size,p.stat().st_mtime_ns]
+         for p in sorted((CARD/'MPC-Sample').rglob('*')) if p.is_file()}
 def replace(p,body):
  identity();assert p.parent.resolve().is_relative_to(CARD.resolve()) and not p.is_symlink()
  temp=p.with_name(p.name+'.optocat-'+uuid.uuid4().hex)
@@ -38,22 +43,29 @@ def replace(p,body):
  os.replace(temp,p);assert digest(p)==hashlib.sha256(body).hexdigest()
 identity()
 previous=json.loads((CARD/'MPC_MOD_VERSION.json').read_text(encoding='utf-8-sig'))
-assert previous['revision']=='r26d','Refuse to replace a different version silently'
+assert previous['revision']==baseline['revision'],'Refuse to replace a different version silently'
 old=previous['payload_sha256']
 for name,h in old.items():
  assert len(PurePosixPath(name).parts)==1 and name not in ('.','..')
  p=CARD/'autorun'/name;assert p.is_file() and not p.is_symlink() and digest(p)==h,name
-print('Hashing samples/projects...',flush=True);before=music()
-print('Identified E: 30989DE5, r26d; music files:',len(before),flush=True)
+snapshot=O/'card-preflight.json'
+cached=json.loads(snapshot.read_text()) if snapshot.exists() and not args.prepare_only else None
+current_inventory=inventory()
+if cached and cached.get('serial')=='30989DE5' and cached.get('revision')==previous['revision'] and cached.get('inventory')==current_inventory:
+ before=cached['music_sha256'];print('Using unchanged preflight inventory; full music hashes will be verified after the write',flush=True)
+else:
+ print('Hashing samples/projects...',flush=True);before=music()
+print('Identified E: 30989DE5,',baseline['revision'],'; music files:',len(before),flush=True)
 if args.prepare_only:
- (R/'build/compressor/card-preflight.json').write_text(json.dumps(dict(serial='30989DE5',revision='r26d',music_sha256=before),indent=2)+'\n')
+ O.mkdir(parents=True,exist_ok=True)
+ (O/'card-preflight.json').write_text(json.dumps(dict(serial='30989DE5',revision=baseline['revision'],music_sha256=before,inventory=current_inventory),indent=2)+'\n')
  raise SystemExit(0)
-info=json.loads((R/'build/compressor/build-info.json').read_text())
-assert info['revision']=='r26d-optocat' and info['full_vm_verified']
+info=json.loads((O/'build-info.json').read_text())
+assert info['revision']==baseline['revision']+'-optocat' and info['full_vm_verified']
 assert info['live_verification']['audio_asserted'] and info['live_verification']['animation_verified']
 assert info['live_verification']['untraced'],'Require the final normal VM run'
 assert info['verification']['passed'] and info['verification']['ubsan'] and info['compile_verification']['full_preload_constructor']
-for proof in (info['verification'],info['compile_verification']):
+for proof in (info['verification'],info['compile_verification'],info['input_verification']):
  for name,h in proof['sources_sha256'].items():assert digest(R/name)==h,name
 archive=R.parent/info['zip'];assert digest(archive)==info['zip_sha256']
 with zipfile.ZipFile(archive) as z:
@@ -87,10 +99,10 @@ except BaseException:
   if digest(CARD/'autorun'/name)!=digest(source):replace(CARD/'autorun'/name,source.read_bytes())
  replace(CARD/'MPC_MOD_VERSION.json',(backup/'MPC_MOD_VERSION.json').read_bytes())
  raise
-receipt=dict(revision=info['revision'],drive='E:',serial='30989DE5',backup=str(backup),previous_revision='r26d',
+receipt=dict(revision=info['revision'],drive='E:',serial='30989DE5',backup=str(backup),previous_revision=baseline['revision'],
  updated_mod_files=ordered,music_files_verified_unchanged=len(before),music_bytes=sum((CARD/name).stat().st_size for name in before),
  library_sha256=info['library_sha256'],zip_sha256=info['zip_sha256'],full_vm_verified=True,hardware_tested=False,
  windows_safe_eject_still_required=True)
 body=json.dumps(receipt,ensure_ascii=False,indent=2)+'\n'
 (backup/'card-copy-receipt.json').write_text(body,encoding='utf-8')
-(R/'build/compressor/card-copy-receipt.json').write_text(body,encoding='utf-8');print(body,flush=True)
+(O/'card-copy-receipt.json').write_text(body,encoding='utf-8');print(body,flush=True)

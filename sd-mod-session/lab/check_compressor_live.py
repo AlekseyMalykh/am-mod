@@ -6,8 +6,9 @@ import lab
 ssh_options=lab.ssh_base
 lab.ssh_base=lambda:[*ssh_options(),'-o','ControlMaster=auto','-o','ControlPersist=600','-o','ControlPath=/tmp/optocat-ssh-%p']
 R=Path(__file__).resolve().parent.parent
-O=R/'build/compressor/live';O.mkdir(parents=True,exist_ok=True)
-LIB=R/'build/compressor/phone-input.so'
+baseline=json.loads((R/'compressor_base.json').read_text())
+O=R/'build/compressor'/baseline['revision']/'live';O.mkdir(parents=True,exist_ok=True)
+LIB=O.parent/'phone-input.so'
 URL='http://127.0.0.1:8765'
 def request(route,p=None):
     data=None if p is None else json.dumps(p).encode()
@@ -33,7 +34,7 @@ if '--reboot-stock' in sys.argv:
     sys.exit(0)
 if '--install' in sys.argv:
     lab.wait_app()
-    lab.run_autorun(str(R.parent/'am-mod-r26d-optocat.zip'),reboot=False,confirm=False,log=lambda message:print(message,flush=True))
+    lab.run_autorun(str(R.parent/('am-mod-'+baseline['revision']+'-optocat.zip')),reboot=False,confirm=False,log=lambda message:print(message,flush=True))
     sys.exit(0)
 if '--status' in sys.argv:
     status();sys.exit(0)
@@ -121,7 +122,7 @@ snapshot('duck-return')
 tap('SAMPLE');time.sleep(2)
 before=q(settings);tap('SCREEN 2');assert q(settings)==before,'B2 outside Compressor changed its type'
 assert int(lab.guest('systemctl show mpc-clone-trial-v1-clone.service -p MainPID --value'))==pid
-proof=dict(passed=True,base_revision='r26d',library_sha256=sha,pid=pid,
+proof=dict(passed=True,base_revision=baseline['revision'],library_sha256=sha,pid=pid,
     probe_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
     master_bound=True,b2_switches_both_directions=True,opto_threshold=True,opto_bypass=True,
     duck_bypass_independent=True,
