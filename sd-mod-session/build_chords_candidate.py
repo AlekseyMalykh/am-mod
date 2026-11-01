@@ -4,13 +4,13 @@ import hashlib,json,subprocess
 R=Path(__file__).resolve().parent
 O=R/'build/chords';O.mkdir(exist_ok=True)
 frozen=json.loads((R/'build/r23a/build-info.json').read_text())
-sources=frozen['compile_verification']['linked_sources']+['src/chords.c','src/chords_ui.c','src/voice_guard.c','src/values_bipolar.c','src/filter_spectrum.cc','src/takeover_endpoints.c']
+sources=frozen['compile_verification']['linked_sources']+['src/chords.c','src/chords_ui.c','src/voice_guard.c','src/values_bipolar.c','src/filter_spectrum.cc','src/takeover_native.c']
 sources+=['src/compressor_dsp.c','src/compressor_native.c','src/compressor_ui.c',
           'src/compressor_animation.c','src/compressor_image.cc']
 sources=list(dict.fromkeys(sources))
 tracked=sources+['src/chords.h','src/chords_ui.h','src/voice_guard.h','src/values_bipolar.h','src/poly_record.h','src/music_ui.h',
                  'src/note_native.h','src/workflow_ui.h','src/resample_ui.h','src/pad_eq.h','src/music_settings.h','src/filter_spectrum.h','src/takeover_endpoints.h','build_chords_candidate.py']
-tracked+=['src/compressor.h','src/optocat_atlas.inc']
+tracked+=['src/compressor.h','src/optocat_atlas.inc','src/takeover_native.h']
 sha=lambda b:hashlib.sha256(b).hexdigest()
 hashes={s:sha((R/s).read_bytes()) for s in tracked}
 common=['-O2','-g','-fPIC','-Wall','-Wextra','-Werror','-Ibuild',
@@ -33,10 +33,11 @@ assert 'PASS real full preload constructor' in p.stdout
 assert 'PITCH_AWARE_OVERWRITE_INSTALLED' in p.stderr
 assert 'VOICE_GUARD RENDER_RELEASE_SERIALISED' in p.stderr
 assert 'VALUES_BIPOLAR CENTRE_BAR_INSTALLED' in p.stderr
-assert 'TAKEOVER SCALED_ENDPOINTS_INSTALLED' in p.stderr
+assert 'TAKEOVER NATIVE_PROCESSORS_PRESERVED' in p.stderr
+assert 'TAKEOVER SCALED_ENDPOINTS_INSTALLED' not in p.stderr
 assert hashes=={s:sha((R/s).read_bytes()) for s in tracked}
 (O/'compile-verification.json').write_text(json.dumps(dict(passed=True,
  library_sha256=sha(library.read_bytes()),sources_sha256=hashes,linked_sources=sources,
- full_preload_constructor=True,compressor_included=True,compiler_flags=common,
+ full_preload_constructor=True,compressor_included=True,native_takeover_preserved=True,compiler_flags=common,
  hardware_tested=False,card_written=False),indent=2)+'\n')
 print(p.stdout);print('Chords candidate:',sha(library.read_bytes()))

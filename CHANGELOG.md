@@ -1,5 +1,11 @@
 # Changelog
 
+## r26i candidate — restore native knob delivery and takeover (issue #2)
+
+- Forward unclaimed native K1–K3 on the original input thread, retaining FIFO, in-flight action and naming boundaries. Custom controls keep UI routing.
+- Remove r26h's formula hook from the production library; audit the original RotaryFixedConnection and TrimParameter instructions without modifying them.
+- Preserve OptoCat and prior mod features; expand bounded RAM input diagnostics. ARM/QEMU/UBSan cover original-thread delivery, action boundaries and unchanged takeover code. Hardware resolution remains unconfirmed. [English](docs/RELEASE_NOTES-r26i.md) · [Русский](docs/RELEASE_NOTES-r26i.ru.md).
+
 ## r26h candidate — Scaled endpoints and OptoCat (issue #2)
 
 - Correct exact Scaled limits for first/reset or repeated-endpoint events through the native range/skew/quantisation and setter. Interior motion, disabled bindings, Pickup and Jump remain unchanged.

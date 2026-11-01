@@ -12,6 +12,8 @@
 
 [r26h candidate: Scaled endpoints and preserved OptoCat compressor](docs/RELEASE_NOTES-r26h.md). Includes a check of permanent K display; device confirmation is pending.
 
+[r26i candidate: native K1–K3 input and takeover](docs/RELEASE_NOTES-r26i.md). Replaces the unsuccessful r26h trial; OptoCat is preserved, hardware confirmation is pending.
+
 
 AM Mod is a community mod for the Akai MPC Sample (firmware **1.3.0.12**) that starts from the SD card.
 It adds a step sequencer on the pads, a chord mode, typing names with the pads, scale

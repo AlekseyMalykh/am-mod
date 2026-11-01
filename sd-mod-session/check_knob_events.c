@@ -1,7 +1,10 @@
 /* Execute production controller -> FIFO -> UI/native forwarding. Native
  * parameter/audio receiver is a recorder; no physical ADC/hardware claim. */
 #define PHONE_RGB_TEST 1
-#include "src/phone_native.c"
+#ifndef PHONE_NATIVE_SOURCE
+#define PHONE_NATIVE_SOURCE "src/phone_native.c"
+#endif
+#include PHONE_NATIVE_SOURCE
 #include <assert.h>
 static unsigned calls,last[3],faults;
 int music_ui_active(void){return 1;}
@@ -28,6 +31,9 @@ int main(void){
  ui_known=1;ui_thread=pthread_self();
  for(unsigned cc=0x10;cc<=0x12;++cc)for(unsigned end=0;end<=127;end+=127){
   unsigned char event[16]={0};event[8]=(unsigned char)cc;
+  /* Hold a prior FIFO action: this path must still preserve arrival order. */
+  struct phone_event pending={0};pending.kind=PHONE_CONTROLLER;pending.native[8]=(unsigned char)cc;pending.native[9]=63;
+  assert(phone_events_push(&pending));
   for(unsigned n=0;n<PHONE_EVENT_CAPACITY+32;++n){event[9]=(unsigned char)(1+n%100);controller(event);}
   event[9]=(unsigned char)end;controller(event);drain();
   if(last[cc-0x10]!=end){fprintf(stderr,"REPRODUCED endpoint lost: K%u wanted=%u actual=%u faults=%u calls=%u\n",cc-0x10+1,end,last[cc-0x10],faults,calls);return 1;}

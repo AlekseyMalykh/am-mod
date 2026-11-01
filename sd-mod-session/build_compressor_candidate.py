@@ -7,7 +7,7 @@ baseline=json.loads((R/'compressor_base.json').read_text())
 O=R/'build/compressor'/baseline['revision'];O.mkdir(parents=True,exist_ok=True)
 frozen=json.loads((runtime/'sd-mod-session/build/r23a/build-info.json').read_text())
 sources=list(dict.fromkeys(frozen['compile_verification']['linked_sources']+
- ['src/chords.c','src/chords_ui.c','src/voice_guard.c','src/values_bipolar.c','src/filter_spectrum.cc','src/takeover_endpoints.c']+
+ ['src/chords.c','src/chords_ui.c','src/voice_guard.c','src/values_bipolar.c','src/filter_spectrum.cc','src/takeover_native.c']+
  ['src/compressor_dsp.c','src/compressor_native.c','src/compressor_ui.c','src/compressor_animation.c','src/compressor_image.cc']))
 tracked=sources+[str(p.relative_to(R)) for p in (R/'src').glob('*.h')]+['src/optocat_atlas.inc','graphics/build_optocat.cjs','graphics/optocat_shapes.js','build_compressor_candidate.py','compressor_base.json']
 sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
@@ -30,7 +30,7 @@ p=subprocess.run(['qemu-aarch64','-L','/home/user/mpc-rootfs-user-20260808',
  str(library),str(runtime/'sd-mod-session/build/r22/bootstrap-patches.bin')],capture_output=True,text=True,timeout=45)
 (O/'bootstrap.log').write_text(p.stdout+p.stderr);p.check_returncode()
 assert 'PASS real full preload constructor' in p.stdout
-for marker in ('PITCH_AWARE_OVERWRITE_INSTALLED','VOICE_GUARD RENDER_RELEASE_SERIALISED','VALUES_BIPOLAR CENTRE_BAR_INSTALLED','TAKEOVER SCALED_ENDPOINTS_INSTALLED'):
+for marker in ('PITCH_AWARE_OVERWRITE_INSTALLED','VOICE_GUARD RENDER_RELEASE_SERIALISED','VALUES_BIPOLAR CENTRE_BAR_INSTALLED','TAKEOVER NATIVE_PROCESSORS_PRESERVED'):
  assert marker in p.stderr,marker
 assert before=={s:sha(R/s) for s in tracked}
 proof=dict(passed=True,base_revision=baseline['revision'],base_commit=baseline['commit'],library_sha256=sha(library),sources_sha256=before,
