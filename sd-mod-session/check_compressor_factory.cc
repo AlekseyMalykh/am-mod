@@ -112,6 +112,24 @@ extern "C" int modern_fx_probe(uintptr_t base,const char**phase){
  assert(compressor_audio_blocks()>=320&&compressor_input_level()>-12&&compressor_hits()>0);
  reinterpret_cast<void(*)(void*,void*)>(ui[27])(screen,nullptr);assert(type_labels==3&&indicators==6);
  assert(button(0x0e,1,ticket)&&button(0x0e,0,ticket));for(unsigned i=0;i<80;++i)audio_block(i);assert(compressor_reduction()==0);
+ *phase="real stereo meter, bypass, silence and mono";
+ for(unsigned block=0;block<400;++block){
+  for(unsigned i=0;i<256;++i){l[i]=.2f;r[i]=-.05f;}
+  process(instance.get(),audio,midi);playhead.frame+=256;
+ }
+ comp_meter levels;compressor_meter_levels(&levels);
+ assert(std::fabs(levels.input[0]-.2f)<1e-5&&std::fabs(levels.input[1]-.05f)<1e-5);
+ assert(std::fabs(levels.output[0]-.2f)<1e-5&&std::fabs(levels.output[1]-.05f)<1e-5);
+ *reinterpret_cast<int*>(audio)=1;
+ for(unsigned i=0;i<256;++i)l[i]=.2f;
+ process(instance.get(),audio,midi);playhead.frame+=256;compressor_meter_levels(&levels);
+ assert(levels.input[1]==0&&levels.output[1]==0);
+ for(unsigned block=0;block<1000;++block){
+  memset(l,0,sizeof(l));process(instance.get(),audio,midi);playhead.frame+=256;
+ }
+ compressor_meter_levels(&levels);assert(levels.input[0]<1e-7&&levels.output[0]<1e-7);
+ *reinterpret_cast<int*>(audio)=2;
+ puts("PASS live stereo peak meters: independent L/R, actual bypass output, mono channel clearing and silence decay");
  assert(button(0x0d,1,ticket)&&button(0x0d,0,ticket)&&compressor_type()==COMP_DUCK);audio_block(0);assert(native_calls>settled);
  for(unsigned i=0;i<6;++i)assert(reinterpret_cast<float(*)(void*,int)>(v[27])(instance.get(),i)==native_parameters[i]);
  showing=false;compressor_ui_tick();assert(button(0x0d,1,ticket)&&compressor_type()==COMP_DUCK);assert(!compressor_ui_owns(2,0x0d));

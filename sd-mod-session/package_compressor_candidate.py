@@ -33,7 +33,7 @@ files['autorun/autorun.check']=sha(files['autorun/autorun.json']+files['autorun/
 files['README_RU.md']=files['COMPRESSOR_TYPE_RU.md']=(R/'COMPRESSOR_TYPE_RU.md').read_bytes()
 changed={n for n in old if old[n]!=files[n]}
 assert changed=={'autorun/phone-input.so','autorun/mod-launcher.sh','autorun/autorun.sh',
-                 'autorun/autorun.json','autorun/autorun.check','README_RU.md'},changed
+                 'autorun/autorun.json','autorun/autorun.check','README_RU.md','COMPRESSOR_TYPE_RU.md'},changed
 archive=R.parent/('am-mod-'+revision+'.zip')
 if archive.exists():
  with zipfile.ZipFile(archive) as z:

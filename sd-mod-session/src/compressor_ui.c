@@ -93,7 +93,12 @@ static void paint(void*p,void*g){
  colour(g,0xff707070);text(g,"--",4,1,98,22,14);
  colour(g,c.bypass?0xffffc247:0xffffffff);text(g,"Bypass",217,1,99,22,14);
  uint32_t*pixels=compressor_image_pixels(base);
- if(pixels){compressor_animation_frame(&animation,pixels,seconds(),compressor_input_level(),&c,compressor_hits());colour(g,0xffffffff);compressor_image_draw(g);}
+ if(pixels){
+  struct comp_meter meter;compressor_meter_levels(&meter);
+  compressor_animation_frame(&animation,pixels,seconds(),compressor_input_level(),&c,compressor_hits());
+  compressor_meter_frame(pixels,&meter,compressor_reduction());
+  colour(g,0xffffffff);compressor_image_draw(g);
+ }
  colour(g,0xffb0b0b0);text(g,"OptoCat",4,35,80,14,11);
  snprintf(value,sizeof(value),"GR %.1f dB",compressor_reduction());text(g,value,4,180,92,16,11);
  int shifted=music_ui_shift_active();

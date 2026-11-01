@@ -34,7 +34,16 @@ extern "C" int modern_fx_probe(uintptr_t base,const char**phase){
    for(unsigned i=0;i<256;++i){assert(std::isfinite(l[i])&&l[i]==r[i]);assert(std::fabs(l[i])<=amplitude*2.00001f);}
    if(block>=281){dry+=energy;for(float sample:l)wet+=double(sample)*sample;}
   }
-  return 10*std::log10(wet/dry);
+  double measured_gain=10*std::log10(wet/dry);
+  if(compressor_type()==COMP_OPTO){
+   comp_meter levels;compressor_meter_levels(&levels);
+   float expected=amplitude*std::pow(10.f,float(measured_gain)/20);
+   for(unsigned ch=0;ch<2;++ch){
+    assert(std::fabs(levels.input[ch]/amplitude-1)<.002);
+    assert(std::fabs(levels.output[ch]/expected-1)<.002);
+   }
+  }
+  return measured_gain;
  };
  for(float db:{-60.f,-30.f,-12.f,-6.f})assert(std::fabs(measure(db))<.001);
  set(3,1);double native_gain[4];unsigned at=0;

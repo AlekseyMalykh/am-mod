@@ -67,6 +67,7 @@ def symbol(name,kind):
     return base+values[0]
 settings=symbol('settings','d');owner=symbol('owner','b')
 blocks=symbol('blocks','b');hits=symbol('hits','b');reduction=symbol('reduction','b')
+meter_input=symbol('meter_input','b');meter_output=symbol('meter_output','b')
 image=symbol('pixel_data','b')
 def memory(address,n):
     if n>=4096:
@@ -87,6 +88,9 @@ def raster():
     data=q(image);assert data,'OptoCat native software image is missing'
     pixels=q(data+56);assert pixels
     return hashlib.sha256(memory(pixels,320*164*4)).hexdigest()
+def green_meter_pixels():
+    data=q(image);pixels=q(data+56)
+    return memory(pixels,320*164*4).count(struct.pack('<I',0xff00ffa7))
 tap('SAMPLE');snapshot('sample-before')
 request('/control',dict(name='SHIFT',action='press'));time.sleep(.3)
 tap('PAD 5')
@@ -106,11 +110,15 @@ request('/control',dict(name='K3',action='set',value=51));time.sleep(.5)
 before=q(settings)
 request('/control',dict(name='K1',action='set',value=0));time.sleep(1)
 after=q(settings);assert (before>>2)&255!=(after>>2)&255,'K1 did not change Opto threshold'
-count_before=u(blocks);hit_before=u(hits);peak_gr=0
+count_before=u(blocks);hit_before=u(hits);peak_gr=0;peak_in=peak_out=0;meter_pixels=0
 for _ in range(3):
     tap('PAD 1');peak_gr=max(peak_gr,f(reduction))
+    peak_in=max(peak_in,*struct.unpack('<ff',memory(meter_input,8)))
+    peak_out=max(peak_out,*struct.unpack('<ff',memory(meter_output,8)))
+    meter_pixels=max(meter_pixels,green_meter_pixels())
     time.sleep(.3)
 assert u(blocks)>count_before and u(hits)>hit_before and peak_gr>.1,'Live audio did not reach OptoCat DSP'
+assert peak_in>1e-5 and peak_out>1e-5 and meter_pixels>0,'Real audio did not reach the displayed input/output meters'
 snapshot('opto-audio')
 tap('SCREEN 3');assert (q(settings)^after)&2,'B3 did not toggle Opto bypass'
 time.sleep(1);sleep=raster();assert sleep!=watch and sleep!=gain
@@ -129,6 +137,7 @@ proof=dict(passed=True,base_revision=baseline['revision'],library_sha256=sha,pid
     b2_outside_compressor_preserved=True,physical_device_tested=False,audio_asserted=True,animation_verified=True,
     untraced=tracer==0,
     audio_blocks_before=count_before,audio_blocks_after=u(blocks),signal_hits=u(hits),peak_reduction_db=peak_gr,
+    stereo_meters_verified=True,meter_peak_input=peak_in,meter_peak_output=peak_out,meter_green_pixels=meter_pixels,
     raster_watch=watch,raster_gain=gain,raster_sleep=sleep,
     scope='Full QEMU native app/audio: Shift+Pad 5, exact master binding, B2 Type, K1/K3, real pad audio through OptoCat with GR/hit telemetry, native image pixels change for Gain/Bypass, Duck return and screen exit.')
 (O/'verification.json').write_text(json.dumps(proof,indent=2)+'\n')

@@ -14,6 +14,8 @@ static _Atomic(uintptr_t) owner;
 static _Atomic uint64_t settings=UINT64_C(120)<<2|UINT64_C(20)<<10|UINT64_C(48)<<17|
     UINT64_C(36)<<25|UINT64_C(110)<<34|UINT64_C(24)<<43;
 static _Atomic unsigned reduction,input_level=0xc2700000u,hits,blocks;
+static _Atomic uint64_t meter_input,meter_output;
+static struct comp_meter meter_envelope;
 static unsigned since_hit;
 static int above;
 static float last_hit_level=-120;
@@ -51,9 +53,14 @@ void compressor_shift_knob(unsigned k,unsigned value){
 void compressor_bypass(void){atomic_fetch_xor_explicit(&settings,2,memory_order_release);}
 float compressor_reduction(void){unsigned v=atomic_load_explicit(&reduction,memory_order_relaxed);float f;memcpy(&f,&v,4);return f;}
 float compressor_input_level(void){unsigned v=atomic_load_explicit(&input_level,memory_order_relaxed);float f;memcpy(&f,&v,4);return f;}
+void compressor_meter_levels(struct comp_meter*m){
+ if(!m)return;
+ uint64_t in=atomic_load_explicit(&meter_input,memory_order_relaxed),out=atomic_load_explicit(&meter_output,memory_order_relaxed);
+ memcpy(m->input,&in,8);memcpy(m->output,&out,8);
+}
 unsigned compressor_hits(void){return atomic_load_explicit(&hits,memory_order_relaxed);}
 unsigned compressor_audio_blocks(void){return atomic_load_explicit(&blocks,memory_order_relaxed);}
-static void failed(void){atomic_fetch_and_explicit(&settings,~UINT64_C(1),memory_order_release);atomic_store(&reduction,0);}
+static void failed(void){atomic_fetch_and_explicit(&settings,~UINT64_C(1),memory_order_release);atomic_store(&reduction,0);atomic_store(&meter_input,0);atomic_store(&meter_output,0);}
 static void process(void*self,void*buffer,void*midi){
  atomic_fetch_add_explicit(&blocks,1,memory_order_relaxed);
  uint64_t v=atomic_load_explicit(&settings,memory_order_acquire);unsigned type=(unsigned)(v&1);
@@ -64,6 +71,9 @@ static void process(void*self,void*buffer,void*midi){
  if(!frames)return;
  struct comp_config c=decode(v);float*dest[]={wet[0],wet[1]};
  if(!comp_opto_process(&opto,&c,data,dest,(unsigned)channels,(size_t)frames)){failed();original_process(self,buffer,midi);return;}
+ struct comp_meter peak={{0,0},{0,0}};
+ for(int ch=0;ch<channels;++ch)for(int i=0;i<frames;++i){float sample=data[ch][i];
+  if(isfinite(sample))peak.input[ch]=fmaxf(peak.input[ch],fabsf(sample));}
  float level=10*log10f(fmaxf(opto.rms,1e-12f));unsigned level_bits;memcpy(&level_bits,&level,4);atomic_store_explicit(&input_level,level_bits,memory_order_relaxed);
  unsigned cooldown=(unsigned)(opto.rate*.230);if(since_hit<cooldown)since_hit+=(unsigned)frames;
  int over=level>c.threshold;
@@ -75,7 +85,16 @@ static void process(void*self,void*buffer,void*midi){
  if(!type||mix<1)original_process(self,buffer,midi);
  const float step=1.f/(float)(opto.rate*.010);
  for(int i=0;i<frames;++i){mix=type?fminf(1,mix+step):fmaxf(0,mix-step);
-  for(int ch=0;ch<channels;++ch)data[ch][i]=mix>=1?wet[ch][i]:data[ch][i]+mix*(wet[ch][i]-data[ch][i]);}
+  for(int ch=0;ch<channels;++ch){data[ch][i]=mix>=1?wet[ch][i]:data[ch][i]+mix*(wet[ch][i]-data[ch][i]);
+   if(isfinite(data[ch][i]))peak.output[ch]=fmaxf(peak.output[ch],fabsf(data[ch][i]));}}
+ /* Audio-owned peak envelopes catch short transients between UI frames.
+  * Measure the actual output after Gain, bypass smoothing and the Type fade. */
+ float decay=expf(-(float)frames/(float)(opto.rate*.300));
+ for(int ch=0;ch<2;++ch){
+  meter_envelope.input[ch]=ch<channels?fmaxf(peak.input[ch],meter_envelope.input[ch]*decay):0;
+  meter_envelope.output[ch]=ch<channels?fmaxf(peak.output[ch],meter_envelope.output[ch]*decay):0;}
+ uint64_t meter_bits;memcpy(&meter_bits,meter_envelope.input,8);atomic_store_explicit(&meter_input,meter_bits,memory_order_relaxed);
+ memcpy(&meter_bits,meter_envelope.output,8);atomic_store_explicit(&meter_output,meter_bits,memory_order_relaxed);
  unsigned bits;float gr=type?opto.gr:0;memcpy(&bits,&gr,4);atomic_store_explicit(&reduction,bits,memory_order_relaxed);
 }
 static void destroyed(void*self){atomic_store(&owner,0);failed();original_destroy(self);}

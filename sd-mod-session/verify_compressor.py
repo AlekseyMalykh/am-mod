@@ -39,7 +39,7 @@ for name,extra in [('normal',[]),('ubsan',['-fsanitize=undefined','-static-libub
   (O/(name+'-'+case+'.log')).write_text(p.stdout+p.stderr);print(p.stdout+p.stderr,end='',flush=True);p.check_returncode()
   assert 'PASS ' in p.stdout and 'runtime error:' not in p.stderr
 assert before=={s:sha(R/s) for s in tracked}
-proof=dict(passed=True,ubsan=True,animation_verified=True,native_image_blit=True,shift_controls_verified=True,paw_timing_verified=True,native_gain_compared=True,maximum_gain_db=6,default_response_baseline='152e07c',default_response_baseline_sha256=hashlib.sha256(legacy).hexdigest(),sources_sha256=before,stock_sha256=sha(stock),
+proof=dict(passed=True,ubsan=True,animation_verified=True,native_image_blit=True,stereo_meters_verified=True,shift_controls_verified=True,paw_timing_verified=True,native_gain_compared=True,maximum_gain_db=6,default_response_baseline='152e07c',default_response_baseline_sha256=hashlib.sha256(legacy).hexdigest(),sources_sha256=before,stock_sha256=sha(stock),
  hardware_tested=False,card_written=False,full_vm_verified=False,
  scope='Real pinned native Colour factory/AudioPlugin prepare/process, software Image factory and exact pixel blit; production adapter and Type UI with isolated Component/Graphics/service-owner fixtures; signal-driven animation compositor including Attack/Release paw timing, native Duck/Opto measured gain comparison, stereo PCM, DSP and input lifecycle checks. Native app main not executed.')
 (O/'verification.json').write_text(json.dumps(proof,indent=2)+'\n')

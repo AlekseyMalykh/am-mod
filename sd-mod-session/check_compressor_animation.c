@@ -1,5 +1,6 @@
 #include "src/compressor.h"
 #include <assert.h>
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 static uint32_t pixels[320*164];
@@ -24,6 +25,20 @@ static void timings(void){
  assert(!slow.striking&&slow.pose<.301f); /* Steady input does not retrigger. */
  puts("PASS paw Attack rise, Release return, live timing changes and no repeated strikes on steady input");
 }
+static unsigned count_colour(int x,uint32_t colour){unsigned n=0;for(int y=19;y<157;++y)n+=pixels[y*320+x]==colour;return n;}
+static void meters(void){
+ struct comp_meter m={{1,.1f},{.01f,0}};
+ uint32_t kitten=pixels[120*320+140];
+ compressor_meter_frame(pixels,&m,30);
+ assert(count_colour(274,0xff00ffa7u)==138&&count_colour(280,0xff00ffa7u)==92);
+ assert(count_colour(296,0xff00ffa7u)==46&&count_colour(302,0xff00ffa7u)==0);
+ assert(count_colour(288,0xffd31145u)==69&&pixels[19*320+288]==0xffd31145u&&pixels[156*320+288]==0xff2e2e33u);
+ assert(pixels[120*320+140]==kitten&&pixels[100*320+278]==0xff000000u);
+ save("native-meter");
+ m=(struct comp_meter){{NAN,-1},{INFINITY,0}};compressor_meter_frame(pixels,&m,NAN);
+ assert(!count_colour(274,0xff00ffa7u)&&!count_colour(280,0xff00ffa7u)&&!count_colour(296,0xff00ffa7u)&&!count_colour(288,0xffd31145u));
+ puts("PASS native-style stereo meter geometry, independent input/output, downward GR, nonfinite sanitising and kitten preservation");
+}
 int main(void){struct comp_animation a;compressor_animation_init(&a);
  for(unsigned i=0;i<80;++i)frame(&a,1+i/30.,-36,-18,0,0,0);
  assert(a.pose==0);unsigned watch=hash();save("native-watch");
@@ -33,4 +48,5 @@ int main(void){struct comp_animation a;compressor_animation_init(&a);
  frame(&a,5,-6,-18,6,1,1);assert(a.pose==0&&a.sleeping);assert(hash()!=swat);save("native-sleep");
  frame(&a,6,-36,-18,0,0,1);assert(!a.sleeping&&a.pose==0);
  timings();
+ meters();
  puts("PASS OptoCat native compositor: watching, signal hit, eye gain, curled sleep, opaque bounds and wake");return 0;}

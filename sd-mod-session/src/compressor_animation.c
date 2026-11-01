@@ -20,6 +20,26 @@ static void sprite(uint32_t*p,unsigned frame,int x,int y,int w,int h){
   while(n--&&pixel<limit){if(shade)put(p,x+(int)(pixel%(unsigned)w),y+(int)(pixel/(unsigned)w),grey);++pixel;}
  }
 }
+static void meter_rect(uint32_t*p,int x,int y,int w,int h,uint32_t colour){
+ for(int row=y;row<y+h;++row)for(int col=x;col<x+w;++col)p[row*320+col]=colour;
+}
+void compressor_meter_frame(uint32_t*p,const struct comp_meter*m,float reduction){
+ if(!p||!m)return;
+ /* Native Duck geometry: IN L/R, central downward GR, OUT L/R.
+  * Image origin is native y34; bars span native y53..190. */
+ meter_rect(p,268,0,44,164,0xff000000u);
+ const int columns[]={274,280,296,302};
+ for(unsigned i=0;i<4;++i){
+  float peak=i<2?m->input[i]:m->output[i-2];
+  float db=isfinite(peak)&&peak>0?20*log10f(peak):-60;
+  int height=(int)lroundf(clamp((db+60)/60,0,1)*138);
+  meter_rect(p,columns[i],19,4,138,0xff2e2e33u);
+  meter_rect(p,columns[i],157-height,4,height,0xff00ffa7u);
+ }
+ int gr=(int)lroundf(clamp(isfinite(reduction)?reduction:0,0,60)/60*138);
+ meter_rect(p,288,19,4,138,0xff2e2e33u);
+ meter_rect(p,288,19,4,gr,0xffd31145u);
+}
 void compressor_animation_init(struct comp_animation*s){memset(s,0,sizeof(*s));s->level=-60;}
 void compressor_animation_frame(struct comp_animation*s,uint32_t*p,double now,float input,const struct comp_config*c,unsigned hit){
  if(!s||!p||!c||!isfinite(now))return;
