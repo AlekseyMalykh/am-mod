@@ -458,7 +458,8 @@ static void confirm_project(void){
  if(!project_confirm||!project_candidate)return;
  uint64_t chosen=0;FN(0xf187a0,void(*)(void*,const void*))(&chosen,&project_candidate);
  void*s=FIELD(files,0x120,void*);close_search();
- FN(0x14fc6a0,void(*)(void*,const void*,int))(s,&chosen,1);
+ /* Browser onProjectSelected's bool means asKit, not confirmed. */
+ FN(0x14fc6a0,void(*)(void*,const void*,int))(s,&chosen,0);
  FN(0xf0a290,void(*)(uint64_t*))(&chosen);
 }
 static void locate_result(void){
@@ -505,15 +506,17 @@ int workflow_blocks_sample_controls(void){return atomic_load(&custom)||atomic_lo
 int workflow_jobs_busy(void){return batch_job||mono_job;}
 uint64_t workflow_ticket(void){return atomic_load(&epoch);}
 void workflow_fault(void){atomic_fetch_add(&epoch,1);fault=1;}
-/* Open the last project when the mod starts: the newest .xpj on the card,
- * which is Mod-Exit-Last unless a project saved later exists (work done in
- * the stock firmware after leaving the mod). Uses the browser's own open
- * callback (BrowserLogic+0x30, invoker 0x1500840) of the FilesScreen built
- * at start, the same path as opening a project from search. */
+/* Native project open on the UI thread. BrowserLogic+0x30/0x1500840 takes
+ * asKit=false for full LoadProject (vtable+0x20); true imports sounds via
+ * 0x15076c0, retaining the old project's sequences and mixer/FX settings. */
 static int autoload_done;static uint64_t autoload_after;
 void workflow_files_constructed(void*p){constructed_files=p;}
+#ifndef WORKFLOW_AUTOLOAD_PROJECTS
+#define WORKFLOW_AUTOLOAD_PROJECTS "/media/*/MPC-Sample/Projects/*.xpj"
+#define WORKFLOW_AUTOLOAD_NESTED "/media/*/MPC-Sample/Projects/*/*.xpj"
+#endif
 static int newest_project(char*out,size_t size){
- const char*patterns[]={"/media/*/MPC-Sample/Projects/*.xpj","/media/*/MPC-Sample/Projects/*/*.xpj"};
+ const char*patterns[]={WORKFLOW_AUTOLOAD_PROJECTS,WORKFLOW_AUTOLOAD_NESTED};
  time_t best=0;out[0]=0;
  for(unsigned k=0;k<2;++k){glob_t g;if(glob(patterns[k],0,NULL,&g))continue;
   for(size_t i=0;i<g.gl_pathc;++i){const char*f=g.gl_pathv[i];struct stat s;
@@ -527,15 +530,14 @@ static void autoload_tick(void){
  if(!note_native_sample_visible()){autoload_after=0;return;}
  if(!autoload_after){autoload_after=now_ms()+2500;return;}
  if(now_ms()<autoload_after)return;
- autoload_done=1;
  void*f=constructed_files;void*s=f?FIELD(f,0x120,void*):NULL;
- if(!s||!FIELD(s,0x40,uintptr_t)||FIELD(s,0x48,uintptr_t)!=base+0x1500840){fprintf(stderr,"AUTOLOAD SKIPPED no_open_callback\n");return;}
- char path[1024];if(!newest_project(path,sizeof(path))){fprintf(stderr,"AUTOLOAD SKIPPED no_project\n");return;}
+ if(!s||!FIELD(s,0x40,uintptr_t)||FIELD(s,0x48,uintptr_t)!=base+0x1500840){autoload_after=now_ms()+500;return;}
+ char path[1024];if(!newest_project(path,sizeof(path))){autoload_done=1;fprintf(stderr,"AUTOLOAD SKIPPED no_project\n");return;}
  uint64_t string=0,file=0;
  FN(0xf535c0,void(*)(uint64_t*,const char*))(&string,path);
  FN(0xf75630,void(*)(uint64_t*,const uint64_t*))(&file,&string);
- fprintf(stderr,"AUTOLOAD OPEN %s\n",path);
- FN(0x14fc6a0,void(*)(void*,const void*,int))(s,&file,1);
+ autoload_done=1;fprintf(stderr,"AUTOLOAD FULL_PROJECT_REQUESTED\n");
+ FN(0x14fc6a0,void(*)(void*,const void*,int))(s,&file,0);
  FN(0xf0a290,void(*)(uint64_t*))(&file);FN(0xf0a290,void(*)(uint64_t*))(&string);
 }
 int workflow_tick(void){

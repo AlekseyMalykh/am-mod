@@ -17,7 +17,7 @@ extern const char *const music_sequence_colour_names[MUSIC_SEQUENCE_COLOURS];
 extern const uint32_t music_sequence_colours[MUSIC_SEQUENCE_COLOURS];
 int music_sequence_colour(unsigned sequence);
 int music_set_sequence_colour(unsigned sequence,unsigned colour);
-/* Pad colour in Sample (Trim page 2, Shift+K1): same palette, 0 = Stock. */
+/* Pad colour in Sample Mix K2 without Shift: same palette, 0 = Stock. */
 int music_pad_colour(unsigned pad);
 int music_set_pad_colour(unsigned pad,unsigned colour);
 int music_pad_colours_used(void);

@@ -9,7 +9,11 @@
 #include "music_settings.h"
 #include "music_archive.h"
 #include "music_ui.h"
+#ifdef MPC_PAD_EQ
+#include "filter_spectrum.h"
+#endif
 #include "project_exit.h"
+#include "values_bipolar.h"
 #ifdef MPC_POWER_BUTTON
 #include "power_control.h"
 #endif
@@ -17,7 +21,6 @@
 #include "poly_record.h"
 #include "voice_guard.h"
 #include "pad_eq.h"
-#include "values_bipolar.h"
 #endif
 #include "music_lighting.h"
 #ifdef MPC_CHORDS
@@ -1218,7 +1221,7 @@ static void sequence_palette_tick(void){
 /* UI Timer publishes screen ownership; RGB callbacks must not inspect native
  * Components, which may belong to another thread. */
 static _Atomic unsigned pad_colour_sample_layout;
-/* Sample pad layout: the user's Pad Colour (Mix, Shift+K1) keeps the
+/* Sample pad layout: the user's Pad Colour (Mix, K2) keeps the
  * native brightness of each pad (dim loaded, bright playing) and replaces
  * only its hue. Stock (0) passes the native colour through. */
 static int pad_colour_light(unsigned pad,uint64_t *out){
@@ -1357,16 +1360,7 @@ static void send_step_lights(void)
 }
 static void button_light(void *s,unsigned value,unsigned code)
 {
-    /* This indexed sender also drives pads0..15. Stock Step Edit's cursor
-     * uses it in bottom-up order, bypassing H_RGB. While Steps owns the pads,
-     * send its physical-pad palette here too; otherwise a mirrored cursor
-     * survives beside the RGB cursor. Actual button IDs remain native. */
-    uint64_t light;
-    if(code<16&&step_native_custom()&&step_native_light(code,&light)){
-        atomic_store(&sender,(uintptr_t)s);
-        uint32_t packed=FN(0x23b00c0,uint32_t(*)(const uint64_t*))(&light);
-        ORIG(H_RGB,void(*)(void*,uint32_t,unsigned))(s,packed,code);return;
-    }
+    /* B0 CC0..15 are button LEDs (Knob FX, Sample, Seq, Erase...), not pads. */
     if (code<128) {
         if(code==0x2b)observe_mute_indicator(value);
         atomic_store(&button_sender,(uintptr_t)s);atomic_store(&native_button_lights[code],value);
@@ -1490,6 +1484,7 @@ static void load(void)
     if (!values_shift_pairs_install(base)) note("VALUES_SHIFT_PAIRS UNAVAILABLE");
     if (!values_loop_lock_install(base)) note("VALUES_LOOP_LOCK UNAVAILABLE");
 #ifdef MPC_PAD_EQ
+    if (!filter_spectrum_install(base,music_ui_filter_spectrum_visible)) _exit(121);
     if (!pad_eq_native_install(base)) _exit(121);
     if (!pad_eq_history_install(base)) _exit(121);
 #endif

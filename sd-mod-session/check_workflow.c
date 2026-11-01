@@ -10,6 +10,8 @@
 static const char*test_path(const char*);
 #define WORKFLOW_STORAGE_META test_path("/storage-meta")
 #define WORKFLOW_INTERNAL_ROOT test_path("/Internal")
+#define WORKFLOW_AUTOLOAD_PROJECTS test_path("/autoload/*.xpj")
+#define WORKFLOW_AUTOLOAD_NESTED test_path("/autoload/*/*.xpj")
 #include "src/workflow_ui.c"
 static uintptr_t guard=0x123456;
 static char test_root[]="/tmp/mpc-workflow-check-XXXXXX";
@@ -55,7 +57,24 @@ static int component_visible(void*p){return p==is_visible||(is_visible&&test_cho
 static int unblocked(void*p){(void)p;return 0;}
 static unsigned invalidations;
 static void invalidate(void*p,uint64_t a,uint64_t size){(void)p;(void)a;(void)size;++invalidations;}
-static void load_file(void*p,const struct file_result*f,const unsigned char*confirmed){assert(p==service+0x30&&f->file&&*confirmed==1);assert(strstr(filename(f),".xpj"));++loads;}
+static void load_file(void*p,const struct file_result*f,const unsigned char*as_kit){assert(p==service+0x30&&f->file&&!*as_kit);assert(strstr(filename(f),".xpj"));++loads;}
+struct native_errors{uintptr_t begin,end,capacity;};
+static unsigned full_calls,kit_calls,location_calls;static char last_project[1024];
+static unsigned char native_manager[32],native_browser[32];
+static struct native_errors full_receiver(void*m,const uint64_t*path){assert(m==native_manager&&strstr((char*)(uintptr_t)*path,".xpj"));snprintf(last_project,sizeof(last_project),"%s",(char*)(uintptr_t)*path);++full_calls;return (struct native_errors){0};}
+static struct native_errors kit_receiver(void*m,const uint64_t*path){assert(m==native_manager&&strstr((char*)(uintptr_t)*path,".xpj"));++kit_calls;return (struct native_errors){0};}
+static void location_receiver(void*b,const uint64_t*path){assert(b==native_browser&&strstr((char*)(uintptr_t)*path,".xpj"));++location_calls;}
+static void finish_receiver(void*m,unsigned full){assert(m==native_manager&&full==!!full_calls);}
+static void verify_native_project_mode(void){
+ static uintptr_t vt[5];vt[4]=(uintptr_t)full_receiver;FIELD(native_manager,0,void*)=vt;
+ void*closure[2]={native_manager,native_browser};uint64_t path=0;FN(0xf535c0,void(*)(uint64_t*,const char*))(&path,"/fixture/Project-B.xpj");
+ stub(0x15076c0,kit_receiver);stub(0x14fb400,location_receiver);stub(0x15072e0,finish_receiver);__builtin___clear_cache((char*)base,(char*)(base+0x7500000));
+ unsigned char as_kit=1;FN(0x1500840,void(*)(void*,const uint64_t*,const unsigned char*))(closure,&path,&as_kit);
+ assert(kit_calls==1&&!full_calls&&!location_calls);
+ as_kit=0;FN(0x1500840,void(*)(void*,const uint64_t*,const unsigned char*))(closure,&path,&as_kit);
+ assert(kit_calls==1&&full_calls==1&&location_calls==1);FN(0xf0a290,void(*)(uint64_t*))(&path);
+ puts("PASS actual native XPJ browser invoker: true selects LoadProjectAsKit; false selects full FileManagement vtable+0x20 and updates browser location; full/kit model receivers");
+}
 static void put_string(void*p,const char*s){FN(0xf535c0,void(*)(void*,const char*))(p,s);}
 static void button_event(unsigned c,int down){unsigned char e[16]={0};e[8]=(unsigned char)c;e[9]=(unsigned char)down;workflow_button(e,workflow_ticket());}
 static char last_text[512];
@@ -88,7 +107,8 @@ void step_layer_sample(void*i,int layer,uintptr_t*out,uintptr_t fn){(void)i;asse
 static unsigned char copy_context_data[0x100],copy_current[0x100],copy_mode[0x90],copy_controls[0x3400],copy_screen[0x148],copy_program[0x1400],sounds[128][0x2300];
 static unsigned char browser_things[0xc0];static int browser_context_live,sample_loads,loaded_pad,selected_pad,copy_closes;
 void *note_native_context(void){return browser_context_live?browser_things:NULL;}
-int note_native_sample_visible(void){return 0;} /* autoload stays idle in this check */
+static int autoload_sample;
+int note_native_sample_visible(void){return autoload_sample;}
 static void select_pad(void*p,int n){assert(p==browser_things&&n>=0&&n<128);selected_pad=n;}
 static void sample_action(void*p,const struct file_result*f){assert(p==service+0x10&&f->file);assert(!strcmp(filename(f),"Kick drum.wav"));loaded_pad=selected_pad;++sample_loads;}
 static unsigned char copy_layers[128][0xb00];
@@ -209,11 +229,11 @@ workflow_pad(14,1,100,workflow_ticket());workflow_pad(14,0,200,workflow_ticket()
 draw=fopen(argv[2],"w");assert(draw);workflow_files_paint(files,(void*)1);fclose(draw);draw=NULL;
 button_event(0x0d,1);assert(results&&!loads);button_event(0x0e,1);assert(browser_previews==1&&!loads&&!sample_loads&&search);
 FIELD(surface_controls,0x22a0,unsigned char)=0;button_event(0x31,0);button_event(0x6f,1);assert(sample_loads==1&&search&&results&&match_count==1);close_search();
-/* Same file screen and native callback path serves Open Project too. */
+/* Project search must use full restore, not the sample/kit callback. */
 f=fopen(test_path("/project.xpj"),"wb");assert(f);fclose(f);put_string(&paths[0],test_path("/project.xpj"));FIELD(file_root,0x1388,int)=FILE_PROJECTS;start_search();workflow_tick();phone_sync(&query,"no match",8);filter();results=1;choose_result();assert(search&&!match_count&&!loads);close_search();
 start_search();workflow_tick();phone_sync(&query,"project",7);filter();results=1;button_event(0x6f,1);assert(project_confirm&&!loads);button_event(0x0c,1);assert(!project_confirm&&!loads&&search);
 button_event(0x6f,1);assert(project_confirm&&!loads);button_event(0x0e,1);assert(loads==1&&!search);FIELD(file_root,0x1388,int)=FILE_SAMPLES;
-/* Samples0 -> onSampleSelected14fc5a0. Projects1 -> onProjectSelected14fc6a0.
+/* Samples use onSampleSelected14fc5a0. Projects use the full restore worker.
  *14fb1c0 is Preview, not Load. Selecting a pad stays silent until Load. */
 stub(0x286bbe0,get_instrument);stub(0x286bc20,get_sound_index);stub(0x2804760,has_sample);stub(0x28f9d60,select_pad);stub(0x15001a0,selected_file);
 __builtin___clear_cache((char*)base,(char*)(base+0x7500000));
@@ -515,5 +535,15 @@ assert(workflow_mono_open(sample_screen));mono_bank=1;workflow_pad(4,1,0,workflo
 button_event(0x0e,1);if(!mono_job){assert(mono_confirm==1&&!mono_calls);button_event(0x0e,1);}
 assert(mono_job&&mono_calls==1&&mono_last_target==20&&mono_last_channel==1);
 test_progress=(struct batch_copy_progress){BATCH_JOB_DONE,1,1};workflow_tick();button_event(0x0c,1);assert(!mono&&!mono_job);
+verify_native_project_mode();
+/* Startup uses the same real native false/full branch. A missing constructor
+ * callback retries instead of permanently skipping the newest project. */
+mkdir(test_path("/autoload"),0700);f=fopen(test_path("/autoload/Project-B.xpj"),"wb");assert(f);fputc('B',f);fclose(f);
+workflow_files_constructed(file_root);FIELD(file_root,0x120,void*)=service;
+FIELD(service,0x40,uintptr_t)=0;autoload_sample=1;autoload_after=now_ms()-1;autoload_tick();assert(!autoload_done&&full_calls==1);
+FIELD(service,0x30,void*)=native_manager;FIELD(service,0x38,void*)=native_browser;FIELD(service,0x40,uintptr_t)=1;FIELD(service,0x48,uintptr_t)=base+0x1500840;
+autoload_after=now_ms()-1;autoload_tick();assert(autoload_done&&full_calls==2&&kit_calls==1&&strstr(last_project,"Project-B.xpj"));
+autoload_tick();assert(full_calls==2);autoload_sample=0;
+puts("PASS production autoload waits for native callback readiness, opens newest XPJ as a full project exactly once, never imports its kit");
 puts("PASS mono destination workflow: Sample-host dialog paints Cancel/Left/Right and source/target; Cancel no job, target pads/banks, channel request, occupied confirmation, completion close and Play/Stop pass-through; backend is a receiver");
 puts("PASS actual native File optional/current-directory getter and BrowserLogic root setter; selected-file property alone cannot navigate; reveal locates asynchronous native row for Sample and Project without loading; factory project search defaults to SD, K3 Internal/SD roots and XPJ-not-XPM filter; silent result-pad selection, native project confirmation and preview; bounded recursive search over4100 files, linked/hidden folders and inode cycle dedup; ordinary Chop Split gate and Sample108/148 offsets; Batch mapping/confirmation/paint; final GUI, listing/notification/property and audio callbacks remain fixtures");return 0;}

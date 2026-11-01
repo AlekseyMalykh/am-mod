@@ -13,6 +13,7 @@ static unsigned char fx_screen[0x300],fx_header[0x240];
 static uintptr_t value_source[7][2],value_vtable[3],var_vtable[24],var_type;
 static unsigned values_read,values_destroyed,header_bars;static int header_testing,header_disabled;
 static uint32_t draw_ink,header_caption_ink;
+static unsigned spectrum_bars,graph_clears;static int graph_cleared;
 extern void check_header_value_get(void);
 void check_header_value_fill(void*out,void*source){++values_read;F(out,0,uintptr_t)=(uintptr_t)&var_type;F(out,8,uint64_t)=F(source,8,uint64_t);}
 static int var_bool(void*type,void*data){assert(type==&var_type);return *(uint64_t*)data!=0;}
@@ -32,15 +33,15 @@ static int shown(void*p){if(p>=(void*)repeat_screen&&p<(void*)(repeat_screen+siz
 static int blocked(void*p){assert(p==screen||p==sequence_screen||p==project_screen);return 0;}
 static int enabled(void*p){assert(p==screen+0xe50||p==fx_header);return p!=fx_header||!header_disabled;}
 static void ui_repaint(void*p,uint64_t a,uint64_t b){assert((p==screen||p==sequence_screen||p==project_screen)&&!a&&!b);++repaints;}
-static void draw_colour(void*g,uint32_t c){assert(g==screen&&(c>>24)==255);draw_ink=c;}
-static void draw_rect(void*g,int x,int y,int w,int h){assert(g==screen&&x>=0&&y>=0&&w>0&&h>0&&x+w<=320&&y+h<=240);if(repeat_drawing)assert(y>=5&&y+h<=38);if(header_testing&&y==25)++header_bars;++draws;}
+static void draw_colour(void*g,uint32_t c){assert(g==screen&&((c>>24)==255||c==0x605a4419));draw_ink=c;}
+static void draw_rect(void*g,int x,int y,int w,int h){assert(g==screen&&x>=0&&y>=0&&w>0&&h>0&&x+w<=320&&y+h<=240);if(draw_ink==0xff000000&&x==0&&y==88&&w==320&&h==110){++graph_clears;graph_cleared=1;}if(draw_ink==0x605a4419){assert(x>=15&&x+w<=304&&y>=94&&y+h<=188);++spectrum_bars;}if(repeat_drawing)assert(y>=5&&y+h<=38);if(header_testing&&y==25)++header_bars;++draws;}
 static void font_make(void*p,int type,float size){assert(p&&!type&&size>=10&&size<=26);*(uintptr_t*)p=0;}
 static void font_set(void*g,const void*f){assert(g==screen&&f);}
 static void font_delete(void*f){assert(f);}
 static void draw_text(void*g,const uint64_t*s,int x,int y,int w,int h,int flags,int lines,float scale){(void)x;(void)y;(void)w;(void)h;(void)flags;(void)lines;(void)scale;assert(g==screen&&s);const char*str=*(const char*const*)s;if(header_testing&&!strcmp(str,"Bypass"))header_caption_ink=draw_ink;assert(strlen(captions)+strlen(str)+2<sizeof(captions));strcat(captions,str);strcat(captions,"\n");}
 static int key(unsigned code,int down){unsigned char e[16]={0};e[8]=code;e[9]=down;return music_ui_button(e);}
 static void knob(unsigned cc,unsigned v){unsigned char e[16]={0};e[8]=cc;e[9]=v;assert(music_ui_control(e));}
-static void paint_ui(void){captions[0]=0;music_ui_sample(screen,screen);}
+static void paint_ui(void){captions[0]=0;graph_cleared=0;music_ui_sample(screen,screen);}
 static void noop_paint(void*p,void*g){(void)p;(void)g;}
 int workflow_mono_open(void*p){(void)p;return 0;}
 int main(int argc,char**argv){
@@ -48,6 +49,16 @@ int main(int argc,char**argv){
  patch(0x112fd50,shown);patch(0x112f6b0,blocked);patch(0x1149880,ui_repaint);patch(0x102d5e0,draw_colour);patch(0x102e000,draw_rect);patch(0x1082810,font_make);patch(0x102dca0,font_set);patch(0x1070d60,font_delete);patch(0x10817b0,draw_text);
  F(screen,0,uintptr_t)=base+0x6e212a0;F(screen,0x108,void*)=controller;F(screen,0x7f0+0x218,int)=-1;F(screen,0xe50+0x218,int)=0;
  music_ui_init(base);paint_ui();assert(!key(0x0e,1)&&!music_ui_owns(0x10)); /* First native Filter page untouched. */
+ /* Only the active B3 group watches audio. All native controls remain unowned. */
+ F(screen,0xe50+0x21c,int)=2;paint_ui();assert(!graph_cleared&&music_ui_filter_spectrum_visible(screen)&&pad_eq_spectrum_wanted(current_pad));
+ usleep(650000);music_ui_tick();assert(pad_eq_spectrum_wanted(current_pad));pad_eq_spectrum_dirty();assert(pad_eq_spectrum_wanted(current_pad)); /* idle page must still capture the next note */
+ for(unsigned i=0;i<2048;++i)left[i]=right[i]=.5f*(float)sin(2*3.141592653589793*1000*i/48000);
+ pad_eq_spectrum_capture(current_pad,channels,2,2048,48000);spectrum_bars=0;paint_ui();assert(!graph_cleared&&spectrum_bars&&!music_ui_owns(0x10));
+ F(screen,0xe50+0x218,int)=1;spectrum_bars=0;paint_ui();assert(!graph_cleared&&spectrum_bars&&!music_ui_owns(0x11));
+ unsigned clears=graph_clears;paint_ui();assert(graph_clears==clears); /* never erase native curves, including silence */
+ current_pad=19;paint_ui();assert(pad_eq_spectrum_wanted(19)&&!pad_eq_spectrum_wanted(18));current_pad=18;
+ F(screen,0xe50+0x21c,int)=1;paint_ui(); /* An inactive remembered B3 index adds no bars. */
+ spectrum_bars=0;paint_ui();assert(!spectrum_bars&&!graph_cleared&&!music_ui_filter_spectrum_visible(screen)&&!pad_eq_spectrum_wanted(current_pad));F(screen,0xe50+0x21c,int)=2;
  assert(primes>0);unsigned before_primes=primes;
  F(screen,0xe50+0x218,int)=1;assert(key(0x0e,1)&&key(0x0e,0)&&primes>before_primes&&music_ui_owns(0x10));paint_ui();assert(strstr(captions,"EQ")&&strstr(captions,"Bypass")&&strstr(captions,"Type"));
  /* Construct the actual native B3 group location/layout. The old a10 fixture
@@ -62,7 +73,7 @@ int main(int argc,char**argv){
  assert(!key(0x0e,1)&&!music_ui_owns(0x10));F(screen,0xe50+0x218,int)=0;paint_ui();assert(!strstr(captions,"EQ"));
  F(screen,0xe50+0x218,int)=1;assert(key(0x0e,1)&&key(0x0e,0));assert(!key(0x0c,1)&&!music_ui_owns(0x10));
  assert(key(0x0e,1)&&key(0x0e,0));music_ui_destroyed(screen);paint_ui();assert(!music_ui_owns(0x10)&&!strstr(captions,"EQ"));
- puts("PASS EQ tab UI: stock Filter and Envelope untouched, third-page entry/exit through B keys, exact K1 frequency/K2 gain/K3 type/Shift K2 Q, Shift K3 inert, bypass via type, per-pad selection and black graph");
+ puts("PASS Filter/Filter Env spectrum preserves native graph pixels: no opaque clear, bounded translucent bars, selected pad and native knobs preserved, inactive tabs excluded; EQ controls unchanged");
  phase="native header Boolean versus unrelated listener count";
  value_vtable[2]=(uintptr_t)check_header_value_get;var_vtable[6]=(uintptr_t)var_bool;var_vtable[23]=(uintptr_t)var_destroy;var_type=(uintptr_t)var_vtable;
  for(unsigned i=0;i<7;++i)value_source[i][0]=(uintptr_t)value_vtable;

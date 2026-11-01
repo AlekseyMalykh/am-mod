@@ -30,7 +30,8 @@ static uint32_t convert(const uint64_t*c){return (uint32_t)*c;}
 static void capture(void*s,uint32_t colour,unsigned pad){assert(s==(void*)0x1234&&pad<16);++calls;sent[pad]=colour;}
 static void stub(uintptr_t off,void*fn){uint32_t w[]={0x58000050,0xd61f0200};memcpy((void*)(base+off),w,8);memcpy((void*)(base+off+8),&fn,8);}
 static void native_rgb(unsigned pad,uint32_t colour){unsigned before=queries;inside_rgb=1;rgb((void*)0x1234,colour,pad);inside_rgb=0;assert(queries==before);}
-static void indexed_capture(void*s,unsigned value,unsigned pad){assert(s==(void*)0x1234&&pad<112);if(pad<16)sent[pad]=value?0xffffff:0;}
+static unsigned button_values[128];
+static void indexed_capture(void*s,unsigned value,unsigned code){assert(s==(void*)0x1234&&code<128);button_values[code]=value;}
 static unsigned white_count(void){unsigned n=0;for(unsigned i=0;i<16;++i)n+=sent[i]==0xffffff;return n;}
 int main(void){
  void*p=mmap(NULL,0x7500000,PROT_READ|PROT_WRITE|PROT_EXEC,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);assert(p!=MAP_FAILED);base=(uintptr_t)p;
@@ -61,21 +62,19 @@ int main(void){
  levels_on=1;send_step_lights();assert(sent[0]==0x104020);levels_on=0;
  steps_on=1;send_step_lights();assert(sent[0]==0x104020);steps_on=0;
  send_step_lights();assert(sent[0]==0x400000);
- /* Native indexed LEDs bypassed H_RGB and painted a mirrored cursor. */
+ /* Button CC IDs overlap pad numbers but never drive the pad RGB array. */
  stub(phone_hooks[H_BUTTON_LIGHT].trampoline,indexed_capture);__builtin___clear_cache((char*)base,(char*)base+0x7500000);
  sample_visible=0;steps_on=steps_lighting=1;steps_lights[12]=0xffffff;
- send_step_lights();indexed_capture((void*)0x1234,1,0);assert(white_count()==2);
+ send_step_lights();button_light((void*)0x1234,1,0);assert(white_count()==1&&button_values[0]==1);
  for(unsigned step=0;step<16;++step){
   unsigned physical=(3-step/4)*4+step%4;
   memset(steps_lights,0,sizeof(steps_lights));steps_lights[physical]=0xffffff;send_step_lights();
-  /* Simulate both the old native cursor and unrelated native pad repaints. */
+  /* Physical button LEDs must not become artificial pad/cursor updates. */
   for(unsigned i=0;i<16;++i)button_light((void*)0x1234,1,i);
   assert(white_count()==1&&sent[physical]==0xffffff);
  }
- button_light((void*)0x1234,1,0x50); /* A button is never treated as a step. */
- steps_lighting=0;button_light((void*)0x1234,1,3);assert(sent[3]==0xffffff);
- button_light((void*)0x1234,0,3);assert(sent[3]==0);
- puts("PASS indexed + RGB LED senders: mirrored duplicate reproduced, all16 cursor positions unique, unrelated native writes cannot relight empty steps, native buttons/non-Steps restored");
+ button_light((void*)0x1234,1,0x50);assert(button_values[0x50]==1);
+ puts("PASS MCU CC button IDs0..15 preserve physical button LEDs and never recolour pad RGB or create duplicate Steps cursors");
  puts("PASS Pad Colour RGB: Sample/FX Select round-trip, native restore without repaint, direct sender, bank, Stock, Mute/Erase, Levels/Steps and Seq recording");
  munmap(p,0x7500000);return 0;
 }

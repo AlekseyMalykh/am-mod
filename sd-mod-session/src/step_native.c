@@ -167,6 +167,9 @@ static uintptr_t levels_processor;
 static _Atomic unsigned native_levels_enabled,native_levels_mode,native_levels_origin;
 static _Atomic unsigned native_mute;
 static _Atomic unsigned playback_mask;
+/* Published by the UI's native event scan; RGB receivers read only this
+ * numeric snapshot, never the mutable program or playback mode. */
+static _Atomic int playback_colour_bank=-1;
 static uint64_t playback_until[16];
 /* Tune pitches (-120..120) heard from the sequence, for Chords feedback. */
 static uint64_t playback_pitch_until[241];
@@ -625,7 +628,7 @@ void step_native_playback_context(void *things,int transpose,int sample_visible)
                 gate,mode,selected,atomic_load(&native_levels_origin),(long long)tick);
     }
     if (gate || picker) { /* Editor markers describe original/choice, not loop flashes. */
-        playback_previous=-1;memset(playback_until,0,sizeof(playback_until));memset(playback_pitch_until,0,sizeof(playback_pitch_until));atomic_store(&playback_mask,0);return;
+        playback_previous=-1;memset(playback_until,0,sizeof(playback_until));memset(playback_pitch_until,0,sizeof(playback_pitch_until));atomic_store(&playback_colour_bank,-1);atomic_store(&playback_mask,0);return;
     }
     unsigned muted_pads=0;
     if(mode==10 && atomic_load(&native_mute)) {
@@ -678,6 +681,7 @@ void step_native_playback_context(void *things,int transpose,int sample_visible)
     if(mask && mask!=atomic_load(&playback_mask) && playback_reports<32){
         ++playback_reports;fprintf(stderr,"PAD_STEPS PLAYBACK_PADS mode=%d mask=%04x\n",mode,mask);
     }
+    atomic_store(&playback_colour_bank,mode==10&&sample_visible==1?bank:-1);
     atomic_store(&playback_mask,mask);
 }
 int64_t step_native_clock_ticks(uint64_t *serial,unsigned *running)
@@ -1090,7 +1094,11 @@ int step_native_light(unsigned pad,uint64_t *light)
     uint64_t t=atomic_load(&ticket);
     if(pad>=16) return 0;
     if (!(t&T_STEPS) && (!atomic_load(&requested_shift) || (t&T_PICKER)) && (atomic_load(&playback_mask)&(1u<<pad))) {
-        float brightness=.9f;uint32_t f;memcpy(&f,&brightness,4);*light=(uint64_t)PAD_PLAYHEAD|((uint64_t)f<<32);return 1;
+        int bank=atomic_load(&playback_colour_bank);
+        if(bank>=0&&(atomic_load(&native_mute)||atomic_load(&requested_erase)))return 0;
+        int chosen=bank>=0&&bank<8?music_pad_colour((unsigned)bank*16+pad):0;
+        uint32_t rgb=chosen?music_sequence_colours[chosen]:PAD_PLAYHEAD;
+        float brightness=.9f;uint32_t f;memcpy(&f,&brightness,4);*light=(uint64_t)rgb|((uint64_t)f<<32);return 1;
     }
     if (!(t&(T_STEPS|T_PICKER))) return 0;
     *light=atomic_load(&lights[pad]); return 1;

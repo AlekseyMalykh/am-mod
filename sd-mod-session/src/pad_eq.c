@@ -59,7 +59,7 @@ int pad_eq_audio(unsigned pad,uintptr_t instrument,double rate,float**channels,u
     }return 1;
 }
 
-/* ---- Spectrum of the edited pad (EQ page) -------------------------------
+/* ---- Spectrum of the edited pad (all Sample B3 pages) -------------------
  * Audio thread: post-EQ mono samples of the watched pad go into a ring.
  * UI thread: the EQ page asks for the pad, takes the last 4096 samples,
  * windows them (Hann), runs a radix-2 FFT and draws bars on a log axis
@@ -72,6 +72,10 @@ static _Atomic int spec_pad=-1;
 static _Atomic uint64_t spec_rate_bits,spec_frames;
 static uint64_t spec_seen_ms,spec_painted_frames;static int spec_visible_bars;
 static uint64_t spec_now_ms(void){struct timespec t;clock_gettime(CLOCK_MONOTONIC,&t);return (uint64_t)t.tv_sec*1000u+(uint64_t)t.tv_nsec/1000000u;}
+void pad_eq_spectrum_watch(int pad){
+    if(pad<0||pad>=128){atomic_store_explicit(&spec_pad,-1,memory_order_relaxed);return;}
+    atomic_store_explicit(&spec_pad,pad,memory_order_relaxed);spec_seen_ms=spec_now_ms();
+}
 int pad_eq_spectrum_wanted(unsigned pad){return atomic_load_explicit(&spec_pad,memory_order_relaxed)==(int)pad;}
 void pad_eq_spectrum_capture(unsigned pad,float**channels,unsigned count,unsigned frames,double rate){
     if(!pad_eq_spectrum_wanted(pad)||!channels||!channels[0]||count<1||count>2||frames>8192)return;
@@ -95,10 +99,11 @@ static void fft(float*re,float*im,unsigned n){
             re[i+k]=ur+vr;im[i+k]=ui+vi;re[i+k+len/2]=ur-vr;im[i+k+len/2]=ui-vi;
             float nr=cr*wr-ci*wi;ci=cr*wi+ci*wr;cr=nr;}}}
 }
-static void spectrum_paint(unsigned pad,int left,int top,int width,int height,const struct resample_painter*p){
+void pad_eq_spectrum_paint(unsigned pad,int left,int top,int width,int height,uint32_t tint,const struct resample_painter*p){
+    if(pad>=128||!p||!p->rect||width<1||height<1)return;
     static float shown[320];static int shown_pad=-1;
     if((int)pad!=shown_pad){shown_pad=(int)pad;for(int i=0;i<320;++i)shown[i]=-96;}
-    atomic_store_explicit(&spec_pad,(int)pad,memory_order_relaxed);spec_seen_ms=spec_now_ms();
+    pad_eq_spectrum_watch((int)pad);
     uint64_t frames=atomic_load_explicit(&spec_frames,memory_order_relaxed);
     int fresh=frames!=spec_painted_frames;spec_painted_frames=frames;
     if(width>320)width=320;
@@ -120,7 +125,7 @@ static void spectrum_paint(unsigned pad,int left,int top,int width,int height,co
     for(int x=0;x<width;++x){
         float db=shown[x];if(db< -72)continue;if(db>0)db=0;spec_visible_bars=1;
         int h=(int)((db+72)*height/72);if(h<1)continue;
-        p->rect(p->user,left+x,top+height-h,1,h,0xff5a4419u); /* dim amber: the bright amber curve stays on top */
+        p->rect(p->user,left+x,top+height-h,1,h,tint);
     }
 }
 void pad_eq_paint(uint64_t v,unsigned pad,int shift,int focus,const struct resample_painter*p){
@@ -129,7 +134,7 @@ void pad_eq_paint(uint64_t v,unsigned pad,int shift,int focus,const struct resam
     const uint32_t white=0xffffffffu,amber=0xffffc247u,grey=0xff777777u;char s[64];
     p->rect(p->user,0,33,320,207,0xff000000u);snprintf(s,sizeof(s),"%c%02u  EQ%s",'A'+pad/16,pad%16+1,cfg.bypass?"  BYPASS":"");p->text(p->user,s,8,36,304,24,18,white,0);
     int left=30,top=72,width=279,height=105;
-    spectrum_paint(pad,left,top,width,height,p);
+    pad_eq_spectrum_paint(pad,left,top,width,height,0xff5a4419u,p);
     for(int db=-18;db<=18;db+=9){int y=top+(18-db)*height/36;p->rect(p->user,left,y,width,1,db?0xff252525:0xff666666);snprintf(s,sizeof(s),"%+d",db);p->text(p->user,s,0,y-6,27,13,10,grey,1);}
     int previous=-1;for(int x=0;x<width;++x){double hz=20*pow(1000,x/(double)(width-1)),db=fx_eq_response_db(&cfg,48000,hz);if(db>18)db=18;if(db< -18)db=-18;int y=top+(int)lround((18-db)*height/36);if(previous<0)previous=y;
         int a=previous<y?previous:y,b=previous>y?previous:y;p->rect(p->user,left+x,a,1,b-a+1,cfg.bypass?grey:amber);previous=y;}

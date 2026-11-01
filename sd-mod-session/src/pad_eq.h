@@ -21,7 +21,11 @@ void pad_eq_publish_all(const uint64_t values[128]);
  * Returns0 only if the bounded lane table is exhausted or inputs invalid.
  * No allocation, locks, file/UI/native model calls on this path. */
 int pad_eq_audio(unsigned pad,uintptr_t instrument,double rate,float**channels,unsigned count,unsigned frames,int silent);
-/* Spectrum of the pad shown on the EQ page (audio thread capture). */
+/* Shared selected-pad spectrum for Filter, Filter Env and EQ. UI drawing
+ * accepts a tint so native filter/envelope curves can remain visible. */
+void pad_eq_spectrum_paint(unsigned pad,int left,int top,int width,int height,uint32_t tint,const struct resample_painter*);
+/* UI timer keeps the selected page's capture alive even during silence. */
+void pad_eq_spectrum_watch(int pad);
 int pad_eq_spectrum_wanted(unsigned pad);
 void pad_eq_spectrum_capture(unsigned pad,float**channels,unsigned count,unsigned frames,double rate);
 int pad_eq_spectrum_dirty(void);

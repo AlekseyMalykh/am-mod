@@ -61,6 +61,20 @@ int main(void){
   assert(step_palette_value(0,0,0,0,0,0,0)==0);
  }
  assert(music_set_pad_colour(0,8));length=7680;menu=0;browse_bank=1;sound=16;sound_present=3;
+ /* Sample playback used to force cyan before the ordinary Pad Colour
+  * receiver. Keep assigned hues, bank identity and the .9 activity pulse. */
+ atomic_store(&ticket,0);atomic_store(&playback_mask,3);atomic_store(&playback_colour_bank,0);
+ uint64_t pulse=0;
+ for(unsigned c=0;c<MUSIC_SEQUENCE_COLOURS;++c){
+  assert(music_set_pad_colour(0,c));assert(step_native_light(0,&pulse));assert((uint32_t)pulse==(c?music_sequence_colours[c]:PAD_PLAYHEAD));
+  uint32_t bits=(uint32_t)(pulse>>32);float brightness;memcpy(&brightness,&bits,4);assert(brightness==.9f);
+ }
+ assert(music_set_pad_colour(0,5));atomic_store(&playback_colour_bank,1);assert(step_native_light(1,&pulse)&&(uint32_t)pulse==music_sequence_colours[7]);
+ atomic_store(&playback_colour_bank,-1);assert(step_native_light(1,&pulse)&&(uint32_t)pulse==PAD_PLAYHEAD); /* Levels/picker unchanged. */
+ atomic_store(&playback_colour_bank,0);atomic_store(&native_mute,1);assert(!step_native_light(0,&pulse));atomic_store(&native_mute,0);
+ atomic_store(&requested_erase,1);assert(!step_native_light(0,&pulse));atomic_store(&requested_erase,0);
+ atomic_store(&playback_mask,0);assert(!step_native_light(0,&pulse));assert(music_set_pad_colour(0,8));
+ puts("PASS Sample playback flashes all12 assigned pad hues at activity brightness; Stock, Levels/picker cyan preserved; bank, Mute/Erase and stopped-mask boundaries");
  atomic_store(&requested_sound,1);palette();assert((uint32_t)atomic_load(&lights[1])==0xffe000);
  assert((uint32_t)atomic_load(&lights[0])==PAD_SELECT);assert((uint32_t)atomic_load(&lights[2])==PAD_EMPTY);
  atomic_store(&requested_sound,0);

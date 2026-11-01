@@ -1,5 +1,30 @@
 # Changelog
 
+## r26d — author approved, 1 November 2026
+
+User-facing list of fixes and new features: [English](docs/RELEASE_NOTES-r26d.md) · [Русский](docs/RELEASE_NOTES-r26d.ru.md).
+
+- Fix the r26c regression that removed the filter and envelope curves together with the waveform. Suppress only native waveform rasterisation within Sample Filter/Filter Env; keep the native graph renderer and its curve stages, with a dim spectrum overlay.
+- Trim, Tune and unrelated waveform views retain their native rendering. ARM/QEMU and UBSan checks cover the selective hook, relocated native prologue, argument forwarding, scope restoration and unchanged curve stages. The author approved r26d after the device trial.
+- Keep spectrum capture active while Filter, Filter Env or EQ is visible, including after silence; stop capture when leaving those pages.
+
+## r26c — device trial, 1 November 2026
+
+Superseded by r26d: device testing found that the full graph clear also hid the filter/envelope curves.
+
+User-facing list of fixes and new features: [English](docs/RELEASE_NOTES-r26c.md) · [Русский](docs/RELEASE_NOTES-r26c.ru.md).
+
+- Replace the waveform, playhead and time ruler on Filter and Filter Env with an opaque spectrum and frequency labels. Clear the old graph on every paint, including silence. Native headers and parameter knobs remain available; EQ is unchanged.
+- Device testing found that this graph correction also hid the native curves; r26d replaces it.
+
+## r26b — device trial, 1 November 2026
+
+- Open XPJ files as full projects during startup and project search. The browser callback's Boolean is `asKit`; passing `true` retained the previous project's sequences and mixer settings. Use `false` on the native UI path and retry startup until the browser callback exists.
+- Sample → Mix: K2 selects Pad Colour without Shift; Shift+K2 keeps native Kit Volume and K1 keeps Volume. Insert Pad Colour into the encoder focus cycle. Green has no blue component.
+- Sample playback flashes keep each source pad's assigned colour and bank; Stock, Levels/picker and Steps keep their existing semantics. Button LED CC IDs no longer masquerade as pad RGB updates.
+- Show the selected pad's spectrum on Filter and Filter Env as translucent bars within the native graph, alongside the existing EQ spectrum.
+- ARM/QEMU and UBSan regressions pass. Full native emulator tests restore three distinct B events, tempo and mixer/track volumes over an empty A; sampled playback RGB stays red at changing brightness. The author confirmed pad colours on the device; these changes continue in r26d.
+
 ## Installer 1.0.1 — 1 November 2026
 
 - Stop installation before any writes on FAT32/MS-DOS, an unverified filesystem or an unsupported SD volume name; the current mod requires exFAT and an ASCII name without spaces.

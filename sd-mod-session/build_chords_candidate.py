@@ -4,10 +4,10 @@ import hashlib,json,subprocess
 R=Path(__file__).resolve().parent
 O=R/'build/chords';O.mkdir(exist_ok=True)
 frozen=json.loads((R/'build/r23a/build-info.json').read_text())
-sources=frozen['compile_verification']['linked_sources']+['src/chords.c','src/chords_ui.c','src/voice_guard.c','src/values_bipolar.c']
+sources=frozen['compile_verification']['linked_sources']+['src/chords.c','src/chords_ui.c','src/voice_guard.c','src/values_bipolar.c','src/filter_spectrum.cc']
 sources=list(dict.fromkeys(sources))
 tracked=sources+['src/chords.h','src/chords_ui.h','src/voice_guard.h','src/values_bipolar.h','src/poly_record.h','src/music_ui.h',
-                 'src/note_native.h','src/workflow_ui.h','src/resample_ui.h','build_chords_candidate.py']
+                 'src/note_native.h','src/workflow_ui.h','src/resample_ui.h','src/pad_eq.h','src/music_settings.h','src/filter_spectrum.h','build_chords_candidate.py']
 sha=lambda b:hashlib.sha256(b).hexdigest()
 hashes={s:sha((R/s).read_bytes()) for s in tracked}
 common=['-O2','-g','-fPIC','-Wall','-Wextra','-Werror','-Ibuild',

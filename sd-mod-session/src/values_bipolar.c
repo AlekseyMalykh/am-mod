@@ -68,10 +68,9 @@ int values_bipolar_install(uintptr_t base){
 
 /* Shift badges ("S") come from the native-UI pair table in values-code
  * (ui_shift_pairs: screen, visible anchor, Shift alternative, K column; 19
- * rows). Two Sample rows are added at runtime: Mix K1 Volume (the mod's Pad
- * Colour under Shift) and Amp Env K2 Decay (native Shift alternative at
- * +0x5a18). The rows go into the zero padding right after the table and the
- * two row counts become 21; nothing is written unless every check matches. */
+ * rows). Add Sample Amp Env K2 Decay (native Shift alternative at +0x5a18).
+ * Mix K2 already pairs with native Shift Kit Volume. The extra row goes
+ * into zero padding; nothing is written unless every check matches. */
 int values_shift_pairs_install(uintptr_t base){
     const uintptr_t table=base+0x6d3b800+0xb68,extra=table+19*24;
     const uintptr_t sites[2]={base+0x6d3b800+0x790,base+0x6d3b800+0x840};
@@ -81,16 +80,17 @@ int values_shift_pairs_install(uintptr_t base){
         int64_t imm=(int64_t)((((adr>>5)&0x7ffff)<<2)|((adr>>29)&3));if(imm&(1<<20))imm-=1<<21;
         if((adr&0x9f00001fu)!=0x1000000au||sites[i]+imm!=table||F((void*)sites[i],4,uint32_t)!=0x5280026bu)return 0;
     }
-    for(unsigned i=0;i<48;++i)if(F((void*)extra,i,unsigned char))return 0;
+    for(unsigned i=0;i<24;++i)if(F((void*)extra,i,unsigned char))return 0;
     void *page=(void*)(extra&~(uintptr_t)4095);
-    if((extra+48)>((uintptr_t)page+4096))return 0;
+    if((extra+24)>((uintptr_t)page+4096))return 0;
     if(mprotect(page,4096,PROT_READ|PROT_WRITE))return 0;
-    const uint32_t rows[2][4]={{0x4638,0x4638,0,0},{0x5378,0x5a18,1,0}};
-    for(unsigned i=0;i<2;++i){uintptr_t e=extra+i*24;F((void*)e,0,int64_t)=(int64_t)(base+0x6e212a0)-(int64_t)e;memcpy((void*)(e+8),rows[i],16);}
-    __builtin___clear_cache((char*)extra,(char*)extra+48);
+    const uint32_t row[4]={0x5378,0x5a18,1,0};
+    F((void*)extra,0,int64_t)=(int64_t)(base+0x6e212a0)-(int64_t)extra;
+    memcpy((void*)(extra+8),row,16);
+    __builtin___clear_cache((char*)extra,(char*)extra+24);
     if(mprotect(page,4096,PROT_READ|PROT_EXEC))_exit(121);
-    for(unsigned i=0;i<2;++i)if(!patch_word(sites[i]+4,0x528002abu /* mov w11,#21 */))_exit(121);
-    fprintf(stderr,"VALUES_SHIFT_PAIRS ADDED mix_k1_pad_colour amp_env_decay\n");
+    for(unsigned i=0;i<2;++i)if(!patch_word(sites[i]+4,0x5280028bu /* mov w11,#20 */))_exit(121);
+    fprintf(stderr,"VALUES_SHIFT_PAIRS MIX_K2_COLOUR_KIT_VOLUME amp_env_decay\n");
     return 1;
 }
 

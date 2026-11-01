@@ -14,6 +14,7 @@ static _Atomic(uintptr_t) identity;
 static _Atomic unsigned destroyed, active;
 static _Atomic unsigned requested_shift, focused_k1,repeat_held;
 static _Atomic unsigned trim_active,focused_trim;
+static unsigned colour_push_owned;
 static void give_back_knob_focus(void);
 static int original_note = -1, previous_shift = -1, selection_valid;
 static char selected_pad[16], selected_sample[513];
@@ -41,9 +42,10 @@ void note_native_button_requested(unsigned code,unsigned down)
 }
 int note_native_owns(unsigned cc)
 {
-    if (atomic_load(&repeat_held) || !atomic_load(&requested_shift)) return 0;
-    if (atomic_load(&active) && (cc==0x10 || (cc==0x64 && atomic_load(&focused_k1)))) return 1;
-    return atomic_load(&trim_active) && (cc==0x10 || (cc==0x64 && atomic_load(&focused_trim)));
+    if (atomic_load(&repeat_held)) return 0;
+    if (!atomic_load(&requested_shift))
+        return atomic_load(&trim_active) && (cc==0x11 || (cc==0x64 && atomic_load(&focused_trim)));
+    return atomic_load(&active) && (cc==0x10 || (cc==0x64 && atomic_load(&focused_k1)));
 }
 void note_native_destroyed(void *p)
 {
@@ -72,11 +74,8 @@ static int showing(void)
         && !FN(0x112f6b0,int(*)(void*))(slider);
 }
 
-/* Pad Colour lives under Shift on K1 of the Sample page whose K1 is the
- * native "Volume" slider (values_bipolar records it by name). The native app
- * may show another K1 component while Shift is held, so remember the page
- * from the last K1 painted without Shift and take over whichever K1 slider is
- * painted with Shift on that page. */
+/* Mix has an empty K2 without Shift. Pad Colour fills that slot; the native
+ * Shift+K2 Kit Volume control and K1 Volume keep their own handlers. */
 /* Mix page K1 "Volume" (SampleScreen+0x4638, the Mix anchor in ui-audit). */
 #define MIX_VOLUME_OFFSET 0x4638
 static void *volume_slider_here(void)
@@ -228,8 +227,8 @@ int note_native_tick(void)
         void *s=trim_slider();
         atomic_store(&trim_active,(unsigned)trim_showing());
         (void)s;
-        /* Pad Colour focus (encoder push under Shift on Mix) ends with Shift. */
-        if ((!atomic_load(&trim_active) || !shift) && atomic_load(&focused_trim)) { give_back_knob_focus(); trim_repaint(); }
+        /* A native knob movement can replace our focus before the next tick. */
+        if ((!atomic_load(&trim_active) || shift || FIELD((void*)(base+0x723cde0),0,uintptr_t)) && atomic_load(&focused_trim)) { give_back_knob_focus(); trim_repaint(); }
         static int trim_shift=-1;
         if (atomic_load(&trim_active) && shift!=trim_shift) trim_repaint();
         trim_shift=shift;
@@ -249,9 +248,8 @@ int note_native_tick(void)
     return 1; /* Observe the bound selected sample while other screens show. */
 }
 
-/* Encoder push under Shift on Mix: the native focus cycle only knows
- * Kit Volume there, so Pad Colour keeps its own focus. Push toggles it;
- * while it is set the encoder turns change the pad colour. */
+/* Insert Pad Colour between native Mix Volume and Pan in the encoder cycle.
+ * A physical K2 movement selects it directly. Shift hands K2 back to Kit Volume. */
 /* The native knob focus (the pointer at base+0x723cde0, which the K panel
  * compares to paint its amber frame) is cleared while Pad Colour holds the
  * focus, so Kit Volume does not stay framed, and restored afterwards. A null
@@ -272,24 +270,30 @@ static void give_back_knob_focus(void)
 int note_native_button(void *event)
 {
     unsigned code=FIELD(event,8,unsigned char),down=FIELD(event,9,unsigned char)!=0;
-    if (code!=0x6f || !root || FIELD(root,0,uintptr_t)!=base+SAMPLE_VPTR || !trim_showing() || !shifted()) return 0;
-    if (down) {
-        if (!atomic_load(&focused_trim)) take_knob_focus(); else give_back_knob_focus();
-        trim_repaint();
+    if(code==0x6f && !down && colour_push_owned){colour_push_owned=0;return 1;}
+    if (!root || FIELD(root,0,uintptr_t)!=base+SAMPLE_VPTR) return 0;
+    if(code==0x31 && down && atomic_load(&focused_trim)) { give_back_knob_focus(); trim_repaint(); }
+    if(code!=0x6f || !down || !trim_showing() || shifted()) return 0;
+    if(atomic_load(&focused_trim)){give_back_knob_focus();trim_repaint();return 0;}
+    void *volume=trim_slider();
+    if(volume && FIELD((void*)(base+0x723cde0),0,uintptr_t)==(uintptr_t)volume+0x1d8){
+        take_knob_focus();colour_push_owned=1;trim_repaint();return 1;
     }
-    return 1;
+    return 0;
 }
 int note_native_control(void *event)
 {
     unsigned cc=FIELD(event,8,unsigned char), value=FIELD(event,9,unsigned char);
-    if (root && FIELD(root,0,uintptr_t)==base+SAMPLE_VPTR && trim_showing() && shifted() && (cc==0x10 || cc==0x64)) {
+    if (root && FIELD(root,0,uintptr_t)==base+SAMPLE_VPTR && trim_showing() && !shifted()) {
+        if(cc==0x10 || cc==0x12){if(atomic_load(&focused_trim))give_back_knob_focus();return 0;}
+        if(cc!=0x11 && cc!=0x64)return 0;
         void *s=trim_slider();
         (void)s;
         if (cc==0x64 && !atomic_load(&focused_trim)) return 0;
         unsigned pad;
         if (!note_native_pad_index(&pad)) return 1;
         int current=music_pad_colour(pad),next;
-        if (cc==0x10) next=(int)((value&127)*MUSIC_SEQUENCE_COLOURS/128);
+        if (cc==0x11) { if(!atomic_load(&focused_trim))take_knob_focus(); next=(int)((value&127)*MUSIC_SEQUENCE_COLOURS/128); }
         else {
             int step=value>64 ? (int)value-128 : (int)value;
             next=current+step;
@@ -344,24 +348,9 @@ static void shift_badge(void *g,int bx,int top,int on)
     text(g,"S",bx+1,top+1,8,10,10.0f);
 }
 
-/* Trim page 2, K1 with Shift: Pad Colour of the selected pad (Stock = the
- * native colour). Without Shift the native control paints itself, plus an S
- * mark so the Shift function can be found. */
+/* Mix K2 without Shift: Pad Colour of the selected pad (Stock = native). */
 static void pad_colour_cell(void *g,int ox,int oy,int focused);
-static int trim_footer(void *p,void *r,void *g)
-{
-    note_native_observe_root(r);
-    note_native_tick();
-    if (!shifted() || (uintptr_t)p-(uintptr_t)r!=0x4638) {
-        /* Another K1 (or none) under Shift: the Pad Colour cell is drawn on
-         * the Sample screen itself; keep this K1 blank there. */
-        if (shifted()) { colour(g,0xff000000); rect(g,0,0,106,38); pad_colour_cell(g,0,0,0); return 1; }
-        return 0;
-    }
-    pad_colour_cell(g,0,0,(int)atomic_load(&focused_trim));
-    return 1;
-}
-/* Pad Colour, K1 block at (ox,oy): name, S badge, swatch, colour name, segments. */
+/* Pad Colour, K2 block at (ox,oy): S marks the native Kit Volume alternative. */
 static void pad_colour_cell(void *g,int ox,int oy,int focused)
 {
     unsigned pad; int valid=note_native_pad_index(&pad);
@@ -369,7 +358,7 @@ static void pad_colour_cell(void *g,int ox,int oy,int focused)
     uint32_t ink=!valid ? 0xff707070 : focused ? 0xffffc247 : 0xffffffff;
     colour(g,0xff000000); rect(g,ox,oy,106,38);
     colour(g,ink); text(g,"Pad Colour",ox+7,oy+2,82,12,12.0f);
-    shift_badge(g,ox+94,oy+2,1);
+    shift_badge(g,ox+94,oy+2,0);
     uint32_t swatch=0xff000000|music_sequence_colours[value];
     if (value==0) swatch=0xff9a9a9a;
     colour(g,swatch); rect(g,ox+6,oy+18,10,10);
@@ -381,12 +370,11 @@ static void pad_colour_cell(void *g,int ox,int oy,int focused)
     }
     if (focused && valid) { colour(g,ink); rect(g,ox,oy,106,2); rect(g,ox,oy,2,32); rect(g,ox+104,oy,2,32); }
 }
-/* Sample screen paint (before its children): under Shift on the Mix page the
- * native K1 may be hidden, so the Pad Colour cell is drawn on the screen. */
+/* Sample screen paint: K2 has no native child without Shift on Mix. */
 void note_native_sample_overlay(void *p,void *g)
 {
-    if (!p || p!=root || !trim_showing() || !shifted()) return;
-    pad_colour_cell(g,0,198,(int)atomic_load(&focused_trim));
+    if (!p || p!=root || !trim_showing() || shifted()) return;
+    pad_colour_cell(g,106,198,(int)atomic_load(&focused_trim));
 }
 int note_native_footer(void *p,void *g)
 {
@@ -401,7 +389,6 @@ int note_native_footer(void *p,void *g)
     }
     if (r && FIELD(r,0,uintptr_t)==base+SAMPLE_VPTR) {
         note_native_observe_root(r);
-        if (root==r && shifted() && trim_showing()) return trim_footer(p,r,g);
     }
     if (!r || FIELD(r,0,uintptr_t)!=base+SAMPLE_VPTR
         || (uintptr_t)p-(uintptr_t)r!=SEMI_OFFSET) return 0;

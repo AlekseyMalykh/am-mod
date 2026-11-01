@@ -25,7 +25,7 @@ Published at the author's request after device trials. The automated checks cove
 
 The author confirmed the current features on an MPC Sample with r25w. r25x removes temporary diagnostic messages and prepares the public documentation; feature behaviour is unchanged. ARM/QEMU checks are listed in the release notes and do not establish coverage of every setting combination on hardware.
 
-- **Pad Colour:** Sample → B1 → **Mix** → **Shift+K1**. 13 choices including **Stock**, saved per pad in the project. While holding Shift, an encoder press toggles Pad Colour focus and turning changes the colour. Kit Volume loses its frame during colour editing and native focus is restored afterwards. Mute and Erase keep their native status colours.
+- **Pad Colour:** Sample → B1 → **Mix** → **K2 without Shift**. 13 choices including **Stock**, saved per pad in the project. Encoder presses cycle Volume → Pad Colour → Pan; turning changes the focused parameter. **Shift+K2 is Kit Volume** and K1 remains Volume. Mute and Erase keep their native status colours.
 - **Erase in Open Project:** project files use the native confirmation and also remove the companion `_[ProjectData]` directory. A project folder or a loose `_[ProjectData]` folder has a separate question: **B1 Cancel, B3 Delete**. Its samples are deleted too; this cannot be undone.
 - **One exit copy:** `MPC-Sample/Projects/Mod-Exit-Last.xpj` and `Mod-Exit-Last_[ProjectData]`. The previous copy is replaced after the new save succeeds; staging is not listed as another project.
 - **Latest project at startup:** opens the newest `.xpj` on SD in Projects or one directory level below it. Normally this is Mod-Exit-Last; a project saved later in the stock app takes priority. Selection uses file modification time, not a history of manually opened projects.
@@ -268,7 +268,7 @@ When the selected event has a C or L mark, the Chop or 16 Levels button lights u
 
 The screen shows the frequency response. Low Pass, High Pass and Notch show `--` instead of Gain.
 
-While the pad sounds, its **spectrum** (4096-point FFT, 20 Hz–20 kHz) is drawn in dim amber behind the curve and falls off slowly after the sound stops (trial, r24u/r24v).
+While the selected pad sounds, its **spectrum** (4096-point FFT, 20 Hz–20 kHz) appears on all Sample B3 pages: **Filter → Filter Env → EQ**. EQ draws dim amber bars behind its response curve; Filter and Filter Env suppress only the waveform, preserving their native filter/envelope curves and parameter knobs; the spectrum uses a dim translucent background. The spectrum falls off after the sound stops.
 
 ## 16. Resampling
 

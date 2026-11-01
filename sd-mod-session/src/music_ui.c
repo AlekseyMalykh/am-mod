@@ -116,6 +116,15 @@ int music_ui_install(void (*sp)(void*,void*),void (*pp)(void*,void*),void (*tp)(
 }
 static int visible(void *p)
 { return p && FN(0x112fd50,int(*)(void*))(p) && !FN(0x112f6b0,int(*)(void*))(p); }
+int music_ui_filter_spectrum_visible(void*p){
+#ifdef MPC_PAD_EQ
+    return p&&FIELD(p,0,uintptr_t)==base+SAMPLE_VPTR&&visible(p)&&!visible(project)
+        &&!atomic_load(&repeat_held)&&!eq_page&&FIELD(p,0xe50+0x21c,int)==2
+        &&FIELD(p,0xe50+0x218,int)>=0&&FIELD(p,0xe50+0x218,int)<=1;
+#else
+    (void)p;return 0;
+#endif
+}
 int music_ui_chords_available(void){return visible(sample)&&!visible(project)&&!atomic_load(&repeat_held)&&!key_page;}
 int music_ui_shift_active(void){return atomic_load(&global_shift)!=0;}
 static void repaint(void *p)
@@ -159,6 +168,12 @@ int music_ui_tick(void)
     if (!sv) lights=0;
 #ifdef MPC_PAD_EQ
     if(!sv||FIELD(sample,0xe50+0x218,int)!=1)eq_close();
+    /* Repaint-driven watching expires during silence. Keep capture alive
+     * while a spectrum page is actually visible, and stop it on leaving. */
+    unsigned spectrum_pad;
+    if(sv&&(eq_page||music_ui_filter_spectrum_visible(sample))&&note_native_pad_index(&spectrum_pad))
+        pad_eq_spectrum_watch((int)spectrum_pad);
+    else pad_eq_spectrum_watch(-1);
 #endif
     if (!pv&&key_page<3) key_page=0;
     if(key_page==3&&exit_presented){
@@ -478,6 +493,15 @@ void music_ui_sample(void *p,void *g)
 #endif
 #ifdef MPC_PAD_EQ
     if(visible(p)&&eq_page){unsigned pad=0;if(note_native_pad_index(&pad))eq_paint(g,pad);return;}
+    /* The native sample rasteriser is suppressed separately on these pages.
+     * Never clear this graph after native paint: that would erase the filter
+     * and envelope curves as well. Dim translucent bars keep them visible. */
+    if(music_ui_filter_spectrum_visible(p)){
+        unsigned pad;if(note_native_pad_index(&pad)){
+            struct resample_painter painter={g,eq_rect,eq_text};
+            pad_eq_spectrum_paint(pad,15,94,289,94,0x605a4419u,&painter);
+        }
+    }
 #endif
     void *group=(char*)p+0x7f0;
     int index=FIELD(group,0x218,int);

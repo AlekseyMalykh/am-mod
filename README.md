@@ -4,6 +4,10 @@
 
 **English** · [Русский](README.ru.md)
 
+[r26d: fixes and new features](docs/RELEASE_NOTES-r26d.md)
+
+These notes describe the r26d source changes. Downloadable builds are listed in [Releases](../../releases).
+
 AM Mod is a community mod for the Akai MPC Sample (firmware **1.3.0.12**) that starts from the SD card.
 It adds a step sequencer on the pads, a chord mode, typing names with the pads, scale
 lighting, search across folders, batch copy, a per-pad EQ, resampling and more, on top of
@@ -18,7 +22,7 @@ the stock app. Nothing is flashed: the mod runs a patched copy of the stock app 
 > release packages**: the mod patches the copy of the app already on your MPC Sample.
 > Use at your own risk. See [NOTICE](NOTICE.md).
 
-## r26a update — 1 November 2026
+## r26d source update — 1 November 2026
 
 - **Pad Colour across sound views:** Sample and Events sound pads use their assigned colours; FX Select keeps its native status colours. Events names use each sound's colour. In Steps, ordinary events use the selected sound's Pad Colour (Stock keeps the standard green).
 - **Steps background:** empty steps are off; events of other sounds have a very dim white background, enabled by default. **Shift+K3 → Other Sounds** switches it off/on. If other sounds play on every step, this background can cover all 16 pads of a page. The selected sound's own events take priority and keep their colour.
@@ -31,7 +35,7 @@ Published at the author's request after device trials. The automated checks cove
 
 The author confirmed the current features on an MPC Sample with r25w. r25x removes temporary diagnostic messages and prepares the public documentation; feature behaviour is unchanged. ARM/QEMU checks are listed in the release notes and do not establish coverage of every setting combination on hardware.
 
-- **Pad Colour:** Sample → B1 → **Mix** → **Shift+K1**. 13 choices including **Stock**, saved per pad in the project. While holding Shift, an encoder press toggles Pad Colour focus and turning changes the colour. Kit Volume loses its frame during colour editing and native focus is restored afterwards. Mute and Erase keep their native status colours.
+- **Pad Colour:** Sample → B1 → **Mix** → **K2 without Shift**. 13 choices including **Stock**, saved per pad in the project. Encoder presses cycle Volume → Pad Colour → Pan; turning changes the focused parameter. **Shift+K2 is Kit Volume** and K1 remains Volume. Mute and Erase keep their native status colours.
 - **Erase in Open Project:** project files use the native confirmation and also remove the companion `_[ProjectData]` directory. A project folder or a loose `_[ProjectData]` folder has a separate question: **B1 Cancel, B3 Delete**. Its samples are deleted too; this cannot be undone.
 - **One exit copy:** `MPC-Sample/Projects/Mod-Exit-Last.xpj` and `Mod-Exit-Last_[ProjectData]`. The previous copy is replaced after the new save succeeds; staging is not listed as another project.
 - **Latest project at startup:** opens the newest `.xpj` on SD in Projects or one directory level below it. Normally this is Mod-Exit-Last; a project saved later in the stock app takes priority. Selection uses file modification time, not a history of manually opened projects.
@@ -41,7 +45,7 @@ The author confirmed the current features on an MPC Sample with r25w. r25x remov
 
 ## Features
 
-Status as of 1 November 2026 (build r26a). **Confirmed** means checked on a real MPC Sample;
+Status as of 1 November 2026 (source build r26d). **Confirmed** means checked on a real MPC Sample;
 **trial** means the specified automated checks passed; hardware coverage is pending as noted.
 
 | Feature | Where | Status |
