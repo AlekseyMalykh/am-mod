@@ -2,6 +2,9 @@
 #include "phone_input.h"
 #include "phone_events.h"
 #include "phone_hooks.h"
+#ifdef MPC_COMPRESSOR
+#include "compressor.h"
+#endif
 #ifdef MPC_FAST_RESAMPLE
 #include "resample_fast_native.h"
 #endif
@@ -364,6 +367,9 @@ static void tick(void *unused)
     int music_running=music_ui_tick();
     int step_running=step_native_tick();
     int workflow_running=workflow_tick();
+#ifdef MPC_COMPRESSOR
+    int compressor_running=compressor_ui_tick();
+#endif
 #ifdef MPC_RESAMPLE_TRIAL
     /* music_ui_active is true on the ordinary Sample screen too, so it is
      * not a modal exclusion. Resample owns its controls while open. */
@@ -394,6 +400,9 @@ static void tick(void *unused)
     if (editor && !visible()) stop();
     if (!editor) {
         if (!note_running && !music_running && !step_running && !workflow_running && !resample_active && !step_native_active() && !phone_events_pending()
+#ifdef MPC_COMPRESSOR
+            && !compressor_running
+#endif
 #ifdef MPC_POWER_BUTTON
             && !power_control_busy()
 #endif
@@ -488,6 +497,12 @@ static void project_dtor(void *p)
     music_ui_destroyed(p);
     ORIG(H_PROJECT_DTOR,void(*)(void*))(p);
 }
+#ifdef MPC_COMPRESSOR
+void compressor_phone_wake(void){
+    if(!ui_known){ui_thread=pthread_self();ui_known=1;}
+    if(on_ui())start_timer();
+}
+#endif
 static void music_sample_paint(void *p,void *g)
 {
     if (!ui_known) { ui_thread=pthread_self(); ui_known=1; }
@@ -819,6 +834,9 @@ static void controller_ui(void *event,uint64_t route)
         }
         if (cc == 0x64) before_native(editor);
     }
+#ifdef MPC_COMPRESSOR
+    if(on_ui()&&compressor_ui_owns(PHONE_CONTROLLER,cc)&&compressor_ui_control(event,compressor_ui_ticket()))return;
+#endif
 #ifdef MPC_CHORDS
     if(on_ui()&&chords_ui_control(event))return;
 #endif
@@ -839,6 +857,9 @@ static void buttons_ui(void *event,uint64_t route)
         if(down){phone_move(&state,code==0x36?1:-1);++internal;set_cursor();--internal;repaint();}
         return;
     }
+#ifdef MPC_COMPRESSOR
+    if(!naming&&on_ui()&&compressor_ui_owns(PHONE_BUTTON,code)&&compressor_ui_button(event,compressor_ui_ticket()))return;
+#endif
 #ifdef MPC_CHORDS
     if(!naming&&on_ui()&&chords_ui_button(event))return;
 #endif
@@ -904,6 +925,9 @@ static int queue_native(void *native,unsigned kind)
        ((kind==PHONE_CONTROLLER&&chords_ui_owns(FIELD(native,8,unsigned char)))||
         (kind==PHONE_BUTTON&&chords_ui_button_owns(FIELD(native,8,unsigned char)))))e.pad=32u;
 #endif
+#ifdef MPC_COMPRESSOR
+    if(!naming&&compressor_ui_owns(kind,FIELD(native,8,unsigned char))){e.pad=64u;e.workflow_ticket=compressor_ui_ticket();}
+#endif
     if (phone_events_push(&e)) return 1;
     queue_failed();
     if (e.pad) return 1;
@@ -923,7 +947,11 @@ static void controller(void *event)
 #ifdef MPC_POWER_BUTTON
     if(power_control_busy())return;
 #endif
-    if (atomic_load(&naming_active) || note_native_active() || music_ui_active() || step_native_active() || workflow_active() || resample_running() || phone_events_pending()) {
+    if (atomic_load(&naming_active) || note_native_active() || music_ui_active() || step_native_active() || workflow_active() || resample_running() || phone_events_pending()
+#ifdef MPC_COMPRESSOR
+        ||compressor_ui_owns(PHONE_CONTROLLER,FIELD(event,8,unsigned char))
+#endif
+        ) {
         unsigned cc=FIELD(event,8,unsigned char), value=FIELD(event,9,unsigned char);
         /* Route keys immediately after K1 even if its UI event is still queued. */
         if (cc==0x10 && atomic_load(&naming_active))
@@ -969,6 +997,9 @@ static void buttons(void *event)
 #endif
 #ifdef MPC_CHORDS
         ||chord_owned
+#endif
+#ifdef MPC_COMPRESSOR
+        ||compressor_ui_owns(PHONE_BUTTON,native_code)
 #endif
         )
         && queue_native(event,PHONE_BUTTON)) return;
@@ -1064,6 +1095,10 @@ static void process_events(void)
             if (current && !(seen&1)) { seen|=1; note("FIFO_CONTROLLER_ON_UI"); }
             if (e.pad) {
                 /* Never replay a claimed metadata edit as native audio pitch. */
+#ifdef MPC_COMPRESSOR
+                if(e.pad&64u)compressor_ui_control(e.native,e.workflow_ticket);
+                else
+#endif
 #ifdef MPC_CHORDS
                 if(e.pad&32u)chords_ui_control(e.native);
                 else
@@ -1076,10 +1111,18 @@ static void process_events(void)
                 else if (e.pad&4u) step_native_control(e.native,e.step_ticket);
                 else if (e.pad&2u) music_ui_control(e.native);
                 else note_native_control(e.native);
-            } else if (current || note_native_active() || music_ui_active() || step_native_active()) controller_ui(e.native,e.step_ticket);
+            } else if (current || note_native_active() || music_ui_active() || step_native_active()
+#ifdef MPC_COMPRESSOR
+                       ||compressor_ui_owns(PHONE_CONTROLLER,FIELD(e.native,8,unsigned char))
+#endif
+                       ) controller_ui(e.native,e.step_ticket);
             else ORIG(H_CONTROLLER,void(*)(void*))(e.native);
         } else if (e.kind == PHONE_BUTTON) {
             if (current && !(seen&2)) { seen|=2; note("FIFO_BUTTON_ON_UI"); }
+#ifdef MPC_COMPRESSOR
+            if(e.pad&64u)compressor_ui_button(e.native,e.workflow_ticket);
+            else
+#endif
 #ifdef MPC_CHORDS
             if(e.pad&32u){
                 if(!chords_ui_button(e.native)){
@@ -1100,7 +1143,11 @@ static void process_events(void)
                     forward_buttons(e.native);
             }
             else if (e.pad&2u) music_ui_button(e.native);
-            else if (current || note_native_active() || music_ui_active() || step_native_active()) buttons_ui(e.native,e.step_ticket);
+            else if (current || note_native_active() || music_ui_active() || step_native_active()
+#ifdef MPC_COMPRESSOR
+                    ||compressor_ui_owns(PHONE_BUTTON,FIELD(e.native,8,unsigned char))
+#endif
+                    ) buttons_ui(e.native,e.step_ticket);
             else forward_buttons(e.native);
         }
 #ifdef MPC_RESAMPLE_TRIAL
@@ -1416,6 +1463,9 @@ static void load(void)
     uintptr_t found=0;
     if (!dl_iterate_phdr(find_main,&found)) return; /* setarch also sees LD_PRELOAD. */
     base=found;
+#ifdef MPC_COMPRESSOR
+    compressor_ui_init(base);
+#endif
     note_native_init(base);
     music_reset(); music_archive_init(base); music_ui_init(base);
     music_lighting_init(base);
@@ -1470,6 +1520,9 @@ static void load(void)
     if (!workflow_install(workflow_files,workflow_copy)) _exit(121);
     if (!install_name_cursor()) _exit(121);
     if (!project_exit_install(base)) _exit(121);
+#ifdef MPC_COMPRESSOR
+    if (!compressor_ui_install()) _exit(121);
+#endif
 #ifdef MPC_POWER_BUTTON
     if (!power_control_install(base)) _exit(121);
 #endif
