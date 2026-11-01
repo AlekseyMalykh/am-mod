@@ -1,6 +1,15 @@
 # Changelog
 
+## r26g candidate — preserve Scaled/Pickup takeover history (issue #2)
+
+- Replace r26f's last-value-only knob merging: preserve each knob's initial physical position and all direction changes, merging only later points within the same monotonic movement. Scaled and Pickup need that history to reach their limits and detect pickup crossings.
+- Actual firmware takeover code reproduces the r26f failure: a direct sweep reaches 0, while r26f's queue leaves the parameter at 45%. The corrected queue matches direct native processing for Scaled, Pickup and Jump, both limits, direction reversals, three knobs and five initial parameter values, with and without UBSan.
+- Preserve action/context boundaries and final knob focus. Retain the earlier protection against overflowing the queue on straight sweeps. No takeover setting or native takeover algorithm is changed.
+- Full preload constructor validation and input regressions pass. Hardware verification remains pending. Includes experimental FAT32 support. [English](docs/RELEASE_NOTES-r26g.md) · [Русский](docs/RELEASE_NOTES-r26g.ru.md).
+
 ## r26f candidate — knob endpoints (issue #2)
+
+Superseded by r26g: last-value-only merging omitted history needed by Scaled/Pickup. The r26f tests recorded raw parameter inputs and did not execute native takeover processing.
 
 - Fix a reproduced input-queue overflow where a fast K1/K2/K3 sweep delivered its newest value immediately, then older queued values overwrote the endpoint. Retain the latest absolute positions and their final focus order within the trailing knob run.
 - Preserve button/pad actions, relative encoder increments and ownership/source/generation boundaries. The physical Main Volume path is unchanged.

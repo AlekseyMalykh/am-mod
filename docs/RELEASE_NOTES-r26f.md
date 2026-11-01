@@ -1,5 +1,7 @@
 # r26f candidate — fast knob movements
 
+**Superseded by [r26g](RELEASE_NOTES-r26g.md).** Last-value-only merging loses the initial position and turning points required by native Scaled/Pickup takeover. Do not use r26f as the final fix for issue #2.
+
 [Русский](RELEASE_NOTES-r26f.ru.md) · Addresses [issue #2](https://github.com/AlekseyMalykh/am-mod/issues/2).
 
 Fast K1/K2/K3 sweeps could leave a parameter at an intermediate value after the physical knob reached its end stop. The reproduced queue failure let the newest value bypass a full queue, after which older movements overwrote it. The update retains the latest absolute knob positions in arrival order, keeping the final focus on the last knob moved.

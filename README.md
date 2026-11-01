@@ -8,7 +8,7 @@
 
 [r26e candidate: experimental FAT32 support](docs/RELEASE_NOTES-r26e.md). The currently published r26d release still requires exFAT.
 
-[r26f candidate: fast knob movement fix](docs/RELEASE_NOTES-r26f.md), including experimental FAT32 support. Device confirmation of the Warp fix is pending.
+[r26g candidate: Scaled/Pickup takeover correction](docs/RELEASE_NOTES-r26g.md), including experimental FAT32 support. Replaces the r26f test build; device confirmation is pending.
 
 
 AM Mod is a community mod for the Akai MPC Sample (firmware **1.3.0.12**) that starts from the SD card.
