@@ -4,6 +4,8 @@
 
 **English** · [Русский](README.ru.md)
 
+[Feedback and help](docs/FEEDBACK.md) · [Known issues](docs/KNOWN_ISSUES.md) · [Discussions](https://github.com/AlekseyMalykh/am-mod/discussions)
+
 [r26i: native K1–K3 input and takeover](docs/RELEASE_NOTES-r26i.md)
 
 The author confirmed the K parameter fix on a physical MPC Sample after testing r26i. OptoCat is preserved. Experimental FAT32 support is included in this source version; the currently published r26d download still requires exFAT.

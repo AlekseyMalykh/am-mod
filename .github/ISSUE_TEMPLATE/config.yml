@@ -1,0 +1,14 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Known issues / Известные проблемы
+    url: https://github.com/AlekseyMalykh/am-mod/blob/main/docs/KNOWN_ISSUES.md
+    about: Current reports, fixed versions and limitations / Статусы, исправленные версии и ограничения.
+  - name: Questions and help / Вопросы и помощь
+    url: https://github.com/AlekseyMalykh/am-mod/discussions/categories/q-a
+    about: Installation, controls and how-to questions / Установка и использование мода.
+  - name: Ideas / Идеи
+    url: https://github.com/AlekseyMalykh/am-mod/discussions/categories/ideas
+    about: Discuss improvements before opening a feature request / Обсудить улучшения.
+  - name: Testing feedback / Отзывы о тестировании
+    url: https://github.com/AlekseyMalykh/am-mod/discussions/categories/general
+    about: Share device-test results and general feedback / Результаты проверки на MPC и общие отзывы.

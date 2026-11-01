@@ -1,0 +1,72 @@
+name: Bug report / Сообщить о баге
+description: Report a reproducible problem / Опишите ошибку и шаги её повторения.
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        English and Russian are welcome. One problem per report, please.
+        Можно писать по-русски. Одна проблема — одно обращение.
+        Check [known issues](https://github.com/AlekseyMalykh/am-mod/blob/main/docs/KNOWN_ISSUES.md) first. Add your details to an existing report when possible.
+  - type: input
+    id: mod-version
+    attributes:
+      label: AM Mod version / Версия мода
+      description: Exact revision or ZIP name; if unknown, say so. / Точная ревизия или имя ZIP; если неизвестно, так и напишите.
+      placeholder: r26d, r26i, am-mod-....zip
+    validations:
+      required: true
+  - type: input
+    id: firmware
+    attributes:
+      label: MPC firmware / Штатная прошивка
+      placeholder: 1.3.0.12
+    validations:
+      required: true
+  - type: dropdown
+    id: filesystem
+    attributes:
+      label: SD filesystem / Файловая система SD
+      options:
+        - exFAT
+        - FAT32 / MS-DOS (FAT32)
+        - Other / Другая
+        - Unknown / Не знаю
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce / Как повторить
+      description: Include the screen, buttons, knob takeover mode, project storage and startup/Mod Off sequence when relevant.
+      placeholder: "1. ...\n2. ...\n3. ..."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour / Ожидаемое поведение
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour / Что произошло
+      description: Exact error text and frequency; screenshots or a short video can be attached here. / Текст ошибки, частота; сюда можно приложить скриншот или видео.
+    validations:
+      required: true
+  - type: dropdown
+    id: stock
+    attributes:
+      label: Does it also happen in stock? / Повторяется в штатном приложении?
+      options:
+        - Not tested / Не проверял
+        - Mod only / Только в моде
+        - Also in stock / Также в штатном
+        - Not applicable / Неприменимо
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Extra details / Дополнительные сведения
+      description: Relevant diagnostic excerpts, affected parameter/pad/bank, workaround and whether it started after an update. Do not attach firmware or private project/sample content.

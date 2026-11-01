@@ -2,6 +2,10 @@
 
 Issues and pull requests are welcome, in English or Russian.
 
+Use the [bug/feature forms and Discussions](docs/FEEDBACK.md). Check the
+[known-issues list](docs/KNOWN_ISSUES.md) first; maintainers should update its
+status when a report is reproduced, fixed or confirmed on hardware.
+
 - **Never commit firmware**, factory content, files extracted from either, release zips,
   SD-card contents or device identifiers (serial numbers, volume IDs, keys). The
   whitelist `.gitignore` exists for that reason: add new top-level folders to it on
