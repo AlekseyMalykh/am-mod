@@ -4,6 +4,8 @@
 
 [English](README.md) · **Русский**
 
+[Отзывы и помощь](docs/FEEDBACK.ru.md) · [Известные проблемы](docs/KNOWN_ISSUES.ru.md) · [Обсуждения](https://github.com/AlekseyMalykh/am-mod/discussions)
+
 [r26i: исправление параметров K1–K3 и takeover](docs/RELEASE_NOTES-r26i.ru.md)
 
 [Кандидат r26j: параметры OptoCat под Shift, движение лапки и предел Gain +6 dB](docs/RELEASE_NOTES-r26j.ru.md). Локальная сборка для проверки на устройстве, пока не опубликованная релизом.

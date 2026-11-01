@@ -4,6 +4,8 @@
 
 **English** · [Русский](README.ru.md)
 
+[Feedback and help](docs/FEEDBACK.md) · [Known issues](docs/KNOWN_ISSUES.md) · [Discussions](https://github.com/AlekseyMalykh/am-mod/discussions)
+
 [r26i: native K1–K3 input and takeover](docs/RELEASE_NOTES-r26i.md)
 
 [r26j candidate: OptoCat Shift controls, paw timing and +6 dB gain limit](docs/RELEASE_NOTES-r26j.md). Local device-test build; not yet published as a release.
