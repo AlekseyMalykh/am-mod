@@ -12,10 +12,10 @@ static char painted_name[600];static unsigned paints;
 static void original_paint(void*p,void*g){assert(p==editor&&g==(void*)1);++paints;}
 static void paint_colour(void*g,uint32_t colour){assert(g==(void*)1);(void)colour;}
 static void paint_rect(void*g,int x,int y,int w,int h){assert(g==(void*)1&&x>=0&&y>=0&&w>0&&h>0&&x+w<=312&&y+h<=32);}
-static void paint_font(uint64_t*p,int style,float size){assert(!style&&size==20.f);*p=1;}
+static void paint_font(uint64_t*p,int style,float size){assert(!style&&size>27.f&&size<28.f);*p=1;}
 static void paint_use_font(void*g,const uint64_t*p){assert(g==(void*)1&&*p==1);}
 static void paint_end_font(uint64_t*p){assert(*p==1);}
-static void paint_text(void*g,const uint64_t*p,int x,int y,int w,int h,int a,int b,float scale){assert(g==(void*)1&&x==6&&y==2&&w==300&&h==28&&a==0x21&&b==1&&scale==.75f);snprintf(painted_name,sizeof(painted_name),"%s",(const char*)(uintptr_t)*p);}
+static void paint_text(void*g,const uint64_t*p,int x,int y,int w,int h,int a,int b,float scale){assert(g==(void*)1&&x==7&&y==2&&w==298&&h==28&&a==0x21&&b==1&&scale==1.f);snprintf(painted_name,sizeof(painted_name),"%s",(const char*)(uintptr_t)*p);}
 int step_native_active(void){return 0;}
 int workflow_button(void*e,uint64_t t){(void)e;(void)t;return 0;}
 int step_native_button(void*e,uint64_t t){(void)e;(void)t;++other_routes;return 0;}
@@ -35,6 +35,7 @@ int workflow_owns(unsigned kind,unsigned code){(void)kind;(void)code;return (int
 int step_native_control(void*p,uint64_t t){(void)p;(void)t;return 0;}
 int music_ui_control(void*p){(void)p;return 0;}
 int note_native_control(void*p){(void)p;return 0;}
+int note_native_button(void*p){(void)p;return 0;}
 int step_native_tick(void){++other_routes;return 0;}
 void step_native_queue_fault(void){}
 void workflow_fault(void){}

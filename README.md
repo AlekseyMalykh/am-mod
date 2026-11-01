@@ -8,6 +8,8 @@
 
 [r26e candidate: experimental FAT32 support](docs/RELEASE_NOTES-r26e.md). The currently published r26d release still requires exFAT.
 
+[r26f candidate: fast knob movement fix](docs/RELEASE_NOTES-r26f.md), including experimental FAT32 support. Device confirmation of the Warp fix is pending.
+
 
 AM Mod is a community mod for the Akai MPC Sample (firmware **1.3.0.12**) that starts from the SD card.
 It adds a step sequencer on the pads, a chord mode, typing names with the pads, scale

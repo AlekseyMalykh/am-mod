@@ -1,5 +1,12 @@
 # Changelog
 
+## r26f candidate — knob endpoints (issue #2)
+
+- Fix a reproduced input-queue overflow where a fast K1/K2/K3 sweep delivered its newest value immediately, then older queued values overwrote the endpoint. Retain the latest absolute positions and their final focus order within the trailing knob run.
+- Preserve button/pad actions, relative encoder increments and ownership/source/generation boundaries. The physical Main Volume path is unchanged.
+- ARM and UBSan checks reproduce the old failure (0 became 28), verify both endpoints on all three knobs, exercise 50,000 concurrent updates and check naming/resampling input routes. Full preload constructor validation passes. Warp verification on a physical MPC remains pending; the issue is not closed by fixture tests.
+- Includes r26e's experimental FAT32 support. [English](docs/RELEASE_NOTES-r26f.md) · [Русский](docs/RELEASE_NOTES-r26f.ru.md).
+
 ## r26e candidate — experimental FAT32 support
 
 - Add experimental FAT32 support alongside exFAT in native autorun, the session controller, sandbox checks, diagnostics and the ARM save/journal flush helper. Pin the detected filesystem and retain canonical path, device/inode and write-scope checks. Physical MPC FAT32 testing is pending.
