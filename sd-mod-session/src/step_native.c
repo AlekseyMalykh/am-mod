@@ -59,6 +59,7 @@ extern void step_add_result(void *,void *,void *,void *,void *,uint64_t *,uint64
 extern int step_try_call(void (*)(void*),void*);
 extern void step_layer_sample(void *,unsigned,uintptr_t[2],uintptr_t);
 extern void step_pad_string(int,uint64_t *,uintptr_t);
+extern void step_table_cell_string(void *,int,const void *,uint64_t *,uintptr_t);
 /* Exact empty native STL containers initialized at 1581a58..1581ac8.
  * Node allocation/copy/destruction is performed by the pinned firmware. */
 struct native_tree {uint64_t padding,colour;void *parent,*left,*right;uint64_t size;};
@@ -71,7 +72,7 @@ static uintptr_t base;
 static void *root,*controller,*sequence,*event_list,*last_sequence,*last_program;
 static pthread_t ui_thread;
 static int ui_known,steps,want_steps,menu,menu_index,focus,sound,grid=2,velocity=100,follow=1;
-static int show_other_sounds;
+static int show_other_sounds=1;
 static int cursor_visible=1;
 static unsigned other_sound_steps;
 static int page,cursor,showing,shift,was_playing;
@@ -156,7 +157,7 @@ static void stop_picker_audition(void){
     picker_audition_active=0;
 }
 static _Atomic unsigned events_erase_forwarded;
-static int events_erase_pending,events_erase_used,picker_kind,picker_mode,picker_base,picker_value;
+static int picker_kind,picker_mode,picker_base,picker_value;
 static int picker_chop,picker_slice_count=128,picker_focus=1,picker_has_choice,picker_insert;
 #define PICKER_SOURCES_MAX 64
 static struct step_event picker_sources[PICKER_SOURCES_MAX];
@@ -172,8 +173,7 @@ static uint64_t playback_pitch_until[241];
 static int64_t playback_previous=-1;
 static void *playback_list,*playback_program;
 static int playback_sound=-1,playback_mode=-1,playback_first;
-static unsigned events_erase_epoch;
-static struct step_event events_erase_row,detail_old,detail_edit;
+static struct step_event detail_old,detail_edit;
 static struct step_event picker_notes[16];
 static unsigned picker_note_count;
 static int picker_toggle_notes;
@@ -253,6 +253,8 @@ int step_native_sample_chop(void){return atomic_load(&native_levels_enabled)&&at
 void step_native_native_mute(unsigned enabled){atomic_store(&native_mute,!!enabled);}
 int step_native_active(void) { return atomic_load(&active) || atomic_load(&held_buttons) || atomic_load(&events_erase_forwarded); }
 int step_native_custom(void) { return !!(atomic_load(&ticket)&T_STEPS); }
+int step_native_sound_layout(void)
+{uint64_t t=atomic_load(&ticket);return !!(t&T_VISIBLE)&&!(t&(T_STEPS|T_MENU));}
 int step_native_record_light(unsigned *value)
 {
     if (!(atomic_load(&ticket)&T_STEPS)) return 0;
@@ -1013,7 +1015,7 @@ int step_native_shortcut(uint64_t t)
     if (!on_ui()) return 0;
     step_native_tick();
     if (!current(t)) return 0;
-    if (!(t&T_STEPS) && (t&T_ERASE) && !menu) {events_erase_used=1;return 1;}
+    if (!(t&T_STEPS) && (t&T_ERASE) && !menu) return 1;
     if (!(t&T_STEPS) || !(t&T_SHIFT) || !steps) return 0;
     menu=0;atomic_store(&requested_sound,0);invalidate();showing=0;publish();
     report("SHIFT_PAD_NATIVE_SHORTCUT suspended_Steps");return 1;
@@ -1022,8 +1024,10 @@ static uint64_t step_palette_value(unsigned events,unsigned muted,int mute,int e
 {
     int has=events!=0,all_muted=has&&muted==events,mixed=muted&&!all_muted;
     (void)mute; /* the lit Mute button shows the mode; step colours keep their meaning */
-    uint32_t rgb=!has?PAD_EMPTY:all_muted?PAD_MUTED:mixed&&phase%640>=320?PAD_MUTED:PAD_CONTENT;
-    float brightness=!has?PAD_BRIGHT_EMPTY:all_muted?PAD_BRIGHT_MUTED:PAD_BRIGHT_CONTENT;
+    int chosen=music_pad_colour((unsigned)sound);
+    uint32_t content=chosen?music_sequence_colours[chosen]:PAD_CONTENT;
+    uint32_t rgb=!has?0:all_muted?PAD_MUTED:mixed&&phase%640>=320?PAD_MUTED:content;
+    float brightness=!has?0:all_muted?PAD_BRIGHT_MUTED:PAD_BRIGHT_CONTENT;
     if(erase&&has){rgb=PAD_DANGER;brightness=pad_blink_on(phase)?PAD_BRIGHT_DANGER:.20f;}
     /* Alternate white with the semantic colour to keep both selection
      * and mute/delete status visible. Playback has a separate cyan cursor. */
@@ -1063,7 +1067,8 @@ static void palette(void)
             }
         }
         else if (atomic_load(&requested_sound)) {
-            rgb=(sound_present&(1u<<i))?PAD_CONTENT:PAD_EMPTY;brightness=(sound_present&(1u<<i))?PAD_BRIGHT_CONTENT:PAD_BRIGHT_EMPTY;
+            int chosen=music_pad_colour((unsigned)browse_bank*16+i);
+            rgb=(sound_present&(1u<<i))?(chosen?music_sequence_colours[chosen]:PAD_CONTENT):PAD_EMPTY;brightness=(sound_present&(1u<<i))?PAD_BRIGHT_CONTENT:PAD_BRIGHT_EMPTY;
             if (sound/16==browse_bank && (unsigned)(sound%16)==i) {rgb=PAD_SELECT;brightness=PAD_BRIGHT_SELECT;}
         }
         else if (n<count()) {
@@ -1101,7 +1106,7 @@ int step_native_tick(void)
     int previous_showing=showing;
     showing=root && FIELD(root,0,uintptr_t)==base+SCREEN_VPTR
         && FN(0x112fd50,int(*)(void*))(root) && !FN(0x112f6b0,int(*)(void*))(root);
-    if (!showing) { stop_picker_audition();preview_gate_set(NULL,NULL);if(previous_showing) invalidate();menu=0;events_erase_pending=0;
+    if (!showing) { stop_picker_audition();preview_gate_set(NULL,NULL);if(previous_showing) invalidate();menu=0;
         mute_latched=mute_held=mute_used=0;atomic_store(&mute_active,0);
         atomic_store(&event_edit_mask,0);publish();return root!=NULL; }
     if (message[0] && milliseconds()>=message_until) {message[0]=0;repaint();}
@@ -1200,7 +1205,6 @@ int step_native_control(void *event,uint64_t t)
     unsigned cc=FIELD(event,8,unsigned char),v=FIELD(event,9,unsigned char);
     int event_shift=!!(t&T_SHIFT);
     int rel=cc==0x64;
-    events_erase_used=1;
     if(menu==4){
         if(rel || cc==0x11)picker_source_index=(unsigned)choose(v,(int)picker_source_index,0,(int)picker_source_count-1,rel);
         repaint();return 1;
@@ -1328,13 +1332,7 @@ int step_native_button_at(void *event,uint64_t t,uint64_t when_ms)
      * confirmation or another screen takes ownership in between. */
     if (code==BUTTON_ERASE && !down && atomic_exchange(&events_erase_forwarded,0)) {
         step_native_tick();
-        struct step_event selected;
-        if (events_erase_pending && !events_erase_used && current(t) && !steps && !menu
-            && epoch==events_erase_epoch && selected_event(&selected)
-            && (FN(0x19722e0,int(*)(const void*,const void*))(&selected,&events_erase_row)&255)) {
-            remove_event(&events_erase_row);say("Selected event removed");
-        }
-        events_erase_pending=0;return 2; /* forward original release */
+        return 2; /* Native modifier release; never erase an Events row. */
     }
     if (atomic_load(&owned_buttons[code])) {
         if (!down) {atomic_store(&owned_buttons[code],0);atomic_fetch_sub(&held_buttons,1);}
@@ -1344,11 +1342,9 @@ int step_native_button_at(void *event,uint64_t t,uint64_t when_ms)
     if (!down) return 0;
     int event_shift=!!(t&T_SHIFT);
     if (code==BUTTON_ERASE && !steps && !menu) {
-        events_erase_pending=!event_shift && selected_event(&events_erase_row);
-        events_erase_used=0;events_erase_epoch=epoch;atomic_store(&events_erase_forwarded,1);
+        atomic_store(&events_erase_forwarded,1);
         return 2; /* retain stock Erase modifier for Erase+pad */
     }
-    if (atomic_load(&events_erase_forwarded)) events_erase_used=1;
     int owned=0;
     if (code==0x0d) {
         owned=1;
@@ -1394,6 +1390,7 @@ int step_native_button_at(void *event,uint64_t t,uint64_t when_ms)
         owned=1;if (menu==1) operate();else if (menu==2) menu=0;else if(menu==3) picker_apply();
         else if(menu==4 && picker_source_count)picker_begin(picker_source_kind,&picker_sources[picker_source_index]);
         else if (steps || event_shift) {menu=1;menu_index=0;follow=0;}
+        else {struct step_event selected;if(selected_event(&selected)){remove_event(&selected);say("Selected event removed");}}
     } else if (menu && (code==BUTTON_MINUS || code==BUTTON_PLUS)) {
         if(menu==4)picker_source_index=(unsigned)clamp((int)picker_source_index+(code==BUTTON_MINUS?-1:1),0,(int)picker_source_count-1);
         else if (menu==3 && (picker_mode==8 || picker_mode==1)) picker_base=clamp(picker_base+(code==BUTTON_MINUS ? -1 : 1)*(picker_mode==8 ? 16 : 12),
@@ -1505,6 +1502,28 @@ static void cell(void *g,int x,const char *name,const char *value,int selected,i
         colour(g,selected ? AMBER : WHITE);rect(g,x+4,234,clamp(index,0,127)*98/127,3);
     } else for(int i=0;i<sections;++i){colour(g,i==index ? (selected ? AMBER : WHITE) : 0xff373737);rect(g,x+4+i*98/sections,234,98/sections-2,2);}
 }
+static void steps_grid_paint(void*g)
+{
+    char s[24];
+    /* LEDs use physical pad indices; cursor, slots and step numbers use
+     * chronological indices. Convert at this boundary just as palette()
+     * does, so the outline and fill identify the same physical pad. */
+    for(int row=0;row<4;++row)for(int col=0;col<4;++col){
+        int i=(3-row)*4+col,x=4+col*79,y=82+row*28,w=75,h=25;
+        int slot=pad_step((unsigned)i);
+        uint64_t light=atomic_load(&lights[i]);uint32_t rgb=(uint32_t)light;float bright;uint32_t bits=(uint32_t)(light>>32);memcpy(&bright,&bits,4);
+        if(!(bright>=0.f&&bright<=1.f))bright=0.f;
+        int lit=bright>=.2f&&rgb;
+        uint32_t fill=0xff1c1c1c;
+        if(lit){float k=bright<.55f?.55f:bright;
+            fill=0xff000000u|((uint32_t)(((rgb>>16)&255)*k)<<16)|((uint32_t)(((rgb>>8)&255)*k)<<8)|(uint32_t)((rgb&255)*k);}
+        colour(g,fill);rect(g,x,y,w,h);
+        int step=page*16+slot+1;snprintf(s,sizeof(s),"%d",step);
+        unsigned luma=((fill>>16)&255)*3+((fill>>8)&255)*6+(fill&255);
+        colour(g,lit&&luma>1100?0xff000000:scan_ok&&slots[slot].count?WHITE:GREY);text(g,s,x,y+1,w,h-2,14);
+        if(cursor_visible&&cursor/16==page&&cursor%16==slot){colour(g,WHITE);outline(g,x-1,y-1,w+2,h+2);outline(g,x-2,y-2,w+4,h+4);}
+    }
+}
 void step_native_paint(void *p,void *g)
 {
     if (!ui_known) {ui_thread=pthread_self();ui_known=1;}
@@ -1517,7 +1536,7 @@ void step_native_paint(void *p,void *g)
     if (!step_native_tick() || !showing) return;
     if (!steps) {
         colour(g,0xff000000);rect(g,107,5,106,28);colour(g,WHITE);text(g,"Steps",109,6,102,22,14);
-        colour(g,0xff000000);rect(g,213,5,107,28);colour(g,WHITE);text(g,shift ? "Copy/Paste" : "",215,6,103,22,14);
+        colour(g,0xff000000);rect(g,213,5,107,28);colour(g,shift?WHITE:RED);text(g,shift ? "Copy/Paste" : "Erase",215,6,103,22,14);
         if (message[0] && milliseconds()<message_until) {
             colour(g,0xff000000);rect(g,4,168,312,26);colour(g,AMBER);outline(g,4,168,312,26);text(g,message,8,171,304,20,12);
         }
@@ -1531,7 +1550,8 @@ void step_native_paint(void *p,void *g)
             colour(g,i==0&&atomic_load(&requested_sound)?AMBER:i==1&&shift&&follow?AMBER:WHITE);text(g,heads[i],x+1,7,105,24,14);}
         char s[64],name[8];pad_name(sound,name);
         /* Info: sound and sample, mode on the right; then step, positions. */
-        colour(g,AMBER);left_text(g,name,6,35,40,22,17);
+        int pad_colour=music_pad_colour((unsigned)sound);
+        colour(g,pad_colour?0xff000000u|music_sequence_colours[pad_colour]:AMBER);left_text(g,name,6,35,40,22,17);
         ui_caption(s,sizeof(s),sample_name,18);colour(g,!strcmp(sample_name,"Empty") ? GREY : WHITE);left_text(g,s,46,35,170,22,15);
         colour(g,atomic_load(&requested_erase)?0xffff8000:atomic_load(&mute_active)?RED:atomic_load(&write_armed) ? RED : GREY);
         right_text(g,atomic_load(&requested_erase)?"ERASE":atomic_load(&mute_active)?"MUTE":atomic_load(&write_armed)?"WRITE ON":"WRITE OFF",216,35,98,22,13);
@@ -1546,22 +1566,7 @@ void step_native_paint(void *p,void *g)
             if(was_playing)snprintf(s,sizeof(s),"%d.%d.%03d",play.bar+1,play.beat+1,play.tick);else snprintf(s,sizeof(s),"Page %d/%d",page+1,pages());
             right_text(g,s,216,58,98,20,14);
         }
-        /* Steps of this page laid out like the pads, coloured as the pads are
-         * lit (content green, cursor white, playhead cyan, muted violet). */
-        for(int row=0;row<4;++row)for(int col=0;col<4;++col){
-            int i=(3-row)*4+col,x=4+col*79,y=82+row*28,w=75,h=25;
-            uint64_t light=atomic_load(&lights[i]);uint32_t rgb=(uint32_t)light;float bright;uint32_t bits=(uint32_t)(light>>32);memcpy(&bright,&bits,4);
-            if(!(bright>=0.f&&bright<=1.f))bright=0.f;
-            int lit=bright>=.2f&&rgb;
-            uint32_t fill=0xff1c1c1c;
-            if(lit){float k=bright<.55f?.55f:bright;
-                fill=0xff000000u|((uint32_t)(((rgb>>16)&255)*k)<<16)|((uint32_t)(((rgb>>8)&255)*k)<<8)|(uint32_t)((rgb&255)*k);}
-            colour(g,fill);rect(g,x,y,w,h);
-            int step=page*16+i+1;snprintf(s,sizeof(s),"%d",step);
-            unsigned luma=((fill>>16)&255)*3+((fill>>8)&255)*6+(fill&255);
-            colour(g,lit&&luma>1100?0xff000000:scan_ok&&slots[i].count?WHITE:GREY);text(g,s,x,y+1,w,h-2,14);
-            if(cursor/16==page&&cursor%16==i){colour(g,WHITE);outline(g,x-1,y-1,w+2,h+2);outline(g,x-2,y-2,w+4,h+4);}
-        }
+        steps_grid_paint(g);
         char value[24];
         if (shift) snprintf(value,sizeof(value),"%c",'A'+browse_bank);else snprintf(value,sizeof(value),"%s",name);
         cell(g,0,shift ? "Bank" : "Sound",value,focus==1,shift ? browse_bank : sound%16,shift ? 8 : 16);
@@ -1646,13 +1651,49 @@ void step_native_paint(void *p,void *g)
         }
     }
 }
+/* Native ListBoxModel columns are 24-byte records: Identifier, width,
+ * alignment, normal ink, selected ink (15c2d44..15c2fd4). Change only the
+ * first column during this row's own native paint, then restore the shared
+ * style. Native scrolling, background, C/L text and other columns stay native. */
+static int event_name_pad(const char*s)
+{
+    if(!s)return -1;
+    if(!strncmp(s,"Pad ",4))s+=4;
+    size_t n=strnlen(s,16);
+    if(n<3||n==16||s[0]<'A'||s[0]>'H'||s[1]<'0'||s[1]>'1'||s[2]<'0'||s[2]>'9'||(s[3]&&s[3]!=' '))return -1;
+    int number=(s[1]-'0')*10+s[2]-'0';
+    return number>=1&&number<=16?(s[0]-'A')*16+number-1:-1;
+}
+static void event_row_paint(void*model,int row,void*g,int width,int height,int selected)
+{
+    uint32_t *inks=NULL,normal=0,chosen=0;
+    if(root&&model&&row>=0&&!atomic_load(&dead)&&music_pad_colours_used()
+        &&FIELD(model,0xa0,void*)==(char*)root+0x11c8
+        &&FIELD(root,0,uintptr_t)==base+SCREEN_VPTR&&model==FIELD(root,0x1288,void*)){
+        uintptr_t first=FIELD(model,0x20,uintptr_t),end=FIELD(model,0x28,uintptr_t);
+        if(first&&end>first&&end-first<=32*24&&(end-first)%24==0){
+            uint64_t label=0;step_table_cell_string(model,row,(void*)first,&label,base+0x3b774b0);
+            int pad=event_name_pad((const char*)(uintptr_t)label);
+            int colour=pad>=0?music_pad_colour((unsigned)pad):0;
+            FN(0xf0a290,void(*)(uint64_t*))(&label);
+            if(colour){inks=(uint32_t*)(first+16);normal=inks[0];chosen=inks[1];inks[0]=inks[1]=0xff000000u|music_sequence_colours[colour];}
+        }
+    }
+    FN(0x3b72210,void(*)(void*,int,void*,int,int,int))(model,row,g,width,height,selected);
+    if(inks){inks[0]=normal;inks[1]=chosen;}
+}
 int step_native_install(void (*paint)(void*,void*))
 {
     uintptr_t *slot=(uintptr_t*)(base+SCREEN_VPTR+0xd8);
-    if (*slot!=base+0x10e2e10 || sysconf(_SC_PAGESIZE)!=4096) return 0;
+    uintptr_t *row_slot=(uintptr_t*)(base+0x706d840);
+    if (*slot!=base+0x10e2e10 || *row_slot!=base+0x3b72210 || sysconf(_SC_PAGESIZE)!=4096) return 0;
     void *p=(void*)((uintptr_t)slot&~(uintptr_t)4095);
+    void *rows=(void*)((uintptr_t)row_slot&~(uintptr_t)4095);
     if(mprotect(p,4096,PROT_READ|PROT_WRITE)) return 0;
+    if(mprotect(rows,4096,PROT_READ|PROT_WRITE)){if(mprotect(p,4096,PROT_READ))_exit(121);return 0;}
     *slot=(uintptr_t)paint;
+    *row_slot=(uintptr_t)event_row_paint;
+    if(mprotect(rows,4096,PROT_READ)) _exit(121);
     if(mprotect(p,4096,PROT_READ)) _exit(121);
     return 1;
 }

@@ -448,6 +448,17 @@ int main(int argc,char **argv)
     incomplete.slot=10;incomplete.expected=2;before=tree()->size;
     assert(!run_set_command(&incomplete) && tree()->size==before && group_delete_calls==1);
     phase="Mute latched/hold and native tag-bit9 grouped replacement";
+    /* Execute the real native LED converter: mock RGB receivers otherwise
+     * see white's RGB channels without accounting for its dim intensity. */
+    uint64_t context_light=pad_light(PAD_CONTEXT,PAD_BRIGHT_CONTEXT);
+    uint64_t own_light=pad_light(PAD_CONTENT,PAD_BRIGHT_CONTENT);
+    uint64_t cursor_light=pad_light(PAD_SELECT,.8f),empty_light=pad_light(0,0);
+    uint32_t context_rgb=FN(0x23b00c0,uint32_t(*)(const uint64_t*))(&context_light);
+    uint32_t own_rgb=FN(0x23b00c0,uint32_t(*)(const uint64_t*))(&own_light);
+    uint32_t cursor_rgb=FN(0x23b00c0,uint32_t(*)(const uint64_t*))(&cursor_light);
+    assert(context_rgb==0x080808&&FN(0x23b00c0,uint32_t(*)(const uint64_t*))(&empty_light)==0);
+    assert(((own_rgb>>8)&255)>10*(context_rgb&255)&&(cursor_rgb&255)>20*(context_rgb&255));
+    printf("PASS native LED conversion: other sounds=%06x, own=%06x, cursor=%06x, empty=000000\n",context_rgb,own_rgb,cursor_rgb);
     for(int mute=0;mute<2;++mute)for(int erase=0;erase<2;++erase){
       /* Shared pad palette: content green, muted violet, erase red (blinking),
        * selection white, playhead cyan. Mute mode does not recolour steps. */
@@ -501,13 +512,13 @@ int main(int argc,char **argv)
     uint64_t stale_mute=step_native_ticket();mute_event[9]=0;
     step_native_button_at(mute_event,step_native_ticket(),1401);assert(!atomic_load(&mute_active)&&!mute_latched);
     int old_mutes=group_mute_calls;s_pad(10,stale_mute);assert(group_mute_calls==old_mutes);
-    phase="Events B3 staged Tune/Chop pad picker and Shift K3";
+    phase="Events staged Tune/Chop pad picker and Shift K3";
     button(0x0d,1);button(0x0d,0);assert(!steps);
     struct step_event tuned=make_note(6,3120,.7f);
     event_choice_set(&tuned,0,5);assert(event_choice_value(&tuned,0)==5 && event_choice_kind(&tuned)==0);
     insert_note(&tuned);assert(choose_exact(&tuned));before=tree()->size;
     int changes=change_calls;
-    button(0x0e,1);button(0x0e,0);assert(!menu && change_calls==changes);
+    button(0x0e,0);assert(!menu && change_calls==changes&&tree()->size==before);
     assert(step_native_button_light(BUTTON_LEVELS,&button_ink) && button_ink==2);
     assert(step_native_button_light(BUTTON_CHOP,&button_ink) && button_ink==0);
     assert(!step_native_button_light(0,&button_ink)); /* native mode/SEQ indicators untouched */
@@ -658,7 +669,7 @@ int main(int argc,char **argv)
     struct step_event picker_tail=step_chop;picker_tail.time=7679;insert_note(&picker_tail);hold(count()-1);step_native_tick();
     assert(collect_picker_sources(15)&&picker_source_count==1&&picker_sources[0].time==7679);
     button(0x0d,1);button(0x0d,0);assert(!steps);assert(choose_exact(&sliced));
-    phase="Events Erase tap vs native Erase+pad confirmation handoff";
+    phase="Events B3 row deletion vs native Erase+pad confirmation handoff";
     int deletes=delete_calls;before=tree()->size;
     step_native_requested(BUTTON_ERASE,1);button(BUTTON_ERASE,1);
     uint64_t chord=step_native_ticket();assert(step_native_pad_route(chord)==3 && step_native_shortcut(chord));
@@ -667,8 +678,10 @@ int main(int argc,char **argv)
     step_native_requested(BUTTON_ERASE,1);button(BUTTON_ERASE,1);
     assert(delete_calls==deletes); /* do not delete before chord can form */
     step_native_requested(BUTTON_ERASE,0);button(BUTTON_ERASE,0);
-    assert(delete_calls==deletes+1 && tree()->size==before-1);
-    /* Losing selection while held cancels the single-row deletion. */
+    assert(delete_calls==deletes && tree()->size==before); /* Erase tap is only the native modifier. */
+    button(0x0e,1);button(0x0e,0);assert(delete_calls==deletes+1&&tree()->size==before-1);
+    button(0x0e,0);assert(delete_calls==deletes+1); /* Release cannot delete a second row. */
+    /* Moving selection while Erase is held never deletes a row either. */
     struct step_event stale=tuned;event_choice_set(&stale,0,25);assert(!choose_exact(&stale));
     assert(choose_exact(&neighbour));step_native_requested(BUTTON_ERASE,1);button(BUTTON_ERASE,1);
     event_control(1);step_native_requested(BUTTON_ERASE,0);button(BUTTON_ERASE,0);
@@ -828,12 +841,13 @@ int main(int argc,char **argv)
     assert(step_native_control(others_control,step_native_ticket())&&show_other_sounds&&velocity==old_velocity);
     step_native_requested(0x31,0);step_native_tick();assert(other_sound_steps&(1u<<3));
     assert(cursor_visible);button(0x6f,1);button(0x6f,0);assert(!cursor_visible);
-    assert(step_native_light(15,&light)&&(uint32_t)light==0x476080);
+    assert(step_native_light(15,&light)&&(uint32_t)light==PAD_CONTEXT);
+    uint64_t background_light=light;
     was_playing=1;play_tick=720;palette();assert(step_native_light(15,&light)&&(uint32_t)light==0x00c8ff);was_playing=0;
     struct step_event own_background=make_note(4,720,.5f);own_background.type|=0x200;insert_note(&own_background);++count_before_background;
     step_native_tick();assert(step_native_light(15,&light)&&(uint32_t)light==0x8830ff);
     button(0x6f,1);button(0x6f,0);assert(cursor_visible);
-    assert(step_native_light(15,&light)&&(uint32_t)light!=0x476080);
+    assert(step_native_light(15,&light)&&light!=background_light);
     assert(tree()->size==count_before_background&&velocity==old_velocity);
     show_other_sounds=0;
     phase="Lights palette in both Tune event picker entry paths";

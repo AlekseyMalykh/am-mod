@@ -28,6 +28,7 @@ int64_t step_native_clock_ticks(uint64_t *serial,unsigned *running);
 int step_native_browser_bank(int bank); /* UI only; -1 reads, 0..7 selects bank. */
 int step_native_active(void);
 int step_native_custom(void);
+int step_native_sound_layout(void); /* Ordinary Events pad layout, no modal/picker. */
 int step_native_record_light(unsigned *value);
 int step_native_button_light(unsigned code,unsigned *value);
 int step_native_pad_route(uint64_t ticket); /* 0=native, 1=step/picker, 2=Shift shortcut, 3=Events Erase chord */

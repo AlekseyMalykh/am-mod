@@ -18,6 +18,15 @@ the stock app. Nothing is flashed: the mod runs a patched copy of the stock app 
 > release packages**: the mod patches the copy of the app already on your MPC Sample.
 > Use at your own risk. See [NOTICE](NOTICE.md).
 
+## r26a update — 1 November 2026
+
+- **Pad Colour across sound views:** Sample and Events sound pads use their assigned colours; FX Select keeps its native status colours. Events names use each sound's colour. In Steps, ordinary events use the selected sound's Pad Colour (Stock keeps the standard green).
+- **Steps background:** empty steps are off; events of other sounds have a very dim white background, enabled by default. **Shift+K3 → Other Sounds** switches it off/on. If other sounds play on every step, this background can cover all 16 pads of a page. The selected sound's own events take priority and keep their colour.
+- **Cursor:** the on-screen frame, pad fill and step numbers now agree in the order **13–16 → 9–12 → 5–8 → 1–4**. Encoder click hides/shows the selection cursor and its frame. Selection, playback, Mute and Erase indications take priority over sound colours.
+- **Events deletion:** **B3 Erase**, labelled red, deletes the selected event row. An Erase tap does not delete a row; **Erase+pad** keeps the stock sequence-wide deletion for that sound, with confirmation. Shift+B3 still opens Copy/Paste; B3 in the Chop/Levels picker still applies the selection.
+
+Published at the author's request after device trials. The automated checks cover native LED conversion, both LED senders, all 16 screen positions on two pages, event controls, normal/UBSan ARM fixtures and preload construction. They are separate from hardware test coverage; see the release verification record.
+
 ## r25x update — 1 November 2026
 
 The author confirmed the current features on an MPC Sample with r25w. r25x removes temporary diagnostic messages and prepares the public documentation; feature behaviour is unchanged. ARM/QEMU checks are listed in the release notes and do not establish coverage of every setting combination on hardware.
@@ -32,8 +41,8 @@ The author confirmed the current features on an MPC Sample with r25w. r25x remov
 
 ## Features
 
-Status as of 1 November 2026 (build r25x). **Confirmed** means checked on a real MPC Sample;
-**trial** means it passes the ARM/QEMU checks and the emulator but waits for a hardware run.
+Status as of 1 November 2026 (build r26a). **Confirmed** means checked on a real MPC Sample;
+**trial** means the specified automated checks passed; hardware coverage is pending as noted.
 
 | Feature | Where | Status |
 |---|---|---|
@@ -91,7 +100,7 @@ refuses to start on any other version) and an SD card formatted by the MPC.
 ```bash
 python3 installer/mpc_mod_installer.py                 # window
 python3 installer/mpc_mod_installer.py cards           # list cards
-python3 installer/mpc_mod_installer.py install am-mod-r25x.zip --card E:
+python3 installer/mpc_mod_installer.py install am-mod-r26a.zip --card E:
 python3 installer/mpc_mod_installer.py install --latest --card /Volumes/MPC
 python3 installer/mpc_mod_installer.py remove --card E:
 ```
@@ -132,7 +141,7 @@ firmware in QEMU with the whole device in your browser, and runs SD autorun pack
 way the MPC does. The GIFs above were recorded there:
 
 ```bash
-python3 lab.py autorun am-mod-r25x.zip --no-reboot --yes
+python3 lab.py autorun am-mod-r26a.zip --no-reboot --yes
 ```
 
 Emulator runs are useful for development, but they are not a hardware test: timing, audio

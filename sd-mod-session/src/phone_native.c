@@ -1215,21 +1215,23 @@ static void sequence_palette_tick(void){
     atomic_store(&sequence_palette_enabled,1);
 }
 #endif
-/* Sample pad layout: the user's Pad Colour (Trim page 2, Shift+K1) keeps the
+/* UI Timer publishes screen ownership; RGB callbacks must not inspect native
+ * Components, which may belong to another thread. */
+static _Atomic unsigned pad_colour_sample_layout;
+/* Sample pad layout: the user's Pad Colour (Mix, Shift+K1) keeps the
  * native brightness of each pad (dim loaded, bright playing) and replaces
  * only its hue. Stock (0) passes the native colour through. */
 static int pad_colour_light(unsigned pad,uint64_t *out){
-    if(pad>=16||!music_pad_colours_used()||atomic_load(&led_enabled))return 0;
+    if(pad>=16||!atomic_load(&pad_colour_sample_layout)||!music_pad_colours_used()||atomic_load(&led_enabled))return 0;
     /* Temporary native indications keep priority: Mute mode, held Mute
      * (0x23) and held Erase (0x09) show the native colours as they are. */
     if(atomic_load(&native_mute_mode)||atomic_load(&native_buttons_down[0x23])||atomic_load(&native_buttons_down[0x09]))return 0;
     unsigned enabled=0,mode=0,origin=0;music_lighting_levels_state(&enabled,&mode,&origin);
-    if(enabled||step_native_active()
+    if(enabled||(step_native_active()&&!step_native_sound_layout())
 #ifdef MPC_CHORDS
        ||chords_active()
 #endif
        )return 0;
-    if(music_ui_sequence_visible()&&!(step_native_transport_state()&4u))return 0;
     int bank=step_native_browser_bank(-1);if(bank<0||bank>=8)return 0;
     int chosen=music_pad_colour((unsigned)bank*16+pad);if(!chosen)return 0;
     unsigned old=(unsigned)atomic_load(&original_lights[pad]);
@@ -1286,6 +1288,10 @@ static void rgb(void *s,uint32_t colour,unsigned pad)
 }
 static void send_step_lights(void)
 {
+    /* FX Select and other screens own their native status colours. Seq only
+     * uses the Sample layout while recording, as in the stock application. */
+    atomic_store(&pad_colour_sample_layout,step_native_sound_layout()||
+        (music_ui_sequence_visible()?!!(step_native_transport_state()&4u):!!note_native_sample_visible()));
 #ifdef MPC_SEQUENCE_COLOURS
     sequence_palette_tick();
 #endif
@@ -1351,6 +1357,16 @@ static void send_step_lights(void)
 }
 static void button_light(void *s,unsigned value,unsigned code)
 {
+    /* This indexed sender also drives pads0..15. Stock Step Edit's cursor
+     * uses it in bottom-up order, bypassing H_RGB. While Steps owns the pads,
+     * send its physical-pad palette here too; otherwise a mirrored cursor
+     * survives beside the RGB cursor. Actual button IDs remain native. */
+    uint64_t light;
+    if(code<16&&step_native_custom()&&step_native_light(code,&light)){
+        atomic_store(&sender,(uintptr_t)s);
+        uint32_t packed=FN(0x23b00c0,uint32_t(*)(const uint64_t*))(&light);
+        ORIG(H_RGB,void(*)(void*,uint32_t,unsigned))(s,packed,code);return;
+    }
     if (code<128) {
         if(code==0x2b)observe_mute_indicator(value);
         atomic_store(&button_sender,(uintptr_t)s);atomic_store(&native_button_lights[code],value);

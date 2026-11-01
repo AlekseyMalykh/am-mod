@@ -63,4 +63,12 @@ batch_name_result:
  mov x8,x3
  br x4
 .size batch_name_result,.-batch_name_result
+.global step_table_cell_string
+.hidden step_table_cell_string
+.type step_table_cell_string,%function
+step_table_cell_string:
+ bti c
+ mov x8,x3
+ br x4
+.size step_table_cell_string,.-step_table_cell_string
 .section .note.GNU-stack,"",%progbits

@@ -2,15 +2,24 @@
 
 **English** · [Русский](FEATURES.ru.md)
 
-State as of build **r25x** (1 November 2026), MPC Sample firmware **1.3.0.12**.
+State as of build **r26a** (1 November 2026), MPC Sample firmware **1.3.0.12**.
 
 **Statuses:**
 - **Confirmed**: checked on a real MPC Sample.
-- **Trial**: passes the ARM/QEMU checks and the emulator, waiting for a hardware run.
+- **Trial**: the specified automated checks passed; hardware coverage is pending as noted.
 
 A confirmation covers that specific trial, not every combination of features in later builds. Build history: [CHANGELOG](../CHANGELOG.md).
 
 Terms: **B1–B3** are the three buttons above the screen, **K1–K3** the three knobs below it, "encoder" is the large DATA wheel.
+
+## r26a update — 1 November 2026
+
+- **Pad Colour across sound views:** Sample and Events sound pads use their assigned colours; FX Select keeps its native status colours. Events names use each sound's colour. In Steps, ordinary events use the selected sound's Pad Colour (Stock keeps the standard green).
+- **Steps background:** empty steps are off; events of other sounds have a very dim white background, enabled by default. **Shift+K3 → Other Sounds** switches it off/on. If other sounds play on every step, this background can cover all 16 pads of a page. The selected sound's own events take priority and keep their colour.
+- **Cursor:** the on-screen frame, pad fill and step numbers now agree in the order **13–16 → 9–12 → 5–8 → 1–4**. Encoder click hides/shows the selection cursor and its frame. Selection, playback, Mute and Erase indications take priority over sound colours.
+- **Events deletion:** **B3 Erase**, labelled red, deletes the selected event row. An Erase tap does not delete a row; **Erase+pad** keeps the stock sequence-wide deletion for that sound, with confirmation. Shift+B3 still opens Copy/Paste; B3 in the Chop/Levels picker still applies the selection.
+
+Published at the author's request after device trials. The automated checks cover native LED conversion, both LED senders, all 16 screen positions on two pages, event controls, normal/UBSan ARM fixtures and preload construction. They are separate from hardware test coverage; see the release verification record.
 
 ## r25x update — 1 November 2026
 
@@ -171,15 +180,15 @@ The type/addition layout was inspired by [ChoralRoot FM-1](https://github.com/Qu
 - **Mute**: hold it and press steps, or press it briefly to latch the mode. **Shift+Mute** unmutes the whole sound.
 - **Shift+K3 Other Sounds** dims steps that hold events of other sounds. Encoder click hides or shows the cursor.
 - **C / L** marks on a step light the Chop / 16 Levels button, which opens the event editor (§9). On an empty step with WRITE ON, 16 Levels opens note entry.
-- Pad colours follow the shared palette (§2): events green, cursor white, playhead cyan, events to erase red (blinking), muted events violet, empty steps dim grey.
-- The screen shows the same 16 steps as a 4×4 grid in the pad colours, with a white outline on the cursor step (r24s).
+- Ordinary events use the selected sound's **Pad Colour** (Stock: green). Empty steps are off. Other Sounds is dim white; selection is white, playhead cyan, erase red/blinking and muted steps violet.
+- The screen shows the same 16 steps as a 4×4 grid. Frame, fill, event data and step numbers follow the physical-pad order; encoder click hides/shows the selection cursor and frame.
 
 ## 8. Events / Step Edit
 
 | Feature | Status |
 |---|---|
 | The encoder scrolls the view along the Q grid, wrapping around; **Shift+encoder** moves the selected event along Q and keeps its other values and micro-timing | confirmed |
-| +/− select a row; **Erase** with no pad deletes the selected row; Erase+pad keeps the stock delete of that sound's events | confirmed |
+| +/− select a row; **B3 Erase** (red caption) deletes that row. Erase alone does not delete it; **Erase+pad** keeps the stock sequence-wide deletion with confirmation | updated r26a |
 | **Shift+B3**: Copy / Paste / Paste to Pad / Note Length. A copy keeps pitch, chop, velocity, length and modifiers | confirmed |
 | **C / L / CL** marks on events with a slice or a 16 Levels modifier | confirmed |
 
@@ -227,7 +236,7 @@ When the selected event has a C or L mark, the Chop or 16 Levels button lights u
 - **Shift+K3**: Sound only / **Sound + events**, which copies the sound's events in every sequence (trial, r15e).
 - Occupied targets are marked `!`. B3 shows the number of copies and overwrites, B3 again confirms.
 - Encoder click auditions the row's source. One Undo reverts the whole operation.
-- Pad colours follow the shared palette (§2): sources green, occupied pads dim white, targets white; a target that would overwrite a sound is red and blinks.
+- Ordinary events use the selected sound's **Pad Colour** (Stock: green). Empty steps are off. Other Sounds is dim white; selection is white, playhead cyan, erase red/blinking and muted steps violet.
 
 ## 13. Batch Extract
 
