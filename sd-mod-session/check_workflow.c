@@ -12,7 +12,10 @@ static const char*test_path(const char*);
 #define WORKFLOW_INTERNAL_ROOT test_path("/Internal")
 #define WORKFLOW_AUTOLOAD_PROJECTS test_path("/autoload/*.xpj")
 #define WORKFLOW_AUTOLOAD_NESTED test_path("/autoload/*/*.xpj")
-#include "src/workflow_ui.c"
+#ifndef WORKFLOW_SOURCE
+#define WORKFLOW_SOURCE "src/workflow_ui.c"
+#endif
+#include WORKFLOW_SOURCE
 static uintptr_t guard=0x123456;
 static char test_root[]="/tmp/mpc-workflow-check-XXXXXX";
 static const char*test_path(const char*suffix){static char buffers[16][1024];static unsigned next;char*out=buffers[next++%16];int n=snprintf(out,1024,"%s%s",test_root,suffix);assert(n>=0&&n<1024);return out;}
@@ -109,6 +112,8 @@ static unsigned char browser_things[0xc0];static int browser_context_live,sample
 void *note_native_context(void){return browser_context_live?browser_things:NULL;}
 static int autoload_sample;
 int note_native_sample_visible(void){return autoload_sample;}
+static void*autoload_modal;
+static void*top_modal(int index){assert(index==0);return autoload_modal;}
 static void select_pad(void*p,int n){assert(p==browser_things&&n>=0&&n<128);selected_pad=n;}
 static void sample_action(void*p,const struct file_result*f){assert(p==service+0x10&&f->file);assert(!strcmp(filename(f),"Kick drum.wav"));loaded_pad=selected_pad;++sample_loads;}
 static unsigned char copy_layers[128][0xb00];
@@ -540,10 +545,14 @@ verify_native_project_mode();
  * callback retries instead of permanently skipping the newest project. */
 mkdir(test_path("/autoload"),0700);f=fopen(test_path("/autoload/Project-B.xpj"),"wb");assert(f);fputc('B',f);fclose(f);
 workflow_files_constructed(file_root);FIELD(file_root,0x120,void*)=service;
+stub(0x10f87a0,top_modal);__builtin___clear_cache((char*)base,(char*)(base+0x7500000));
 FIELD(service,0x40,uintptr_t)=0;autoload_sample=1;autoload_after=now_ms()-1;autoload_tick();assert(!autoload_done&&full_calls==1);
 FIELD(service,0x30,void*)=native_manager;FIELD(service,0x38,void*)=native_browser;FIELD(service,0x40,uintptr_t)=1;FIELD(service,0x48,uintptr_t)=base+0x1500840;
+autoload_modal=(void*)1;autoload_after=now_ms()-1;autoload_tick();
+if(autoload_done||autoload_after||full_calls!=1){fprintf(stderr,"REPRODUCED autoload started another project while a native modal was open\n");return 1;}
+autoload_modal=NULL;autoload_tick();assert(!autoload_done&&autoload_after>now_ms()&&full_calls==1);
 autoload_after=now_ms()-1;autoload_tick();assert(autoload_done&&full_calls==2&&kit_calls==1&&strstr(last_project,"Project-B.xpj"));
 autoload_tick();assert(full_calls==2);autoload_sample=0;
-puts("PASS production autoload waits for native callback readiness, opens newest XPJ as a full project exactly once, never imports its kit");
+puts("PASS production autoload waits for native callback readiness and all native modals, starts a fresh quiet interval after a dialog closes, opens newest XPJ as a full project exactly once, never imports its kit");
 puts("PASS mono destination workflow: Sample-host dialog paints Cancel/Left/Right and source/target; Cancel no job, target pads/banks, channel request, occupied confirmation, completion close and Play/Stop pass-through; backend is a receiver");
 puts("PASS actual native File optional/current-directory getter and BrowserLogic root setter; selected-file property alone cannot navigate; reveal locates asynchronous native row for Sample and Project without loading; factory project search defaults to SD, K3 Internal/SD roots and XPJ-not-XPM filter; silent result-pad selection, native project confirmation and preview; bounded recursive search over4100 files, linked/hidden folders and inode cycle dedup; ordinary Chop Split gate and Sample108/148 offsets; Batch mapping/confirmation/paint; final GUI, listing/notification/property and audio callbacks remain fixtures");return 0;}

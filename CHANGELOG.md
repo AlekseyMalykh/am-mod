@@ -1,5 +1,11 @@
 # Changelog
 
+## r26k candidate — wait for native dialogs before startup project restore
+
+- Prevent autoload from starting a second project while a native modal is open, including startup missing-sample/error dialogs that permit other component input. Restart the quiet interval after dialogs close; log the selected XPJ path.
+- Reproduce the old ordering in ARM tests and the full native VM; verify deferred restore, the valid B fixture and a complete Mod Off copy with available sample data. Other reported load errors and recovery-copy naming remain separate investigation items.
+- Preserve the device-confirmed K implementation and all r26j OptoCat changes. [English](docs/RELEASE_NOTES-r26k.md) · [Русский](docs/RELEASE_NOTES-r26k.ru.md). Hardware trial pending; not published.
+
 ## r26j candidate — OptoCat Shift controls and bounded gain
 
 - Add Shift+K1 Attack (1–100 ms), Shift+K2 Release (100–4000 ms) and Shift+K3 Knee (0–12 dB), with names/values and per-event Shift capture. Preserve the default optical response.

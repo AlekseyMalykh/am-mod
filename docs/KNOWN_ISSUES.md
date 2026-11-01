@@ -12,6 +12,12 @@ fix confirmed on an MPC. The latest downloadable ZIP is still **r26d**, which
 does not include that fix or experimental FAT32. Local r26j compressor changes
 have not been published or confirmed on hardware.
 
+Local r26k investigation reproduced one startup ordering problem: autoload could
+start while a native missing-sample/error modal was open. The candidate waits
+until native modals close; ARM/QEMU/UBSan and a full VM diagnostic run verify
+that case. This does not close every L01–L03 report or change L04 naming.
+Physical confirmation and a public r26k release are still pending.
+
 ## Open reports
 
 | ID | Priority | Report / next check |
