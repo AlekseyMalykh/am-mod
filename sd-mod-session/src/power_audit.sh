@@ -10,7 +10,7 @@ DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd) || exit 1
 case "$DIR" in /media/*/autorun) ;; *) exit 1 ;; esac
 SD=${DIR%/autorun}
 [ "$(readlink -f "$SD")" = "$SD" ] || exit 1
-awk -v p="$SD" '$2==p && $3=="exfat" && $4 ~ /(^|,)rw(,|$)/ {n++} END {exit n!=1}' /proc/mounts || exit 1
+awk -v p="$SD" '$2==p && ($3=="exfat" || $3=="vfat") && $4 ~ /(^|,)rw(,|$)/ {n++} END {exit n!=1}' /proc/mounts || exit 1
 OUT="$SD/MPC_POWER_AUDIT.txt"
 TMP="$SD/.MPC_POWER_AUDIT.next"
 [ ! -L "$OUT" ] && [ ! -L "$TMP" ] || exit 1

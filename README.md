@@ -6,6 +6,8 @@
 
 [r26d: fixes and new features](docs/RELEASE_NOTES-r26d.md)
 
+[r26e candidate: experimental FAT32 support](docs/RELEASE_NOTES-r26e.md). The currently published r26d release still requires exFAT.
+
 
 AM Mod is a community mod for the Akai MPC Sample (firmware **1.3.0.12**) that starts from the SD card.
 It adds a step sequencer on the pads, a chord mode, typing names with the pads, scale
@@ -92,16 +94,16 @@ Every feature with its controls and status: [docs/FEATURES.md](docs/FEATURES.md)
 ## Install
 
 > [!IMPORTANT]
-> **The current mod requires an exFAT SD card. FAT32 / MS-DOS (FAT32) is not supported:** files may copy successfully, but the mod will not start and may leave no log files.
+> **FAT32 / MS-DOS (FAT32) is available experimentally starting with r26e; exFAT remains supported.** FAT32 requires the r26e package and installer **1.0.2+**, or a manual copy of r26e's `autorun/`. FAT32 has been checked in test images and the emulator; physical MPC testing is still pending. The published r26d and earlier packages require exFAT; updating only the installer does not add FAT32 support to an old package.
 >
 > **Use a card volume name such as `MPC` or `MPCSAMPLE`.** Only ASCII letters, digits, `.`, `_` and `-` are supported; spaces and Cyrillic letters in the card name prevent startup. This restriction applies to the card name, not your sample/project names.
 >
-> Check the filesystem before installing: Finder → select the SD volume → ⌘I → Format on macOS; drive Properties → File system on Windows. Installer **1.0.1+** checks the filesystem and card name before writing; older installers can report success on an incompatible card.
+> Check the filesystem before installing: Finder → select the SD volume → ⌘I → Format on macOS; drive Properties → File system on Windows. Installer **1.0.2+** checks the filesystem, card name and package compatibility before writing.
 >
-> Keep your existing projects and samples on a compatible card. **Before reformatting a FAT32 card to exFAT, back up its entire contents: formatting erases the card.** The installer does not format or convert cards. Renaming a volume does not require formatting.
+> **No reformatting is needed to use r26e on an existing FAT32 card.** Keep your projects and samples; replace the mod's `autorun/` folder with the complete new version. The installer backs up the previous folder and does not format or convert cards. FAT32 has a limit of **4 GiB minus 1 byte per file**.
 
 You need an MPC Sample on firmware **1.3.0.12** (the mod checks the app's SHA-256 and
-refuses to start on any other version) and an exFAT SD card with a supported volume name.
+refuses to start on any other version) and a compatible SD card with a supported volume name: exFAT, or experimental FAT32 starting with r26e.
 
 **Installer (Windows):** download `MPC-Sample-Mod-Installer.exe` and the
 `am-mod-*.zip` package from [Releases](../../releases), run the installer, pick the zip
@@ -112,7 +114,7 @@ refuses to start on any other version) and an exFAT SD card with a supported vol
 ```bash
 python3 installer/mpc_mod_installer.py                 # window
 python3 installer/mpc_mod_installer.py cards           # list cards
-python3 installer/mpc_mod_installer.py install am-mod-r26d.zip --card E:
+python3 installer/mpc_mod_installer.py install am-mod-r26e.zip --card E:
 python3 installer/mpc_mod_installer.py install --latest --card /Volumes/MPC
 python3 installer/mpc_mod_installer.py remove --card E:
 ```
@@ -153,7 +155,7 @@ firmware in QEMU with the whole device in your browser, and runs SD autorun pack
 way the MPC does. The GIFs above were recorded there:
 
 ```bash
-python3 lab.py autorun am-mod-r26d.zip --no-reboot --yes
+python3 lab.py autorun am-mod-r26e.zip --no-reboot --yes
 ```
 
 Emulator runs are useful for development, but they are not a hardware test: timing, audio

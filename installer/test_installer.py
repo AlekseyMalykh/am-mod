@@ -16,7 +16,7 @@ from unittest.mock import patch
 import mpc_mod_installer as m
 
 
-def make_package(extra=None, sh=b"#!/bin/sh\n# revision=r99-test\n", corrupt=False) -> bytes:
+def make_package(extra=None, sh=b"#!/bin/sh\n# revision=r99-test\n# sd-filesystems=exfat,vfat\n", corrupt=False) -> bytes:
     manifest = json.dumps({"value0": {"scripts": [{"path": "autorun.sh", "askQuestion": True,
                                                    "message": "Start test", "yesButtonText": "Start",
                                                    "noButtonText": "Cancel"}], "files": []}}).encode()
@@ -91,7 +91,7 @@ class InstallerTest(unittest.TestCase):
         (self.card / "autorun").mkdir()
         original = self.card / "autorun" / "existing.sh"
         original.write_bytes(b"original autorun")
-        invalid = [(fs, "MPC") for fs in ("FAT32", "vfat", "msdos", "NTFS", "fuseblk", "")]
+        invalid = [(fs, "MPC") for fs in ("FAT", "NTFS", "ext4", "APFS", "fuseblk", "")]
         invalid += [("exFAT", label) for label in ("", "MPC SAMPLE", "Карта", "MPC%", "MPC\n")]
         for fs, label in invalid:
             with self.subTest(fs=fs, label=label), patch.object(m, "backup_card") as backup, \
@@ -104,8 +104,8 @@ class InstallerTest(unittest.TestCase):
                 self.assertEqual((self.card / "MPC-Sample/Projects/song.xpj").read_text(), "mine")
                 self.assertFalse((self.card / m.VERSION_FILE).exists())
 
-    def test_accepts_exfat_and_supported_volume_names(self):
-        for fs in ("exfat", "exFAT", "EXFAT"):
+    def test_accepts_exfat_fat32_and_supported_volume_names(self):
+        for fs in ("exfat", "exFAT", "EXFAT", "FAT32", "fat32", "vfat", "msdos"):
             for label in ("MPC", "MPCSAMPLE", "Mpc-01_test.card"):
                 with self.subTest(fs=fs, label=label):
                     m.check_card(m.Card(self.card, label, fs), self.log.append)
@@ -119,11 +119,33 @@ class InstallerTest(unittest.TestCase):
                 run.assert_called_once_with(["diskutil", "info", "-plist", str(self.card)],
                                             capture_output=True, check=True, timeout=10)
                 self.assertEqual((card.fs, card.label), (fs, "MPC"))
-                if fs == "exfat":
-                    m.check_card(card)
-                else:
-                    with self.assertRaisesRegex(m.InstallError, "requires exFAT"):
-                        m.check_card(card)
+                m.check_card(card)
+
+    def test_fat32_install_backup_reinstall_remove_preserves_user_files(self):
+        pkg = m.Package(make_package(), "am-mod-r99.zip")
+        for fs in ("FAT32", "vfat", "msdos"):
+            with self.subTest(fs=fs):
+                card = m.Card(self.card, "MPC", fs)
+                m.install(pkg, card, self.log.append)
+                info = m.install(pkg, card, self.log.append)
+                self.assertTrue(Path(info["backup"], "autorun/autorun.sh").is_file())
+                m.remove(card, self.log.append)
+                self.assertEqual((self.card / "MPC-Sample/Projects/song.xpj").read_text(), "mine")
+                self.assertFalse((self.card / "autorun").exists())
+
+    def test_legacy_package_rejected_on_fat32_before_backup_or_write(self):
+        pkg = m.Package(make_package(sh=b"#!/bin/sh\n# revision=r26d\n"), "am-mod-r26d.zip")
+        for fs in ("FAT32", "vfat", "msdos"):
+            with self.subTest(fs=fs), patch.object(m, "backup_card") as backup, patch.object(m, "_write") as write:
+                with self.assertRaisesRegex(m.InstallError, "r26e or later"):
+                    m.install(pkg, m.Card(self.card, "MPC", fs), self.log.append)
+                backup.assert_not_called()
+                write.assert_not_called()
+        m.install(pkg, self.card_obj(), self.log.append)
+
+    def test_invalid_filesystem_declaration(self):
+        with self.assertRaisesRegex(m.InstallError, "Invalid SD filesystem"):
+            m.Package(make_package(sh=b"#!/bin/sh\n# sd-filesystems=ext4\n"), "bad.zip")
 
     def test_mac_detection_failure_cannot_bypass_checks(self):
         failures = (OSError("diskutil unavailable"), subprocess.TimeoutExpired("diskutil", 10),

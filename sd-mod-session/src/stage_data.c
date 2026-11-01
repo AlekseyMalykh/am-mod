@@ -30,9 +30,13 @@ static void metadata(const char *name,char *buf,size_t size) {
 }
 static int flush_sd(int journal) {
     alarm(10);
-    char path[512],identity[128];
+    char path[512],identity[128],filesystem[32];
     metadata(journal?"journal-dir":"save-path",path,sizeof(path));
     metadata(journal?"journal-identity":"save-identity",identity,sizeof(identity));
+    metadata("sd-filesystem",filesystem,sizeof(filesystem));
+    long expected_magic=!strcmp(filesystem,"exfat")?0x2011BAB0:
+        !strcmp(filesystem,"vfat")?0x4d44:0;
+    if(!expected_magic) die("unsupported SD filesystem");
     if(strncmp(path,"/media/",7)) die("SD prefix");
     const char *end=strchr(path+7,'/');
     if(!end||end==path+7||strcmp(end,journal?"/autorun":"/MPC-Sample")) die("SD fixed suffix");
@@ -48,7 +52,7 @@ static int flush_sd(int journal) {
     if(!canonical) die("SD canonical path");
     int fd=open(path,O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);
     struct stat st; struct statfs fs;
-    if(fd<0||fstat(fd,&st)||fstatfs(fd,&fs)||fs.f_type!=0x2011BAB0) die("SD exFAT directory");
+    if(fd<0||fstat(fd,&st)||fstatfs(fd,&fs)||fs.f_type!=expected_magic) die("SD filesystem changed");
     char actual[128];
     snprintf(actual,sizeof(actual),"%llu:%llu",(unsigned long long)st.st_dev,(unsigned long long)st.st_ino);
     if(strcmp(actual,identity)) die("SD identity changed");

@@ -1,5 +1,12 @@
 # Changelog
 
+## r26e candidate — experimental FAT32 support
+
+- Add experimental FAT32 support alongside exFAT in native autorun, the session controller, sandbox checks, diagnostics and the ARM save/journal flush helper. Pin the detected filesystem and retain canonical path, device/inode and write-scope checks. Physical MPC FAT32 testing is pending.
+- Installer 1.0.2 accepts FAT32 on Windows, macOS and Linux. It rejects older exFAT-only packages on FAT32 before backup or writes; existing projects and samples do not need reformatting.
+- Preserve the r26d application library and its pad-colour, project restoration and Filter/EQ changes. FAT32's per-file size limit still applies.
+- Validation and hardware status: [English](docs/RELEASE_NOTES-r26e.md) · [Русский](docs/RELEASE_NOTES-r26e.ru.md).
+
 ## r26d — 1 November 2026
 
 User-facing list of fixes and new features: [English](docs/RELEASE_NOTES-r26d.md) · [Русский](docs/RELEASE_NOTES-r26d.ru.md).

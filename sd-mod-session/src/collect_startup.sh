@@ -10,7 +10,7 @@ case "$DIR" in *' '*|*'%'*|*'\'*) exit 1 ;; esac
 SD=${DIR%/autorun}
 case "${SD#/media/}" in ''|*[!A-Za-z0-9._-]*) exit 1 ;; esac
 [ "$(readlink -f "$SD")" = "$SD" ] || exit 1
-awk -v p="$SD" '$2==p && $3=="exfat" && $4 ~ /(^|,)rw(,|$)/ {n++} END {exit n!=1}' /proc/mounts || exit 1
+awk -v p="$SD" '$2==p && ($3=="exfat" || $3=="vfat") && $4 ~ /(^|,)rw(,|$)/ {n++} END {exit n!=1}' /proc/mounts || exit 1
 OUT="$DIR/MPC_R9B_DIAGNOSTICS.txt"
 [ ! -L "$OUT" ] || exit 1
 exec > "$OUT" 2>&1 || exit 1

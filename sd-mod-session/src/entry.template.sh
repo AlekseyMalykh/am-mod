@@ -1,4 +1,5 @@
 #!/bin/sh
+# sd-filesystems=exfat,vfat
 # Small native autorun entry point. The full controller is pinned by SHA256.
 set -u
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
@@ -10,7 +11,7 @@ case "$DIR" in *' '*|*'%'*|*'\'*) exit 1 ;; esac
 SD=${DIR%/autorun}
 case "${SD#/media/}" in ''|*[!A-Za-z0-9._-]*) exit 1 ;; esac
 [ "$(readlink -f "$SD")" = "$SD" ] || exit 1
-awk -v p="$SD" '$2==p && $3=="exfat" && $4 ~ /(^|,)rw(,|$)/ {n++} END {exit n!=1}' /proc/mounts || exit 1
+awk -v p="$SD" '$2==p && ($3=="exfat" || $3=="vfat") && $4 ~ /(^|,)rw(,|$)/ {n++} END {exit n!=1}' /proc/mounts || exit 1
 ENTRY="$DIR/MPC_MOD_ENTRY.txt"
 CONSOLE="$DIR/MPC_MOD_CONSOLE.txt"
 for p in "$ENTRY" "$CONSOLE"; do [ ! -L "$p" ] || exit 1; done
