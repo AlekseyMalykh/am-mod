@@ -25,11 +25,11 @@ int main(int argc,char**argv){
  open_ui();button(2);draw();assert(strstr(drawn,"Source")&&strstr(drawn,"Render")&&strstr(drawn,"Press a pad"));resample_ui_pad(3,1,resample_ui_ticket());resample_ui_pad(3,0,resample_ui_ticket());draw();assert(strstr(drawn,"B04"));
  for(unsigned hue=1;hue<MUSIC_SEQUENCE_COLOURS;++hue){
   test_colours[18]=hue;resample_ui_pad(3,1,resample_ui_ticket());
-  uint64_t source_colour;assert(resample_ui_light(2,&source_colour)&&((uint32_t)source_colour==PAD_DANGER));
+  uint64_t source_colour;assert(resample_ui_light(2,&source_colour)&&((uint32_t)source_colour==music_identity_rgb(hue)));
  }
  test_colours[18]=0;resample_ui_pad(3,1,resample_ui_ticket());
  puts("PASS actual resample UI palette retains all12 assigned source hues while choosing another pad; destination selection does not start audio");
- uint64_t selected,other;assert(resample_ui_light(3,&selected)&&resample_ui_light(2,&other)&&((uint32_t)selected==PAD_FREE)&&((uint32_t)other==PAD_DANGER));uint64_t palette_before=resample_ui_palette_generation();
+ uint64_t selected,other;assert(resample_ui_light(3,&selected)&&resample_ui_light(2,&other)&&((uint32_t)selected==PAD_FREE)&&((uint32_t)other==music_identity_rgb(0)));uint64_t palette_before=resample_ui_palette_generation();
  requested_target=19;button(2);assert(resample_ui_active());stock_queue_pump();resample_ui_tick(0);assert(!resample_ui_active());
  assert(!resample_ui_light(3,&selected)&&resample_ui_palette_generation()>palette_before);
  unsigned char e[16]={0};e[8]=0x13;assert(!resample_ui_control(e,resample_ui_ticket()));e[8]=0x52;e[9]=1;assert(!resample_ui_button(e,resample_ui_ticket()));

@@ -55,8 +55,14 @@ static inline uint64_t pad_source_light(uint32_t rgb,uint64_t phase){
  return pad_light((p<80u||(p>=180u&&p<260u))?PAD_SELECT:rgb,
                   (p<80u||(p>=180u&&p<260u))?PAD_BRIGHT_SELECT:PAD_BRIGHT_CONTENT);
 }
-/* Target roles own the whole grid. Occupancy never depends on ID or source. */
+/* Blinking white/identity focus, with equal400ms phases. Phase starts anew
+ * when Sample selection changes, rather than depending on global uptime. */
+static inline uint64_t pad_focus_light(uint32_t rgb,float brightness,uint64_t phase){
+ return phase%800u<400u?pad_light(PAD_SELECT,.95f):pad_light(rgb,brightness>.35f?.35f:brightness);
+}
+/* Only assigned/current destinations get service red/green. */
 static inline uint64_t pad_target_light(int used,int assigned,int current,uint64_t phase){
+ if(!assigned&&!current)return pad_light(used?PAD_CONTENT:0,used?.18f:0);
  return pad_light(used?PAD_DANGER:PAD_FREE,current?(phase%800u<200u?.90f:.30f):assigned?.48f:.18f);
 }
 #endif

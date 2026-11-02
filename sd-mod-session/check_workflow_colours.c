@@ -14,7 +14,9 @@ int main(void){
    assert((uint32_t)pad_workflow_colour(n,1,1,1,0,phase)==PAD_DANGER);
    for(unsigned used=0;used<2;++used)for(unsigned assigned=0;assigned<2;++assigned){
     uint64_t background=pad_target_light(used,assigned,0,phase);
-    assert((uint32_t)background==(used?PAD_DANGER:PAD_FREE));
+    assert((uint32_t)background==(assigned?(used?PAD_DANGER:PAD_FREE):used?PAD_CONTENT:0));
+    uint64_t candidate=pad_target_colour(n,used,assigned,0,phase);
+    assert((uint32_t)candidate==(assigned?(used?PAD_DANGER:PAD_FREE):used?music_identity_rgb(c):0));
     assert((uint32_t)pad_target_light(used,assigned,1,phase)==(used?PAD_DANGER:PAD_FREE));
    }
    assert(colours[n]==c);

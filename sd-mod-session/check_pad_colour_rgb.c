@@ -118,17 +118,17 @@ int main(void){
   sample_visible=0;send_step_lights();assert(sent[0]==0x008000);sample_visible=1;
  }
  native_workflow=1;sample_visible=0;steps_lighting=1;steps_lights[0]=0x2030ff;send_step_lights();
- atomic_store(&pad_colour_cursor_white,1);native_rgb(0,0xffffff);native_rgb(2,0xffffff);
+ atomic_store(&pad_colour_cursor_white,1);atomic_store(&pad_colour_target_phase,0);native_rgb(0,0xffffff);native_rgb(2,0xffffff);
  assert(sent[0]==PAD_DANGER&&sent[2]==PAD_FREE);
  uint64_t selected_light;assert(pad_colour_light(0,&selected_light));
- atomic_store(&pad_colour_cursor_white,0);uint64_t dimmed;assert(pad_colour_light(0,&dimmed));
+ atomic_store(&pad_colour_cursor_white,0);atomic_store(&pad_colour_target_phase,400);uint64_t dimmed;assert(pad_colour_light(0,&dimmed));
  assert((uint32_t)dimmed==PAD_DANGER&&dimmed!=selected_light);
  native_workflow=2;send_step_lights();native_rgb(0,0xff0000);native_rgb(2,0xff0000);
  assert(sent[0]==PAD_DANGER&&sent[2]==PAD_FREE); /* native red marks a destination, not its occupancy */
  steps_lighting=0;native_workflow=0;sample_visible=1;levels_on=1;send_step_lights();assert(sent[0]==0xff0000);levels_on=0;
  levels_on=1;levels_type=8;levels_origin=1;assert(music_set_pad_colour(1,13));send_step_lights();
- atomic_store(&pad_colour_cursor_white,1);native_rgb(0,0xff7700);assert(sent[0]==PAD_SELECT);
- atomic_store(&pad_colour_cursor_white,0);native_rgb(0,0xff7700);assert(sent[0]==music_identity_rgb(13));
+ atomic_store(&pad_colour_cursor_white,1);atomic_store(&pad_colour_chop_phase,0);native_rgb(0,0xff7700);assert(sent[0]==PAD_SELECT);
+ atomic_store(&pad_colour_cursor_white,0);atomic_store(&pad_colour_chop_phase,650);native_rgb(0,0xff7700);assert(sent[0]==music_identity_rgb(13));
  native_rgb(2,0x000080);assert(sent[2]==music_identity_rgb(13));native_rgb(3,0);assert(sent[3]==0);
  levels_on=0;levels_type=0;levels_origin=0;
  sample_visible=0;seq_visible=1;seq_selected=-1;transport=0;seq_present=3;

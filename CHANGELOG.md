@@ -1,3 +1,10 @@
+## r26v — local candidate
+
+- Keep empty unassigned destination pads off; show red/green only on assigned targets.
+- Give Sample/Chop/Sound selection a clear400ms white/identity cursor and reset selection phase.
+- Preserve muted-event flashes, Seq rhythm, native K and integrated OptoCat/Warm.
+- Device candidate scope: docs/RELEASE_NOTES-r26v.md.
+
 ## r26u — local candidate
 
 - Separate assignable identities from reserved service colours; add Pink without renumbering legacy IDs.

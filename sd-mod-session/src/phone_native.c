@@ -11,6 +11,7 @@
 #include "note_native.h"
 #include "music_settings.h"
 #include "pad_palette.h"
+#include "pad_workflow_colour.h"
 #include "music_archive.h"
 #include "music_ui.h"
 #ifdef MPC_PAD_EQ
@@ -1347,6 +1348,7 @@ static void sequence_palette_tick(void){
  * Components, which may belong to another thread. */
 static _Atomic unsigned pad_colour_sample_layout,pad_colour_native_workflow,pad_colour_cursor_white,pad_colour_source_white;
 static _Atomic int pad_colour_native_occupied=-1;
+static _Atomic uint64_t pad_colour_chop_phase,pad_colour_target_phase;
 static _Atomic int pad_colour_bank;
 /* Sample pad layout: the user's Pad Colour (Mix, K2) keeps the
  * native brightness of each pad (dim loaded, bright playing) and replaces
@@ -1360,7 +1362,7 @@ static int pad_colour_light(unsigned pad,uint64_t *out){
         if(occupied>=0){
             unsigned raw=(unsigned)atomic_load(&original_lights[pad]);
             int marked=raw==0xff0000||raw==0xffffff;
-            *out=pad_target_light(!!((unsigned)occupied&(1u<<pad)),marked,marked,atomic_load(&pad_colour_cursor_white)?0:400);return 1;
+            *out=pad_target_colour((unsigned)bank*16+pad,!!((unsigned)occupied&(1u<<pad)),marked,marked,atomic_load(&pad_colour_target_phase));return 1;
         }
         return 0;
     }
@@ -1373,7 +1375,7 @@ static int pad_colour_light(unsigned pad,uint64_t *out){
         unsigned top=(raw>>16)&255;if(((raw>>8)&255)>top)top=(raw>>8)&255;if((raw&255)>top)top=raw&255;
         unsigned source=(unsigned)bank*16+origin;
         uint32_t hue=music_identity_rgb((unsigned)music_pad_colour(source));
-        *out=raw==0xff7700?pad_selection_light(hue,PAD_BRIGHT_CONTENT,atomic_load(&pad_colour_cursor_white)?0:400):pad_light(top?hue:0,top?PAD_BRIGHT_CONTENT:0);
+        *out=raw==0xff7700?pad_focus_light(hue,PAD_BRIGHT_CONTENT,atomic_load(&pad_colour_chop_phase)):pad_light(top?hue:0,top?PAD_BRIGHT_CONTENT:0);
         return 1;
     }
     if(enabled||(step_native_active()&&!step_native_sound_layout())
@@ -1444,8 +1446,18 @@ static void send_step_lights(void)
     atomic_store(&pad_colour_native_occupied,workflow_native_occupied());
     atomic_store(&pad_colour_bank,step_native_browser_bank(-1));
     uint64_t selection_phase=now_ms();
-    atomic_store(&pad_colour_cursor_white,selection_phase%800<200);
+    atomic_store(&pad_colour_cursor_white,selection_phase%800<400);
     atomic_store(&pad_colour_source_white,selection_phase%1000<80||(selection_phase%1000>=180&&selection_phase%1000<260));
+    atomic_store(&pad_colour_target_phase,selection_phase);
+    /* Resolve Chop focus on UI only. Its first frame must be white even if
+     * selection occurs in the old cursor's identity phase. */
+    static int last_chop=-1,last_source=-1;static uint64_t chop_since;
+    unsigned on=0,mode=0,origin=0;music_lighting_levels_state(&on,&mode,&origin);
+    int focus=-1,source=-1;
+    if(on&&mode==8&&!native_workflow){int bank=atomic_load(&pad_colour_bank);source=bank*16+(int)origin;
+        for(unsigned i=0;i<16;++i)if((unsigned)atomic_load(&original_lights[i])==0xff7700){focus=bank*16+(int)i;break;}}
+    if(focus!=last_chop||source!=last_source){last_chop=focus;last_source=source;chop_since=selection_phase;}
+    atomic_store(&pad_colour_chop_phase,selection_phase-chop_since);
     atomic_store(&pad_colour_sample_layout,native_workflow||step_native_sound_layout()||
 #ifdef MPC_COMPRESSOR
         compressor_ui_active()||

@@ -86,7 +86,7 @@ int main(void){
    uint32_t hue=music_identity_rgb(c);
    for(unsigned ms=0;ms<1280;ms+=80){
     uint64_t light=sound_palette_value(5,ms);
-    assert((uint32_t)light==(ms%800<120?PAD_SELECT:hue));
+    assert((uint32_t)light==(ms%800<400?PAD_SELECT:hue));
     assert((uint32_t)sound_palette_value(4,ms)!=(uint32_t)0);
    }
    sound_present=0;

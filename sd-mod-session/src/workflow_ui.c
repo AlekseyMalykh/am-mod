@@ -415,7 +415,7 @@ static void publish_palette(void){
  if(atomic_load(&dead_files))return;
  struct phone_input p=query;uint64_t now=now_ms();for(unsigned i=0;i<16;++i)if(feedback[i]>now)p.held|=1u<<i;
  for(unsigned i=0;i<16;++i){uint64_t light=search&&!results&&query.enabled?phone_light(&p,i+1):0;
-  if(search&&results&&sample_browser()){unsigned bank=(unsigned)step_native_browser_bank(-1);if(bank<8){void*t=note_native_context();void*program=t?FIELD(t,0xb8,void*):NULL;void*instrument=program?FN(0x286bbe0,void*(*)(void*,int))(program,(int)(bank*16+i)):NULL;int used=instrument&&FN(0x2804760,int(*)(void*))(instrument),target=result_pad_ready&&result_pad==bank*16+i;light=pad_target_light(used,target,target,now);}}
+  if(search&&results&&sample_browser()){unsigned bank=(unsigned)step_native_browser_bank(-1);if(bank<8){void*t=note_native_context();void*program=t?FIELD(t,0xb8,void*):NULL;void*instrument=program?FN(0x286bbe0,void*(*)(void*,int))(program,(int)(bank*16+i)):NULL;int used=instrument&&FN(0x2804760,int(*)(void*))(instrument),target=result_pad_ready&&result_pad==bank*16+i;light=pad_target_colour(bank*16+i,used,target,target,now);}}
   if(atomic_exchange(&palette[i],light)!=light)atomic_fetch_add(&palette_generation,1);
  }
 }
@@ -865,7 +865,7 @@ static void mono_palette(void){
  for(unsigned i=0;i<16;++i){unsigned n=mono_bank*16+i;void*p=FN(0x286bbe0,void*(*)(void*,int))(mono_program,(int)n);
   int used=p&&FN(0x2804760,int(*)(void*))(p);
   int target=n==mono_target;
-  atomic_store(&palette[i],pad_target_light(used,target,target,now_ms()));}
+  atomic_store(&palette[i],pad_target_colour(n,used,target,target,now_ms()));}
  atomic_fetch_add(&palette_generation,1);
 }
 static void mono_paint(void*g){
@@ -1093,7 +1093,7 @@ static void batch_palette_at(uint64_t phase){
   unsigned colour_pad=chop_export&&!batch_page?slice_sound:n;
   int target=0,current=0;
   if(batch_page)for(unsigned j=0;j<batch_count;++j)if(destination[j]==n){target=1;current=(int)j==batch_row;break;}
-  uint64_t value=batch_page?pad_target_light(present,target,current,phase):pad_workflow_colour(colour_pad,present,is_source,0,0,phase);
+  uint64_t value=batch_page?pad_target_colour(colour_pad,present,target,current,phase):pad_workflow_colour(colour_pad,present,is_source,0,0,phase);
   uint32_t c=(uint32_t)value,bits=(uint32_t)(value>>32);float strength;memcpy(&strength,&bits,4);
 
   uint64_t light=pad_light(c,strength);if(atomic_exchange(&palette[i],light)!=light)atomic_fetch_add(&palette_generation,1);}

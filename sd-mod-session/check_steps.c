@@ -811,12 +811,15 @@ int main(int argc,char **argv)
     memset(playback_until,0,sizeof(playback_until));memset(playback_muted_until,0,sizeof(playback_muted_until));
     play_instrument[0x78]=0;assert(music_set_pad_colour(6,13));step_native_observe_rgb(6,0);
     sample_palette_publish(things,program,0,1,0);assert((uint32_t)atomic_load(&sample_palette[6])==PAD_SELECT);
-    sample_palette_publish(things,program,0,1,400);assert(atomic_load(&sample_palette[6])==pad_light(music_identity_rgb(13),PAD_BRIGHT_CONTENT));
-    step_native_observe_rgb(6,0x00ffff);sample_palette_publish(things,program,0,1,400);assert(atomic_load(&sample_palette[6])==pad_light(music_identity_rgb(13),.90f));
-    play_instrument[0x78]=1;sample_palette_publish(things,program,0,1,400);assert(atomic_load(&sample_palette[6])==pad_light(PAD_MUTED,PAD_BRIGHT_MUTED));
-    playback_until[6]=playback_muted_until[6]=500;sample_palette_publish(things,program,0,1,400);assert(atomic_load(&sample_palette[6])==pad_light(PAD_MUTED,.65f)&&play_instrument[0x78]==1);
-    sample_palette_publish(things,program,0,1,600);assert(atomic_load(&sample_palette[6])==pad_light(PAD_MUTED,PAD_BRIGHT_MUTED));
-    play_instrument[0x78]=0;FIELD(things,0x60,void*)=saved_selected;assert(music_set_pad_colour(6,0));
+    sample_palette_publish(things,program,0,1,650);assert(atomic_load(&sample_palette[6])==pad_light(music_identity_rgb(13),.35f));
+    step_native_observe_rgb(6,0x00ffff);sample_palette_publish(things,program,0,1,650);assert(atomic_load(&sample_palette[6])==pad_light(music_identity_rgb(13),.35f));
+    play_instrument[0x78]=1;sample_palette_publish(things,program,0,1,650);assert(atomic_load(&sample_palette[6])==pad_light(PAD_MUTED,PAD_BRIGHT_MUTED));
+    playback_until[6]=playback_muted_until[6]=700;sample_palette_publish(things,program,0,1,650);assert(atomic_load(&sample_palette[6])==pad_light(PAD_MUTED,.65f)&&play_instrument[0x78]==1);
+    sample_palette_publish(things,program,0,1,750);assert(atomic_load(&sample_palette[6])==pad_light(PAD_MUTED,PAD_BRIGHT_MUTED));
+    play_instrument[0x78]=0;sample_focus_program=NULL;memset(playback_until,0,sizeof(playback_until));
+    sample_palette_publish(things,program,0,1,1234567);assert((uint32_t)atomic_load(&sample_palette[6])==PAD_SELECT);
+    sample_palette_publish(things,program,0,1,1234967);assert((uint32_t)atomic_load(&sample_palette[6])==music_identity_rgb(13));
+    FIELD(things,0x60,void*)=saved_selected;assert(music_set_pad_colour(6,0));
     puts("PASS Sample white focus, Pink identity, native held/Loop activity, grey muted-event pulse and expiry; mute property unchanged");
     /* Returning from hidden Steps must leave ordinary Sample pulses enabled. */
     steps=0;

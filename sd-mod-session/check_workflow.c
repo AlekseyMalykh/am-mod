@@ -426,8 +426,8 @@ char path[1024];snprintf(path,sizeof(path),"%s.batch",argv[2]);draw=fopen(path,"
 batch_bank=0;batch_row=1;batch_palette();uint64_t light;
 #ifndef PROJECT_RESTORE_BASELINE
 batch_palette_at(0);
-assert(workflow_light(0,&light)&&(uint32_t)light==PAD_DANGER);
-assert(workflow_light(15,&light)&&(uint32_t)light==PAD_FREE);
+assert(workflow_light(0,&light)&&(uint32_t)light==PAD_CONTENT);
+assert(workflow_light(15,&light)&&(uint32_t)light==0);
 {uint64_t other,current;float a,b;uint32_t x,y;
  assert(workflow_light(destination[0]%16,&other)&&(uint32_t)other==PAD_FREE);
  assert(workflow_light(destination[1]%16,&current)&&(uint32_t)current==PAD_FREE);
@@ -436,9 +436,9 @@ batch_row=0;batch_palette_at(0);assert(workflow_light(destination[1]%16,&light)&
 #endif
 /* Assignment survives browsing banks; destination service colours win. */
 #ifndef PROJECT_RESTORE_BASELINE
-assert(music_set_pad_colour(0,5));batch_palette();assert(workflow_light(0,&light)&&((uint32_t)light==PAD_DANGER));
-unsigned old_occupied16=occupied[16];batch_bank=1;assert(music_set_pad_colour(16,8));occupied[16]=1;batch_palette();assert(workflow_light(0,&light)&&(uint32_t)light==PAD_DANGER);occupied[16]=old_occupied16;
-batch_bank=0;batch_palette();assert(workflow_light(0,&light)&&((uint32_t)light==PAD_DANGER));
+assert(music_set_pad_colour(0,5));batch_palette();assert(workflow_light(0,&light)&&((uint32_t)light==music_identity_rgb(5)));
+unsigned old_occupied16=occupied[16];batch_bank=1;assert(music_set_pad_colour(16,8));occupied[16]=1;batch_palette();assert(workflow_light(0,&light)&&(uint32_t)light==music_identity_rgb(8));occupied[16]=old_occupied16;
+batch_bank=0;batch_palette();assert(workflow_light(0,&light)&&((uint32_t)light==music_identity_rgb(5)));
 assert(workflow_light(destination[1]%16,&light)&&(uint32_t)light==PAD_FREE);
 music_reset();batch_palette();
 #endif
@@ -446,7 +446,7 @@ workflow_pad(0,1,0,workflow_ticket());assert(batch_row==0);
 unsigned previous=destination[0];target_pad(source[0]);assert(destination[0]==previous&&strstr(batch_message,"itself"));
 batch_bank=2;batch_palette();
 #ifndef PROJECT_RESTORE_BASELINE
-assert(workflow_light(0,&light)&&(uint32_t)light==PAD_DANGER);
+assert(workflow_light(0,&light)&&(uint32_t)light==PAD_CONTENT);
 #endif
 workflow_pad(0,1,0,workflow_ticket());assert(destination[0]==32&&pinned[0]);
 batch_palette();assert(workflow_light(0,&light)&&(uint32_t)light==0xff2020);

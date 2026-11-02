@@ -174,11 +174,17 @@ static uint64_t playback_until[16],playback_muted_until[16];
 static _Atomic unsigned playback_muted_mask,sample_palette_enabled;
 static _Atomic uint64_t sample_palette[16];
 static _Atomic unsigned sample_native_rgb[16];
+static void *sample_focus_program;
+static int sample_focus_index=-1,sample_focus_bank=-1;
+static uint64_t sample_focus_since;
 void step_native_observe_rgb(unsigned pad,unsigned rgb){if(pad<16)atomic_store(&sample_native_rgb[pad],rgb);}
 static void sample_palette_publish(void *things,void *program,int bank,int enabled,uint64_t now){
- if(!enabled||!program||bank<0||bank>=8){atomic_store(&sample_palette_enabled,0);return;}
+ if(!enabled||!program||bank<0||bank>=8){atomic_store(&sample_palette_enabled,0);sample_focus_program=NULL;sample_focus_index=-1;return;}
  void *selected=things?FIELD(things,0x60,void*):NULL;
  int focus=selected?FN(0x286bc20,int(*)(void*,void*))(program,selected):-1;
+ if(program!=sample_focus_program||focus!=sample_focus_index||bank!=sample_focus_bank||now<sample_focus_since){
+  sample_focus_program=program;sample_focus_index=focus;sample_focus_bank=bank;sample_focus_since=now;
+ }
  for(unsigned i=0;i<16;++i){
   unsigned n=(unsigned)bank*16+i;void*p=FN(0x286bbe0,void*(*)(void*,int))(program,(int)n);
   int used=p&&FN(0x2804760,int(*)(void*))(p);
@@ -191,7 +197,8 @@ static void sample_palette_publish(void *things,void *program,int bank,int enabl
   if(used&&!muted&&top>=192)strength=.90f; /* real held/Loop playback remains visible */
   if(used&&now<playback_until[i]){rgb=now<playback_muted_until[i]||muted?PAD_MUTED:rgb;strength=rgb==PAD_MUTED?.65f:.90f;}
   uint64_t light=pad_light(rgb,strength);
-  if((int)n==focus)light=pad_selection_light(rgb?rgb:PAD_EMPTY,strength?strength:PAD_BRIGHT_EMPTY,now);
+  if((int)n==focus&&!(rgb==PAD_MUTED&&now<playback_until[i]))
+   light=pad_focus_light(rgb?rgb:PAD_EMPTY,strength?strength:PAD_BRIGHT_EMPTY,now-sample_focus_since);
   atomic_store(&sample_palette[i],light);
  }
  atomic_store(&sample_palette_enabled,1);
@@ -1076,13 +1083,14 @@ static uint64_t step_palette_value(unsigned events,unsigned muted,int mute,int e
 /* Sound selection overlays white briefly, then reveals the assigned hue.
  * This is a UI-only palette phase; the sound/bank selection is unchanged. */
 static uint64_t sound_palette_value(unsigned pad,uint64_t phase){
+    static int last_sound=-1,last_bank=-1;static uint64_t since;
+    if(sound!=last_sound||browse_bank!=last_bank||phase<since){last_sound=sound;last_bank=browse_bank;since=phase;}
     int chosen=music_pad_colour((unsigned)browse_bank*16+pad);
     int present=!!(sound_present&(1u<<pad));
     uint32_t rgb=present?music_identity_rgb((unsigned)chosen):PAD_EMPTY;
     float brightness=present?PAD_BRIGHT_CONTENT:PAD_BRIGHT_EMPTY;
     if(sound/16==browse_bank&&(unsigned)(sound%16)==pad){
-        if(phase%800<120){rgb=PAD_SELECT;brightness=PAD_BRIGHT_SELECT;}
-        else if(present){rgb=music_identity_rgb((unsigned)chosen);brightness=PAD_BRIGHT_CONTENT;}
+        return pad_focus_light(rgb,brightness,phase-since);
     }
     return pad_light(rgb,brightness);
 }

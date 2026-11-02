@@ -38,7 +38,7 @@ static void publish_palette(){
     if(!shown)return;
     for(unsigned i=0;i<16;++i){unsigned pad=dialog.bank*16+i;bool used=(dialog.occupied[pad/64]>>(pad%64))&1;
         bool target=pad==dialog.target_pad;
-        uint64_t colour=pad_target_light(used,target,target,now_ms());
+        uint64_t colour=pad_target_colour(pad,used,target,target,now_ms());
         if(palette[i].exchange(colour)!=colour)palette_epoch.fetch_add(1);
     }
 }
