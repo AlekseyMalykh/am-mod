@@ -6,6 +6,7 @@
 #include <cstring>
 #include <ctime>
 #include "pad_palette.h"
+#include "pad_workflow_colour.h"
 #define F(p,o,T) (*reinterpret_cast<T*>(reinterpret_cast<char*>(p)+(o)))
 static uintptr_t base;
 static std::atomic<resample_stock_backend*>backend{nullptr};
@@ -38,9 +39,7 @@ static void publish_palette(){
     for(unsigned i=0;i<16;++i){unsigned pad=dialog.bank*16+i;bool used=(dialog.occupied[pad/64]>>(pad%64))&1;
         bool source=dialog.kind==RESAMPLE_SOUND&&pad==dialog.source_pad;
         bool target=pad==dialog.target_pad,overwrite=target&&used&&!source;
-        uint32_t rgb=target?(overwrite?PAD_DANGER:PAD_SELECT):source?PAD_CONTENT:used?PAD_OCCUPIED:0;
-        float strength=target?PAD_BRIGHT_SELECT:source?PAD_BRIGHT_CONTENT:PAD_BRIGHT_OCCUPIED;
-        uint64_t colour=pad_light(rgb,strength);
+        uint64_t colour=pad_workflow_colour(pad,used,source,target,overwrite,now_ms());
         if(palette[i].exchange(colour)!=colour)palette_epoch.fetch_add(1);
     }
 }

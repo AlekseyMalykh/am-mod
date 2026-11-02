@@ -3,10 +3,10 @@ from pathlib import Path
 import hashlib,json,subprocess
 R=Path(__file__).resolve().parent
 O=R/'build/pad-colour-rgb';O.mkdir(parents=True,exist_ok=True)
-sources=['check_pad_colour_rgb.c','check_pad_colour_steps.c','src/phone_native.c','src/phone_input.c','src/music_settings.c','src/step_native.c','src/step_native.h','src/step_abi.S','src/pad_palette.h','verify_pad_colour_rgb.py']
+sources=['src/workflow_ui.h','src/pad_workflow_colour.h','check_workflow_colours.c','check_sequence_rgb.c','check_workflow_rgb.c','check_pad_colour_rgb.c','check_pad_colour_steps.c','src/phone_native.c','src/phone_input.c','src/music_settings.c','src/step_native.c','src/step_native.h','src/step_abi.S','src/pad_palette.h','src/compressor.h','src/compressor_ui.c','verify_pad_colour_rgb.py']
 hashes={n:hashlib.sha256((R/n).read_bytes()).hexdigest() for n in sources}
 for name,flags in [('normal',[]),('ubsan',['-fsanitize=undefined','-static-libubsan','-fno-sanitize-recover=all'])]:
- for case,inputs in [('rgb',['check_pad_colour_rgb.c','src/phone_input.c','src/music_settings.c']),('steps',['check_pad_colour_steps.c','src/music_settings.c','src/step_abi.S'])]:
+ for case,inputs in [('workflow-colours',['check_workflow_colours.c']),('rgb',['check_pad_colour_rgb.c','src/phone_input.c','src/music_settings.c']),('sequence',['check_sequence_rgb.c','src/phone_input.c']),('steps',['check_pad_colour_steps.c','src/music_settings.c','src/step_abi.S'])]:
   target=O/(name+'-'+case)
   subprocess.run(['aarch64-linux-gnu-gcc','-std=c11','-O1','-g','-Wall','-Wextra','-Werror','-Ibuild',
   '-mbranch-protection=standard','-ffunction-sections','-fdata-sections','-Wl,--gc-sections',*flags,
@@ -15,4 +15,4 @@ for name,flags in [('normal',[]),('ubsan',['-fsanitize=undefined','-static-libub
   (O/(name+'-'+case+'.log')).write_text(p.stdout+p.stderr)
   print(p.stdout+p.stderr,end='',flush=True);p.check_returncode();assert 'PASS ' in p.stdout
 assert hashes=={n:hashlib.sha256((R/n).read_bytes()).hexdigest() for n in sources}
-(O/'verification.json').write_text(json.dumps(dict(passed=True,ubsan=True,sources_sha256=hashes,hardware_tested=False),indent=2)+'\n')
+(O/'verification.json').write_text(json.dumps(dict(passed=True,ubsan=True,workflow_colours_verified=True,sound_cursor_colour_verified=True,sequence_pulses_verified=True,sequence_background_nonzero=True,sequence_other_brightness_stable=True,sequence_tempo_and_meter_verified=True,sources_sha256=hashes,hardware_tested=False),indent=2)+'\n')

@@ -4,6 +4,7 @@
 #include "batch_copy.h"
 #include "step_native.h"
 #include "note_native.h"
+#include "music_settings.h"
 #include "browser_tree.h"
 #include "preview_gain.h"
 #include "ui_caption.h"
@@ -20,6 +21,7 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include "pad_palette.h"
+#include "pad_workflow_colour.h"
 #define FN(o,t) ((t)(base+(o)))
 #define FIELD(p,o,t) (*(t*)((char*)(p)+(o)))
 #define FILE_VPTR 0x6e1cfb8
@@ -75,7 +77,7 @@ static void batch_palette(void);
 static void batch_job_tick(void);
 static void batch_job_paint(void*);
 static _Atomic(uintptr_t) files_id,copy_id;
-static _Atomic unsigned dead_files,dead_copy,active,custom,button_routes;
+static _Atomic unsigned dead_files,dead_copy,active,custom,button_routes,native_colours;
 static _Atomic uint64_t epoch=1;
 static struct phone_input query;
 static int search,results,shift,selected,scanning,scan_row,scan_count,overflow;
@@ -413,7 +415,7 @@ static void publish_palette(void){
  if(atomic_load(&dead_files))return;
  struct phone_input p=query;uint64_t now=now_ms();for(unsigned i=0;i<16;++i)if(feedback[i]>now)p.held|=1u<<i;
  for(unsigned i=0;i<16;++i){uint64_t light=search&&!results&&query.enabled?phone_light(&p,i+1):0;
-  if(search&&results&&sample_browser()){unsigned bank=(unsigned)step_native_browser_bank(-1);if(bank<8){void*t=note_native_context();void*program=t?FIELD(t,0xb8,void*):NULL;void*instrument=program?FN(0x286bbe0,void*(*)(void*,int))(program,(int)(bank*16+i)):NULL;/* Shared pad palette: target white (red, blinking, when it would replace a sound), occupied dim white, empty off. */int used=instrument&&FN(0x2804760,int(*)(void*))(instrument),target=result_pad_ready&&result_pad==bank*16+i;uint32_t colour=target?(used?PAD_DANGER:PAD_SELECT):used?PAD_OCCUPIED:0;float power=target?(used&&!pad_blink_on(now_ms())?.25f:PAD_BRIGHT_SELECT):PAD_BRIGHT_OCCUPIED;light=pad_light(colour,power);}}
+  if(search&&results&&sample_browser()){unsigned bank=(unsigned)step_native_browser_bank(-1);if(bank<8){void*t=note_native_context();void*program=t?FIELD(t,0xb8,void*):NULL;void*instrument=program?FN(0x286bbe0,void*(*)(void*,int))(program,(int)(bank*16+i)):NULL;int used=instrument&&FN(0x2804760,int(*)(void*))(instrument),target=result_pad_ready&&result_pad==bank*16+i;light=pad_workflow_colour(bank*16+i,used,0,target,target&&used,now);}}
   if(atomic_exchange(&palette[i],light)!=light)atomic_fetch_add(&palette_generation,1);
  }
 }
@@ -501,6 +503,7 @@ int workflow_install(void(*fp)(void*,void*),void(*cp)(void*,void*)){
  for(unsigned i=0;i<2;++i){void*page=(void*)((uintptr_t)slots[i]&~(uintptr_t)4095);if(mprotect(page,4096,PROT_READ|PROT_WRITE))return 0;*slots[i]=(uintptr_t)callbacks[i];if(mprotect(page,4096,PROT_READ))_exit(121);}return 1;
 }
 void workflow_destroyed(void*p){if(p==constructed_files)constructed_files=NULL;if((uintptr_t)p==atomic_load(&chop_id)){atomic_store(&dead_chop,1);atomic_store(&chop_available,0);}if((uintptr_t)p==atomic_load(&files_id)){atomic_store(&dead_files,1);atomic_store(&active,0);atomic_store(&custom,0);atomic_fetch_add(&epoch,1);}if((uintptr_t)p==atomic_load(&copy_id)){atomic_store(&dead_copy,1);atomic_store(&active,0);atomic_store(&custom,0);atomic_fetch_add(&epoch,1);}}
+int workflow_native_pad_colours(void){return atomic_load(&native_colours)!=0;}
 int workflow_active(void){return atomic_load(&active);}
 int workflow_blocks_sample_controls(void){return atomic_load(&custom)||atomic_load(&button_routes)||atomic_load(&split_forwarded)||batch_job||batch_leaving;}
 int workflow_jobs_busy(void){return batch_job||mono_job;}
@@ -527,6 +530,15 @@ static int newest_project(char*out,size_t size){
 }
 static void autoload_tick(void){
  if(autoload_done)return;
+ /* isCurrentlyBlockedByAnotherModalComponent on Sample is not a global
+  * load-completion signal: a modal can allow events on other components.
+  * Wait for the actual top modal (native 10f87a0, index zero) to disappear
+  * before starting another project load, then require a quiet UI interval. */
+ if(FN(0x10f87a0,void*(*)(int))(0)){
+  static unsigned reported;
+  if(!reported++){fprintf(stderr,"AUTOLOAD WAIT_NATIVE_MODAL\n");}
+  autoload_after=0;return;
+ }
  if(!note_native_sample_visible()){autoload_after=0;return;}
  if(!autoload_after){autoload_after=now_ms()+2500;return;}
  if(now_ms()<autoload_after)return;
@@ -536,7 +548,7 @@ static void autoload_tick(void){
  uint64_t string=0,file=0;
  FN(0xf535c0,void(*)(uint64_t*,const char*))(&string,path);
  FN(0xf75630,void(*)(uint64_t*,const uint64_t*))(&file,&string);
- autoload_done=1;fprintf(stderr,"AUTOLOAD FULL_PROJECT_REQUESTED\n");
+ autoload_done=1;fprintf(stderr,"AUTOLOAD FULL_PROJECT_REQUESTED path=%s\n",path);
  FN(0x14fc6a0,void(*)(void*,const void*,int))(s,&file,0);
  FN(0xf0a290,void(*)(uint64_t*))(&file);FN(0xf0a290,void(*)(uint64_t*))(&string);
 }
@@ -570,6 +582,7 @@ int workflow_tick(void){
  if(batch&&!visible(batch_surface())&&!batch_job&&!batch_leaving)batch_close();
  if(batch){preview_refresh();batch_palette();repaint(batch_surface());}
  int copy_visible=visible(copy_root);
+ atomic_store(&native_colours,!atomic_load(&custom)&&((v&&sample_browser())||copy_visible));
  atomic_store(&button_routes,(copy_visible?1u:0u)|(v?2u:0u));
  atomic_store(&active,v||copy_visible||(MPC_EXPERIMENTAL_CHOP_EXPORT&&visible(chop_root))||atomic_load(&split_forwarded)||batch_job||batch_leaving);
  if(visible(batch_surface())){void*c=FIELD(batch_surface(),chop_host?0x108:0x100,void*);if(c)shift=FIELD(c,0x22a0,unsigned char)!=0;}
@@ -839,10 +852,8 @@ static void mono_palette(void){
  if(current_program()!=mono_program)return;
  for(unsigned i=0;i<16;++i){unsigned n=mono_bank*16+i;void*p=FN(0x286bbe0,void*(*)(void*,int))(mono_program,(int)n);
   int used=p&&FN(0x2804760,int(*)(void*))(p);
-  uint32_t rgb=used?PAD_OCCUPIED:0;float brightness=PAD_BRIGHT_OCCUPIED;
-  if(n==mono_source){rgb=PAD_CONTENT;brightness=PAD_BRIGHT_CONTENT;}
-  if(n==mono_target){int overwrite=used&&n!=mono_source;rgb=overwrite?PAD_DANGER:PAD_SELECT;brightness=overwrite&&!pad_blink_on(now_ms())?.25f:PAD_BRIGHT_SELECT;}
-  atomic_store(&palette[i],pad_light(rgb,brightness));}
+  int source=n==mono_source,target=n==mono_target;
+  atomic_store(&palette[i],pad_workflow_colour(n,used,source,target,target&&used&&!source,now_ms()));}
  atomic_fetch_add(&palette_generation,1);
 }
 static void mono_paint(void*g){
@@ -1067,12 +1078,12 @@ static void batch_palette(void){
  for(unsigned i=0;i<16;++i){unsigned n=(unsigned)batch_bank*16+i;unsigned shown=chop_export&&!batch_page?(unsigned)slice_page*16+i:n;
   unsigned present=chop_export&&!batch_page?shown<(unsigned)slice_count:occupied[n];
   unsigned is_source=chop_export?(batch_page?n==slice_sound:selected_sources[shown]):selected_sources[shown];
-  uint32_t c=is_source?PAD_CONTENT:present?PAD_OCCUPIED:0;float strength=is_source?PAD_BRIGHT_CONTENT:PAD_BRIGHT_OCCUPIED;
-  /* Targets are white; a target that overwrites an occupied pad is red and the
-   * current row's target blinks, so the warning never relies on hue alone. */
-  int overwrite=batch_page&&present&&!is_source;
-  if(batch_page)for(unsigned j=0;j<batch_count;++j)if(destination[j]==n){c=overwrite?PAD_DANGER:PAD_SELECT;strength=.45f;break;}
-  if(batch_page&&batch_count&&destination[batch_row]==n){c=overwrite?PAD_DANGER:PAD_SELECT;strength=overwrite&&!pad_blink_on(now_ms())?.25f:PAD_BRIGHT_SELECT;}
+  unsigned colour_pad=chop_export&&!batch_page?slice_sound:n;
+  int target=0,current=0;
+  if(batch_page)for(unsigned j=0;j<batch_count;++j)if(destination[j]==n){target=1;current=(int)j==batch_row;break;}
+  uint64_t value=pad_workflow_colour(colour_pad,present,is_source,target,batch_page&&present&&!is_source&&target,now_ms());
+  uint32_t c=(uint32_t)value,bits=(uint32_t)(value>>32);float strength;memcpy(&strength,&bits,4);
+  if(target&&!current)strength=.45f;
   uint64_t light=pad_light(c,strength);if(atomic_exchange(&palette[i],light)!=light)atomic_fetch_add(&palette_generation,1);}
 }
 static void batch_paint(void*g){

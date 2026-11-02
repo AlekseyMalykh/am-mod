@@ -26,6 +26,8 @@ void workflow_event_preview_stop(int cancel_pending);
 unsigned workflow_event_preview_pending(void);
 int workflow_tick(void);
 int workflow_active(void);
+/* Atomic ownership snapshot; RGB callbacks must not inspect Components. */
+int workflow_native_pad_colours(void);
 /* UI thread: actual browser/Copy/Batch/Mono ownership, excluding the
  * ordinary Sample host observed for the optional Chop actions. */
 int workflow_blocks_sample_controls(void);

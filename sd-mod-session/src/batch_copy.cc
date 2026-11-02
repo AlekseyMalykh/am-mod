@@ -30,6 +30,7 @@ struct Row{void*command=nullptr;void*source=nullptr;void*extract=nullptr;void*sl
  uintptr_t converted[2]{};uint64_t mono_name=0;bool assignment_started=false,copy_started=false;
 #ifdef MPC_PAD_EQ
  uint64_t source_eq=0,target_eq=0;bool eq_written=false;
+ unsigned source_colour=0,target_colour=0;
 #endif
 };
 static void progress(unsigned phase,unsigned done,unsigned total);
@@ -52,7 +53,7 @@ static int undo_row(Row&r)noexcept{
  try{if(r.extraction_started){result=undo_extract(r.extract);r.extraction_started=false;}}catch(...){result=1;}
  try{if(r.copy_started){if(FN(0x1987890,int(*)(void*))(r.command))result=1;else r.copy_started=false;}}catch(...){result=1;}
 #ifdef MPC_PAD_EQ
- if(!result&&r.eq_written){music_set_pad_eq(r.to,r.target_eq);r.eq_written=false;}
+ if(!result&&r.eq_written){music_set_pad_eq(r.to,r.target_eq);music_set_pad_colour(r.to,r.target_colour);r.eq_written=false;}
 #endif
  return result;
 }
@@ -131,6 +132,7 @@ struct Batch{
     r.map=F(p,0x16a8+(r.from+0x84)*4,int);
 #ifdef MPC_PAD_EQ
     r.source_eq=music_get_pad_eq(r.from);r.target_eq=music_get_pad_eq(r.to);
+    r.source_colour=music_pad_colour(r.from);r.target_colour=music_pad_colour(r.to);
 #endif
     ++n;
    }
@@ -151,6 +153,7 @@ struct Batch{
     if(result)throw std::runtime_error("Native copy failed");
 #ifdef MPC_PAD_EQ
     music_set_pad_eq(r.to,r.source_eq);r.eq_written=true;
+    music_set_pad_colour(r.to,r.source_colour);
 #endif
     ++done;
     if(r.mono>=0)mono_perform(r,p);

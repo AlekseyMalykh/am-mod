@@ -23,7 +23,7 @@ files=dict(old);files['autorun/phone-input.so']=(O/'phone-input.so').read_bytes(
 launcher=old['autorun/mod-launcher.sh'].decode();needle='SAVE_IO_SHA='+sha(old['autorun/phone-input.so']);assert launcher.count(needle)==1
 files['autorun/mod-launcher.sh']=launcher.replace(needle,'SAVE_IO_SHA='+sha(files['autorun/phone-input.so'])).encode()
 entry=old['autorun/autorun.sh'].decode();old_sha=sha(old['autorun/mod-launcher.sh']);assert entry.count(old_sha)==1
-revision=baseline['revision']+'-optocat';assert entry.count('revision='+baseline['revision'])==1
+revision=baseline['revision']+'-optocat-s';assert entry.count('revision='+baseline['revision'])==1
 files['autorun/autorun.sh']=entry.replace(old_sha,sha(files['autorun/mod-launcher.sh'])).replace('revision='+baseline['revision'],'revision='+revision).encode()
 manifest=json.loads(old['autorun/autorun.json']);script=manifest['value0']['scripts'][0]
 script['message']='AM Mod '+baseline['revision']+' + OptoCat: Shift+Pad 5, B2 Type'
@@ -33,7 +33,7 @@ files['autorun/autorun.check']=sha(files['autorun/autorun.json']+files['autorun/
 files['README_RU.md']=files['COMPRESSOR_TYPE_RU.md']=(R/'COMPRESSOR_TYPE_RU.md').read_bytes()
 changed={n for n in old if old[n]!=files[n]}
 assert changed=={'autorun/phone-input.so','autorun/mod-launcher.sh','autorun/autorun.sh',
-                 'autorun/autorun.json','autorun/autorun.check','README_RU.md'},changed
+                 'autorun/autorun.json','autorun/autorun.check','README_RU.md','COMPRESSOR_TYPE_RU.md'},changed
 archive=R.parent/('am-mod-'+revision+'.zip')
 if archive.exists():
  with zipfile.ZipFile(archive) as z:

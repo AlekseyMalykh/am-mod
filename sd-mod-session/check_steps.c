@@ -11,6 +11,9 @@
 #include "src/step_native.c"
 #include "src/music_settings.c"
 #include "phone_hooks.h"
+#ifndef STEP_BRIDGE_PATH
+#define STEP_BRIDGE_PATH "build/phone_bridges.bin"
+#endif
 
 static unsigned char surface[0x2200],control[0x400],things[0x700],program[0x2900];
 static unsigned char seq[0x400],list_storage[0x200],ui_model[0x600],factory[0x80];
@@ -259,7 +262,7 @@ int main(int argc,char **argv)
     input_event[8]=0x24;FN(0x159f2f0,void(*)(void*))(input_event);
     assert(button_property==global_controls+0x27d0); /* Save must stay native. */
     phase="generated event label bridge native x24/x8 ABI";
-    FILE *bridge_file=fopen("build/phone_bridges.bin","rb");assert(bridge_file);
+    FILE *bridge_file=fopen(STEP_BRIDGE_PATH,"rb");assert(bridge_file);
     size_t bridge_capacity=PHONE_TABLE_VA-0x6d3d000;
     size_t bridge_size=fread((void*)(base+0x6d3d000),1,bridge_capacity,bridge_file);fclose(bridge_file);
     assert(bridge_size<bridge_capacity&&bridge_size>H_EVENT_LABEL*96);
@@ -409,7 +412,7 @@ int main(int argc,char **argv)
     steps=want_steps=1;sound=7;step_native_requested(0x0c,1);step_native_tick();
     assert(step_native_light(2,&light)&&(uint32_t)light==0x32c780);
     assert(step_native_light(3,&light)&&(uint32_t)light==0x303030);
-    assert(step_native_light(7,&light)&&(uint32_t)light==0xffffff);
+    assert(step_native_light(7,&light)&&((uint32_t)light==PAD_SELECT||(uint32_t)light==PAD_EMPTY));
     step_native_requested(0x0c,0);steps=want_steps=0;step_native_tick();
     draw_preview(argv[2]);
     FIELD(sample_refs,8,int)=0;read_sample_name(label);assert(!strcmp(label,"Empty"));
@@ -743,6 +746,12 @@ int main(int argc,char **argv)
     step_native_levels_state(0,0,3);atomic_store(&clock_tick,90);step_native_playback_context(things,0,1);
     atomic_store(&clock_tick,105);step_native_playback_context(things,0,1);
     assert(atomic_load(&playback_mask)==(1u<<6)); /* source, not pitch key */
+    phase="Muted sounds stay dark after leaving Mute mode";
+    play_instrument[0x78]=1;step_native_native_mute(0);step_native_playback_context(things,0,1);
+    assert(!atomic_load(&playback_mask));
+    atomic_store(&clock_tick,90);step_native_playback_context(things,0,1);
+    atomic_store(&clock_tick,105);step_native_playback_context(things,0,1);assert(!atomic_load(&playback_mask));
+    play_instrument[0x78]=0;
     phase="Native Mute shows audible source pulses, muted source stays red";
     step_native_native_mute(1);
     atomic_store(&clock_tick,90);step_native_playback_context(things,0,1);

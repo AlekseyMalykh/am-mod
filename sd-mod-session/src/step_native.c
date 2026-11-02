@@ -631,9 +631,11 @@ void step_native_playback_context(void *things,int transpose,int sample_visible)
         playback_previous=-1;memset(playback_until,0,sizeof(playback_until));memset(playback_pitch_until,0,sizeof(playback_pitch_until));atomic_store(&playback_colour_bank,-1);atomic_store(&playback_mask,0);return;
     }
     unsigned muted_pads=0;
-    if(mode==10 && atomic_load(&native_mute)) {
+    if(mode==10) {
         /* Native MutePadMode15309e0..1530a08 resolves the instrument and
-         * tests bit0 at+78. Do not infer mute from a transient LED colour. */
+         * tests bit0 at+78. Muted sounds remain muted after leaving its
+         * overlay, so never flash their sequence events as audible playback.
+         * Do not infer mute from a transient LED colour. */
         for(unsigned i=0;i<16;++i) {
             void *p=FN(0x286bbe0,void*(*)(void*,int))(program,bank*16+(int)i);
             if(!p || (__atomic_load_n((unsigned char*)p+0x78,__ATOMIC_ACQUIRE)&1u)) {
@@ -1039,6 +1041,19 @@ static uint64_t step_palette_value(unsigned events,unsigned muted,int mute,int e
     if(playing){rgb=all_muted&&phase%320>=160?PAD_MUTED:PAD_PLAYHEAD;brightness=.95f;}
     return pad_light(rgb,brightness);
 }
+/* Sound selection overlays white briefly, then reveals the assigned hue.
+ * This is a UI-only palette phase; the sound/bank selection is unchanged. */
+static uint64_t sound_palette_value(unsigned pad,uint64_t phase){
+    int chosen=music_pad_colour((unsigned)browse_bank*16+pad);
+    int present=!!(sound_present&(1u<<pad));
+    uint32_t rgb=present?(chosen?music_sequence_colours[chosen]:PAD_CONTENT):PAD_EMPTY;
+    float brightness=present?PAD_BRIGHT_CONTENT:PAD_BRIGHT_EMPTY;
+    if(sound/16==browse_bank&&(unsigned)(sound%16)==pad){
+        if(phase%640<240){rgb=PAD_SELECT;brightness=PAD_BRIGHT_SELECT;}
+        else if(chosen){rgb=music_sequence_colours[chosen];brightness=PAD_BRIGHT_CONTENT;}
+    }
+    return pad_light(rgb,brightness);
+}
 static void palette(void)
 {
     uint64_t tune_lights=0;
@@ -1071,9 +1086,7 @@ static void palette(void)
             }
         }
         else if (atomic_load(&requested_sound)) {
-            int chosen=music_pad_colour((unsigned)browse_bank*16+i);
-            rgb=(sound_present&(1u<<i))?(chosen?music_sequence_colours[chosen]:PAD_CONTENT):PAD_EMPTY;brightness=(sound_present&(1u<<i))?PAD_BRIGHT_CONTENT:PAD_BRIGHT_EMPTY;
-            if (sound/16==browse_bank && (unsigned)(sound%16)==i) {rgb=PAD_SELECT;brightness=PAD_BRIGHT_SELECT;}
+            atomic_store(&lights[i],sound_palette_value(i,milliseconds()));continue;
         }
         else if (n<count()) {
             int playing=was_playing&&(int)(play_tick/grid_ticks[grid])==n;

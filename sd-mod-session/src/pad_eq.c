@@ -132,15 +132,17 @@ void pad_eq_paint(uint64_t v,unsigned pad,int shift,int focus,const struct resam
     if(!p||!p->text||!p->rect)return;
     struct fx_eq_config cfg;pad_eq_config(v,48000,&cfg);unsigned type=v?((v>>21)&7):0;
     const uint32_t white=0xffffffffu,amber=0xffffc247u,grey=0xff777777u;char s[64];
-    p->rect(p->user,0,33,320,207,0xff000000u);snprintf(s,sizeof(s),"%c%02u  EQ%s",'A'+pad/16,pad%16+1,cfg.bypass?"  BYPASS":"");p->text(p->user,s,8,36,304,24,18,white,0);
-    int left=30,top=72,width=279,height=105;
+    /* Keep the native Sample side strips (volume/pan) visible. Only the
+     * centre graph and our complete K footer belong to this overlay. */
+    p->rect(p->user,14,33,292,165,0xff000000u);p->rect(p->user,0,198,320,42,0xff000000u);snprintf(s,sizeof(s),"%c%02u  EQ%s",'A'+pad/16,pad%16+1,cfg.bypass?"  BYPASS":"");p->text(p->user,s,18,36,284,24,18,white,0);
+    int left=42,top=72,width=260,height=105;
     pad_eq_spectrum_paint(pad,left,top,width,height,0xff5a4419u,p);
-    for(int db=-18;db<=18;db+=9){int y=top+(18-db)*height/36;p->rect(p->user,left,y,width,1,db?0xff252525:0xff666666);snprintf(s,sizeof(s),"%+d",db);p->text(p->user,s,0,y-6,27,13,10,grey,1);}
+    for(int db=-18;db<=18;db+=9){int y=top+(18-db)*height/36;p->rect(p->user,left,y,width,1,db?0xff252525:0xff666666);snprintf(s,sizeof(s),"%+d",db);p->text(p->user,s,16,y-6,23,13,10,grey,1);}
     int previous=-1;for(int x=0;x<width;++x){double hz=20*pow(1000,x/(double)(width-1)),db=fx_eq_response_db(&cfg,48000,hz);if(db>18)db=18;if(db< -18)db=-18;int y=top+(int)lround((18-db)*height/36);if(previous<0)previous=y;
         int a=previous<y?previous:y,b=previous>y?previous:y;p->rect(p->user,left+x,a,1,b-a+1,cfg.bypass?grey:amber);previous=y;}
     double point_db=cfg.band[0].gain_db;if(type==PAD_EQ_LOW_PASS||type==PAD_EQ_HIGH_PASS||type==PAD_EQ_NOTCH)point_db=0;
     int x=left+(int)lround(log(cfg.band[0].hz/20)/log(1000)*(width-1)),y=top+(int)lround((18-point_db)*height/36);p->rect(p->user,x-2,y-2,5,5,amber);
-    p->text(p->user,"20",left,180,30,12,10,grey,0);p->text(p->user,"1k",174,180,30,12,10,grey,0);p->text(p->user,"20k",280,180,32,12,10,grey,0);
+    p->text(p->user,"20",left,180,30,12,10,grey,0);p->text(p->user,"1k",174,180,30,12,10,grey,0);p->text(p->user,"20k",270,180,32,12,10,grey,0);
     const char*names[]={"Freq",shift?"Q":"Gain","Type"};char values[3][32];snprintf(values[0],32,"%.0f Hz",cfg.band[0].hz);
     if(shift)snprintf(values[1],32,"%.2f",cfg.band[0].q);else if(type==PAD_EQ_LOW_PASS||type==PAD_EQ_HIGH_PASS||type==PAD_EQ_NOTCH)strcpy(values[1],"--");else snprintf(values[1],32,"%+.1f dB",cfg.band[0].gain_db);
     snprintf(values[2],32,"%s",cfg.bypass?"Bypass":types[type]);

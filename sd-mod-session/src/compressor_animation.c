@@ -20,31 +20,59 @@ static void sprite(uint32_t*p,unsigned frame,int x,int y,int w,int h){
   while(n--&&pixel<limit){if(shade)put(p,x+(int)(pixel%(unsigned)w),y+(int)(pixel/(unsigned)w),grey);++pixel;}
  }
 }
-void compressor_animation_init(struct comp_animation*s){memset(s,0,sizeof(*s));s->level=-60;s->hit_time=-10;}
-void compressor_animation_frame(struct comp_animation*s,uint32_t*p,double now,float input,float threshold,float gain,unsigned bypass,unsigned hit){
- if(!s||!p||!isfinite(now))return;
+static void meter_rect(uint32_t*p,int x,int y,int w,int h,uint32_t colour){
+ for(int row=y;row<y+h;++row)for(int col=x;col<x+w;++col)p[row*320+col]=colour;
+}
+void compressor_meter_frame(uint32_t*p,const struct comp_meter*m,float reduction){
+ if(!p||!m)return;
+ /* Native Duck geometry: IN L/R, central downward GR, OUT L/R.
+  * Image origin is native y34; bars span native y53..190. */
+ meter_rect(p,268,0,44,164,0xff000000u);
+ const int columns[]={274,280,296,302};
+ for(unsigned i=0;i<4;++i){
+  float peak=i<2?m->input[i]:m->output[i-2];
+  float db=isfinite(peak)&&peak>0?20*log10f(peak):-60;
+  int height=(int)lroundf(clamp((db+60)/60,0,1)*138);
+  meter_rect(p,columns[i],19,4,138,0xff2e2e33u);
+  meter_rect(p,columns[i],157-height,4,height,0xff00ffa7u);
+ }
+ int gr=(int)lroundf(clamp(isfinite(reduction)?reduction:0,0,60)/60*138);
+ meter_rect(p,288,19,4,138,0xff2e2e33u);
+ meter_rect(p,288,19,4,gr,0xffd31145u);
+}
+void compressor_animation_init(struct comp_animation*s){memset(s,0,sizeof(*s));s->level=-60;}
+void compressor_animation_frame(struct comp_animation*s,uint32_t*p,double now,float input,const struct comp_config*c,unsigned hit){
+ if(!s||!p||!c||!isfinite(now))return;
  if(!background_ready){
   for(unsigned i=0;i<320*164;++i)background[i]=0xff000000;
   for(int y=8;y<164;++y)for(int x=35;x<288;++x){float r=hypotf((x-160)/125.f,(y-98)/80.f);
    if(r<1&&random_value()<(1-r)*.48f){unsigned v=(unsigned)lroundf(23+random_value()*32);background[y*320+x]=0xff000000u|v*0x010101u;}}
   background_ready=1;
  }
- memcpy(p,background,sizeof(background));
+ /* Sleeping Duck has a plain black backdrop. Keep the approved sleep sprite
+  * and breathing motion, but do not copy the awake grain into Bypass. */
+ if(c->bypass){for(unsigned i=0;i<320*164;++i)p[i]=0xff000000u;}
+ else memcpy(p,background,sizeof(background));
  float dt=s->time>0?(float)clamp((float)(now-s->time),0,.10f):.033f;s->time=now;
- input=isfinite(input)?clamp(input,-60,0):-60;threshold=clamp(threshold,-48,0);gain=clamp(gain,0,18);
- if(bypass){s->pose=0;s->last_hit=hit;s->hit_time=-10;s->sleeping=1;
+ input=isfinite(input)?clamp(input,-60,0):-60;
+ float threshold=isfinite(c->threshold)?clamp(c->threshold,-48,0):-18,gain=isfinite(c->gain)?clamp(c->gain,0,6):0;
+ if(c->bypass){s->pose=0;s->last_hit=hit;s->striking=0;s->sleeping=1;
   sprite(p,OPTOCAT_SLEEP,96,70+(sin(now*2.2)>.65?1:0),154,90);return;}
- if(s->sleeping){s->sleeping=0;s->level=input;s->last_hit=hit;s->hit_time=-10;}
+ if(s->sleeping){s->sleeping=0;s->level=input;s->last_hit=hit;s->striking=0;}
  s->level+=(input-s->level)*(1-expf(-dt/.065f));
- if(hit!=s->last_hit){s->last_hit=hit;s->hit_time=now;}
- float age=(float)(now-s->hit_time),swat=age<0?0:age<.11f?sinf(age/.11f*1.57079633f):age<.24f?1:age<.43f?1-(age-.24f)/.19f:0;
- float target=fmaxf(s->level>threshold?.30f:0,swat);s->pose+=(target-s->pose)*(1-expf(-dt/.025f));
- unsigned reach=(unsigned)lroundf(clamp(s->pose,0,1)*8),look=(unsigned)lroundf(clamp((s->level+48)/48,0,1)*6),eye=(unsigned)lroundf(gain/6);
+ /* The bow is the dry input. Paw reach uses the very same GR snapshot as
+  * the red meter: Attack and Release are already in the audio envelope.
+  * No second envelope, threshold trigger, synthetic strike or retrigger on
+  * steady input. A held reduction keeps the paw down until audio recovers. */
+ float gr=isfinite(s->reduction)?clamp(s->reduction,0,60):0;
+ float target=1-expf(-gr/3.f);
+ s->striking=target>s->pose;s->pose=target;s->last_hit=hit;
+ unsigned reach=(unsigned)lroundf(clamp(s->pose,0,1)*8),look=(unsigned)lroundf(clamp((s->level+48)/48,0,1)*6),eye=(unsigned)lroundf(gain/2);
  float by=154-clamp((s->level+48)/48,0,1)*71,th=154-(threshold+48)/48*71;
  for(int x=183;x<240;x+=5)line(p,(float)x,th,(float)x+1,th,75);
  line(p,238,th-3,242,th,150);line(p,242,th,238,th+3,150);
  sprite(p,(eye*7+look)*9+reach,96,18,OPTOCAT_SPRITE_W,OPTOCAT_SPRITE_H);
- float impact=age>=.10f&&age<.43f?sinf((age-.10f)/.33f*3.14159265f):0,bx=194+impact*4;
+ float impact=clamp((s->pose-.30f)/.70f,0,1),bx=194+impact*4;
  float px=207,py=19;
  for(int i=1;i<=16;++i){float t=(float)i/16,u=1-t,x=u*u*207+2*u*t*(201+impact*8)+t*t*bx,y=u*u*19+2*u*t*((19+by)/2)+t*t*by;line(p,px,py,x,y,135);px=x;py=y;}
  sprite(p,OPTOCAT_BOW,(int)lroundf(bx)-14,(int)lroundf(by)-10,29,25);

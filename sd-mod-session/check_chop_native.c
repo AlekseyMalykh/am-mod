@@ -74,13 +74,28 @@ stub(0x143ed40,slice_ctor);__builtin___clear_cache((char*)(base+0x143ed40),(char
 unsigned slices[2]={1,0},targets[2]={4,5};int before4=FIELD(pads[4],0x100,int),before5=FIELD(pads[5],0x100,int),source=FIELD(pads[0],0x100,int);
 unsigned too_many[17]={0};assert(!batch_chop_submit(base,context,service_locator,0,too_many,too_many,17));
 phase="chop snapshot metadata and transactional assignment";
+#ifdef MPC_PAD_EQ
+music_reset();assert(music_set_pad_colour(0,5)&&music_set_pad_colour(4,8)&&music_set_pad_colour(5,12));
+#endif
 assert(batch_chop_submit(base,context,service_locator,0,slices,targets,2));assert(exported==2&&exported_at[4]==700&&exported_at[5]==100);assert(FIELD(pads[0],0x100,int)==source);
+#ifdef MPC_PAD_EQ
+assert(music_pad_colour(4)==5&&music_pad_colour(5)==5);
+#endif
 assert(FIELD(slice_a,0x78,int64_t)==100&&FIELD(slice_b,0xd0,int64_t)==1000); /* source markers unchanged */
 void*cmd=(void*)kept[0];assert(((int(*)(void*))FIELD((void*)FIELD(cmd,0,uintptr_t),0x48,uintptr_t))(cmd)==0);assert(!exported&&FIELD(pads[4],0x100,int)==before4&&FIELD(pads[5],0x100,int)==before5);
 assert(((int(*)(void*))FIELD((void*)FIELD(cmd,0,uintptr_t),0x40,uintptr_t))(cmd)==0);assert(exported==2);
+#ifdef MPC_PAD_EQ
+assert(music_pad_colour(4)==5&&music_pad_colour(5)==5);
+#endif
 assert(((int(*)(void*))FIELD((void*)FIELD(cmd,0,uintptr_t),0x48,uintptr_t))(cmd)==0);assert(!exported);
+#ifdef MPC_PAD_EQ
+assert(music_pad_colour(4)==8&&music_pad_colour(5)==12);
+#endif
 extract_attempts=0;fail_extract_at=2;assert(!batch_chop_submit(base,context,service_locator,0,slices,targets,2));assert(!exported&&FIELD(pads[4],0x100,int)==before4&&FIELD(pads[5],0x100,int)==before5);
 extract_attempts=0;partial_failure=1;assert(!batch_chop_submit(base,context,service_locator,0,slices,targets,2));assert(!exported&&partial_undone==1&&FIELD(pads[4],0x100,int)==before4&&FIELD(pads[5],0x100,int)==before5);partial_failure=0;
+#ifdef MPC_PAD_EQ
+assert(music_pad_colour(4)==8&&music_pad_colour(5)==12);
+#endif
  fail_extract_at=0;bad_assignment_at=2;extract_attempts=0;
  assert(!batch_chop_submit(base,context,service_locator,0,slices,targets,2));
  assert(!exported&&FIELD(pads[4],0x100,int)==before4&&FIELD(pads[5],0x100,int)==before5);bad_assignment_at=0;

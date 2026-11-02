@@ -76,7 +76,28 @@ int main(void){
  atomic_store(&playback_mask,0);assert(!step_native_light(0,&pulse));assert(music_set_pad_colour(0,8));
  puts("PASS Sample playback flashes all12 assigned pad hues at activity brightness; Stock, Levels/picker cyan preserved; bank, Mute/Erase and stopped-mask boundaries");
  atomic_store(&requested_sound,1);palette();assert((uint32_t)atomic_load(&lights[1])==0xffe000);
- assert((uint32_t)atomic_load(&lights[0])==PAD_SELECT);assert((uint32_t)atomic_load(&lights[2])==PAD_EMPTY);
+ assert((uint32_t)atomic_load(&lights[0])==PAD_SELECT||(uint32_t)atomic_load(&lights[0])==PAD_CONTENT);assert((uint32_t)atomic_load(&lights[2])==PAD_EMPTY);
+ /* Sound chooser: selected white cursor alternates with its actual hue;
+  * other pads stay steady, including after bank changes and empty slots. */
+ for(unsigned b=0;b<8;++b){
+  browse_bank=(int)b;sound=(int)b*16+5;sound_present=0xffff;
+  for(unsigned c=0;c<MUSIC_SEQUENCE_COLOURS;++c){
+   assert(music_set_pad_colour((unsigned)sound,c));
+   uint32_t hue=c?music_sequence_colours[c]:PAD_CONTENT;
+   for(unsigned ms=0;ms<1280;ms+=80){
+    uint64_t light=sound_palette_value(5,ms);
+    assert((uint32_t)light==(ms%640<240?PAD_SELECT:hue));
+    assert((uint32_t)sound_palette_value(4,ms)!=(uint32_t)0);
+   }
+   sound_present=0;
+   assert((uint32_t)sound_palette_value(5,0)==PAD_SELECT);
+   assert((uint32_t)sound_palette_value(5,400)==(c?hue:PAD_EMPTY));
+   assert((uint32_t)sound_palette_value(4,0)==PAD_EMPTY);
+   sound_present=0xffff;
+  }
+ }
+ browse_bank=0;sound=0;assert(music_set_pad_colour(0,8));
+ puts("PASS held Sound cursor alternates white and assigned hue across all13 choices/eight banks; empty-selected visibility and other pads preserved");
  atomic_store(&requested_sound,0);
  assert(show_other_sounds);cursor_visible=0;was_playing=0;grid=2;page=0;sound=0;other_sound_steps=1;
  memset(slots,0,sizeof(slots));palette();

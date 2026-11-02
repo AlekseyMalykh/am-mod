@@ -1,5 +1,66 @@
 # Changelog
 
+## r26s — public release, 2 November 2026
+
+- Combine r26e–r26r: experimental FAT32/installer1.0.2, confirmed native K fix, OptoCat/Warm and Shift controls, shared Bypass/master rebinding, project-start gating, Copy/Extract colour history, compressor/mute colours, Seq pulses and Sound cursor.
+- Restore native EQ volume/pan indicators by limiting the overlay to the centre; preserve assigned hues in ordinary Copy/browser and Mono/Resample/Extract palettes. Set OptoCat Gain to −6…+6 dB, default0.
+- Keep remaining project-error, navigation and waveform cases separate from implemented fixes. Thank Leusha and other testers. [English](docs/RELEASE_NOTES-r26s.md) · [Русский](docs/RELEASE_NOTES-r26s.ru.md). Earlier candidate entries record the verification status at their time.
+
+## r26r candidate — paw follows GR, Sound cursor reveals colour
+
+- Drive the OptoCat paw from the same real gain-reduction snapshot as the red GR bar and number. Keep the bow on dry input level. Sustained compression holds the paw down; recovery returns it. DSP Attack/Release govern both without a second gesture envelope or threshold/hit trigger. Preserve audio DSP, gain bounds, Warm, artwork and sleep.
+- While holding Sound in Steps, alternate the selected pad between white and its assigned hue (240 ms white / 400 ms colour). Preserve other pads, selection/bank mapping and empty-slot indication.
+- ARM/QEMU/UBSan verify actual DSP-to-paw timing, no false strikes and Sound cursor phases across colours/banks; physical trial pending. Preserve r26q Seq pulses and previous fixes. [English](docs/RELEASE_NOTES-r26r.md) · [Русский](docs/RELEASE_NOTES-r26r.ru.md). Local candidate.
+
+## r26q candidate — tempo-synced sequence pad pulses
+
+- Pulse the selected Seq pad once per bar when stopped, the playing pad once per beat and a queued target twice per beat. Keep the assigned hue and visible background between short flashes; return to the normal beat rate after handoff.
+- Keep other occupied selectors at the same brightness before and after Play. Read native tempo and time signature on the UI thread; interpolate the engine clock while playing and use a tempo-driven clock while stopped. Preserve empty/selected/queued, bank, recording and Mute ownership.
+- Preserve r26p shared Bypass/master lifecycle, OptoCat/Warm and previous fixes. ARM/QEMU/UBSan verify pulse timing, colour, tempo/meter and transitions; physical trial pending. [English](docs/RELEASE_NOTES-r26q.md) · [Русский](docs/RELEASE_NOTES-r26q.ru.md). Local candidate.
+
+## r26p candidate — compressor lifecycle and shared Bypass
+
+- Rebind OptoCat to replacement native master processors after New Project; keep the shared hook table immutable and reject handoff until an in-flight block finishes. Late old callbacks/destructors cannot retire the new master.
+- Use the native Bypass parameter for both types and retain native B3 handling. Type browsing while bypassed keeps processing disabled; waking enables only the selected algorithm. Opening the page shows the active type, or Duck when both are off.
+- Preserve Warm, artwork, sleep display, meters, +6 dB cap, K and pad-colour fixes. ARM/native-factory and UBSan checks cover repeated replacement and routing; physical New Project/B3 verification is pending. [English](docs/RELEASE_NOTES-r26p.md) · [Русский](docs/RELEASE_NOTES-r26p.ru.md). Local test build.
+
+## r26o candidate — OptoCat Warm
+
+- Add B1 Warm with native header highlighting, mild compensated soft saturation, 35% colour mix and first-order ADAA. Default off; smooth switching, dry Bypass and saved in-session state on wake.
+- Preserve the clean optical detector/envelope, K/Shift controls, +6 dB Gain cap, Duck Color and all r26n fixes. Verify harmonics/alias reduction, mono/stereo, native PCM routing, gain bounds and UI state in ARM/QEMU/UBSan.
+- Local device-test build; publication held at the author's request. [English](docs/RELEASE_NOTES-r26o.md) · [Русский](docs/RELEASE_NOTES-r26o.ru.md).
+
+## r26n candidate — OptoCat Bypass underline
+
+- Draw the native amber one-pixel underline for enabled OptoCat Bypass; clear it on wake and restore it on repeated sleep. Preserve r26m graphics, meters, pad-colour and input fixes; no audio DSP changes.
+- Verify underline geometry/colour/state in production-painter ARM/QEMU and UBSan tests. [English](docs/RELEASE_NOTES-r26n.md) · [Русский](docs/RELEASE_NOTES-r26n.ru.md). Physical MPC validation pending.
+
+## r26m candidate — final OptoCat integration and sleep display
+
+- Combine final OptoCat through `c025d04` with completed r26l pad-colour/Copy/Extract/Seq fixes, preserving K, startup restore, artwork, meters and Shift controls.
+- Clear displayed input/output/GR bars and numeric GR during Bypass; hide awake grain behind the sleeping cat. Restore on wake; preserve sprites, breathing, audio DSP/fades and the +6 dB Gain ceiling.
+- Reproduce both old bugs and verify the production painter/compositor in ARM/QEMU and UBSan. Combined hardware/native-main validation remains pending. [English](docs/RELEASE_NOTES-r26m.md) · [Русский](docs/RELEASE_NOTES-r26m.ru.md).
+
+## r26l candidate — sample colours and sequence selection
+
+- Add assigned Sample pad colours and playback to Duck/OptoCat, preserving native Mute/Erase and other control layouts.
+- Carry source Pad Colour through ordinary and batch Copy/Extract, with destination Undo, captured Redo and rollback. Keep source/occupied hues across Batch banks and retain destination/overwrite service indicators.
+- Suppress playback flashes for muted instruments after leaving Mute. Keep the playing Seq selector steadily bright in its assigned hue; dim other occupied selectors and blink queued switches.
+- Preserve K, bounded OptoCat gain/Shift controls/artwork and r26k startup gating. Waveform Mute visibility, first-pass Chop and drawing tint remain separate work. [English](docs/RELEASE_NOTES-r26l.md) · [Русский](docs/RELEASE_NOTES-r26l.ru.md). Local candidate; hardware trial and publication pending.
+
+## r26k candidate — wait for native dialogs before startup project restore
+
+- Prevent autoload from starting a second project while a native modal is open, including startup missing-sample/error dialogs that permit other component input. Restart the quiet interval after dialogs close; log the selected XPJ path.
+- Reproduce the old ordering in ARM tests and the full native VM; verify deferred restore, the valid B fixture and a complete Mod Off copy with available sample data. Other reported load errors and recovery-copy naming remain separate investigation items.
+- Preserve the device-confirmed K implementation and all r26j OptoCat changes. [English](docs/RELEASE_NOTES-r26k.md) · [Русский](docs/RELEASE_NOTES-r26k.ru.md). Hardware trial pending; not published.
+
+## r26j candidate — OptoCat Shift controls and bounded gain
+
+- Add Shift+K1 Attack (1–100 ms), Shift+K2 Release (100–4000 ms) and Shift+K3 Knee (0–12 dB), with names/values and per-event Shift capture. Preserve the default optical response.
+- Connect Attack to paw strike speed and Release to its return, including timing changes during a gesture. Preserve the artwork, eyes, sleep and no repeated hits on steady input.
+- Reduce Opto Gain from a maximum of +18 dB to +6 dB. Actual native Duck In Boost=100% measures +6.02060 dB; Opto's master adapter measures +5.99996 dB. Verify the boost ceiling during parameter changes.
+- Preserve the device-confirmed r26i native K/takeover path. ARM/QEMU/UBSan and the full preload constructor pass; the new controls await a device trial. [English](docs/RELEASE_NOTES-r26j.md) · [Русский](docs/RELEASE_NOTES-r26j.ru.md).
+
 ## r26i — restore native knob delivery and takeover (issue #2)
 
 - Forward unclaimed native K1–K3 on the original input thread, retaining FIFO, in-flight action and naming boundaries. Custom controls keep UI routing.

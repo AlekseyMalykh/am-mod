@@ -42,6 +42,7 @@
 #include "pad_eq_history.h"
 #endif
 #include <link.h>
+#include <math.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdio.h>
@@ -397,7 +398,11 @@ static void tick(void *unused)
 #endif
     step_native_native_mute(atomic_load(&native_mute_mode));
     step_native_playback_context(note_native_context(),music_transposition(),
-        note_native_sample_visible()?1:music_ui_sequence_visible()&&atomic_load(&native_mute_mode)?2:0);
+        (note_native_sample_visible()
+#ifdef MPC_COMPRESSOR
+         ||compressor_running
+#endif
+        )?1:music_ui_sequence_visible()&&atomic_load(&native_mute_mode)?2:0);
 #ifdef MPC_POLY_RECORD
     poly_record_context(note_native_context());
 #endif
@@ -1232,18 +1237,53 @@ static unsigned process_events(void)
 #ifdef MPC_SEQUENCE_COLOURS
 static _Atomic uint64_t sequence_palette[16];
 static _Atomic unsigned sequence_palette_enabled;
-static unsigned sequence_brightness(unsigned brightness,int occupied,unsigned index,
-                                    int selected,int playing,uint64_t when,int pulsing){
-    /* Empty slots stay off, except the one the native app pulses because
-     * it is queued: switching to an empty sequence must be visible. */
-    if(!occupied&&(int)index!=selected&&!pulsing)return 0;
-    /* Queued (the native app pulses it): blink twice as fast as the playing
-     * sequence, an eighth note on and off; empty queued slots included. */
-    if(pulsing&&(int)index!=playing)return (when%480u)<240u?255u:0u;
-    /* The playing sequence blinks with the beat: lit for the first half of
-     * each quarter note (960 engine ticks). */
-    if((int)index==playing)return (when%960u)<480u?255u:0u;
-    return brightness&&brightness<192?192:brightness;
+/* UI-only playhead read, using the same validated native owner chain and
+ * 88-byte PositionInfo ABI as the Chords arpeggiator. No RGB/audio callback
+ * reads Components or tempo services. Engine ticks are 960 per quarter. */
+struct sequence_timing {double bpm;unsigned beat,bar;};
+struct sequence_clock {uint64_t ms,serial;int64_t tick;double stopped;int valid,running;};
+static struct sequence_timing sequence_timing(void){
+    struct sequence_timing t={120,960,3840};
+    void*app=FIELD((void*)base,0x71e3dc8,void*);
+    if(!app||FIELD(app,0,uintptr_t)!=base+0x6e07288)return t;
+    void*audio=FIELD(app,0xd8,void*);
+    if(!audio||FIELD(audio,0,uintptr_t)!=base+0x6e0c430)return t;
+    void*core=FIELD(audio,0x148,void*);
+    if(!core||FIELD(core,0,uintptr_t)!=base+0x6e0cf38)return t;
+    void*playhead=FIELD(core,0x490,void*);
+    if(!playhead||FIELD(playhead,0,uintptr_t)!=base+0x6d8a418)return t;
+    _Alignas(8) unsigned char position[88]={0};
+    if(!FN(0x13ad070,int(*)(void*,void*))(playhead,position))return t;
+    double bpm=FIELD(position,0,double);
+    if(isfinite(bpm)&&bpm>=20&&bpm<=999)t.bpm=bpm;
+    unsigned n=FIELD(position,8,unsigned),d=FIELD(position,12,unsigned);
+    if(n>=1&&n<=32&&d>=1&&d<=64&&!(d&(d-1))){t.beat=3840/d;t.bar=t.beat*n;}
+    return t;
+}
+static double sequence_clock_time(struct sequence_clock*c,uint64_t now,int running,
+                                  uint64_t serial,int64_t tick,double bpm){
+    if(!c->valid||c->running!=running){
+        c->valid=1;c->running=running;c->serial=serial;c->tick=tick;c->ms=now;c->stopped=0;
+    }
+    if(running){
+        if(c->serial!=serial){c->serial=serial;c->tick=tick;c->ms=now;}
+        return (double)c->tick+(double)(now-c->ms)*bpm*960./60000.;
+    }
+    c->stopped+=(double)(now-c->ms)*bpm*960./60000.;c->ms=now;
+    return c->stopped;
+}
+static unsigned sequence_brightness(int occupied,unsigned index,int selected,int playing,
+                                    double when,int queued,const struct sequence_timing*t){
+    int current=(int)index==(playing>=0?playing:selected);
+    if(!occupied&&!current&&!queued)return 0;
+    /* Other occupied slots keep the same level before/after Play. Neither a
+     * native dark phase nor a playback transition dims the assigned palette. */
+    if(!current&&!queued)return 192;
+    double period=queued?t->beat*.5:playing>=0?t->beat:t->bar;
+    double width=fmin(period/3.,t->bpm*960.*.090/60.);
+    double phase=fmod(when,period);if(phase<0)phase+=period;
+    /* Short full-colour flash over a visible background, never fully off. */
+    return phase<width?255:96;
 }
 static int sequence_light(unsigned pad,uint64_t *out){
     if(pad>=16||!atomic_load(&sequence_palette_enabled))return 0;
@@ -1255,20 +1295,27 @@ static void sequence_palette_tick(void){
      * screen (no sequence selection until Stop): show its lights as they are. */
     int enabled=music_ui_sequence_visible()&&bank>=0&&bank<8&&!(step_native_transport_state()&4u)&&
         !atomic_load(&native_mute_mode)&&!atomic_load(&native_buttons_down[0x23]);
-    if(!enabled){atomic_store(&sequence_palette_enabled,0);return;}
+    static struct sequence_clock clock;
+    static int previous_bank=-1,previous_transport=-1,previous_selected=-1;
+    if(!enabled){clock.valid=0;previous_bank=-1;atomic_store(&sequence_palette_enabled,0);return;}
     unsigned present=music_ui_sequence_presence((unsigned)bank);
     int selected=music_ui_sequence_selected();
     int transport=(step_native_transport_state()&3u)==3u;
     uint64_t serial;unsigned running=0;int64_t tick=step_native_clock_ticks(&serial,&running);
-    uint64_t when=tick>0?(uint64_t)tick:0u,now=now_ms();
+    uint64_t now=now_ms();struct sequence_timing timing=sequence_timing();
+    if(!transport&&selected!=previous_selected)clock.valid=0;
+    double when=sequence_clock_time(&clock,now,transport,serial,tick,timing.bpm);
+    previous_selected=selected;
     /* Native queued pulse: a pad's own brightness changed at least three
      * times within 1.5 s (a single change is a refresh). */
     static unsigned last_native[16];static uint64_t changed_ms[16][3];
-    unsigned level[16];int pulsing[16];
+    int pulsing[16];
     for(unsigned i=0;i<16;++i){
         unsigned old=(unsigned)atomic_load(&original_lights[i]);
         unsigned v=(old>>16)&255;if(((old>>8)&255)>v)v=(old>>8)&255;if((old&255)>v)v=old&255;
-        level[i]=v;
+        if(bank!=previous_bank||transport!=previous_transport){
+            last_native[i]=v;memset(changed_ms[i],0,sizeof(changed_ms[i]));
+        }
         if(v!=last_native[i]){last_native[i]=v;
             changed_ms[i][2]=changed_ms[i][1];changed_ms[i][1]=changed_ms[i][0];changed_ms[i][0]=now;}
         /* breathing: changed in the last 0.4 s, three changes within 1.2 s */
@@ -1277,12 +1324,13 @@ static void sequence_palette_tick(void){
     /* Native semantics (lab trace): the context's sequence is the one that
      * plays; a pad selected while playing is only queued, and the native app
      * breathes it until the switch at the end of the bar. */
+    previous_bank=bank;previous_transport=transport;
     int playing=transport?selected:-1;
     for(unsigned i=0;i<16;++i){
         unsigned old=(unsigned)atomic_load(&original_lights[i]);
         unsigned index=(unsigned)bank*16+i;
         int queued=transport&&pulsing[i]&&(int)index!=selected;
-        unsigned brightness=sequence_brightness(level[i],!!(present&(1u<<i)),index,selected,playing,when,queued);
+        unsigned brightness=sequence_brightness(!!(present&(1u<<i)),index,selected,playing,when,queued,&timing);
         int chosen=music_sequence_colour((unsigned)bank*16+i);
         unsigned colour=music_sequence_colours[chosen];
         if(chosen==0){ /* Stock: the hue the native app gave this pad when lit */
@@ -1293,8 +1341,7 @@ static void sequence_palette_tick(void){
             if(top>=48)stock_hue[i]=((((old>>16)&255)*255/top)<<16)|((((old>>8)&255)*255/top)<<8)|((old&255)*255/top);
             if(stock_hue[i])colour=stock_hue[i];
         }
-        /* Empty slots stay off unless selected or queued. The playing
-         * sequence blinks once per beat, a queued one twice per beat. */
+        /* Assigned hue is retained in both pulse and background phases. */
         unsigned red=((colour>>16)&255)*brightness/255;
         unsigned green=((colour>>8)&255)*brightness/255;
         unsigned blue=(colour&255)*brightness/255;
@@ -1306,12 +1353,24 @@ static void sequence_palette_tick(void){
 #endif
 /* UI Timer publishes screen ownership; RGB callbacks must not inspect native
  * Components, which may belong to another thread. */
-static _Atomic unsigned pad_colour_sample_layout;
+static _Atomic unsigned pad_colour_sample_layout,pad_colour_native_workflow,pad_colour_cursor_white;
+static _Atomic int pad_colour_bank;
 /* Sample pad layout: the user's Pad Colour (Mix, K2) keeps the
  * native brightness of each pad (dim loaded, bright playing) and replaces
  * only its hue. Stock (0) passes the native colour through. */
 static int pad_colour_light(unsigned pad,uint64_t *out){
     if(pad>=16||!atomic_load(&pad_colour_sample_layout)||!music_pad_colours_used()||atomic_load(&led_enabled))return 0;
+    int bank=atomic_load(&pad_colour_bank);if(bank<0||bank>=8)return 0;
+    int chosen=music_pad_colour((unsigned)bank*16+pad);if(!chosen)return 0;
+    if(atomic_load(&pad_colour_native_workflow)){
+        unsigned raw=(unsigned)atomic_load(&original_lights[pad]);
+        unsigned r=(raw>>16)&255,g=(raw>>8)&255,b=raw&255,top=r>g?r:g;if(b>top)top=b;
+        if(r>80&&r>g*2&&r>b*2)return 0; /* Native overwrite warning. */
+        if(r==g&&g==b&&top>=192&&atomic_load(&pad_colour_cursor_white))return 0;
+        unsigned value=top?(top<160?160:top):0,colour=music_sequence_colours[chosen];
+        *out=((((colour>>16)&255)*value/255)<<16)|((((colour>>8)&255)*value/255)<<8)|((colour&255)*value/255);
+        *out|=UINT64_C(0x3f800000)<<32;return 1;
+    }
     /* Temporary native indications keep priority: Mute mode, held Mute
      * (0x23) and held Erase (0x09) show the native colours as they are. */
     if(atomic_load(&native_mute_mode)||atomic_load(&native_buttons_down[0x23])||atomic_load(&native_buttons_down[0x09]))return 0;
@@ -1321,8 +1380,6 @@ static int pad_colour_light(unsigned pad,uint64_t *out){
        ||chords_active()
 #endif
        )return 0;
-    int bank=step_native_browser_bank(-1);if(bank<0||bank>=8)return 0;
-    int chosen=music_pad_colour((unsigned)bank*16+pad);if(!chosen)return 0;
     unsigned old=(unsigned)atomic_load(&original_lights[pad]);
     unsigned level=(old>>16)&255;if(((old>>8)&255)>level)level=(old>>8)&255;if((old&255)>level)level=old&255;
     if(!level)return 0;
@@ -1377,9 +1434,16 @@ static void rgb(void *s,uint32_t colour,unsigned pad)
 }
 static void send_step_lights(void)
 {
-    /* FX Select and other screens own their native status colours. Seq only
-     * uses the Sample layout while recording, as in the stock application. */
-    atomic_store(&pad_colour_sample_layout,step_native_sound_layout()||
+    /* The compressor still plays the current Sample bank. Its algorithm and
+     * Bypass do not change pad ownership. Other FX keep native status colours. */
+    unsigned native_workflow=workflow_native_pad_colours();
+    atomic_store(&pad_colour_native_workflow,native_workflow);
+    atomic_store(&pad_colour_bank,step_native_browser_bank(-1));
+    atomic_store(&pad_colour_cursor_white,now_ms()%640<240);
+    atomic_store(&pad_colour_sample_layout,native_workflow||step_native_sound_layout()||
+#ifdef MPC_COMPRESSOR
+        compressor_ui_active()||
+#endif
         (music_ui_sequence_visible()?!!(step_native_transport_state()&4u):!!note_native_sample_visible()));
 #ifdef MPC_SEQUENCE_COLOURS
     sequence_palette_tick();
@@ -1411,6 +1475,10 @@ static void send_step_lights(void)
 #ifdef MPC_CHORDS
                    |(chords_active()?128u:0u)
 #endif
+#ifdef MPC_COMPRESSOR
+                   |(compressor_ui_active()?256u:0u)
+#endif
+                   |(atomic_load(&native_mute_mode)?512u:0u)
                    ;
         if(m!=last_mode){last_mode=m;resync=6;}
     }

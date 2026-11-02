@@ -4,17 +4,29 @@
 #include "src/compressor.h"
 static bool showing=true;
 static unsigned wakes,repaints,type_labels,indicators,native_calls;
+static unsigned shifted,shift_labels;
+static unsigned white_badges,red_badges;static uint32_t ink;
+static float displayed_gr=-1;
+static bool bypass_underline;
+static bool warm_underline;
+static unsigned warm_labels;
+extern "C" int music_ui_shift_active(void){return shifted!=0;}
 static void(*native_specific)(void*,void*,void*);
 extern "C" void compressor_phone_wake(void){++wakes;}
 static int visible(void*){return showing;}
 static int modal(void*){return 0;}
 static void repaint(void*,uint64_t,uint64_t){++repaints;}
-static void colour(void*,uint32_t){}
-static void rectangle(void*,int x,int y,int w,int h){assert(x>=0&&y>=0&&w>=0&&h>=0&&x+w<=320&&y+h<=240);if(w==5&&y==25){assert(h==1||h==3);++indicators;}}
+static void colour(void*,uint32_t value){ink=value;}
+static void rectangle(void*,int x,int y,int w,int h){assert(x>=0&&y>=0&&w>=0&&h>=0&&x+w<=320&&y+h<=240);if(w==5&&y==25){assert(h==1||h==3);++indicators;}if(x==213&&y==0&&w==107&&h==29){assert(ink==0xff000000);bypass_underline=false;}if(x==221&&y==25&&w==91&&h==1){assert(ink==0xffffc247);bypass_underline=true;}if(x==0&&y==0&&w==106&&h==29){assert(ink==0xff000000);warm_underline=false;}if(x==8&&y==25&&w==90&&h==1){assert(ink==0xffffc247);warm_underline=true;}}
 static void font_create(uint64_t*f,int,float){*f=0;}
 static void font_destroy(uint64_t*){}
 static void font_set(void*,const uint64_t*){}
-static void text(void*,const uint64_t*s,int x,int y,int w,int h,int,int,float){assert(x>=0&&y>=0&&x+w<=320&&y+h<=240);if(!strcmp(reinterpret_cast<const char*>(*s),"Type"))++type_labels;}
+static void text(void*,const uint64_t*s,int x,int y,int w,int h,int,int,float){assert(x>=0&&y>=0&&x+w<=320&&y+h<=240);const char*t=reinterpret_cast<const char*>(*s);if(!strcmp(t,"Type"))++type_labels;if(!strcmp(t,"Warm"))++warm_labels;if(!strcmp(t,"Attack"))shift_labels|=1;if(!strcmp(t,"Release"))shift_labels|=2;if(!strcmp(t,"Knee"))shift_labels|=4;if(!strncmp(t,"GR ",3))assert(sscanf(t,"GR %f dB",&displayed_gr)==1);if(!strcmp(t,"S")){assert(y==201&&w==8&&h==10&&(x==95||x==201||x==307));if(ink==0xffff4747)++red_badges;else{assert(ink==0xffffffff);++white_badges;}}}
+static unsigned lit_meters(uintptr_t base){
+ const uint32_t*p=compressor_image_pixels(base);assert(p);unsigned n=0;
+ for(int y=0;y<164;++y)for(int x=268;x<312;++x)n+=p[y*320+x]==0xff00ffa7u||p[y*320+x]==0xffd31145u;
+ return n;
+}
 static void redirect(uintptr_t base,uintptr_t offset,void*fn){uint32_t code[]={0x58000050,0xd61f0200};memcpy(reinterpret_cast<void*>(base+offset),code,8);memcpy(reinterpret_cast<void*>(base+offset+8),&fn,8);__builtin___clear_cache(reinterpret_cast<char*>(base+offset),reinterpret_cast<char*>(base+offset+16));}
 static void counted(void*p,void*b,void*m){++native_calls;native_specific(p,b,m);}
 struct ImageRef {
@@ -44,7 +56,11 @@ static void check_image(uintptr_t base){
  assert(!memcmp(out+320*34,source,320*164*4));
  assert(out[0]==0&&out[320*239]==0);puts("PASS real native software Image creation and single blit; pixels match at y34, header/footer untouched");
 }
-static int button(unsigned code,unsigned down,uint64_t ticket){unsigned char e[16]{};e[8]=static_cast<unsigned char>(code);e[9]=static_cast<unsigned char>(down);return compressor_ui_button(e,ticket);}
+static int button(unsigned code,unsigned down,uint64_t ticket){unsigned char e[16]{};e[8]=static_cast<unsigned char>(code);e[9]=static_cast<unsigned char>(down);int handled=compressor_ui_button(e,ticket);
+ /* Stock B3 Value/event boundary is a fixture; its actual Colour parameter
+  * and DSP are native. Production deliberately does not own this event. */
+ if(!handled&&code==0x0e){static bool held=false;if(down&&!held)compressor_bypass();held=down!=0;return 1;}
+ return handled;}
 extern "C" int modern_fx_probe(uintptr_t base,const char**phase){
  native_base=base;
  *phase="OptoCat native software Image ABI";check_image(base);
@@ -81,7 +97,7 @@ extern "C" int modern_fx_probe(uintptr_t base,const char**phase){
  compressor_ui_init(base);assert(compressor_ui_install());
  auto ui=reinterpret_cast<uintptr_t*>(base+0x6e1bf30);
  *phase="native Compressor Type binding";reinterpret_cast<void(*)(void*,void*)>(ui[27])(screen,nullptr);
- assert(compressor_ready()&&wakes&&type_labels==1&&indicators==2);
+ assert(compressor_ready()&&wakes&&type_labels==1&&indicators==2&&compressor_ui_active());
  auto vt=*reinterpret_cast<uintptr_t**>(instance.get());native_specific=reinterpret_cast<void(*)(void*,void*,void*)>(vt[114]);vt[114]=reinterpret_cast<uintptr_t>(counted);
  float l[256],r[256],*channels[]={l,r};alignas(8) unsigned char audio[320]{},midi[16]{};
  *reinterpret_cast<int*>(audio)=2;*reinterpret_cast<int*>(audio+4)=256;*reinterpret_cast<float***>(audio+16)=channels;
@@ -90,15 +106,131 @@ extern "C" int modern_fx_probe(uintptr_t base,const char**phase){
  *phase="native Duck pass-through";audio_block(0);assert(native_calls==1&&compressor_type()==COMP_DUCK);
  uint64_t ticket=compressor_ui_ticket();assert(button(0x0d,1,ticket)&&compressor_type()==COMP_OPTO);
  assert(button(0x0d,1,ticket)&&compressor_type()==COMP_OPTO);assert(button(0x0d,0,ticket));
+ *phase="Shift controls captured per queued event";
+ comp_config before,after;compressor_config(&before);assert(before.gain==0);
+ compressor_knob(2,0);compressor_config(&after);assert(after.gain==-6);
+ compressor_knob(2,127);compressor_config(&after);assert(after.gain==6);
+ compressor_knob(2,64);compressor_config(&after);assert(after.gain==0);
+ assert(before.attack==10&&before.release==1200&&before.knee==6);
+ auto control=[&](unsigned k,unsigned value,uint64_t t){unsigned char e[16]{};e[8]=static_cast<unsigned char>(0x10+k);e[9]=static_cast<unsigned char>(value);assert(compressor_ui_control(e,t));};
+ shifted=1;uint64_t shift_ticket=compressor_ui_ticket();assert(shift_ticket!=ticket);shifted=0;
+ control(0,127,shift_ticket);compressor_config(&after);
+ assert(after.attack==100&&after.threshold==before.threshold&&after.gain==before.gain);
+ shifted=1;control(2,127,ticket);compressor_config(&after);assert(after.gain==6&&after.knee==6);
+ for(unsigned k=0;k<3;++k){control(k,0,shift_ticket);compressor_config(&after);assert((k==0?after.attack:k==1?after.release:after.knee)==(k==0?1:k==1?100:0));control(k,127,shift_ticket);compressor_config(&after);assert((k==0?after.attack:k==1?after.release:after.knee)==(k==0?100:k==1?4000:12));}
+ reinterpret_cast<void(*)(void*,void*)>(ui[27])(screen,nullptr);assert(shift_labels==7&&red_badges==3);
+ control(0,64,shift_ticket);control(1,86,shift_ticket);control(2,64,shift_ticket);
+ shifted=0;control(2,64,ticket); /* -6 + round(64*48/127)/4 = 0dB. */
+ compressor_config(&after);assert(after.gain==0&&after.threshold==before.threshold&&after.ratio==before.ratio);
  *phase="Opto in actual native AudioPlugin callback";
  for(unsigned i=0;i<300;++i)audio_block(i);
  unsigned settled=native_calls;for(unsigned i=300;i<320;++i)audio_block(i);
  assert(settled==native_calls&&compressor_reduction()>5);
  assert(compressor_audio_blocks()>=320&&compressor_input_level()>-12&&compressor_hits()>0);
- reinterpret_cast<void(*)(void*,void*)>(ui[27])(screen,nullptr);assert(type_labels==2&&indicators==4);
- assert(button(0x0e,1,ticket)&&button(0x0e,0,ticket));for(unsigned i=0;i<80;++i)audio_block(i);assert(compressor_reduction()==0);
+ reinterpret_cast<void(*)(void*,void*)>(ui[27])(screen,nullptr);assert(type_labels==3&&indicators==6&&white_badges==3);
+ assert(lit_meters(base)>0&&displayed_gr>5);
+ assert(!bypass_underline);
+ assert(button(0x0e,1,ticket)&&button(0x0e,0,ticket));
+ /* Paint before the next audio block: stale peak/GR must not light a sleeping
+  * cat. The backing telemetry still contains the real ongoing signal. */
+ assert(compressor_reduction()>5);
+ reinterpret_cast<void(*)(void*,void*)>(ui[27])(screen,nullptr);assert(!lit_meters(base)&&displayed_gr==0);
+ assert(bypass_underline);
+ for(unsigned i=0;i<80;++i)audio_block(i);
+ assert(compressor_reduction()==0);
+ *phase="real stereo meter, bypass, silence and mono";
+ for(unsigned block=0;block<400;++block){
+  for(unsigned i=0;i<256;++i){l[i]=.2f;r[i]=-.05f;}
+  process(instance.get(),audio,midi);playhead.frame+=256;
+ }
+ comp_meter levels;compressor_meter_levels(&levels);
+ assert(std::fabs(levels.input[0]-.2f)<1e-5&&std::fabs(levels.input[1]-.05f)<1e-5);
+ assert(std::fabs(levels.output[0]-.2f)<1e-5&&std::fabs(levels.output[1]-.05f)<1e-5);
+ reinterpret_cast<void(*)(void*,void*)>(ui[27])(screen,nullptr);assert(!lit_meters(base)&&displayed_gr==0);
+ assert(button(0x0e,1,ticket)&&button(0x0e,0,ticket));
+ reinterpret_cast<void(*)(void*,void*)>(ui[27])(screen,nullptr);assert(lit_meters(base)>0);
+ assert(!bypass_underline);
+ assert(button(0x0e,1,ticket)&&button(0x0e,0,ticket));
+ reinterpret_cast<void(*)(void*,void*)>(ui[27])(screen,nullptr);assert(!lit_meters(base)&&displayed_gr==0);
+ assert(bypass_underline);
+ puts("PASS OptoCat Bypass uses the native amber one-pixel underline only while enabled, cleared on wake and restored on repeated sleep");
+ puts("PASS production OptoCat paint hides input/output/GR immediately on Bypass with live and stale telemetry, restores meters on wake and preserves actual bypass audio levels");
+ *reinterpret_cast<int*>(audio)=1;
+ for(unsigned i=0;i<256;++i)l[i]=.2f;
+ process(instance.get(),audio,midi);playhead.frame+=256;compressor_meter_levels(&levels);
+ assert(levels.input[1]==0&&levels.output[1]==0);
+ for(unsigned block=0;block<1000;++block){
+  memset(l,0,sizeof(l));process(instance.get(),audio,midi);playhead.frame+=256;
+ }
+ compressor_meter_levels(&levels);assert(levels.input[0]<1e-7&&levels.output[0]<1e-7);
+ *reinterpret_cast<int*>(audio)=2;
+ puts("PASS live stereo peak meters: independent L/R, actual bypass output, mono channel clearing and silence decay");
+ *phase="Warm B1 through actual master audio and native header";
+ compressor_config(&before);assert(!before.warm&&before.bypass);
+ compressor_knob(0,127);compressor_knob(1,0);compressor_knob(2,64);
+ compressor_shift_knob(1,0); /* Let the preceding optical-memory tail settle. */
+ assert(button(0x0e,1,ticket)&&button(0x0e,0,ticket)); /* Wake. */
+ auto steady=[&](){for(unsigned block=0;block<256;++block){for(unsigned i=0;i<256;++i)l[i]=r[i]=.5f;process(instance.get(),audio,midi);playhead.frame+=256;}return l[255];};
+ assert(std::fabs(steady()-.5f)<2e-5);
+ compressor_config(&before);assert(!before.warm);
+ assert(button(0x0c,1,ticket));compressor_config(&after);assert(after.warm==1);
+ assert(button(0x0c,1,ticket));compressor_config(&after);assert(after.warm==1); /* Paired edge, no double toggle. */
+ assert(button(0x0c,0,ticket));
+ assert(after.threshold==before.threshold&&after.ratio==before.ratio&&after.gain==before.gain&&after.attack==before.attack&&after.release==before.release&&after.knee==before.knee);
+ assert(std::fabs(steady()-.4671875f)<2e-5);
+ reinterpret_cast<void(*)(void*,void*)>(ui[27])(screen,nullptr);assert(warm_labels&&warm_underline&&!bypass_underline);
+ assert(button(0x0e,1,ticket)&&button(0x0e,0,ticket));assert(std::fabs(steady()-.5f)<2e-5);
+ reinterpret_cast<void(*)(void*,void*)>(ui[27])(screen,nullptr);assert(warm_underline&&bypass_underline&&!lit_meters(base));
+ assert(button(0x0e,1,ticket)&&button(0x0e,0,ticket));assert(std::fabs(steady()-.4671875f)<2e-5);
+ assert(button(0x0c,1,ticket)&&button(0x0c,0,ticket));assert(std::fabs(steady()-.5f)<2e-5);
+ reinterpret_cast<void(*)(void*,void*)>(ui[27])(screen,nullptr);assert(!warm_underline);
+ puts("PASS Warm B1 edge pairing, native underline, independent K/Shift values, actual master audio colour, dry Bypass, stored Warm on wake and native Duck Color isolation");
  assert(button(0x0d,1,ticket)&&button(0x0d,0,ticket)&&compressor_type()==COMP_DUCK);audio_block(0);assert(native_calls>settled);
+ assert(!button(0x0c,1,ticket)); /* Duck keeps its original B1 Color. */
  for(unsigned i=0;i<6;++i)assert(reinterpret_cast<float(*)(void*,int)>(v[27])(instance.get(),i)==native_parameters[i]);
- showing=false;compressor_ui_tick();assert(button(0x0d,1,ticket)&&compressor_type()==COMP_DUCK);assert(!compressor_ui_owns(2,0x0d));
+ *phase="shared native Bypass and page opening policy";
+ assert(!compressor_ui_owns(2,0x0e));
+ auto reopen=[&](){showing=false;compressor_ui_tick();showing=true;compressor_ui_tick();ticket=compressor_ui_ticket();};
+ auto native_bypass=[&](){return reinterpret_cast<float(*)(void*,int)>(v[27])(instance.get(),5)>=.5f;};
+ assert(compressor_select(COMP_OPTO));reopen();assert(compressor_type()==COMP_OPTO);
+ assert(button(0x0e,1,ticket)&&button(0x0e,0,ticket)&&native_bypass());
+ reopen();assert(compressor_type()==COMP_DUCK);compressor_config(&after);assert(after.bypass);
+ assert(button(0x0d,1,ticket)&&button(0x0d,0,ticket)&&compressor_type()==COMP_OPTO);
+ compressor_config(&after);assert(after.bypass&&native_bypass());
+ assert(button(0x0e,1,ticket)&&button(0x0e,0,ticket)&&!native_bypass());
+ reopen();assert(compressor_type()==COMP_OPTO);
+ /* Direct native/project parameter updates must drive both algorithms. */
+ reinterpret_cast<void(*)(void*,int,float)>(v[40])(instance.get(),5,1);audio_block(0);
+ compressor_config(&after);assert(after.bypass);reopen();assert(compressor_type()==COMP_DUCK);
+ assert(button(0x0e,1,ticket)&&button(0x0e,0,ticket)&&!native_bypass());
+ puts("PASS shared native Bypass disables both types, Type browsing stays bypassed, reopening selects active Opto or default Duck when off; native B3 retained");
+ *phase="master replacement, delayed old destruction and repeated New Project";
+ assert(compressor_select(COMP_OPTO));compressor_warm();compressor_config(&before);assert(before.warm);
+ auto immutable=*reinterpret_cast<uintptr_t**>(instance.get());
+ uintptr_t saved[125];memcpy(saved,immutable-2,sizeof(saved));
+ for(unsigned cycle=0;cycle<4;++cycle){
+  if(cycle&1){instance.reset();assert(!compressor_ready()&&compressor_type()==COMP_OPTO);}
+  NativePtr replacement;Callback next=[&](NativePtr p,const NativeText&){replacement=std::move(p);};
+  reinterpret_cast<void(*)(void*,const void*,double,int,Callback)>(base+0x2531110)(format,description,48000.,256,std::move(next));assert(replacement);
+  auto nv=*reinterpret_cast<uintptr_t**>(replacement.get());
+  reinterpret_cast<void(*)(void*,double,int)>(nv[4])(replacement.get(),48000.,256);
+  *reinterpret_cast<void**>(reinterpret_cast<char*>(replacement.get())+16)=&playhead;
+  *reinterpret_cast<void**>(meter+0x80)=replacement.get();
+  compressor_ui_tick();assert(compressor_ready()&&compressor_type()==COMP_OPTO);
+  assert(*reinterpret_cast<uintptr_t**>(replacement.get())==immutable);
+  assert(!memcmp(saved,immutable-2,sizeof(saved))); /* No retained table rewrite. */
+  if(instance)audio_block(0); /* Retired still-live master must remain a native pass-through. */
+  assert(compressor_ready()&&compressor_type()==COMP_OPTO);
+  instance.reset(); /* Late old destructor must not retire the new owner. */
+  assert(compressor_ready()&&compressor_type()==COMP_OPTO);
+  instance=std::move(replacement);process=reinterpret_cast<void(*)(void*,void*,void*)>(immutable[7]);
+  for(unsigned i=0;i<10;++i)audio_block(i);
+  compressor_config(&after);assert(after.warm&&after.attack==before.attack&&after.release==before.release&&!after.bypass);
+ }
+ instance.reset();*reinterpret_cast<void**>(meter+0x80)=nullptr;
+ assert(!compressor_ready()&&compressor_type()==COMP_OPTO);
+ puts("PASS real Colour master replacement across four project lifetimes, immutable table, old callbacks and late destruction preserve new master and Opto/Warm settings");
+ compressor_select(COMP_DUCK);
+ showing=false;compressor_ui_tick();assert(!compressor_ui_active());assert(button(0x0d,1,ticket)&&compressor_type()==COMP_DUCK);assert(!compressor_ui_owns(2,0x0d));
  assert(repaints);puts("PASS native master binding, Type caption/two indicators, B2 edge pairing, actual Duck/Opto audio dispatch, no serial compression, Opto bypass, native parameter preservation, stale press rejection");return 0;
 }

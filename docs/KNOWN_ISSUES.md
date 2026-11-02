@@ -7,12 +7,19 @@ independently reproduced bugs. Numbers L01–L21 preserve the supplied tester
 summary; L22 is an additional report from the author. Revision and exact steps
 are still needed for some reports. Related items remain separate test cases.
 
-**Version matters:** public source `main` includes **r26i**, with the K knob
-fix confirmed on an MPC. The latest downloadable ZIP is still **r26d**, which
-does not include that fix or experimental FAT32. Local r26j compressor changes
-have not been published or confirmed on hardware.
+**Current release: r26s.** Source and ZIP include the confirmed K fix,
+experimental FAT32, OptoCat/Warm, shared Bypass/master rebinding, startup modal
+gating, Copy/Extract colour history, workflow hues, Seq pulses and Sound cursor.
+EQ retains its native volume/pan side strips; OptoCat Gain is −6…+6 dB.
+[Changes and verification scope](RELEASE_NOTES-r26s.md).
 
-## Open reports
+The author confirmed K on an MPC. ARM/QEMU/UBSan cover the specified native
+factory/audio/renderer/workflow boundaries; the newest combined GUI scenarios
+and physical FAT32 still need their device checks. A previous full native VM
+run verified one startup-modal error and project-copy fixture; it does not close
+every project report below. Ordinary manual External Save/Load was reported to work.
+
+## Reports and remaining checks
 
 | ID | Priority | Report / next check |
 | --- | --- | --- |
@@ -22,12 +29,12 @@ have not been published or confirmed on hardware.
 | L04 | P1 | `Mod Exit Last` appears as the project name in ordinary Save. The exit copy is intentional; check project identity and the destination of a later Save. |
 | L05 | P2 | Delete appears unavailable in Project Load. Physical **Erase** in Open Project is already implemented; check the affected browser/search state and selected file/folder. |
 | L06 | P2 | A Chop on the first beat does not light on the first Play pass, but lights after looping. Reproduce the first-pass and restart cases. |
-| L08 | P2 | Pad Colour resets when changing banks **inside Copy/Paste**, rather than during ordinary bank changes. Distinguish temporary LED changes from altered stored colour assignments. |
-| L09 | P2 | Extract Chop does not inherit the source colour; cleared destinations can retain an old colour. Decide the intended inheritance/reset rule, then check new/used/cleared targets and Undo. |
+| L08 | P2 | Implemented: assigned hues across ordinary Copy/browser and custom Batch/Mono/Resample/Extract; target/overwrite cues preserved. Retest the reported bank/Paste/Cancel sequence on the MPC. |
+| L09 | P2 | Implemented source-colour inheritance for Copy/Extract, captured Undo/Redo and rollback. Clearing preserves the pad colour by design. Verify device Save/Load and used/empty targets. |
 | L11 | P2 | Muted pads look empty because the waveform is hidden. Verify sample presence independently of the load errors; consider a visible dim waveform and clear Mute state. |
 | L13 | P2 | Shift+Pad Bank does not go to the previous bank during Copy. Check native reverse navigation in that context. A bank picker is a separate suggestion. |
-| L16 | P2 | Sequence Colors sometimes blink while playback is stopped. Check selected, playing and queued sequences before treating this solely as a visual preference. |
-| L22 | P2 | **Assigned pad colours do not appear on the compressor screen.** Check both Duck and OptoCat, bank changes, playback, pad selection, Mute/Bypass and screen exit. A loss of saved colour data has not been established. |
+| L16 | P2 | r26s implements the agreed Seq pulses: selected once per bar at Stop, playing once per beat, queued twice per beat until handoff, with visible background and stable other-pad brightness. Verify timing/readability and queue/cancel on the MPC before closing. |
+| L22 | P2 | Implemented assigned colours in Duck/OptoCat, including playback and banks; Mute/Erase priorities retained. Retest both types, Bypass, selection and exit on the MPC. |
 
 Project lifecycle (L01–L04) is the first investigation priority, followed by
 Chop and Copy/Extract/compressor colours. Ordinary manual Save/Load was reported
@@ -39,7 +46,7 @@ to work with External projects; automatic restoration and Mod Off need separate 
 | --- | --- |
 | L07 | Sample playback retaining Pad Colour was fixed in r26b–r26d and confirmed by the author. Retest the tester's case on a current build; Copy and compressor contexts remain L08/L22. |
 | L10 | Green was made distinct from Cyan in r26b–r26d; the tester noticed the change after installing r26d. |
-| L12 | **K1–K3 end-stop stalls fixed in r26i**, confirmed on hardware by the author. [Issue #2 is closed](https://github.com/AlekseyMalykh/am-mod/issues/2). The r26d ZIP is older than this fix. |
+| L12 | **K1–K3 end-stop stalls fixed in r26i**, confirmed on hardware by the author. [Issue #2 is closed](https://github.com/AlekseyMalykh/am-mod/issues/2). Included in the r26s ZIP. |
 | L20 | Spectrum on Filter and Filter Env, in addition to EQ, is implemented in r26d. Native curves are preserved. |
 | L21a | Pad Colour without Shift is implemented: **Sample → B1 Mix → K2**; Shift+K2 is Kit Volume, K1 is Volume. |
 
@@ -54,12 +61,12 @@ to work with External projects; automatic restoration and Mod Off need separate 
 - **L21c:** interchangeable compressor characters. OptoCat already exists; B2 currently selects **Duck/OptoCat algorithms**, not an independent artwork skin.
 - **L21d:** offer to help with artwork; no asset task has been agreed yet.
 
-These are suggestions, not scheduled commitments. Local Attack/Release/Knee,
-paw timing and gain-limit work must not be described as a publicly released fix.
+These are suggestions, not scheduled commitments. OptoCat Attack/Release/Knee,
+GR-driven paw, Warm and the gain limits are included in r26s; see its verification scope.
 
 ## Current limitations
 
-- Experimental FAT32 is in the source version from r26e onward; physical FAT32
+- Experimental FAT32 is in r26s and packages from r26e onward; physical FAT32
   confirmation is still pending. r26d packages require exFAT.
 - OptoCat type/settings currently live in RAM and are not saved in projects.
 - Startup chooses the newest saved XPJ in SD Projects or one level below,

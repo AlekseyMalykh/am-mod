@@ -2,7 +2,7 @@
 
 **English** · [Русский](FEATURES.ru.md)
 
-State as of build **r26a** (1 November 2026), MPC Sample firmware **1.3.0.12**.
+State as of build **r26s** (2 November 2026), MPC Sample firmware **1.3.0.12**.
 
 **Statuses:**
 - **Confirmed**: checked on a real MPC Sample.
@@ -11,6 +11,14 @@ State as of build **r26a** (1 November 2026), MPC Sample firmware **1.3.0.12**.
 A confirmation covers that specific trial, not every combination of features in later builds. Build history: [CHANGELOG](../CHANGELOG.md).
 
 Terms: **B1–B3** are the three buttons above the screen, **K1–K3** the three knobs below it, "encoder" is the large DATA wheel.
+
+## r26s update — 2 November 2026
+
+See the [complete release notes](RELEASE_NOTES-r26s.md): experimental FAT32,
+native K fix, OptoCat/Warm (Gain −6…+6 dB; Shift Attack/Release/Knee), shared
+Bypass and GR-driven paw, workflow pad colours, EQ side indicators and Seq/Sound
+pulses. Compressor Type/settings/Warm are session-only; physical coverage remains
+specific to each check. Earlier sections retain their historical confirmations.
 
 ## r26a update — 1 November 2026
 
@@ -173,7 +181,7 @@ The type/addition layout was inspired by [ChoralRoot FM-1](https://github.com/Qu
 - 16 steps of the selected sound on the pads, in time order 13–16 → 9–12 → 5–8 → 1–4.
 - +/− change page, the encoder selects a step. Shift+encoder moves the selected sound's events along the grid, wrapping around the sequence.
 - **K1 Sound**, **K2 Grid** (1/4…1/64, triplets with Shift+K2), **K3 Velocity**; Shift+K1 selects the bank.
-- **B1 Sound + pad** selects a sound silently.
+- **B1 Sound + pad** selects a sound silently. While Sound is held, the selected pad alternates white and its assigned colour (r26r, included in r26s).
 - **SEQ RECORD** toggles a local WRITE: when OFF a pad selects a step, when ON it adds a note to an empty step. Works while stopped and while playing.
 - **Erase+pad** deletes the selected sound's events on that step as one Undo step.
 - **B3 Edit**: Copy / Paste / Paste to Pad / Note Length. **Shift+B2**: Follow / Hold the playback page.
@@ -211,7 +219,7 @@ When the selected event has a C or L mark, the Chop or 16 Levels button lights u
 |---|---|
 | **Sequence colour**: Shift+K1 in Seq; saved with the project | confirmed (r23) |
 | 13 colours: **Stock** (the stock pad hue, default), Green, Amber, Violet, Magenta, Red, Orange, Yellow, Blue, Lime, Mint, White, Cyan | trial (r24v) |
-| Blinking follows the tempo: the playing sequence once per beat, the queued one (pressed during playback, starts at the end of the bar) twice per beat. Empty sequences are dark, an empty queued one still blinks | trial (r24p) |
+| Seq pulses follow native tempo and meter: selected once per bar at Stop, playing once per beat, queued twice per beat until handoff. Assigned hues and background glow remain; other occupied pads keep the same brightness on Play. Empty slots are dark unless selected or queued | trial (r26q) |
 | While recording is armed or running, the Seq screen stays and the pads keep the stock Sample layout | trial (r24o) |
 | During playback the sounding pad blinks in Sample, notes in 16 Levels, slices in Chop | trial |
 | Mute no longer switches 16 Levels lighting back to the normal bank | trial |

@@ -6,9 +6,13 @@
 
 [Feedback and help](docs/FEEDBACK.md) · [Known issues](docs/KNOWN_ISSUES.md) · [Discussions](https://github.com/AlekseyMalykh/am-mod/discussions)
 
-[r26i: native K1–K3 input and takeover](docs/RELEASE_NOTES-r26i.md)
+[**Release r26s: download the package and installer**](https://github.com/AlekseyMalykh/am-mod/releases/tag/r26s)
 
-The author confirmed the K parameter fix on a physical MPC Sample after testing r26i. OptoCat is preserved. Experimental FAT32 support is included in this source version; the currently published r26d download still requires exFAT.
+OptoCat/Warm, the K fix, workflow pad colours, Seq pulses, Sound cursor and EQ
+side indicators. **FAT32 is experimental**; exFAT is supported.
+[Release notes](docs/RELEASE_NOTES-r26s.md) · [Remaining reports](docs/KNOWN_ISSUES.md).
+The author confirmed the K fix on an MPC; automated coverage and remaining
+physical checks are stated in the release notes.
 
 AM Mod is a community mod for the Akai MPC Sample (firmware **1.3.0.12**) that starts from the SD card.
 It adds a step sequencer on the pads, a chord mode, typing names with the pads, scale
@@ -23,6 +27,17 @@ the stock app. Nothing is flashed: the mod runs a patched copy of the stock app 
 > or Akai Professional. **No firmware and no Akai code are in this repository or in the
 > release packages**: the mod patches the copy of the app already on your MPC Sample.
 > Use at your own risk. See [NOTICE](NOTICE.md).
+
+## r26s — 2 November 2026
+
+- Native K input/takeover fix and experimental FAT32 with installer1.0.2.
+- OptoCat: K1 Threshold, K2 Ratio, K3 Gain −6…+6 dB; Shift Attack/Release/Knee,
+  B1 Warm, B2 Type, shared B3 Bypass. The bow follows input; the paw follows red GR.
+- Project-start modal gating and OptoCat master rebinding after New Project.
+- Assigned hues across compressor, Copy/browser, Mono/Resample/Extract; Undo/Redo
+  colour inheritance and suppressed flashes for muted instruments.
+- Seq pulses by bar/beat/queue, alternating Sound cursor and restored EQ side strips.
+- Opto settings remain session-only. Further project-error cases remain open.
 
 ## r26d update — 1 November 2026
 
@@ -47,7 +62,7 @@ The author confirmed the current features on an MPC Sample with r25w. r25x remov
 
 ## Features
 
-Status as of 1 November 2026 (build r26d). **Confirmed** means checked on a real MPC Sample;
+Status as of 2 November 2026 (build r26s). **Confirmed** means checked on a real MPC Sample;
 **trial** means the specified automated checks passed; hardware coverage is pending as noted.
 
 | Feature | Where | Status |
@@ -66,7 +81,8 @@ Status as of 1 November 2026 (build r26d). **Confirmed** means checked on a real
 | **Per-pad EQ**: one band, 7 types, ±18 dB, live spectrum behind the curve | Sample → B3 Filter → Filter Env → **EQ** | confirmed |
 | **Stereo → Mono** (left or right channel to a new pad) | Sample → Shift+B3 | trial |
 | **Chords**: 8 scale degrees, 6/7/maj7/9, Maj/Min/Dim/Aug/Sus4, octave, inversion, latch, arpeggiator, chord repeat with Note Repeat; recorded as normal Tune events | 16 Levels Tune → Chop | trial (r24v) |
-| **Sequence pads**: 13 colours (Stock by default); the playing and the queued sequence blink with the tempo | Seq → Shift+K1 | trial (r24v) |
+| **OptoCat/Warm**: optical-style compression, Gain −6…+6 dB, Shift Attack/Release/Knee; paw follows red GR, shared Bypass | Shift+Pad5 → B2 Type; B1 Warm | trial (r26s); settings session-only |
+| **Sequence pads**: 13 colours; selected pulses once per bar at Stop, playing once per beat, queued twice per beat; visible background and stable brightness of other pads | Seq → Shift+K1 | trial (r26q) |
 | **Batch Extract** chops to separate samples | Chop → Shift+B2 | confirmed |
 
 Every feature with its controls and status: [docs/FEATURES.md](docs/FEATURES.md). Build history: [CHANGELOG.md](CHANGELOG.md).
@@ -95,13 +111,13 @@ Every feature with its controls and status: [docs/FEATURES.md](docs/FEATURES.md)
 ## Install
 
 > [!IMPORTANT]
-> **FAT32 / MS-DOS (FAT32) is available experimentally starting with r26e; exFAT remains supported.** FAT32 requires the r26e package and installer **1.0.2+**, or a manual copy of r26e's `autorun/`. FAT32 has been checked in test images and the emulator; physical MPC testing is still pending. The published r26d and earlier packages require exFAT; updating only the installer does not add FAT32 support to an old package.
+> **FAT32 / MS-DOS (FAT32) is available experimentally starting with r26e; exFAT remains supported.** FAT32 requires a package **r26e or newer** (use current r26s) and installer **1.0.2+**, or a manual copy of that package's complete `autorun/`. FAT32 has been checked in test images and the emulator; physical MPC testing is still pending. The published r26d and earlier packages require exFAT; updating only the installer does not add FAT32 support to an old package.
 >
 > **Use a card volume name such as `MPC` or `MPCSAMPLE`.** Only ASCII letters, digits, `.`, `_` and `-` are supported; spaces and Cyrillic letters in the card name prevent startup. This restriction applies to the card name, not your sample/project names.
 >
 > Check the filesystem before installing: Finder → select the SD volume → ⌘I → Format on macOS; drive Properties → File system on Windows. Installer **1.0.2+** checks the filesystem, card name and package compatibility before writing.
 >
-> **No reformatting is needed to use r26e on an existing FAT32 card.** Keep your projects and samples; replace the mod's `autorun/` folder with the complete new version. The installer backs up the previous folder and does not format or convert cards. FAT32 has a limit of **4 GiB minus 1 byte per file**.
+> **No reformatting is needed to install the current release on an existing FAT32 card.** Keep your projects and samples; replace the mod's `autorun/` folder with the complete new version. The installer backs up the previous folder and does not format or convert cards. FAT32 has a limit of **4 GiB minus 1 byte per file**.
 
 You need an MPC Sample on firmware **1.3.0.12** (the mod checks the app's SHA-256 and
 refuses to start on any other version) and a compatible SD card with a supported volume name: exFAT, or experimental FAT32 starting with r26e.
@@ -115,7 +131,7 @@ refuses to start on any other version) and a compatible SD card with a supported
 ```bash
 python3 installer/mpc_mod_installer.py                 # window
 python3 installer/mpc_mod_installer.py cards           # list cards
-python3 installer/mpc_mod_installer.py install am-mod-r26e.zip --card E:
+python3 installer/mpc_mod_installer.py install am-mod-r26s.zip --card E:
 python3 installer/mpc_mod_installer.py install --latest --card /Volumes/MPC
 python3 installer/mpc_mod_installer.py remove --card E:
 ```
@@ -156,7 +172,7 @@ firmware in QEMU with the whole device in your browser, and runs SD autorun pack
 way the MPC does. The GIFs above were recorded there:
 
 ```bash
-python3 lab.py autorun am-mod-r26e.zip --no-reboot --yes
+python3 lab.py autorun am-mod-r26s.zip --no-reboot --yes
 ```
 
 Emulator runs are useful for development, but they are not a hardware test: timing, audio

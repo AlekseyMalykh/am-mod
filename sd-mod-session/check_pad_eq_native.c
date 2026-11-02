@@ -16,8 +16,24 @@ static void native_render(void*p,void*b,unsigned frames){assert(p==renderer&&b==
 static double rms(void){double e=0;for(unsigned i=1024;i<2048;++i)e+=left[i]*left[i];return sqrt(e/1024);}
 static FILE*trace;
 static unsigned layout,first_curve,segments,has_freq,has_type,has_value;
-static void rect(void*u,int x,int y,int w,int h,uint32_t colour){assert(!u&&x>=0&&y>=0&&w>0&&h>0&&x+w<=320&&y+h<=240);if(layout&&x==30&&w==1&&colour==0xffffc247){assert(h==1);++first_curve;}if(layout&&x>=217&&y==235&&h==2)++segments;if(trace)fprintf(trace,"R %d %d %d %d %08x\n",x,y,w,h,colour);}
-static void text(void*u,const char*s,int x,int y,int w,int h,unsigned z,uint32_t c,int centre){assert(!u&&s&&x>=0&&y>=0&&x+w<=320&&y+h<=240&&z>=10);if(layout){if(!strcmp(s,"Freq"))has_freq=1;if(!strcmp(s,"Type"))has_type=1;if(x>=217&&y==214&&*s)has_value=1;}if(trace)fprintf(trace,"T %d %d %d %d %u %08x %d %s\n",x,y,w,h,z,c,centre,s);}
+static void rect(void*u,int x,int y,int w,int h,uint32_t colour){assert(!u&&x>=0&&y>=0&&w>0&&h>0&&x+w<=320&&y+h<=240);if(layout&&y<198){assert(x>=14&&x+w<=306);}
+if(layout&&x==42&&w==1&&colour==0xffffc247){assert(h==1);++first_curve;}if(layout&&x>=217&&y==235&&h==2)++segments;if(trace)fprintf(trace,"R %d %d %d %d %08x\n",x,y,w,h,colour);}
+static void text(void*u,const char*s,int x,int y,int w,int h,unsigned z,uint32_t c,int centre){assert(!u&&s&&x>=0&&y>=0&&x+w<=320&&y+h<=240&&z>=10);if(layout&&y<198){assert(x>=14&&x+w<=306);}
+if(layout){if(!strcmp(s,"Freq"))has_freq=1;if(!strcmp(s,"Type"))has_type=1;if(x>=217&&y==214&&*s)has_value=1;}if(trace)fprintf(trace,"T %d %d %d %d %u %08x %d %s\n",x,y,w,h,z,c,centre,s);}
+static unsigned char layout_screen[0xa000];static unsigned native_side_mask;
+static void capture_native_bounds(void*p,uint64_t xy,uint64_t wh){
+ uintptr_t offset=(uintptr_t)p-(uintptr_t)layout_screen;
+ if(offset==0x2088||offset==0x2868){
+  assert((int)xy==(offset==0x2088?5:311)&&(int)(xy>>32)==81);
+  assert((int)wh==4&&(int)(wh>>32)==108);native_side_mask|=offset==0x2088?1:2;
+ }
+}
+static void native_side_bounds(void){
+ patch(0x1160fc0,capture_native_bounds);
+ F(layout_screen,0x28,int)=320;F(layout_screen,0x2c,int)=240;
+ FN(0x1660370,void(*)(void*))(layout_screen);assert(native_side_mask==3);
+ puts("PASS actual native Sample resized places volume/pan side indicators at x5/x311 y81 h108; EQ primitives never cover either strip");
+}
 #ifndef PAD_EQ_PROOF_MAIN
 #define PAD_EQ_PROOF_MAIN main
 #endif
@@ -45,5 +61,5 @@ int PAD_EQ_PROOF_MAIN(int argc,char**argv){
  printf("PASS actual native2802f90 through relocated PAC/stack/guard prologue, native stage order preserved, post-processing Bell cut RMS %.6f -> %.6f, bypass, other pad/program and silence; native generator/inserts are fixtures\n",dry,cut);
  trace=fopen(argv[2],"w");assert(trace);struct resample_painter painter={NULL,rect,text};pad_eq_paint(v,18,0,1,&painter);fclose(trace);trace=NULL;
  layout=1;for(unsigned type=0;type<PAD_EQ_TYPES;++type)for(int shift=0;shift<2;++shift){uint64_t e=pad_eq_edit(v,PAD_EQ_TYPE,type*128/PAD_EQ_TYPES+1,0);e=pad_eq_edit(e,PAD_EQ_FREQUENCY,0,0);first_curve=segments=has_freq=has_type=has_value=0;pad_eq_paint(e,18,shift,2,&painter);assert(first_curve==1&&segments==7&&has_freq&&has_type&&has_value);}layout=0;
- puts("PASS EQ layout: first graph point has no artificial vertical join, all six types at minimum frequency, Shift retains K3 type/value, seven type segments and compact Freq");free(p);free(copy);free(payload);return 0;
+ puts("PASS EQ layout: first graph point has no artificial vertical join, native side strips untouched by every graph/text primitive, all six types at minimum frequency, Shift retains K3 type/value, seven type segments and compact Freq");native_side_bounds();free(p);free(copy);free(payload);return 0;
 }

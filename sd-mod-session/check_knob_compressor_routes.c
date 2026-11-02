@@ -5,12 +5,13 @@
 #undef main
 static int compressor_open;
 static uint64_t compressor_epoch=47;
-static unsigned opto_calls,opto_value[3];
+static unsigned opto_calls,opto_value[3],shift_value[3],shift_held;
 int compressor_ui_owns(unsigned kind,unsigned cc){return compressor_open&&kind==PHONE_CONTROLLER&&cc>=0x10&&cc<=0x12;}
-uint64_t compressor_ui_ticket(void){return compressor_epoch;}
+uint64_t compressor_ui_ticket(void){return compressor_epoch|((uint64_t)shift_held<<63);}
 int compressor_ui_control(void*e,uint64_t ticket){
- if(ticket!=compressor_epoch||!compressor_open)return 1;
- opto_value[FIELD(e,8,unsigned char)-0x10]=FIELD(e,9,unsigned char);++opto_calls;return 1;
+ if((ticket&~(UINT64_C(1)<<63))!=compressor_epoch||!compressor_open)return 1;
+ unsigned*values=ticket>>63?shift_value:opto_value;
+ values[FIELD(e,8,unsigned char)-0x10]=FIELD(e,9,unsigned char);++opto_calls;return 1;
 }
 int main(void){
  assert(!native_knob_main()); /* Closed compressor must leave all native knobs alone. */
@@ -20,6 +21,10 @@ int main(void){
  for(unsigned k=0;k<3;++k){key[8]=(unsigned char)(0x10+k);for(unsigned v=1;v<127;++v){key[9]=(unsigned char)v;controller(key);}}
  struct phone_event e;while(phone_events_pop(&e)){assert(e.pad==64&&e.workflow_ticket==47);compressor_ui_control(e.native,e.workflow_ticket);}
  assert(opto_calls&&opto_value[0]==126&&opto_value[1]==126&&opto_value[2]==126&&calls==before);
+ unsigned delivered=opto_calls;key[8]=0x10;key[9]=20;controller(key);
+ shift_held=1;key[9]=127;controller(key);shift_held=0;key[9]=19;controller(key);
+ while(phone_events_pop(&e)){assert(e.pad==64);compressor_ui_control(e.native,e.workflow_ticket);}
+ assert(opto_calls==delivered+3&&opto_value[0]==19&&shift_value[0]==127&&calls==before);
  key[8]=0x10;key[9]=127;controller(key);assert(phone_events_pop(&e)&&e.pad==64);
  compressor_open=0;++compressor_epoch;unsigned received=opto_calls;
  compressor_ui_control(e.native,e.workflow_ticket);assert(opto_calls==received&&calls==before);
