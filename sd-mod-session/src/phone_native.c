@@ -1295,7 +1295,7 @@ static void sequence_palette_tick(void){
     int bank=step_native_browser_bank(-1);
     /* While recording the native app keeps the Sample pad layout on the Seq
      * screen (no sequence selection until Stop): show its lights as they are. */
-    int enabled=music_ui_sequence_visible()&&bank>=0&&bank<8&&!(step_native_transport_state()&4u)&&
+    int enabled=music_pad_lighting_mode()&&music_ui_sequence_visible()&&bank>=0&&bank<8&&!(step_native_transport_state()&4u)&&
         !atomic_load(&native_mute_mode)&&!atomic_load(&native_buttons_down[0x23]);
     static struct sequence_clock clock;
     static int previous_bank=-1,previous_transport=-1,previous_selected=-1;
@@ -1354,7 +1354,7 @@ static _Atomic int pad_colour_bank;
  * native brightness of each pad (dim loaded, bright playing) and replaces
  * only its hue. Stock (0) passes the native colour through. */
 static int pad_colour_light(unsigned pad,uint64_t *out){
-    if(pad>=16||!atomic_load(&pad_colour_sample_layout)||atomic_load(&led_enabled))return 0;
+    if(!music_pad_lighting_mode()||pad>=16||!atomic_load(&pad_colour_sample_layout)||atomic_load(&led_enabled))return 0;
     int bank=atomic_load(&pad_colour_bank);if(bank<0||bank>=8)return 0;
     int chosen=music_pad_colour((unsigned)bank*16+pad);
     if(atomic_load(&pad_colour_native_workflow)){
@@ -1496,7 +1496,7 @@ static void send_step_lights(void)
 #ifdef MPC_COMPRESSOR
                    |(compressor_ui_active()?256u:0u)
 #endif
-                   |(atomic_load(&native_mute_mode)?512u:0u)
+                   |(atomic_load(&native_mute_mode)?512u:0u)|(music_pad_lighting_mode()?1024u:0u)
                    ;
         if(m!=last_mode){last_mode=m;resync=6;}
     }
@@ -1593,7 +1593,7 @@ static void load(void)
     compressor_ui_init(base);
 #endif
     note_native_init(base);
-    music_reset(); music_archive_init(base); music_ui_init(base);
+    music_reset(); music_lighting_preferences_init(); music_archive_init(base); music_ui_init(base);
     music_lighting_init(base);
 #ifdef MPC_CHORDS
     chords_ui_init(base);

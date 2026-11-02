@@ -1,3 +1,10 @@
+## r26w — local candidate
+
+- Add Project → Pad Lighting: global Standard / AM Mod preference; retain project colour data.
+- Keep Mod Off last in the native seven-entry menu with a six-row viewport.
+- Give Note Repeat B1–B3 priority over Type/Warm, including latched overlay and queued release.
+- Scope and controls: docs/RELEASE_NOTES-r26w.md.
+
 ## r26v — local candidate
 
 - Keep empty unassigned destination pads off; show red/green only on assigned targets.

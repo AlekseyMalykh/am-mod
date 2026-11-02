@@ -6,6 +6,7 @@
 static int custom_palette;
 static uint64_t palette_epoch=1, test_colours[16];
 static unsigned calls, counts[16];static uint32_t sent[16];
+int music_pad_lighting_mode(void){return 1;}
 int workflow_light(unsigned pad,uint64_t*out){if(!custom_palette||pad>=16)return 0;*out=test_colours[pad];return 1;}
 void step_native_observe_rgb(unsigned pad,unsigned rgb){(void)pad;(void)rgb;}
 int workflow_native_occupied(void){return -1;}

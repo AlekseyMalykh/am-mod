@@ -136,6 +136,13 @@ int main(void){
  seq_visible=0;send_step_lights();assert(sent[0]==0xff7700);
  steps_on=steps_lighting=1;memset(steps_lights,0,sizeof(steps_lights));steps_lights[12]=PAD_SELECT;
  send_step_lights();for(unsigned i=0;i<16;++i)button_light((void*)0x1234,1,i);assert(white_count()==1);
+ steps_lighting=steps_on=0;seq_visible=0;sample_visible=1;native_workflow=0;levels_on=0;
+ assert(music_set_pad_colour(0,13));native_rgb(0,0x104020);send_step_lights();assert(sent[0]!=0x104020);
+ assert(music_set_pad_lighting_mode(MUSIC_LIGHTING_STANDARD));send_step_lights();assert(sent[0]==0x104020);
+ for(int native=0;native<3;++native){native_workflow=native;send_step_lights();native_rgb(0,0xff0000);assert(sent[0]==0xff0000);}
+ native_workflow=0;seq_visible=1;sample_visible=0;send_step_lights();assert(sent[0]==0xff0000);seq_visible=0;sample_visible=1;
+ assert(music_pad_colour(0)==13);assert(music_set_pad_lighting_mode(MUSIC_LIGHTING_MOD));send_step_lights();assert(sent[0]==music_identity_rgb(13));
+ puts("PASS live Standard restores native Sample/Copy/browser/Seq output; AM Mod restores retained Pink identity");
  puts("PASS five identity colours and all legacy IDs; native/browser occupancy independent of selected RGB; red/green targets remain semantic, Levels/FX ownership, button LEDs isolated");
  munmap(p,0x7500000);return 0;
 }

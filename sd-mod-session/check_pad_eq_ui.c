@@ -1,12 +1,13 @@
 #define PAD_EQ_PROOF_MAIN audio_proof_main
 #include "check_pad_eq_native.c"
 #include "src/music_ui.h"
+#include "pad_lighting_project.h"
 static unsigned char screen[0x1600],controller[0x22b0];
 static unsigned char sequence_screen[0x300],sequence_model[0x800],empty_sequence[0x800],current_things[0x1300];
 static void *sequence_array[128];
 static unsigned char repeat_screen[0xf00];static int repeat_drawing;
 static void*current_context;
-static int sequence_only,project_open;
+static int sequence_only,project_open,repeat_open;
 static unsigned char project_screen[0x2000];
 static unsigned draws,repaints,primes;static char captions[8192];static unsigned current_pad=18;
 static unsigned char fx_screen[0x300],fx_header[0x240];
@@ -29,8 +30,8 @@ int project_exit_status(void){return 0;}
 const char*project_exit_message(void){return "";}
 void*workflow_project_services(void){return NULL;}
 void resample_ui_prime_eq(void){++primes;}
-static int shown(void*p){if(p>=(void*)repeat_screen&&p<(void*)(repeat_screen+sizeof(repeat_screen)))return ((char*)p-(char*)repeat_screen-0x1c0)%0x440==0;assert(p==screen||p==sequence_screen||p==project_screen);if(p==project_screen)return project_open;return p==sequence_screen?sequence_only:!sequence_only;}
-static int blocked(void*p){assert(p==screen||p==sequence_screen||p==project_screen);return 0;}
+static int shown(void*p){if(p==repeat_screen)return repeat_open;if(p>=(void*)repeat_screen&&p<(void*)(repeat_screen+sizeof(repeat_screen)))return ((char*)p-(char*)repeat_screen-0x1c0)%0x440==0;assert(p==screen||p==sequence_screen||p==project_screen);if(p==project_screen)return project_open;return p==sequence_screen?sequence_only:!sequence_only;}
+static int blocked(void*p){assert(p==screen||p==sequence_screen||p==project_screen||p==repeat_screen);return 0;}
 static int enabled(void*p){assert(p==screen+0xe50||p==fx_header);return p!=fx_header||!header_disabled;}
 static void ui_repaint(void*p,uint64_t a,uint64_t b){assert((p==screen||p==sequence_screen||p==project_screen)&&!a&&!b);++repaints;}
 static void draw_colour(void*g,uint32_t c){assert(g==screen&&((c>>24)==255||c==0x605a4419));draw_ink=c;}
@@ -92,14 +93,20 @@ int main(int argc,char**argv){
  music_ui_requested(0x0b,1);assert(!music_ui_owns(0x10)&&!key(0x0d,1));paint_ui();assert(!strstr(captions,"Set Orig Note"));music_ui_requested(0x0b,0);
  phase="real Seq vtable slots and Shift K1 colour selection";
  F((void*)base,0x6d3ba84,uint32_t)=0x529848e9;F((void*)base,0x6d3ba88,uint32_t)=0x72bfffe9;
+ memcpy((void*)(base+0x6d3b400),lighting_project_before,sizeof(lighting_project_before));
+ memcpy((void*)(base+0x1643908),lighting_dispatch_before,4);memcpy((void*)(base+0x1644ff4),lighting_rows_before,4);
  assert(music_ui_install(noop_paint,noop_paint,noop_paint));
+ assert(!memcmp((void*)(base+0x6d3b400),lighting_project_after,sizeof(lighting_project_after)));
+ assert(F((void*)base,0x1644ff4,uint32_t)==0xd28000c1); /* six-row viewport retained */
  assert(F((void*)base,0x6d3ba84,uint32_t)==(0x52800009u|(0xb000u<<5)));
  F(repeat_screen,0,uintptr_t)=base+0x6e1f060;
  const char*divisions[]={"1/8","1/8T","1/16","1/16T","1/32","1/32T"};
  for(unsigned i=0;i<6;++i){void*b=repeat_screen+0x1c0+i*0x220;F(b,0,uintptr_t)=base+0x706e940;F(b,0xb8,const char*)=divisions[i];F(b,0x20,int)=(i/2)*106+(i>=4);F(b,0x28,int)=106;F(b,0x1d4,int)=3;value_source[i][1]=i==2;F(b,0x168,void*)=value_source[i];}
  uintptr_t*rvt=F(repeat_screen,0,uintptr_t*);unsigned before_repeat=draws;
  ((void(*)(void*,void*))rvt[0xd0/8])(repeat_screen,screen);assert(draws==before_repeat);
- repeat_drawing=1;captions[0]=0;((void(*)(void*,void*))rvt[0xd8/8])(repeat_screen,screen);repeat_drawing=0;
+ repeat_open=1;repeat_drawing=1;captions[0]=0;((void(*)(void*,void*))rvt[0xd8/8])(repeat_screen,screen);repeat_drawing=0;
+ assert(music_ui_repeat_active());music_ui_requested(0x0b,0);music_ui_tick();assert(music_ui_repeat_active()&&!key(0x0d,1)&&!key(0x0d,0));
+ repeat_open=0;music_ui_tick();assert(!music_ui_repeat_active());music_ui_destroyed(repeat_screen);music_ui_tick();
  assert(strstr(captions,"1/8\n")&&strstr(captions,"1/16\n")&&strstr(captions,"1/32\n")&&!strstr(captions,"1/8T"));
  puts("PASS Repeat header38px amber with only visible native divisions, no white focus arms or footer clearing; Knob FX background saturated amber startup patch");
  F(sequence_screen,0,uintptr_t)=base+0x6e23e38;F(current_things,0x1c8,void*)=sequence_model;F(sequence_model,0x480,int)=11;current_context=current_things;
@@ -128,5 +135,17 @@ int main(int argc,char**argv){
  sequence_only=0;F(screen,0x7f0+0x218,int)=1;paint_ui();assert(key(0x0d,1)&&key(0x0d,0)&&music_ui_owns(0x10));
  F(project_screen,0,uintptr_t)=base+0x6e1f788;F(project_screen,0x100,void*)=controller;project_open=1;music_ui_project(project_screen,screen);
  assert(!music_ui_owns(0x10)&&!key(0x6f,1)); /* Native Project menu owns its encoder even above Lights. */
+ phase="Project Pad Lighting page and Standard/AM Mod switching";
+ project_open=1;music_ui_project(project_screen,screen);
+ assert(music_set_pad_colour(18,13)&&music_set_sequence_colour(11,4));
+ music_ui_request_project((void*)((uintptr_t)project_screen|2));music_ui_tick();captions[0]=0;music_ui_project(project_screen,screen);assert(strstr(captions,"Pad Lighting")&&strstr(captions,"AM Mod"));
+ assert(key(0x0d,1)&&key(0x0d,0)&&music_pad_lighting_mode()==MUSIC_LIGHTING_STANDARD);
+ assert(music_pad_colour(18)==13&&music_sequence_colour(11)==4);
+ assert(key(0x0e,1)&&key(0x0e,0)&&music_pad_lighting_mode()==MUSIC_LIGHTING_MOD);
+ knob(0x10,0);assert(music_pad_lighting_mode()==MUSIC_LIGHTING_STANDARD);knob(0x10,127);assert(music_pad_lighting_mode()==MUSIC_LIGHTING_MOD);
+ assert(key(0x0c,1)&&key(0x0c,0));project_open=0;sequence_only=1;music_ui_tick();music_ui_requested(0x31,1);
+ assert(music_set_pad_lighting_mode(MUSIC_LIGHTING_STANDARD));assert(!music_ui_owns(0x10)&&!music_ui_control((unsigned char[16]){[8]=0x10,[9]=127}));
+ assert(music_sequence_colour(11)==4);assert(music_set_pad_lighting_mode(MUSIC_LIGHTING_MOD));music_ui_requested(0x31,0);
+ puts("PASS Project Lighting entry and B2/B3/K1 controls; global mode preserves colours and disables Standard Seq Colour interception");
  puts("PASS native Seq screen hook: twelve colours by native sequence index, global and clip event presence, empty initialized slots excluded, Shift K1 only; Note Repeat keeps its controls");return 0;
 }

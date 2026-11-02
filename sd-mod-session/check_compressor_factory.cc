@@ -10,6 +10,8 @@ static float displayed_gr=-1;
 static bool bypass_underline;
 static bool warm_underline;
 static unsigned warm_labels;
+static int repeat_active;
+extern "C" int music_ui_repeat_active(void){return repeat_active;}
 extern "C" int music_ui_shift_active(void){return shifted!=0;}
 static void(*native_specific)(void*,void*,void*);
 extern "C" void compressor_phone_wake(void){++wakes;}
@@ -103,6 +105,17 @@ extern "C" int modern_fx_probe(uintptr_t base,const char**phase){
  *reinterpret_cast<int*>(audio)=2;*reinterpret_cast<int*>(audio+4)=256;*reinterpret_cast<float***>(audio+16)=channels;
  auto process=reinterpret_cast<void(*)(void*,void*,void*)>(vt[7]);
  auto audio_block=[&](unsigned block){for(unsigned i=0;i<256;++i)l[i]=r[i]=.7f*sinf(float(block*256+i)*.057f);process(instance.get(),audio,midi);playhead.frame+=256;for(unsigned i=0;i<256;++i)assert(std::isfinite(l[i])&&l[i]==r[i]);};
+ *phase="Note Repeat owns every rate button above both compressor types";
+ repeat_active=1;
+ if(compressor_ui_ticket()&(UINT64_C(1)<<62)){
+  for(unsigned algorithm=0;algorithm<2;++algorithm){compressor_select(algorithm);uint64_t rate_ticket=compressor_ui_ticket();
+   for(unsigned code=0x0c;code<=0x0e;++code){unsigned char rate[16]{};rate[8]=static_cast<unsigned char>(code);rate[9]=1;
+    assert(!compressor_ui_owns(2,code));assert(!compressor_ui_button(rate,rate_ticket));rate[9]=0;assert(!compressor_ui_button(rate,rate_ticket));assert(compressor_type()==algorithm);}
+   repeat_active=0;unsigned char rate[16]{};rate[8]=0x0d;rate[9]=1;assert(!compressor_ui_button(rate,rate_ticket)&&compressor_type()==algorithm);repeat_active=1;
+  }
+  puts("PASS Note Repeat B1/B2/B3 and queued quick release pass through above Duck and OptoCat; Type unchanged");
+ }
+ repeat_active=0;compressor_select(COMP_DUCK);
  *phase="native Duck pass-through";audio_block(0);assert(native_calls==1&&compressor_type()==COMP_DUCK);
  uint64_t ticket=compressor_ui_ticket();assert(button(0x0d,1,ticket)&&compressor_type()==COMP_OPTO);
  assert(button(0x0d,1,ticket)&&compressor_type()==COMP_OPTO);assert(button(0x0d,0,ticket));

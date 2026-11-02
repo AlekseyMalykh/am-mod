@@ -9,6 +9,7 @@ int music_ui_chords_available(void);
 /* Last native Note Repeat rate seen, as a Chords rate index, or -1. */
 int music_ui_repeat_rate(void);
 int music_ui_shift_active(void);
+int music_ui_repeat_active(void);
 int music_ui_filter_spectrum_visible(void *sample);
 /* UI thread only; actual event containers, including automation/muted events. */
 unsigned music_ui_sequence_presence(unsigned bank);

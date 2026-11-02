@@ -164,5 +164,12 @@ int main(void){
  *row_slot=base+0x3b72210;assert(step_native_install(screen_paint)&&*row_slot==(uintptr_t)event_row_paint);
  assert(row_calls);
  puts("PASS Pad Colour in Steps/Events: all colours, selected sound/bank, semantic priorities, row-specific C/L names, native paint arguments/styles restored, Stock/unrelated models unchanged, guarded row hook and String-result ABI");
+ assert(music_set_pad_lighting_mode(MUSIC_LIGHTING_STANDARD));
+ assert((uint32_t)step_palette_value(1,0,0,0,0,0,400)==PAD_CONTENT);
+ assert((uint32_t)step_palette_value(1,1,0,0,0,0,400)==PAD_DANGER);
+ assert((uint32_t)step_palette_value(1,0,0,0,0,1,400)==PAD_FREE);
+ atomic_store(&ticket,0);atomic_store(&sample_palette_enabled,1);assert(!step_native_light(0,&pulse));
+ assert(music_set_pad_lighting_mode(MUSIC_LIGHTING_MOD));
+ puts("PASS Standard fixed Steps colours and native Sample pass-through; identity settings retained");
  return 0;
 }

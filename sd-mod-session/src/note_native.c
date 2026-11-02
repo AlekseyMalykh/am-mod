@@ -90,7 +90,7 @@ static void *trim_slider(void){ return volume_slider_here(); }
  * Sample screen itself is showing. */
 static int trim_showing(void)
 {
-    if (!root || FIELD(root,0,uintptr_t)!=base+SAMPLE_VPTR || atomic_load(&repeat_held)) return 0;
+    if (!music_pad_lighting_mode() || !root || FIELD(root,0,uintptr_t)!=base+SAMPLE_VPTR || atomic_load(&repeat_held)) return 0;
     void *b1=(char*)root+0x190;
     return FIELD(b1,0x21c,int)==2 && FIELD(b1,0x218,int)==1
         && FN(0x112fd50,int(*)(void*))(root) && !FN(0x112f6b0,int(*)(void*))(root);

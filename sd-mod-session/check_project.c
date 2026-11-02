@@ -62,7 +62,11 @@ memcpy(base+0x1643908,&b,4);
  void (*click)(void *)=(void *)(base+0x16438a0);
 
 #ifdef TEST_PHONE
+#ifdef TEST_LIGHTING_MENU
+ const char *labels[]={"Load Project","Save Project","New Project","SD Card Access","Key / Scale","Pad Lighting","Mod Off"};const int rows=7;
+#else
  const char *labels[]={"Load Project","Save Project","New Project","SD Card Access","Key / Scale","Mod Off"};const int rows=6;
+#endif
 #else
  const char *labels[]={"Load Project","Save Project","New Project","SD Card Access","Mod Off"};const int rows=5;
 #endif
@@ -77,7 +81,12 @@ memcpy(base+0x1643908,&b,4);
   assert(!strcmp(title(sources[3]),"SD Card Access"));
   assert(P(begin+3*128,0x60)!=P(begin+4*128,0x60)); // Independent map nodes.
   assert(refreshes==rows*(k+1));
-  for(int i=0;i<rows;i++)destroy(begin+128*i);free(begin);
+#ifdef TEST_LIGHTING_MENU
+  ((void(*)(void*,unsigned))(base+0x3b71d50))(list,6);
+  assert(*(uint64_t*)(list+0xc8)==6&&end-begin==7*128);
+#endif
+  for(int i=0;i<rows;i++)destroy(begin+128*i);
+  free(begin);
   for(int i=0;i<4;i++)destroy(sources[i]);
  }
  unsigned char screen[0x700]={0};P(screen,0x4c8)=screen;P(screen,0x108)=screen;void *context=screen;
@@ -87,11 +96,25 @@ memcpy(base+0x1643908,&b,4);
   if(row==1)assert(command==0x30f7&&clears==1);
   if(row==2)assert(new_project==1&&command==0);
   if(row==3)assert(command==0x30f2&&clears==0);
-  assert(access("/run/mpc-trial-app/mod-off.request",F_OK)!=0);
+
+#ifndef TEST_LIGHTING_MENU
+ assert(access("/run/mpc-trial-app/mod-off.request",F_OK)!=0);
+#endif
+
  }
 
 #ifdef TEST_PHONE
- row=4;captured_project=0;click(&context);assert(captured_project==(uintptr_t)screen);row=5;captured_project=0;click(&context);assert(captured_project==((uintptr_t)screen|1));assert(access("/run/mpc-trial-app/mod-off.request",F_OK)!=0);
+ row=4;captured_project=0;click(&context);assert(captured_project==(uintptr_t)screen);
+#ifdef TEST_LIGHTING_MENU
+ row=5;captured_project=0;click(&context);assert(captured_project==((uintptr_t)screen|2));row=6;
+#else
+ row=5;
+#endif
+ captured_project=0;click(&context);assert(captured_project==((uintptr_t)screen|1));
+#ifndef TEST_LIGHTING_MENU
+ assert(access("/run/mpc-trial-app/mod-off.request",F_OK)!=0);
+#endif
+
 #else
  row=4;command=clears=new_project=0;click(&context);assert(!command&&!clears&&!new_project);
 
@@ -105,10 +128,19 @@ memcpy(base+0x1643908,&b,4);
  #endif
 
 #ifdef TEST_PHONE
+#ifdef TEST_LIGHTING_MENU
+ printf("PASS native Project seven independently owned rows, Key4/Lighting5/Off6, six-row viewport, stock commands and256 lifecycle cycles across two PIE bases\n");
+#else
  printf("PASS native Project six independently owned rows, Key4/Off5 tagged UI-only dispatch, stock commands retained,128 growth/destruction cycles at PIE %lx\n",(unsigned long)address);
+#endif
 #else
  printf("PASS Project native row ownership, 128 growth/destruction cycles, stock commands, actual RAM request syscall and no-follow at PIE %lx\n",(unsigned long)address);
 #endif
  assert(munmap(base,0x7400000)==0);
 }
+#ifdef TEST_LIGHTING_MENU
+int main(int argc,char **argv){assert(argc==3);run(0x10000000,argv[1],argv[2]);run(0x30000000,argv[1],argv[2]);return 0;}
+#else
 int main(int argc,char **argv){assert(argc==3);assert(mkdir("/run/mpc-trial-app",0700)==0);run(0x10000000,argv[1],argv[2]);run(0x30000000,argv[1],argv[2]);assert(rmdir("/run/mpc-trial-app")==0);return 0;}
+
+#endif

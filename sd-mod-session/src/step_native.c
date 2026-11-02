@@ -1070,13 +1070,13 @@ static uint64_t step_palette_value(unsigned events,unsigned muted,int mute,int e
     (void)mute; /* the lit Mute button shows the mode; step colours keep their meaning */
     int chosen=music_pad_colour((unsigned)sound);
     uint32_t content=chosen?music_identity_rgb(chosen):PAD_CONTENT;
-    uint32_t rgb=!has?0:all_muted?PAD_MUTED:mixed&&phase%640>=320?PAD_MUTED:content;
+    uint32_t rgb=!has?0:all_muted?(music_pad_lighting_mode()?PAD_MUTED:PAD_DANGER):mixed&&phase%640>=320?(music_pad_lighting_mode()?PAD_MUTED:PAD_DANGER):content;
     float brightness=!has?0:all_muted?PAD_BRIGHT_MUTED:PAD_BRIGHT_CONTENT;
     if(erase&&has){rgb=PAD_DANGER;brightness=pad_blink_on(phase)?PAD_BRIGHT_DANGER:.20f;}
     /* Alternate white with the semantic colour to keep both selection
      * and mute/delete status visible. Playback has a separate cyan cursor. */
     if(selected&&(!has||phase%800<120)){rgb=PAD_SELECT;brightness=.90f;}
-    if(playing){rgb=all_muted?PAD_MUTED:PAD_PLAYHEAD;brightness=all_muted?.65f:.95f;}
+    if(playing){rgb=all_muted?(music_pad_lighting_mode()?PAD_MUTED:PAD_DANGER):(music_pad_lighting_mode()?PAD_PLAYHEAD:PAD_FREE);brightness=all_muted?.65f:.95f;}
     if(erase&&has){rgb=PAD_DANGER;brightness=pad_blink_on(phase)?PAD_BRIGHT_DANGER:.20f;}
     return pad_light(rgb,brightness);
 }
@@ -1152,6 +1152,7 @@ int step_native_light(unsigned pad,uint64_t *light)
 {
     uint64_t t=atomic_load(&ticket);
     if(pad>=16) return 0;
+    if(!music_pad_lighting_mode()&&!(t&(T_STEPS|T_PICKER)))return 0;
     if(!(t&(T_STEPS|T_PICKER))&&atomic_load(&sample_palette_enabled)&&!atomic_load(&requested_shift)&&!atomic_load(&requested_erase)){
         *light=atomic_load(&sample_palette[pad]);return 1;
     }
@@ -1737,7 +1738,7 @@ static int event_name_pad(const char*s)
 static void event_row_paint(void*model,int row,void*g,int width,int height,int selected)
 {
     uint32_t *inks=NULL,normal=0,chosen=0;
-    if(root&&model&&row>=0&&!atomic_load(&dead)&&music_pad_colours_used()
+    if(music_pad_lighting_mode()&&root&&model&&row>=0&&!atomic_load(&dead)&&music_pad_colours_used()
         &&FIELD(model,0xa0,void*)==(char*)root+0x11c8
         &&FIELD(root,0,uintptr_t)==base+SCREEN_VPTR&&model==FIELD(root,0x1288,void*)){
         uintptr_t first=FIELD(model,0x20,uintptr_t),end=FIELD(model,0x28,uintptr_t);

@@ -4,7 +4,7 @@ import subprocess,json,hashlib
 root=Path(__file__).resolve().parent;out=root/'build/pad-eq';out.mkdir(exist_ok=True)
 stock=root.parent/'extracted_v1.3.0/partitions/part3/usr/bin/MPC Sample'
 assert hashlib.sha256(stock.read_bytes()).hexdigest()=='b6584cba76e416e432ad202509099d34373dc2c3d6a8fb625f5678bf0193b508'
-sources=['src/pad_eq.c','src/pad_eq.h','src/pad_eq_native.c','src/pad_eq_native.h','src/pad_eq_history.cc','src/pad_eq_history.h','src/music_ui.c','src/fx_eq.c','src/fx_eq.h','src/music_settings.c','src/music_settings.h','check_pad_eq_native.c','check_pad_eq_ui.c','check_pad_eq_history.c','src/step_abi.S','check_header_toggle.S','verify_pad_eq.py']
+sources=['build/pad_lighting_project.h','src/project.S','src/pad_eq.c','src/pad_eq.h','src/pad_eq_native.c','src/pad_eq_native.h','src/pad_eq_history.cc','src/pad_eq_history.h','src/music_ui.c','src/fx_eq.c','src/fx_eq.h','src/music_settings.c','src/music_settings.h','check_pad_eq_native.c','check_pad_eq_ui.c','check_pad_eq_history.c','src/step_abi.S','check_header_toggle.S','verify_pad_eq.py']
 digest=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
 before={s:digest(root/s) for s in sources}
 for name,flags in [('normal',[]),('ubsan',['-fsanitize=undefined','-static-libubsan','-fno-sanitize-recover=all'])]:

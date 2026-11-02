@@ -19,12 +19,13 @@ static unsigned opening;
 static struct comp_animation animation;
 static double next_frame;
 #define T_SHIFT (UINT64_C(1)<<63)
+#define T_REPEAT (UINT64_C(1)<<62)
 static double seconds(void){struct timespec t;if(clock_gettime(CLOCK_MONOTONIC,&t))return 0;return t.tv_sec+t.tv_nsec*1e-9;}
 void compressor_ui_init(uintptr_t b){base=b;}
 /* Capture Shift with each queued movement. A later release must not redirect
  * an already queued Attack movement to Threshold, or merge both sweeps. */
-uint64_t compressor_ui_ticket(void){return atomic_load(&epoch)|(music_ui_shift_active()?T_SHIFT:0);}
-static int current_ticket(uint64_t ticket){return (ticket&~T_SHIFT)==atomic_load(&epoch);}
+uint64_t compressor_ui_ticket(void){return atomic_load(&epoch)|(music_ui_shift_active()?T_SHIFT:0)|(music_ui_repeat_active()?T_REPEAT:0);}
+static int current_ticket(uint64_t ticket){return (ticket&~(T_SHIFT|T_REPEAT))==atomic_load(&epoch);}
 static int visible(void){return root&&FN(0x112fd50,int(*)(void*))(root)&&!FN(0x112f6b0,int(*)(void*))(root);}
 static void repaint(void){if(root)FN(0x1149880,void(*)(void*,uint64_t,uint64_t))(root,0,F(root,0x28,uint64_t));}
 static void colour(void*g,uint32_t v){FN(0x102d5e0,void(*)(void*,uint32_t))(g,v);}
@@ -65,6 +66,7 @@ int compressor_ui_active(void){return atomic_load(&active)!=0;}
 int compressor_ui_owns(unsigned kind,unsigned code){
  if(kind==PHONE_BUTTON&&code<112&&atomic_load(&owned[code]))return 1;
  if(!atomic_load(&active))return 0;
+ if(kind==PHONE_BUTTON&&code>=0x0c&&code<=0x0e&&music_ui_repeat_active())return 0;
  if(kind==PHONE_BUTTON)return code==0x0d||(compressor_type()==COMP_OPTO&&code==0x0c);
  return kind==PHONE_CONTROLLER&&compressor_type()==COMP_OPTO&&code>=0x10&&code<=0x12;
 }
@@ -72,6 +74,7 @@ int compressor_ui_button(void*e,uint64_t ticket){
  unsigned code=F(e,8,unsigned char),down=F(e,9,unsigned char)!=0;
  if(code>=112)return 0;
  if(atomic_load(&owned[code])){if(!down)atomic_store(&owned[code],0);return 1;}
+ if((ticket&T_REPEAT)&&code>=0x0c&&code<=0x0e)return 0;
  if(!current_ticket(ticket)||!visible())return 1; /* Never replay a stale Type press in another screen. */
  if(!down)return 0;
  if(code==0x0d){compressor_select(compressor_type()==COMP_DUCK?COMP_OPTO:COMP_DUCK);repaint();}
@@ -90,7 +93,7 @@ static void paint(void*p,void*g){
  if(F(p,0,uintptr_t)!=base+SCREEN)return;
  compressor_phone_wake();
  if(root!=p){root=p;opening=1;compressor_animation_init(&animation);atomic_fetch_add(&epoch,1);}
- compressor_ui_tick();if(!visible())return;
+ compressor_ui_tick();if(!visible()||music_ui_repeat_active())return;
  unsigned type=compressor_type();int ready=compressor_ready();
  colour(g,0xff000000);rect(g,106,0,106,29);
  colour(g,ready?0xffffc247:0xff707070);text(g,"Type",110,1,98,22,14);

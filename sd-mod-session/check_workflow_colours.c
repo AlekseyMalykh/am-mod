@@ -2,6 +2,7 @@
 #include <assert.h>
 #include <stdio.h>
 static unsigned colours[128];
+int music_pad_lighting_mode(void){return 1;}
 int music_pad_colour(unsigned pad){assert(pad<128);return (int)colours[pad];}
 const uint32_t music_sequence_colours[MUSIC_SEQUENCE_COLOURS]={0x40ff40,0x32c780,0xffc247,0x8830ff,0xff20b0,0xff0000,0xff6000,0xffe000,0x2030ff,0x98ff00,0x00ffb0,0xffffff,0x00c8ff,0xff70b8};
 int main(void){

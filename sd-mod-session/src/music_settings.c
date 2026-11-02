@@ -9,6 +9,53 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Global display preference, deliberately outside struct music_project. */
+#include <errno.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+static _Atomic unsigned lighting_mode=MUSIC_LIGHTING_MOD;
+static int lighting_directory=-1;
+static unsigned lighting_write_serial;
+int music_pad_lighting_mode(void){return (int)atomic_load(&lighting_mode);}
+int music_lighting_preferences_durable(void){return lighting_directory>=0;}
+int music_lighting_preferences_open(const char *directory){
+ int dir=open(directory,O_RDONLY|O_DIRECTORY|O_CLOEXEC|O_NOFOLLOW);if(dir<0)return 0;
+ unsigned mode=MUSIC_LIGHTING_MOD;
+ int fd=openat(dir,".am-mod-pad-lighting",O_RDONLY|O_CLOEXEC|O_NOFOLLOW|O_NONBLOCK);
+ if(fd>=0){char text[32]={0};struct stat st;ssize_t n=read(fd,text,sizeof(text));
+  int valid=!fstat(fd,&st)&&S_ISREG(st.st_mode)&&n==18&&!memcmp(text,"AM_PAD_LIGHTING=",16)&&text[17]=='\n'&&(text[16]=='0'||text[16]=='1');
+  if(valid)mode=(unsigned)(text[16]-'0');
+  close(fd);
+ }
+ if(lighting_directory>=0)close(lighting_directory);
+ lighting_directory=dir;
+ atomic_store(&lighting_mode,mode);return 1;
+}
+void music_lighting_preferences_init(void){
+ int fd=open("/run/mpc-trial-app/storage-meta/save-path",O_RDONLY|O_CLOEXEC|O_NOFOLLOW);if(fd<0)return;
+ char path[4096]={0};ssize_t n=read(fd,path,sizeof(path)-16);close(fd);
+ if(n<=0)return;
+ while(n&&path[n-1]=='\n')path[--n]=0;
+ if(strncmp(path,"/media/",7)||strstr(path,"/../")||n+10>=(ssize_t)sizeof(path))return;
+ memcpy(path+n,"/Projects",10);music_lighting_preferences_open(path);
+}
+int music_set_pad_lighting_mode(unsigned mode){
+ if(mode>MUSIC_LIGHTING_MOD)return 0;
+ if(lighting_directory>=0){
+  char temp[80];int fd=-1;
+  for(unsigned attempt=0;attempt<16&&fd<0;++attempt){snprintf(temp,sizeof(temp),".am-mod-pad-lighting.tmp-%ld-%u",(long)getpid(),++lighting_write_serial);
+   fd=openat(lighting_directory,temp,O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC|O_NOFOLLOW,0600);if(fd<0&&errno!=EEXIST)return 0;}
+  if(fd<0)return 0;
+  char text[]="AM_PAD_LIGHTING=0\n";text[16]=(char)('0'+mode);
+  int ok=write(fd,text,sizeof(text)-1)==(ssize_t)sizeof(text)-1&&!fsync(fd);if(close(fd))ok=0;
+  if(ok)ok=!renameat(lighting_directory,temp,lighting_directory,".am-mod-pad-lighting");
+  if(!ok){unlinkat(lighting_directory,temp,0);return 0;}
+  fsync(lighting_directory);
+ }
+ atomic_store(&lighting_mode,mode);return 1;
+}
+
 const char *const music_note_names[12]={"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
 const char *const music_scale_names[8]={"Major","Natural Minor","Dorian","Phrygian","Lydian","Mixolydian","Locrian","Chromatic"};
 const char *const music_colour_names[12]={"Green","Cyan","Blue","Violet","Magenta","Red","Orange","Amber","Yellow","White","Grey","Off"};
@@ -296,6 +343,7 @@ int music_transposition(void) { uint64_t v=music_published(); return v ? (int)((
 uint64_t music_pitch_light(uint64_t v,int semitones,int *replace)
 {
     *replace=0;
+    if(!music_pad_lighting_mode())return 0;
     int root=(int)(v&15)-1,mode=(int)((v>>4)&3)|((int)((v>>40)&1)<<2);
     if (!v || root<0 || mode==MUSIC_MONO || semitones< -120 || semitones>120) return 0;
     int note=(root+(int)((v>>12)&255)-96+semitones)%12;

@@ -3,6 +3,7 @@ from pathlib import Path
 import hashlib,json,subprocess
 R=Path(__file__).resolve().parent
 O=R/'build/chords';O.mkdir(exist_ok=True)
+subprocess.run(['python3','build_pad_lighting_menu.py'],cwd=R,check=True)
 frozen=json.loads((R/'build/r23a/build-info.json').read_text())
 sources=frozen['compile_verification']['linked_sources']+['src/chords.c','src/chords_ui.c','src/voice_guard.c','src/values_bipolar.c','src/filter_spectrum.cc','src/takeover_native.c']
 sources+=['src/compressor_dsp.c','src/compressor_native.c','src/compressor_ui.c',
@@ -10,6 +11,7 @@ sources+=['src/compressor_dsp.c','src/compressor_native.c','src/compressor_ui.c'
 sources=list(dict.fromkeys(sources))
 tracked=sources+['src/chords.h','src/chords_ui.h','src/voice_guard.h','src/values_bipolar.h','src/poly_record.h','src/music_ui.h',
                  'src/note_native.h','src/workflow_ui.h','src/resample_ui.h','src/pad_eq.h','src/music_settings.h','src/filter_spectrum.h','src/takeover_endpoints.h','build_chords_candidate.py']
+tracked+=['src/project.S','src/project.ld','build_pad_lighting_menu.py','build/pad_lighting_project.h']
 tracked+=['src/compressor.h','src/optocat_atlas.inc','src/takeover_native.h']
 sha=lambda b:hashlib.sha256(b).hexdigest()
 hashes={s:sha((R/s).read_bytes()) for s in tracked}

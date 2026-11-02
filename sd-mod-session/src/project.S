@@ -19,12 +19,21 @@ project_append:
  mov x0,x19
  mov x1,x20
  bl list_append                  // Separate Key / Scale row, preserving Mod Off.
+#ifdef PAD_LIGHTING_MENU
+ mov x0,x19
+ mov x1,x20
+ bl list_append                  // Global Pad Lighting preferences.
+#endif
 #endif
  ldr x0,[x19,#0xc0]             // Native model, vector begin/end at +8/+16.
  ldp x1,x2,[x0,#8]
  sub x3,x2,x1
 #ifdef NOTE_UI
+#ifdef PAD_LIGHTING_MENU
+ cmp x3,#0x380
+#else
  cmp x3,#0x300
+#endif
 #else
  cmp x3,#0x280                  // Exactly five MenuItem objects of 128 bytes.
 #endif
@@ -35,7 +44,16 @@ project_append:
  bl .Lrename
  ldr x0,[x19,#0xc0]
  ldr x2,[x0,#16]
+#ifdef PAD_LIGHTING_MENU
  sub x0,x2,#0x100
+ adr x1,lighting_title
+ bl .Lrename
+ ldr x0,[x19,#0xc0]
+ ldr x2,[x0,#16]
+ sub x0,x2,#0x180
+#else
+ sub x0,x2,#0x100
+#endif
 #else
  sub x0,x2,#0x80
 #endif
@@ -81,7 +99,13 @@ project_dispatch:
 #ifdef NOTE_UI
  cmp w0,#4
  b.eq .Lkey
+#ifdef PAD_LIGHTING_MENU
  cmp w0,#5
+ b.eq .Llighting
+ cmp w0,#6
+#else
+ cmp w0,#5
+#endif
  b.eq .Lconfirm_off
 #else
  cmp w0,#4
@@ -119,6 +143,13 @@ project_dispatch:
  orr x0,x0,#1                  // Tagged UI request: confirm, never exit here.
  bl music_project_bridge
  b .Loff_done
+#ifdef PAD_LIGHTING_MENU
+.Llighting:
+ ldr x0,[x19]
+ orr x0,x0,#2
+ bl music_project_bridge
+ b .Loff_done
+#endif
 .Lkey:
  ldr x0,[x19]
  bl music_project_bridge
@@ -128,6 +159,9 @@ project_dispatch:
 mod_off_title: .asciz "Mod Off"
 #ifdef NOTE_UI
 music_title: .asciz "Key / Scale"
+#ifdef PAD_LIGHTING_MENU
+lighting_title: .asciz "Pad Lighting"
+#endif
 #endif
 mod_off_path: .asciz "/run/mpc-trial-app/mod-off.request"
 mod_off_byte: .ascii "1"

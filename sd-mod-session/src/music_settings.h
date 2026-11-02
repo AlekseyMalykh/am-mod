@@ -15,6 +15,12 @@ struct music_project { int tonic,scale; unsigned count; struct music_sample samp
 #define MUSIC_SEQUENCE_COLOURS 14
 extern const char *const music_sequence_colour_names[MUSIC_SEQUENCE_COLOURS];
 extern const uint32_t music_sequence_colours[MUSIC_SEQUENCE_COLOURS];
+enum { MUSIC_LIGHTING_STANDARD, MUSIC_LIGHTING_MOD };
+int music_pad_lighting_mode(void);
+int music_set_pad_lighting_mode(unsigned mode); /* UI owner; durable when SD available */
+void music_lighting_preferences_init(void);
+int music_lighting_preferences_open(const char *directory); /* caller provides owned settings directory */
+int music_lighting_preferences_durable(void);
 /* Persisted IDs remain stable. Display identity never uses service colours.
  * Raw getters/setters retain legacy metadata for Undo and project round trips. */
 #define MUSIC_IDENTITY_CHOICES 6
@@ -32,7 +38,7 @@ static inline unsigned music_colour_choice_index(unsigned raw){
  for(unsigned i=1;i<MUSIC_IDENTITY_CHOICES;++i)if(music_colour_choice(i)==safe)return i;
  return 0;
 }
-static inline uint32_t music_identity_rgb(unsigned raw){return music_sequence_colours[music_colour_effective(raw)];}
+static inline uint32_t music_identity_rgb(unsigned raw){return music_pad_lighting_mode()?music_sequence_colours[music_colour_effective(raw)]:0x2030ffu;}
 int music_sequence_colour(unsigned sequence);
 int music_set_sequence_colour(unsigned sequence,unsigned colour);
 /* Pad colour in Sample Mix K2 without Shift: same palette, 0 = Stock. */
