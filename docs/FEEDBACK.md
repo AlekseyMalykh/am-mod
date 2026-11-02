@@ -22,3 +22,6 @@ Bug reports, implemented fixes and verified hardware results are recorded separa
 Maintainers should update the known-issues list when a report is reproduced,
 fixed or confirmed on hardware. The list is maintained manually; Discussions
 does not automatically synchronise it with releases or issue status.
+
+For pad colours, include **Project → Pad Lighting: Standard / AM Mod**, bank and selection state. For Note Repeat, specify held/latched mode and release timing.
+[Current r26x readiness audit](RELEASE_READINESS-r26x.md): a code fix does not close the original MPC scenario by itself.

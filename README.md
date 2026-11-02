@@ -28,41 +28,37 @@ the stock app. Nothing is flashed: the mod runs a patched copy of the stock app 
 > release packages**: the mod patches the copy of the app already on your MPC Sample.
 > Use at your own risk. See [NOTICE](NOTICE.md).
 
-## r26s — 2 November 2026
+## Candidate r26x — unpublished
 
-- Native K input/takeover fix and experimental FAT32 with installer1.0.2.
-- OptoCat: K1 Threshold, K2 Ratio, K3 Gain −6…+6 dB; Shift Attack/Release/Knee,
-  B1 Warm, B2 Type, shared B3 Bypass. The bow follows input; the paw follows red GR.
-- Project-start modal gating and OptoCat master rebinding after New Project.
-- Assigned hues across compressor, Copy/browser, Mono/Resample/Extract; Undo/Redo
-  colour inheritance and suppressed flashes for muted instruments.
-- Seq pulses by bar/beat/queue, alternating Sound cursor and restored EQ side strips.
-- Opto settings remain session-only. Further project-error cases remain open.
+The public download above is **r26s**. The new controls described below belong
+to the local **r26x** candidate and are not in that ZIP.
+[Readiness audit and remaining work](docs/RELEASE_READINESS-r26x.md).
 
-## r26d update — 1 November 2026
+- **Project → Pad Lighting:** Standard / AM Mod, a global SD preference.
+  Standard disables Pad Colour/Seq Colour; **16 Levels Lights with Piano/Scale,
+  tonic, scale and Transpose16 remain available in both modes**.
+- AM Mod offers **Default + five colours**: Blue, Violet, Magenta, Orange, Pink.
+  Red, green, white, amber, cyan and grey are reserved for system states.
+  Legacy assignments retain their IDs; switching modes does not erase them.
+- Sample/Chop/Sound focus alternates white and its own hue every400ms.
+  Batch sources use a double white pulse. Unselected empty destinations stay off;
+  an assigned empty target is green, an occupied target red.
+- Recorded events on muted sounds produce grey flashes without unmuting audio.
+- Mod Off is last among seven Project entries in the native six-row viewport.
+  Note Repeat owns compressor B1–B3. A hidden Repeat repaint can no longer
+  reclaim the Type header after release.
+- Retains OptoCat/Warm, Gain −6…+6 dB, Shift Attack/Release/Knee, GR-driven paw,
+  EQ side strips, the confirmed K fix and experimental FAT32.
 
-- **Pad Colour across sound views:** Sample and Events sound pads use their assigned colours; FX Select keeps its native status colours. Events names use each sound's colour. In Steps, ordinary events use the selected sound's Pad Colour (Stock keeps the standard green).
-- **Steps background:** empty steps are off; events of other sounds have a very dim white background, enabled by default. **Shift+K3 → Other Sounds** switches it off/on. If other sounds play on every step, this background can cover all 16 pads of a page. The selected sound's own events take priority and keep their colour.
-- **Cursor:** the on-screen frame, pad fill and step numbers now agree in the order **13–16 → 9–12 → 5–8 → 1–4**. Encoder click hides/shows the selection cursor and its frame. Selection, playback, Mute and Erase indications take priority over sound colours.
-- **Events deletion:** **B3 Erase**, labelled red, deletes the selected event row. An Erase tap does not delete a row; **Erase+pad** keeps the stock sequence-wide deletion for that sound, with confirmation. Shift+B3 still opens Copy/Paste; B3 in the Chop/Levels picker still applies the selection.
-
-Published at the author's request after device trials. The automated checks cover native LED conversion, both LED senders, all 16 screen positions on two pages, event controls, normal/UBSan ARM fixtures and preload construction. They are separate from hardware test coverage; see the release verification record.
-
-## r25x update — 1 November 2026
-
-The author confirmed the current features on an MPC Sample with r25w. r25x removes temporary diagnostic messages and prepares the public documentation; feature behaviour is unchanged. ARM/QEMU checks are listed in the release notes and do not establish coverage of every setting combination on hardware.
-
-- **Pad Colour:** Sample → B1 → **Mix** → **K2 without Shift**. 13 choices including **Stock**, saved per pad in the project. Encoder presses cycle Volume → Pad Colour → Pan; turning changes the focused parameter. **Shift+K2 is Kit Volume** and K1 remains Volume. Mute and Erase keep their native status colours.
-- **Erase in Open Project:** project files use the native confirmation and also remove the companion `_[ProjectData]` directory. A project folder or a loose `_[ProjectData]` folder has a separate question: **B1 Cancel, B3 Delete**. Its samples are deleted too; this cannot be undone.
-- **One exit copy:** `MPC-Sample/Projects/Mod-Exit-Last.xpj` and `Mod-Exit-Last_[ProjectData]`. The previous copy is replaced after the new save succeeds; staging is not listed as another project.
-- **Latest project at startup:** opens the newest `.xpj` on SD in Projects or one directory level below it. Normally this is Mod-Exit-Last; a project saved later in the stock app takes priority. Selection uses file modification time, not a history of manually opened projects.
-- **Storage labels:** browser B2 shows **Internal / External** from the actual path. Internal remains temporary in the mod.
-- **Lights:** three modes — **Monochrome, Piano, Scale**. Older Tonic/Degrees settings load as Scale. Tonic, scale, Transpose16 and group colours remain available.
-- **Interface:** framed **S** badges, white normally and red with Shift; Zoom: Loop lock at the right edge; a Seq Colour swatch. Pad-name entry has cursor and repaint fixes.
+Automated coverage and MPC confirmation are recorded separately.
+**L01–L04 (project loading, Mod Off, sample paths and ordinary Save) still need
+their complete checks. A stable release is not ready yet.**
+Published build history: [CHANGELOG](CHANGELOG.md),
+[r26s changes](docs/RELEASE_NOTES-r26s.md).
 
 ## Features
 
-Status as of 2 November 2026 (build r26s). **Confirmed** means checked on a real MPC Sample;
+Local r26x candidate documentation, 2 November 2026; the public ZIP is r26s. **Confirmed** means checked on a real MPC Sample;
 **trial** means the specified automated checks passed; hardware coverage is pending as noted.
 
 | Feature | Where | Status |
@@ -82,7 +78,7 @@ Status as of 2 November 2026 (build r26s). **Confirmed** means checked on a real
 | **Stereo → Mono** (left or right channel to a new pad) | Sample → Shift+B3 | trial |
 | **Chords**: 8 scale degrees, 6/7/maj7/9, Maj/Min/Dim/Aug/Sus4, octave, inversion, latch, arpeggiator, chord repeat with Note Repeat; recorded as normal Tune events | 16 Levels Tune → Chop | trial (r24v) |
 | **OptoCat/Warm**: optical-style compression, Gain −6…+6 dB, Shift Attack/Release/Knee; paw follows red GR, shared Bypass | Shift+Pad5 → B2 Type; B1 Warm | trial (r26s); settings session-only |
-| **Sequence pads**: 13 colours; selected pulses once per bar at Stop, playing once per beat, queued twice per beat; visible background and stable brightness of other pads | Seq → Shift+K1 | trial (r26q) |
+| **AM Mod sequence pads**: Default + five colours; selected pulses once per bar at Stop, playing once per beat, queued twice per beat; visible background and stable brightness of other pads | Seq → Shift+K1 (AM Mod) | trial (r26q) |
 | **Batch Extract** chops to separate samples | Chop → Shift+B2 | confirmed |
 
 Every feature with its controls and status: [docs/FEATURES.md](docs/FEATURES.md). Build history: [CHANGELOG.md](CHANGELOG.md).

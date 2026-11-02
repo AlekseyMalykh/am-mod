@@ -2,7 +2,7 @@
 
 **English** · [Русский](FEATURES.ru.md)
 
-State as of build **r26s** (2 November 2026), MPC Sample firmware **1.3.0.12**.
+Local candidate **r26x**, 2 November 2026; public ZIP **r26s**. MPC Sample firmware **1.3.0.12**.
 
 **Statuses:**
 - **Confirmed**: checked on a real MPC Sample.
@@ -12,34 +12,33 @@ A confirmation covers that specific trial, not every combination of features in 
 
 Terms: **B1–B3** are the three buttons above the screen, **K1–K3** the three knobs below it, "encoder" is the large DATA wheel.
 
-## r26s update — 2 November 2026
+## Candidate r26x — unpublished
 
-See the [complete release notes](RELEASE_NOTES-r26s.md): experimental FAT32,
-native K fix, OptoCat/Warm (Gain −6…+6 dB; Shift Attack/Release/Knee), shared
-Bypass and GR-driven paw, workflow pad colours, EQ side indicators and Seq/Sound
-pulses. Compressor Type/settings/Warm are session-only; physical coverage remains
-specific to each check. Earlier sections retain their historical confirmations.
+The public download is **r26s**. The new controls described below belong
+to the local **r26x** candidate and are not in that ZIP.
+[Readiness audit and remaining work](RELEASE_READINESS-r26x.md).
 
-## r26a update — 1 November 2026
+- **Project → Pad Lighting:** Standard / AM Mod, a global SD preference.
+  Standard disables Pad Colour/Seq Colour; **16 Levels Lights with Piano/Scale,
+  tonic, scale and Transpose16 remain available in both modes**.
+- AM Mod offers **Default + five colours**: Blue, Violet, Magenta, Orange, Pink.
+  Red, green, white, amber, cyan and grey are reserved for system states.
+  Legacy assignments retain their IDs; switching modes does not erase them.
+- Sample/Chop/Sound focus alternates white and its own hue every400ms.
+  Batch sources use a double white pulse. Unselected empty destinations stay off;
+  an assigned empty target is green, an occupied target red.
+- Recorded events on muted sounds produce grey flashes without unmuting audio.
+- Mod Off is last among seven Project entries in the native six-row viewport.
+  Note Repeat owns compressor B1–B3. A hidden Repeat repaint can no longer
+  reclaim the Type header after release.
+- Retains OptoCat/Warm, Gain −6…+6 dB, Shift Attack/Release/Knee, GR-driven paw,
+  EQ side strips, the confirmed K fix and experimental FAT32.
 
-- **Pad Colour across sound views:** Sample and Events sound pads use their assigned colours; FX Select keeps its native status colours. Events names use each sound's colour. In Steps, ordinary events use the selected sound's Pad Colour (Stock keeps the standard green).
-- **Steps background:** empty steps are off; events of other sounds have a very dim white background, enabled by default. **Shift+K3 → Other Sounds** switches it off/on. If other sounds play on every step, this background can cover all 16 pads of a page. The selected sound's own events take priority and keep their colour.
-- **Cursor:** the on-screen frame, pad fill and step numbers now agree in the order **13–16 → 9–12 → 5–8 → 1–4**. Encoder click hides/shows the selection cursor and its frame. Selection, playback, Mute and Erase indications take priority over sound colours.
-- **Events deletion:** **B3 Erase**, labelled red, deletes the selected event row. An Erase tap does not delete a row; **Erase+pad** keeps the stock sequence-wide deletion for that sound, with confirmation. Shift+B3 still opens Copy/Paste; B3 in the Chop/Levels picker still applies the selection.
-
-Published at the author's request after device trials. The automated checks cover native LED conversion, both LED senders, all 16 screen positions on two pages, event controls, normal/UBSan ARM fixtures and preload construction. They are separate from hardware test coverage; see the release verification record.
-
-## r25x update — 1 November 2026
-
-The author confirmed the current features on an MPC Sample with r25w. r25x removes temporary diagnostic messages and prepares the public documentation; feature behaviour is unchanged. ARM/QEMU checks are listed in the release notes and do not establish coverage of every setting combination on hardware.
-
-- **Pad Colour:** Sample → B1 → **Mix** → **K2 without Shift**. 13 choices including **Stock**, saved per pad in the project. Encoder presses cycle Volume → Pad Colour → Pan; turning changes the focused parameter. **Shift+K2 is Kit Volume** and K1 remains Volume. Mute and Erase keep their native status colours.
-- **Erase in Open Project:** project files use the native confirmation and also remove the companion `_[ProjectData]` directory. A project folder or a loose `_[ProjectData]` folder has a separate question: **B1 Cancel, B3 Delete**. Its samples are deleted too; this cannot be undone.
-- **One exit copy:** `MPC-Sample/Projects/Mod-Exit-Last.xpj` and `Mod-Exit-Last_[ProjectData]`. The previous copy is replaced after the new save succeeds; staging is not listed as another project.
-- **Latest project at startup:** opens the newest `.xpj` on SD in Projects or one directory level below it. Normally this is Mod-Exit-Last; a project saved later in the stock app takes priority. Selection uses file modification time, not a history of manually opened projects.
-- **Storage labels:** browser B2 shows **Internal / External** from the actual path. Internal remains temporary in the mod.
-- **Lights:** three modes — **Monochrome, Piano, Scale**. Older Tonic/Degrees settings load as Scale. Tonic, scale, Transpose16 and group colours remain available.
-- **Interface:** framed **S** badges, white normally and red with Shift; Zoom: Loop lock at the right edge; a Seq Colour swatch. Pad-name entry has cursor and repaint fixes.
+Automated coverage and MPC confirmation are recorded separately.
+**L01–L04 (project loading, Mod Off, sample paths and ordinary Save) still need
+their complete checks. A stable release is not ready yet.**
+Published build history: [CHANGELOG](../CHANGELOG.md),
+[r26s changes](RELEASE_NOTES-r26s.md).
 
 ## Contents
 
@@ -76,6 +75,11 @@ The author confirmed the current features on an MPC Sample with r25w. r25x remov
 | The browser names the storage after the folder actually open: SD or Internal RAM | confirmed |
 | Mod settings (Orig Note, Lights, sequence colours and more) are kept in an extra field of the XPJ project. The stock app ignores it and drops it when it re-saves the project | confirmed (Orig Note, r23a) |
 
+Startup selects the newest saved XPJ in SD Projects or one folder level below,
+using modification time, rather than a history of manually opened projects.
+The exit copy replaces the previous Mod-Exit-Last only after a successful save.
+Unresolved project-transition/Save cases remain in [L01–L04](KNOWN_ISSUES.md).
+
 ## 2. Interface
 
 | Feature | Status |
@@ -90,18 +94,39 @@ The author confirmed the current features on an MPC Sample with r25w. r25x remov
 | **Pan** and other ranges symmetric around zero (Tune) fill from a centre mark to the left or right | trial (r24q) |
 | **Mod windows** (Chords, Steps, Steps edit menu, Stereo → Mono, Resample) share one block layout: B1–B3 blocks on top, information blocks, a 4×4 grid that mirrors the pads | trial (r24s) |
 
-**Pad colours in mod windows** (Steps, event editor, search, Batch Copy / Extract, Stereo → Mono, Resample). Musical colours (Lights, Chords, sequences) are separate.
+**Current r26x scheme.** Historical feature confirmations below do not cover
+every newer combination. The full [mode map](PAD_LIGHTING_MAP.ru.md) also contains
+proposals; the implemented subset is described here.
 
-| Colour | Meaning |
+**Project → Pad Lighting:** Standard / AM Mod. This global preference is saved
+on SD separately from XPJ. Standard uses native colours in native screens and
+fixed colours in new windows. Pad Colour/Seq Colour controls and overlays are
+disabled, while stored assignments remain intact. **Musical 16 Levels Tune
+Lights layouts (Piano/Scale, tonic, scale, Transpose16 and role colours) remain
+available in both modes.** Mod Off stays last; seven Project entries use the
+native six-row viewport. Physical scrolling still needs an MPC check.
+
+| AM Mod state | Indication |
 |---|---|
-| green | has a sound or events; the source of a copy |
-| white | cursor, chosen value, target |
-| dim white | has a sound, but is not part of the operation |
-| cyan | playback position only |
-| amber | the original value being replaced |
-| red, blinking | will be erased or overwritten |
-| violet | muted |
-| dim grey / off | empty |
+| Sound/sequence identity | Default + Blue, Violet, Magenta, Orange, Pink; legacy IDs retained, reserved hues mapped for display |
+| Current Sample/Chop pad or Steps Sound picker | 400ms bright white /400ms dimmed identity hue |
+| Selected Copy/Batch Extract/Mono/Resample sources | Two short white pulses over the source hue |
+| Empty destination without assignment/selection | Off |
+| Occupied pad outside selected targets | Dim identity hue |
+| Assigned or current empty target | Green; current target also pulses in brightness |
+| Assigned or current occupied target | Red; current target also pulses in brightness |
+| Erase / overwrite | Red system cue; operation confirmation retained |
+| Mute / muted recorded event | Dim grey / grey event flash, audio stays muted |
+| Steps | Sound hue (Default blue), white cursor, cyan playhead, grey Mute; Standard uses blue, white, green playhead, red Mute |
+| Seq in AM Mod | Selected once per bar at Stop, playing once per beat, queued twice per beat; background and other occupied pads stay visible |
+
+System colours cannot be selected as new Pad Colour/Seq Colour assignments.
+Musical Lights/Chords roles and the typing keyboard use separate palettes.
+Dedicated new Loop/Song status markers remain proposals.
+
+In AM Mod, set **Sample → B1 Mix → K2 Pad Colour without Shift**.
+Encoder presses cycle Volume → Pad Colour → Pan. **K1 remains Volume**,
+**Shift+K2 remains Kit Volume**. Standard removes the extra Pad Colour control.
 
 ## 3. Typing names with the pads
 
@@ -139,6 +164,18 @@ Lights: K1 is the mode, K2 the tonic, K3 the scale; with Shift, K1 is Transpose1
 - **Transpose16 −24…+24** shifts the 16 Levels Tune layout without changing normal pad playback.
 - Colours follow Orig Note, Semi Tune, pad number and Transpose16. Without an Orig Note the stock colours are used.
 - Lights also apply in the Tune event editor from Events and Steps (see §9).
+
+### Quick start: 16 Levels Piano/Scale
+
+1. Select a sound; set **Sample → Tune → Shift+K1 → Orig Note**.
+2. Set **Project → Key / Scale** if needed.
+3. Press Sample **B2: Tune → Play → Lights**. K1 chooses Piano/Scale,
+   K2 the tonic, K3 the scale. `(P)` means the project setting is inherited.
+4. Enable **16 Levels**; choose **Tune** via **Shift+16 Levels → Type**.
+5. On Lights, **Shift+K1 → Transpose16** shifts the layout. Lights work in
+   Standard and AM Mod. Monochrome or no Orig Note leaves native colours.
+
+Checked against the code; a complete physical-button walkthrough is still pending.
 
 ## 5. Chords
 
@@ -188,7 +225,7 @@ The type/addition layout was inspired by [ChoralRoot FM-1](https://github.com/Qu
 - **Mute**: hold it and press steps, or press it briefly to latch the mode. **Shift+Mute** unmutes the whole sound.
 - **Shift+K3 Other Sounds** dims steps that hold events of other sounds. Encoder click hides or shows the cursor.
 - **C / L** marks on a step light the Chop / 16 Levels button, which opens the event editor (§9). On an empty step with WRITE ON, 16 Levels opens note entry.
-- Ordinary events use the selected sound's **Pad Colour** (Stock: green). Empty steps are off. Other Sounds is dim white; selection is white, playhead cyan, erase red/blinking and muted steps violet.
+- Steps follows §2: selected sound hue, empty steps off, Other Sounds dim white; cursor/playhead/Mute depend on Pad Lighting.
 - The screen shows the same 16 steps as a 4×4 grid. Frame, fill, event data and step numbers follow the physical-pad order; encoder click hides/shows the selection cursor and frame.
 
 ## 8. Events / Step Edit
@@ -218,7 +255,7 @@ When the selected event has a C or L mark, the Chop or 16 Levels button lights u
 | Feature | Status |
 |---|---|
 | **Sequence colour**: Shift+K1 in Seq; saved with the project | confirmed (r23) |
-| 13 colours: **Stock** (the stock pad hue, default), Green, Amber, Violet, Magenta, Red, Orange, Yellow, Blue, Lime, Mint, White, Cyan | trial (r24v) |
+| AM Mod: **Default + five colours** — Blue, Violet, Magenta, Orange, Pink; Standard uses native colours and disables Seq Colour | trial (r26u–x) |
 | Seq pulses follow native tempo and meter: selected once per bar at Stop, playing once per beat, queued twice per beat until handoff. Assigned hues and background glow remain; other occupied pads keep the same brightness on Play. Empty slots are dark unless selected or queued | trial (r26q) |
 | While recording is armed or running, the Seq screen stays and the pads keep the stock Sample layout | trial (r24o) |
 | During playback the sounding pad blinks in Sample, notes in 16 Levels, slices in Chop | trial |
@@ -230,10 +267,15 @@ When the selected event has a C or L mark, the Chop or 16 Levels button lights u
 
 - Scope: **Folder / Subfolders / Library** and storage (Current / Internal / SD Card), on K3 or Shift+K3.
 - Case-insensitive. Samples: WAV, AIF/AIFF, MP3, FLAC, OGG. Projects: XPJ. Up to 4096 matches.
-- Samples: a pad silently picks the target, **encoder click loads** the sample and stays in the results. **B3 Preview** turns on preview while scrolling. **Shift+click** opens the file's folder with the file selected. Pads use the shared palette (§2): the target white, red and blinking when it would replace a sound; occupied pads dim white (r25x).
+- Samples: a pad silently picks the target, **encoder click loads** the sample and stays in the results. **B3 Preview** turns on preview while scrolling. **Shift+click** opens the file's folder with the file selected. Pads follow §2: selected empty targets green, occupied targets red; unselected empty pads off, other occupied pads dimmed in their own hue.
 - Projects: a click asks for confirmation (B3 Open / B1 Cancel).
 - **K3 Preview Vol 0–100 %**: preview level relative to Main Volume, shown only on an audio file.
 - **Erase** on an audio file in `Samples/User` runs the stock Delete with its stock confirmation.
+- In **Open Project**, physical **Erase** deletes the selected XPJ with its
+  companion `_[ProjectData]` after confirmation. For a project folder or a loose
+  `_[ProjectData]` folder, **B1 Cancel / B3 Delete** confirms folder deletion,
+  including its samples. This cannot be undone. L05 retains the reported
+  browser/search state that still needs a device check.
 
 ## 12. Batch Copy
 
@@ -244,7 +286,7 @@ When the selected event has a C or L mark, the Chop or 16 Levels button lights u
 - **Shift+K3**: Sound only / **Sound + events**, which copies the sound's events in every sequence (trial, r15e).
 - Occupied targets are marked `!`. B3 shows the number of copies and overwrites, B3 again confirms.
 - Encoder click auditions the row's source. One Undo reverts the whole operation.
-- Ordinary events use the selected sound's **Pad Colour** (Stock: green). Empty steps are off. Other Sounds is dim white; selection is white, playhead cyan, erase red/blinking and muted steps violet.
+- Pad colours follow §2: selected sources double-pulse white, assigned empty targets green, occupied targets red; unselected empty pads off.
 
 ## 13. Batch Extract
 
@@ -286,14 +328,14 @@ While the selected pad sounds, its **spectrum** (4096-point FFT, 20 Hz–20 kHz)
 |---|---|
 | Renders the selected pad with its settings and FX onto a chosen pad. Loop plays once for the render, the tail rings out. A silent or failed result is never assigned | confirmed (r20g) |
 | Includes the source pad's direct Pad Links and the Bypass state | confirmed (r23a) |
-| Target picker: the target pad is white (red and blinking when it would overwrite a sound), the source green, occupied pads dim white. The result is named "name Resample" | confirmed (colours updated in r24d) |
-| The target page shows the source and the bank as a 4×4 grid: occupied pads grey, the source outlined green, the chosen target white, or red when it would overwrite | trial (r24t) |
+| Target picker follows §2: selected empty green, occupied red, unselected empty off. Result name: "name Resample" | render confirmed; new lighting trial |
+| The target page shows source/bank in a4×4 grid, using selection/colours from §2 | trial r26x |
 
 ## 17. Limits
 
 - Firmware **1.3.0.12** only: the mod refuses to start on any other version.
 - Internal is temporary in the mod; work on External.
 - The stock app does not read the mod's project settings and drops them when it re-saves the project. The musical content of the project is kept.
-- Mod settings do not yet follow a sample when it is renamed or copied.
+- Automatic migration of name-keyed Lights settings on sample rename is not implemented. This is separate from implemented Pad Colour/EQ inheritance in Copy/Extract with Undo/Redo.
 - An emulator run does not replace a hardware test: timing, audio, battery and USB audio differ.
 - A fast arpeggio on a slow card can bring up the stock *Disk too slow* message.

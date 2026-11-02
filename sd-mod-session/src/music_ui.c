@@ -290,7 +290,8 @@ static void remember_repeat_rate(const char*title){
 int music_ui_repeat_rate(void){return atomic_load(&repeat_rate);}
 static void repeat_paint(void*p,void*g){
     if(FIELD(p,0,uintptr_t)!=base+0x6e1f060)return;
-    repeat_root=p;atomic_store(&repeat_visible,1);
+    repeat_root=p;unsigned shown=(unsigned)visible(p);atomic_store(&repeat_visible,shown);
+    if(!shown)return; /* A queued hidden paint cannot reclaim the header after release. */
     /* Native1638da0 lays out six alternative buttons, two per column.
      * Cover their entire38px hit areas after child paint: this also removes
      * native focus arms. The underlying Sample footer is never covered. */
@@ -737,7 +738,9 @@ int music_ui_button(void *event)
         /* Screen and transport buttons keep their native behaviour. */
         return 0;
     }
-    if (!music_pad_lighting_mode() || code!=0x0d || shifted(sample,0)) return 0;
+    /* Layout/Transpose16 settings remain available with Standard lighting.
+     * Pad/Seq identity-colour controls have their own mode guards. */
+    if (code!=0x0d || shifted(sample,0)) return 0;
     int index=FIELD(sample,0x7f0+0x218,int);
     if (lights) { lights=0; repaint(sample); music_ui_tick(); return 0; }
     if (index!=1) return 0;

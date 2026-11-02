@@ -343,7 +343,8 @@ int music_transposition(void) { uint64_t v=music_published(); return v ? (int)((
 uint64_t music_pitch_light(uint64_t v,int semitones,int *replace)
 {
     *replace=0;
-    if(!music_pad_lighting_mode())return 0;
+    /* Musical 16 Levels layouts are explicitly available in both lighting
+     * modes; Standard only disables Sample/Seq identity-colour overlays. */
     int root=(int)(v&15)-1,mode=(int)((v>>4)&3)|((int)((v>>40)&1)<<2);
     if (!v || root<0 || mode==MUSIC_MONO || semitones< -120 || semitones>120) return 0;
     int note=(root+(int)((v>>12)&255)-96+semitones)%12;

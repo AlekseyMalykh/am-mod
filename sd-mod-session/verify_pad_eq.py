@@ -22,4 +22,6 @@ for name,flags in [('normal',[]),('ubsan',['-fsanitize=undefined','-static-libub
  r=subprocess.run(['qemu-aarch64','-L','/home/user/mpc-rootfs-user-20260808',str(target),str(stock),str(out/'draw.txt')],cwd=root,capture_output=True,text=True,timeout=30)
  (out/(name+'-history.log')).write_text(r.stdout+r.stderr);print(r.stdout+r.stderr,end='');r.check_returncode()
 assert before=={s:digest(root/s) for s in sources}
+for name in ['normal','ubsan']:
+ assert 'PASS Standard retains Lights mode/key/scale and Transpose16 controls' in (out/(name+'-ui.log')).read_text()
 (out/'verification.json').write_text(json.dumps({'passed':True,'ubsan':True,'native_sidebars_preserved':True,'hardware_tested':False,'card_written':False,'scope':'single-point DSP/native common instrument render with generator and insert boundaries; project extension and layout','sources_sha256':before},indent=2)+'\n')

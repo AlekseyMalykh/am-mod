@@ -15,7 +15,7 @@ static void*root;
 static _Atomic unsigned active,owned[112];
 static _Atomic uint64_t epoch=1;
 static unsigned painted_type=~0u;
-static unsigned opening;
+static unsigned opening,repeat_seen,repeat_previous,header_dirty;
 static struct comp_animation animation;
 static double next_frame;
 #define T_SHIFT (UINT64_C(1)<<63)
@@ -50,7 +50,10 @@ static void bind_master(void){
 }
 int compressor_ui_tick(void){
  bind_master();
- unsigned show=(unsigned)visible();
+ unsigned show=(unsigned)visible(),repeat=(unsigned)music_ui_repeat_active();
+ if(repeat_seen&&repeat_previous&&!repeat)header_dirty=1;
+ repeat_seen=1;repeat_previous=repeat;
+ if(show&&!repeat&&header_dirty){header_dirty=0;repaint();}
  if(atomic_exchange(&active,show)!=show){atomic_fetch_add(&epoch,1);opening=show;}
  if(opening&&compressor_ready()){
   struct comp_config c;compressor_config(&c);

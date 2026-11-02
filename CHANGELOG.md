@@ -1,3 +1,11 @@
+# Changelog
+
+## r26x — local candidate, unpublished
+
+- Keep 16 Levels Lights controls and musical Piano/Scale layouts available in Standard and AM Mod; preserve tonic/scale/Transpose16 and role colours. Standard still disables Pad Colour/Seq Colour controls and identity overlays.
+- Ignore queued paints from a hidden Note Repeat overlay; restore the compressor header once after Repeat closes. Add regression coverage for hidden paints and stable Type across subsequent frames. Original MPC fast-release confirmation is pending.
+- Audit README, feature/colour maps and all tester report statuses. Separate implemented, device-confirmed, open and proposed work; retain L01–L04 as stable-release gates. Public download remains r26s. [Readiness](docs/RELEASE_READINESS-r26x.md) · [Русский](docs/RELEASE_READINESS-r26x.ru.md).
+
 ## r26w — local candidate
 
 - Add Project → Pad Lighting: global Standard / AM Mod preference; retain project colour data.
@@ -18,8 +26,6 @@
 - Show destination occupancy with red/green service colours and selected source double flashes.
 - Add Sample focus/Mute activity snapshots, Chop focus and Steps erase precedence; preserve Seq rhythm and OptoCat.
 - Scope, compatibility and pending hardware checks: docs/RELEASE_NOTES-r26u.md.
-
-# Changelog
 
 ## r26t candidate — visible pad selection across workflows
 

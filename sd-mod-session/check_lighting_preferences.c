@@ -13,7 +13,17 @@ int main(void){
  struct music_project before,after;music_snapshot(&before);uint64_t published=music_published();int transpose=music_transposition();
  assert(music_set_pad_lighting_mode(MUSIC_LIGHTING_STANDARD));
  for(unsigned i=0;i<MUSIC_SEQUENCE_COLOURS;++i)assert(music_identity_rgb(i)==0x2030ff);
- int replace=1;assert(!music_pitch_light(published,0,&replace)&&!replace);
+ int replace=0;uint64_t piano=music_pitch_light(published,0,&replace);assert(piano&&replace);
+ for(int mode=MUSIC_PIANO;mode<=MUSIC_SCALE;++mode){
+  sample.mode=mode;uint64_t snapshot=music_light_snapshot(&sample,0);
+  uint64_t standard[16];
+  for(unsigned pad=0;pad<16;++pad){standard[pad]=music_pad_light(snapshot,pad,3,&replace);assert(replace);}
+  assert(music_set_pad_lighting_mode(MUSIC_LIGHTING_MOD));
+  for(unsigned pad=0;pad<16;++pad){assert(music_pad_light(snapshot,pad,3,&replace)==standard[pad]&&replace);}
+  assert(music_set_pad_lighting_mode(MUSIC_LIGHTING_STANDARD));
+ }
+ sample.mode=MUSIC_MONO;assert(!music_pitch_light(music_light_snapshot(&sample,0),0,&replace)&&!replace);
+ sample.mode=MUSIC_PIANO;sample.root=-1;assert(!music_pitch_light(music_light_snapshot(&sample,0),0,&replace)&&!replace);
  assert(music_published()==published&&music_transposition()==transpose);
  music_snapshot(&after);assert(!memcmp(&before,&after,sizeof(before))&&music_pad_colour(0)==13&&music_sequence_colour(3)==5);
  music_reset();assert(music_pad_lighting_mode()==MUSIC_LIGHTING_STANDARD);music_replace(&before);assert(!memcmp(&before,&after,sizeof(before)));

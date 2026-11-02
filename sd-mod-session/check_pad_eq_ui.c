@@ -106,7 +106,10 @@ int main(int argc,char**argv){
  ((void(*)(void*,void*))rvt[0xd0/8])(repeat_screen,screen);assert(draws==before_repeat);
  repeat_open=1;repeat_drawing=1;captions[0]=0;((void(*)(void*,void*))rvt[0xd8/8])(repeat_screen,screen);repeat_drawing=0;
  assert(music_ui_repeat_active());music_ui_requested(0x0b,0);music_ui_tick();assert(music_ui_repeat_active()&&!key(0x0d,1)&&!key(0x0d,0));
- repeat_open=0;music_ui_tick();assert(!music_ui_repeat_active());music_ui_destroyed(repeat_screen);music_ui_tick();
+ repeat_open=0;music_ui_tick();assert(!music_ui_repeat_active());
+ unsigned before_hidden=draws;repeat_drawing=1;((void(*)(void*,void*))rvt[0xd8/8])(repeat_screen,screen);repeat_drawing=0;
+ assert(draws==before_hidden&&!music_ui_repeat_active()); /* queued hidden paint must not reclaim the header */
+ music_ui_destroyed(repeat_screen);music_ui_tick();
  assert(strstr(captions,"1/8\n")&&strstr(captions,"1/16\n")&&strstr(captions,"1/32\n")&&!strstr(captions,"1/8T"));
  puts("PASS Repeat header38px amber with only visible native divisions, no white focus arms or footer clearing; Knob FX background saturated amber startup patch");
  F(sequence_screen,0,uintptr_t)=base+0x6e23e38;F(current_things,0x1c8,void*)=sequence_model;F(sequence_model,0x480,int)=11;current_context=current_things;
@@ -145,7 +148,22 @@ int main(int argc,char**argv){
  knob(0x10,0);assert(music_pad_lighting_mode()==MUSIC_LIGHTING_STANDARD);knob(0x10,127);assert(music_pad_lighting_mode()==MUSIC_LIGHTING_MOD);
  assert(key(0x0c,1)&&key(0x0c,0));project_open=0;sequence_only=1;music_ui_tick();music_ui_requested(0x31,1);
  assert(music_set_pad_lighting_mode(MUSIC_LIGHTING_STANDARD));assert(!music_ui_owns(0x10)&&!music_ui_control((unsigned char[16]){[8]=0x10,[9]=127}));
- assert(music_sequence_colour(11)==4);assert(music_set_pad_lighting_mode(MUSIC_LIGHTING_MOD));music_ui_requested(0x31,0);
+ assert(music_sequence_colour(11)==4);music_ui_requested(0x31,0);
+ phase="Standard retains 16 Levels layout controls";
+ sequence_only=0;F(screen,0x7f0+0x218,int)=1;paint_ui();
+ assert(key(0x0d,1)&&key(0x0d,0)&&music_ui_owns(0x10));
+ paint_ui();assert(strstr(captions,"Lights")&&strstr(captions,"Tonic")&&strstr(captions,"Scale"));
+ knob(0x10,64);knob(0x11,127);knob(0x12,127);
+ struct music_sample layout;assert(music_get_sample("Shared",&layout));
+ assert(layout.mode==MUSIC_PIANO&&layout.tonic==11&&layout.scale==7);
+ F(controller,0x22a0,unsigned char)=1;knob(0x10,127);paint_ui();
+ assert(music_get_sample("Shared",&layout)&&layout.transpose==24&&strstr(captions,"Transpose16"));
+ F(controller,0x22a0,unsigned char)=0;
+ music_ui_requested(0x0b,1);assert(!music_ui_owns(0x10)&&!key(0x0d,1));music_ui_requested(0x0b,0);
+ paint_ui();assert(key(0x0d,1)&&key(0x0d,0));assert(!key(0x0c,1)&&!music_ui_owns(0x10));
+ assert(music_set_pad_lighting_mode(MUSIC_LIGHTING_MOD));
+ assert(music_get_sample("Shared",&layout)&&layout.transpose==24&&layout.mode==MUSIC_PIANO);
+ puts("PASS Standard retains Lights mode/key/scale and Transpose16 controls, Repeat priority and settings across lighting switches");
  puts("PASS Project Lighting entry and B2/B3/K1 controls; global mode preserves colours and disables Standard Seq Colour interception");
  puts("PASS native Seq screen hook: twelve colours by native sequence index, global and clip event presence, empty initialized slots excluded, Shift K1 only; Note Repeat keeps its controls");return 0;
 }

@@ -240,6 +240,16 @@ extern "C" int modern_fx_probe(uintptr_t base,const char**phase){
   for(unsigned i=0;i<10;++i)audio_block(i);
   compressor_config(&after);assert(after.warm&&after.attack==before.attack&&after.release==before.release&&!after.bypass);
  }
+ if(compressor_ui_ticket()&(UINT64_C(1)<<62))assert(!"Repeat state must be released before header check");
+ repeat_active=1;bool has_repeat_guard=!!(compressor_ui_ticket()&(UINT64_C(1)<<62));repeat_active=0;
+ if(has_repeat_guard){
+  compressor_select(COMP_DUCK);reinterpret_cast<void(*)(void*,void*)>(ui[27])(screen,nullptr);unsigned labels=type_labels;
+  repeat_active=1;compressor_ui_tick();reinterpret_cast<void(*)(void*,void*)>(ui[27])(screen,nullptr);assert(type_labels==labels);
+  unsigned before_restore=repaints;repeat_active=0;compressor_ui_tick();assert(repaints==before_restore+1);unsigned restored_repaints=repaints;
+  for(unsigned frame=0;frame<32;++frame){reinterpret_cast<void(*)(void*,void*)>(ui[27])(screen,nullptr);assert(type_labels==++labels&&compressor_type()==COMP_DUCK);}
+  assert(repaints==restored_repaints);compressor_select(COMP_OPTO);
+  puts("PASS Repeat release restores Type on every frame, requests one restore repaint and has no repeating header invalidation loop");
+ }
  instance.reset();*reinterpret_cast<void**>(meter+0x80)=nullptr;
  assert(!compressor_ready()&&compressor_type()==COMP_OPTO);
  puts("PASS real Colour master replacement across four project lifetimes, immutable table, old callbacks and late destruction preserve new master and Opto/Warm settings");
