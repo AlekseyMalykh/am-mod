@@ -886,13 +886,17 @@ int main(int argc,char **argv)
                     assert((uint32_t)atomic_load(&lights[pad])==(replace?(uint32_t)expected:0xffffff));
                 }
                 assert((uint32_t)atomic_load(&lights[8])==0xffc247);
-                picker_has_choice=1;level_candidate(&detail_old,&detail_edit,1,11,picker_base);palette();
+                picker_has_choice=1;level_candidate(&detail_old,&detail_edit,1,11,picker_base);palette_at(0);
                 assert((uint32_t)atomic_load(&lights[11])==0xffffff);picker_has_choice=0;
                 assert(music_published()==published_before_picker);
             }
         }
         picker_mode=0;palette();assert((uint32_t)atomic_load(&lights[15])==0xffffff);
-        picker_mode=8;picker_base=1;picker_slice_count=16;palette();assert((uint32_t)atomic_load(&lights[15])==0xffffff);
+        picker_mode=8;picker_base=1;picker_slice_count=16;assert(music_set_pad_colour(6,3));palette_at(0);assert((uint32_t)atomic_load(&lights[15])==0x8830ff);
+        picker_has_choice=1;level_candidate(&detail_old,&detail_edit,8,2,picker_base);
+        palette_at(0);assert((uint32_t)atomic_load(&lights[2])==PAD_SELECT);
+        palette_at(400);assert((uint32_t)atomic_load(&lights[2])==0x8830ff);
+        picker_has_choice=0;assert(music_set_pad_colour(6,0));
         menu=0;preview_gate_set(NULL,NULL);
     }
     assert(tree()->size==notes_before_palette&&change_calls==commands_before_palette&&choose_exact(&coloured));

@@ -45,4 +45,8 @@ static inline uint64_t pad_light(uint32_t rgb,float brightness)
 {
     uint32_t bits;memcpy(&bits,&brightness,4);return (uint64_t)rgb|((uint64_t)bits<<32);
 }
+/* Selection is white briefly, then reveals the semantic/assigned base.
+ * The dim phase also distinguishes selected white pads from ordinary white. */
+static inline uint64_t pad_selection_light(uint32_t rgb,float brightness,uint64_t phase)
+{ return phase%640u<240u?pad_light(PAD_SELECT,PAD_BRIGHT_SELECT):pad_light(rgb,brightness); }
 #endif

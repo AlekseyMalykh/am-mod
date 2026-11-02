@@ -5,7 +5,7 @@ root=Path(__file__).resolve().parent
 stock=root.parent/'extracted_v1.3.0/partitions/part3/usr/bin/MPC Sample'
 assert hashlib.sha256(stock.read_bytes()).hexdigest()=='b6584cba76e416e432ad202509099d34373dc2c3d6a8fb625f5678bf0193b508'
 out=root/'build/resample-stock';out.mkdir(exist_ok=True)
-sources=['src/pad_workflow_colour.h','src/resample_stock.cc','src/resample_stock.h','src/resample_stock_backend.cc','src/resample_stock_backend.h','src/resample_simple_ui.cc','src/resample_destination.c','src/resample_destination.h','check_resample_simple_ui.c','check_resample_stock.c','check_resample_stock_callback.cc','check_resample_stock_queue.cc','check_resample_stock_backend.c','check_resample_stock_sample.S','check_resample_trigger.c','check_resample_route.c','check_fx_native.c','verify_resample_stock.py']
+sources=['src/pad_palette.h','src/pad_workflow_colour.h','src/resample_stock.cc','src/resample_stock.h','src/resample_stock_backend.cc','src/resample_stock_backend.h','src/resample_simple_ui.cc','src/resample_destination.c','src/resample_destination.h','check_resample_simple_ui.c','check_resample_stock.c','check_resample_stock_callback.cc','check_resample_stock_queue.cc','check_resample_stock_backend.c','check_resample_stock_sample.S','check_resample_trigger.c','check_resample_route.c','check_fx_native.c','verify_resample_stock.py']
 digest=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
 before={s:digest(root/s) for s in sources}
 for s in ['src/resample_file_probe.h','check_resample_file.cc']:before[s]=digest(root/s);sources.append(s)

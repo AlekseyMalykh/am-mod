@@ -10,13 +10,17 @@ int main(void){
   for(unsigned phase=0;phase<1280;phase+=80){
    uint64_t used=pad_workflow_colour(n,1,0,0,0,phase);
    assert((uint32_t)used==(c?music_sequence_colours[c]:PAD_OCCUPIED));
-   assert((uint32_t)pad_workflow_colour(n,1,1,0,0,phase)==(c?music_sequence_colours[c]:PAD_CONTENT));
+   uint64_t source=pad_workflow_colour(n,1,1,0,0,phase);
+   assert(source==pad_selection_light(c?music_sequence_colours[c]:PAD_CONTENT,PAD_BRIGHT_CONTENT,phase+320));
    assert((uint32_t)pad_workflow_colour(n,0,0,0,0,phase)==0);
-   assert((uint32_t)pad_workflow_colour(n,0,0,1,0,phase)==(c&&phase%640>=240?music_sequence_colours[c]:PAD_SELECT));
+   uint64_t target=pad_workflow_colour(n,0,0,1,0,phase);
+   assert(target==(c?pad_selection_light(music_sequence_colours[c],PAD_BRIGHT_CONTENT,phase):pad_light(PAD_SELECT,PAD_BRIGHT_SELECT)));
    assert((uint32_t)pad_workflow_colour(n,1,0,1,1,phase)==PAD_DANGER);
    assert(colours[n]==c);
   }
  }
- puts("PASS workflow hue policy: 128 pads/all13 choices, source/occupied/empty, white-hue target cycle, red overwrite warning and metadata unchanged");
+ /* A white assignment still visibly pulses in intensity. */
+ colours[0]=11;assert(pad_workflow_colour(0,1,1,0,0,0)!=pad_workflow_colour(0,1,1,0,0,320));
+ puts("PASS workflow hue policy: 128 pads/all13 choices, selected-source white/hue pulse, stable occupied/empty, white-hue target cycle, red overwrite warning and metadata unchanged");
  return 0;
 }

@@ -177,6 +177,21 @@ static void*raw_surface_owner;static void*surface_provider=&raw_surface_owner;
 static void*service_entry(void*p,void*type){assert(type&&*(uintptr_t*)type!=base+0x6e7d470);assert(p==service||p==volume_registry);if(*(uintptr_t*)type==base+0x6e08e40)return &surface_provider;if(*(uintptr_t*)type==base+0x6e0d438){static void*browsing;browsing=service;return &browsing;}return &threads;}
 static void primary_base(void*p,void*t){assert(p==derived_copy&&t==threads);}
 static void copy_base(void*p,void*s,void*a,void*b){assert(p==derived_copy+0x48&&s==service&&!a&&!b);memcpy(p,copy_context_data,sizeof(copy_context_data));workflow_copy_context(p,(void*)1);}
+#ifndef PROJECT_RESTORE_BASELINE
+static unsigned selected_red_pad;static uint64_t selected_red_light;
+static void selection_red(void*p,unsigned pad,uint64_t light){(void)p;selected_red_pad=pad;selected_red_light=light;}
+static void native_copy_selection(void){
+ unsigned char layer[0x68]={0},masks[0x80]={0};uintptr_t output[1],vtable[5]={0};
+ output[0]=(uintptr_t)vtable;vtable[4]=(uintptr_t)selection_red;
+ FIELD(layer,0x40,void*)=masks;FIELD(layer,0x58,void*)=output;
+ FIELD(masks,0x68,uint64_t)=UINT64_C(1)<<5;FIELD(masks,0x70,uint64_t)=UINT64_C(1)<<5;
+ for(unsigned pad=5;pad<=69;pad+=64){
+  assert(FN(0x152c6c0,int(*)(void*,unsigned))(layer,pad)==1);
+  assert(selected_red_pad==pad&&selected_red_light==(UINT64_C(0x3f800000)<<32|0xff0000u));
+ }
+ puts("PASS actual native CopyModePadsLighting selected-source bitset emits full red for both64-pad halves; source role confirmed before recolouring");
+}
+#endif
 int main(int argc,char**argv){assert(argc==3);struct sigaction sa={0};sa.sa_sigaction=fault_signal;sa.sa_flags=SA_SIGINFO;sigaction(SIGSEGV,&sa,NULL);sigaction(SIGBUS,&sa,NULL);sigaction(SIGILL,&sa,NULL);load_elf(argv[1],0x1800000000ULL);
 char short_caption[64];ui_caption(short_caption,sizeof(short_caption),"АБВГДЕЖЗ",6);assert(!strcmp(short_caption,"АБВ..."));
 struct phone_input saved_query=query;phone_init(&query,128);assert(phone_sync(&query,"abcdefghijklmnopqrstuvXYZ",25));query_view(short_caption,sizeof(short_caption));assert(strstr(short_caption,"XYZ"));query.cursor=2;query_view(short_caption,sizeof(short_caption));assert(!strncmp(short_caption,"ab|c",4));query=saved_query;
@@ -364,6 +379,9 @@ browser_context_live=0;FIELD(file_root,0x1388,int)=0;search_scope=0;step_native_
 stub(0x286bbe0,get_instrument);stub(0x2804760,has_sample);__builtin___clear_cache((char*)base,(char*)(base+0x7500000));
 FIELD(copy_context_data,0,uintptr_t)=base+0x6d8cd88;FIELD(copy_context_data,0x78,void*)=copy_current;FIELD(copy_context_data,0x98,void*)=copy_mode;FIELD(copy_mode,0x80,int)=0x20a7;FIELD(copy_current,0xb8,void*)=copy_program;FIELD(copy_screen,0x100,void*)=copy_controls;FIELD(copy_screen,0x108,void*)=copy_mode;
 copy_root=copy_screen;atomic_store(&copy_id,(uintptr_t)copy_root);is_visible=copy_root;
+#ifndef PROJECT_RESTORE_BASELINE
+native_copy_selection();
+#endif
 /* Reproduce the hardware-only failure using the REAL most-derived ctor.
  * The context hook runs in the base ctor, then native code changes its vptr. */
 stub(0x14fc8f0,native_delete);stub(0x3b71e80,list_selection);stub(0x11012d0,refresh_listing);
@@ -373,6 +391,10 @@ FN(0x15173c0,void(*)(void*,void*,void*,void*))(derived_copy,service,NULL,NULL);
 assert(atomic_load(&copy_context)==(uintptr_t)(derived_copy+0x48));
 assert(FIELD(derived_copy,0x48,uintptr_t)==base+0x6e0dfd8&&FIELD(derived_copy,0x48,uintptr_t)!=base+0x6d8cd88);
 assert(current_program()==copy_program);workflow_tick();
+#ifndef PROJECT_RESTORE_BASELINE
+assert(workflow_native_pad_colours()==2);
+FIELD(copy_mode,0x80,int)=0x20ab;workflow_tick();assert(!workflow_native_pad_colours());FIELD(copy_mode,0x80,int)=0x20a7;workflow_tick();
+#endif
 unsigned char b3[16]={0};b3[8]=0x0e;b3[9]=1;
 assert(workflow_button(b3,workflow_ticket())==0&&!batch); /* Copy B3 stays native, even in Chop prototype. */
 /* Execute the real native queued-button decoder and BoolProperty setter,
@@ -402,7 +424,7 @@ char path[1024];snprintf(path,sizeof(path),"%s.batch",argv[2]);draw=fopen(path,"
  * current row's destination brighter (red if it would overwrite).
  * Source pads select their mapping row and never become self targets. */
 batch_bank=0;batch_row=1;batch_palette();uint64_t light;
-assert(workflow_light(0,&light)&&(uint32_t)light==0x32c780);
+assert(workflow_light(0,&light)&&((uint32_t)light==0x32c780||(uint32_t)light==PAD_SELECT));
 assert(workflow_light(15,&light)&&(uint32_t)light==0);
 {uint64_t other,current;float a,b;uint32_t x,y;
  assert(workflow_light(destination[0]%16,&other)&&(uint32_t)other==0xffffff);
@@ -411,9 +433,9 @@ assert(workflow_light(15,&light)&&(uint32_t)light==0);
 batch_row=0;batch_palette();assert(workflow_light(destination[1]%16,&light)&&(uint32_t)light==0xffffff);
 /* Assignment survives browsing banks; destination service colours win. */
 #ifndef PROJECT_RESTORE_BASELINE
-assert(music_set_pad_colour(0,5));batch_palette();assert(workflow_light(0,&light)&&(uint32_t)light==0xff0000);
+assert(music_set_pad_colour(0,5));batch_palette();assert(workflow_light(0,&light)&&((uint32_t)light==0xff0000||(uint32_t)light==PAD_SELECT));
 unsigned old_occupied16=occupied[16];batch_bank=1;assert(music_set_pad_colour(16,8));occupied[16]=1;batch_palette();assert(workflow_light(0,&light)&&(uint32_t)light==0x2030ff);occupied[16]=old_occupied16;
-batch_bank=0;batch_palette();assert(workflow_light(0,&light)&&(uint32_t)light==0xff0000);
+batch_bank=0;batch_palette();assert(workflow_light(0,&light)&&((uint32_t)light==0xff0000||(uint32_t)light==PAD_SELECT));
 assert(workflow_light(destination[1]%16,&light)&&(uint32_t)light==0xffffff);
 music_reset();batch_palette();
 #endif
@@ -543,7 +565,7 @@ assert(workflow_mono_open(sample_screen));assert(mono&&workflow_owns(3,0)&&!work
 FIELD(sample_screen,0x100,void*)=volume_registry;mono_labels=0;
 workflow_sample_paint(sample_screen,(void*)1);
 assert(mono_labels==63); /* Real Sample paint route must expose all choices. */
-assert(workflow_light(mono_target%16,&light)&&((uint32_t)light==0xffffff||(uint32_t)light==0xff2020));
+assert(workflow_light(mono_target%16,&light)&&((uint32_t)light==0xffffff||(uint32_t)light==0xff2020||(uint32_t)light==PAD_CONTENT||(uint32_t)light==PAD_EMPTY));
 button_event(0x0c,1);assert(!mono&&!mono_calls);
 assert(workflow_mono_open(sample_screen));mono_bank=1;workflow_pad(4,1,0,workflow_ticket());assert(mono_target==20);
 button_event(0x0e,1);if(!mono_job){assert(mono_confirm==1&&!mono_calls);button_event(0x0e,1);}
@@ -562,6 +584,32 @@ if(autoload_done||autoload_after||full_calls!=1){fprintf(stderr,"REPRODUCED auto
 autoload_modal=NULL;autoload_tick();assert(!autoload_done&&autoload_after>now_ms()&&full_calls==1);
 autoload_after=now_ms()-1;autoload_tick();assert(autoload_done&&full_calls==2&&kit_calls==1&&strstr(last_project,"Project-B.xpj"));
 autoload_tick();assert(full_calls==2);autoload_sample=0;
+#ifndef PROJECT_RESTORE_BASELINE
+/* The reported case: every Chop inherits purple, only selected slices pulse.
+ * Check two pages and all128 selections through the production palette. */
+music_reset();assert(music_set_pad_colour(7,3));atomic_store(&custom,1);batch=1;batch_page=0;chop_export=1;slice_sound=7;slice_count=32;
+memset(selected_sources,0,sizeof(selected_sources));selected_sources[0]=selected_sources[3]=selected_sources[17]=1;
+for(unsigned page=0;page<2;++page){slice_page=(int)page;
+ for(unsigned ms=0;ms<1280;ms+=80){batch_palette_at(ms);
+  for(unsigned pad=0;pad<16;++pad){uint64_t got;assert(workflow_light(pad,&got));
+   int picked=selected_sources[page*16+pad]!=0;
+   uint64_t expected=picked?pad_selection_light(0x8830ff,PAD_BRIGHT_CONTENT,ms+320):pad_light(0x8830ff,PAD_BRIGHT_CONTENT);
+   assert(got==expected);
+  }
+ }
+}
+chop_export=0;batch_bank=0;memset(selected_sources,0,sizeof(selected_sources));selected_sources[2]=selected_sources[6]=1;
+for(unsigned pad=0;pad<128;++pad){occupied[pad]=1;assert(music_set_pad_colour(pad,3));}
+for(unsigned bank=0;bank<8;++bank){batch_bank=(int)bank;selected_sources[bank*16+2]=1;
+ for(unsigned ms=0;ms<1280;ms+=80){batch_palette_at(ms);
+  for(unsigned pad=0;pad<16;++pad){uint64_t got;assert(workflow_light(pad,&got));
+   uint64_t expected=selected_sources[bank*16+pad]?pad_selection_light(0x8830ff,PAD_BRIGHT_CONTENT,ms+320):pad_light(0x8830ff,PAD_BRIGHT_CONTENT);
+   assert(got==expected);
+  }
+ }
+}
+puts("PASS Batch Copy and Chop source selection: purple-on-purple reported case, selected-only white/hue pulses, stable unselected pads, slice pages/eight banks, no content mutation");
+#endif
 puts("PASS production autoload waits for native callback readiness and all native modals, starts a fresh quiet interval after a dialog closes, opens newest XPJ as a full project exactly once, never imports its kit");
 puts("PASS mono destination workflow: Sample-host dialog paints Cancel/Left/Right and source/target; Cancel no job, target pads/banks, channel request, occupied confirmation, completion close and Play/Stop pass-through; backend is a receiver");
 puts("PASS actual native File optional/current-directory getter and BrowserLogic root setter; selected-file property alone cannot navigate; reveal locates asynchronous native row for Sample and Project without loading; factory project search defaults to SD, K3 Internal/SD roots and XPJ-not-XPM filter; silent result-pad selection, native project confirmation and preview; bounded recursive search over4100 files, linked/hidden folders and inode cycle dedup; ordinary Chop Split gate and Sample108/148 offsets; Batch mapping/confirmation/paint; final GUI, listing/notification/property and audio callbacks remain fixtures");return 0;}

@@ -11,7 +11,7 @@ assert sha(stock)=='b6584cba76e416e432ad202509099d34373dc2c3d6a8fb625f5678bf0193
 with zipfile.ZipFile(R.parent/'am-mod-r26k.zip') as z:bridge=z.read('autorun/phone-code.bin')
 assert hashlib.sha256(bridge).hexdigest()=='4912f9dcc38212ff1f37d051a8133d493f784305d97663d0d5333dc466e2e0d7'
 (O/'phone-bridges.bin').write_bytes(bridge)
-sources=['verify_pad_colour_workflows.py','check_pad_colour_history.c','check_batch_eq.c',
+sources=['src/pad_palette.h','verify_pad_colour_workflows.py','check_pad_colour_history.c','check_batch_eq.c',
  'check_batch_native.c','check_chop_native.c','check_steps.c','check_steps_support.cc',
  'check_steps_support.S','check_chop_support.S','src/step_native.c','src/step_abi.S',
  'src/music_settings.c','src/music_settings.h','src/pad_eq.c','src/fx_eq.c',

@@ -1353,7 +1353,7 @@ static void sequence_palette_tick(void){
 #endif
 /* UI Timer publishes screen ownership; RGB callbacks must not inspect native
  * Components, which may belong to another thread. */
-static _Atomic unsigned pad_colour_sample_layout,pad_colour_native_workflow,pad_colour_cursor_white;
+static _Atomic unsigned pad_colour_sample_layout,pad_colour_native_workflow,pad_colour_cursor_white,pad_colour_source_white;
 static _Atomic int pad_colour_bank;
 /* Sample pad layout: the user's Pad Colour (Mix, K2) keeps the
  * native brightness of each pad (dim loaded, bright playing) and replaces
@@ -1365,6 +1365,13 @@ static int pad_colour_light(unsigned pad,uint64_t *out){
     if(atomic_load(&pad_colour_native_workflow)){
         unsigned raw=(unsigned)atomic_load(&original_lights[pad]);
         unsigned r=(raw>>16)&255,g=(raw>>8)&255,b=raw&255,top=r>g?r:g;if(b>top)top=b;
+        /* Native CopyModePadsLighting152c6c0 emits full red for members
+         * of its selected-source bitset. Browser red remains a warning. */
+        if(atomic_load(&pad_colour_native_workflow)==2&&raw==0xff0000&&!atomic_load(&native_mute_mode)){
+            unsigned colour=atomic_load(&pad_colour_source_white)?0xffffff:music_sequence_colours[chosen];
+            float strength=atomic_load(&pad_colour_source_white)?.9f:.55f;uint32_t bits;memcpy(&bits,&strength,4);
+            *out=(uint64_t)colour|((uint64_t)bits<<32);return 1;
+        }
         if(r>80&&r>g*2&&r>b*2)return 0; /* Native overwrite warning. */
         if(r==g&&g==b&&top>=192&&atomic_load(&pad_colour_cursor_white))return 0;
         unsigned value=top?(top<160?160:top):0,colour=music_sequence_colours[chosen];
@@ -1439,7 +1446,9 @@ static void send_step_lights(void)
     unsigned native_workflow=workflow_native_pad_colours();
     atomic_store(&pad_colour_native_workflow,native_workflow);
     atomic_store(&pad_colour_bank,step_native_browser_bank(-1));
-    atomic_store(&pad_colour_cursor_white,now_ms()%640<240);
+    uint64_t selection_phase=now_ms();
+    atomic_store(&pad_colour_cursor_white,selection_phase%640<240);
+    atomic_store(&pad_colour_source_white,(selection_phase+320)%640<240);
     atomic_store(&pad_colour_sample_layout,native_workflow||step_native_sound_layout()||
 #ifdef MPC_COMPRESSOR
         compressor_ui_active()||

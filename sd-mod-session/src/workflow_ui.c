@@ -503,7 +503,7 @@ int workflow_install(void(*fp)(void*,void*),void(*cp)(void*,void*)){
  for(unsigned i=0;i<2;++i){void*page=(void*)((uintptr_t)slots[i]&~(uintptr_t)4095);if(mprotect(page,4096,PROT_READ|PROT_WRITE))return 0;*slots[i]=(uintptr_t)callbacks[i];if(mprotect(page,4096,PROT_READ))_exit(121);}return 1;
 }
 void workflow_destroyed(void*p){if(p==constructed_files)constructed_files=NULL;if((uintptr_t)p==atomic_load(&chop_id)){atomic_store(&dead_chop,1);atomic_store(&chop_available,0);}if((uintptr_t)p==atomic_load(&files_id)){atomic_store(&dead_files,1);atomic_store(&active,0);atomic_store(&custom,0);atomic_fetch_add(&epoch,1);}if((uintptr_t)p==atomic_load(&copy_id)){atomic_store(&dead_copy,1);atomic_store(&active,0);atomic_store(&custom,0);atomic_fetch_add(&epoch,1);}}
-int workflow_native_pad_colours(void){return atomic_load(&native_colours)!=0;}
+int workflow_native_pad_colours(void){return (int)atomic_load(&native_colours);}
 int workflow_active(void){return atomic_load(&active);}
 int workflow_blocks_sample_controls(void){return atomic_load(&custom)||atomic_load(&button_routes)||atomic_load(&split_forwarded)||batch_job||batch_leaving;}
 int workflow_jobs_busy(void){return batch_job||mono_job;}
@@ -582,7 +582,12 @@ int workflow_tick(void){
  if(batch&&!visible(batch_surface())&&!batch_job&&!batch_leaving)batch_close();
  if(batch){preview_refresh();batch_palette();repaint(batch_surface());}
  int copy_visible=visible(copy_root);
- atomic_store(&native_colours,!atomic_load(&custom)&&((v&&sample_browser())||copy_visible));
+ unsigned native_kind=v&&sample_browser()?1u:0u;
+ if(copy_visible&&current_program()){
+  void*c=(void*)atomic_load(&copy_context),*mode=FIELD(c,0x98,void*);
+  native_kind=mode&&FIELD(mode,0x80,int)==0x20a7?2u:0u;
+ }
+ atomic_store(&native_colours,atomic_load(&custom)?0u:native_kind);
  atomic_store(&button_routes,(copy_visible?1u:0u)|(v?2u:0u));
  atomic_store(&active,v||copy_visible||(MPC_EXPERIMENTAL_CHOP_EXPORT&&visible(chop_root))||atomic_load(&split_forwarded)||batch_job||batch_leaving);
  if(visible(batch_surface())){void*c=FIELD(batch_surface(),chop_host?0x108:0x100,void*);if(c)shift=FIELD(c,0x22a0,unsigned char)!=0;}
@@ -1073,7 +1078,7 @@ static void batch_pad(unsigned pad,int down){
  }
  batch_palette();repaint(batch_surface());
 }
-static void batch_palette(void){
+static void batch_palette_at(uint64_t phase){
  static int previous_page=-1,previous_bank=-1;if(previous_page!=batch_page||previous_bank!=batch_bank){atomic_fetch_add(&palette_generation,1);previous_page=batch_page;previous_bank=batch_bank;}
  for(unsigned i=0;i<16;++i){unsigned n=(unsigned)batch_bank*16+i;unsigned shown=chop_export&&!batch_page?(unsigned)slice_page*16+i:n;
   unsigned present=chop_export&&!batch_page?shown<(unsigned)slice_count:occupied[n];
@@ -1081,11 +1086,12 @@ static void batch_palette(void){
   unsigned colour_pad=chop_export&&!batch_page?slice_sound:n;
   int target=0,current=0;
   if(batch_page)for(unsigned j=0;j<batch_count;++j)if(destination[j]==n){target=1;current=(int)j==batch_row;break;}
-  uint64_t value=pad_workflow_colour(colour_pad,present,is_source,target,batch_page&&present&&!is_source&&target,now_ms());
+  uint64_t value=pad_workflow_colour(colour_pad,present,is_source,target,batch_page&&present&&!is_source&&target,phase);
   uint32_t c=(uint32_t)value,bits=(uint32_t)(value>>32);float strength;memcpy(&strength,&bits,4);
   if(target&&!current)strength=.45f;
   uint64_t light=pad_light(c,strength);if(atomic_exchange(&palette[i],light)!=light)atomic_fetch_add(&palette_generation,1);}
 }
+static void batch_palette(void){batch_palette_at(now_ms());}
 static void batch_paint(void*g){
  if(batch_leaving){colour(g,0xff000000);rect(g,0,5,320,235);colour(g,WHITE);text(g,"Closing Copy...",8,92,304,30,20);return;}
  if(batch_job){batch_job_paint(g);return;}
@@ -1097,7 +1103,7 @@ static void batch_paint(void*g){
   snprintf(line,sizeof(line),"%u / 16 selected",selected_count);colour(g,AMBER);left_text(g,line,8,70,304,33,25);
   colour(g,WHITE);if(chop_export)snprintf(line,sizeof(line),"%c%02u  |  Chop %d",'A'+slice_sound/16,slice_sound%16+1,slice_focus+1);else snprintf(line,sizeof(line),"Bank %c",'A'+batch_bank);left_text(g,line,8,112,304,24,18);
   colour(g,0xff373737);rect(g,8,143,304,1);colour(g,GREY);
-  left_text(g,"Green: selected   Red: occupied",8,151,304,18,13);
+  left_text(g,"White blink: selected",8,151,304,18,13);
   ui_caption(line,sizeof(line),batch_message[0]?batch_message:chop_export?"Click: play/stop   Enc: choose":"Unlit: free   Pads: select",38);colour(g,batch_message[0]?RED:GREY);left_text(g,line,8,177,304,18,13);
  }else{
   colour(g,GREY);left_text(g,chop_export?"CHOP":"SOURCE",8,63,80,15,12);left_text(g,"TARGET",119,63,84,15,12);left_text(g,"ASSIGN",230,63,82,15,12);

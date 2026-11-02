@@ -1054,7 +1054,7 @@ static uint64_t sound_palette_value(unsigned pad,uint64_t phase){
     }
     return pad_light(rgb,brightness);
 }
-static void palette(void)
+static void palette_at(uint64_t phase)
 {
     uint64_t tune_lights=0;
     if(menu==3&&picker_mode==1){
@@ -1068,6 +1068,8 @@ static void palette(void)
         int original_value=(int)lround(level_value(&detail_old,picker_mode));
         if(original_value<picker_base||original_value>picker_base+15)original_pad=-1;
     }
+    int chop_colour=0;
+    if(menu==3&&picker_mode==8){int pad=event_pad(&detail_old);if(pad>=0&&pad<128)chop_colour=music_pad_colour((unsigned)pad);}
     for (unsigned i=0;i<16;++i) {
         uint32_t rgb=0; float brightness=0;
         int slot=pad_step(i),n=page*16+slot;
@@ -1079,14 +1081,17 @@ static void palette(void)
                     int replace=0;uint64_t light=music_pitch_light(tune_lights,value,&replace);
                     if(replace){rgb=(uint32_t)light;uint32_t bits=(uint32_t)(light>>32);memcpy(&brightness,&bits,4);}
                 }
+                if(picker_mode==8){rgb=chop_colour?music_sequence_colours[chop_colour]:PAD_CONTENT;brightness=PAD_BRIGHT_CONTENT;}
                 int original=(int)i==original_pad,chosen=(int)i==selected_pad;
                 if(picker_mode==1&&picker_toggle_notes){struct step_event candidate;level_candidate(&detail_old,&candidate,1,(int)i,picker_base);chosen=picker_note_index(&candidate)>=0;}
                 if(original){rgb=PAD_ORIGINAL;brightness=PAD_BRIGHT_ORIGINAL;}
-                if(chosen){rgb=original&&milliseconds()%800<400?PAD_ORIGINAL:PAD_SELECT;brightness=PAD_BRIGHT_SELECT;}
+                if(chosen){
+                    atomic_store(&lights[i],pad_selection_light(rgb,brightness,phase));continue;
+                }
             }
         }
         else if (atomic_load(&requested_sound)) {
-            atomic_store(&lights[i],sound_palette_value(i,milliseconds()));continue;
+            atomic_store(&lights[i],sound_palette_value(i,phase));continue;
         }
         else if (n<count()) {
             int playing=was_playing&&(int)(play_tick/grid_ticks[grid])==n;
@@ -1096,12 +1101,13 @@ static void palette(void)
             }
             atomic_store(&lights[i],step_palette_value(slots[slot].count,slots[slot].muted,
                 atomic_load(&mute_active)!=0,atomic_load(&requested_erase)!=0,cursor_visible&&n==cursor,
-                was_playing&&(int)(play_tick/grid_ticks[grid])==n,milliseconds()));
+                was_playing&&(int)(play_tick/grid_ticks[grid])==n,phase));
             continue;
         }
         uint32_t f; memcpy(&f,&brightness,4); atomic_store(&lights[i],(uint64_t)rgb|((uint64_t)f<<32));
     }
 }
+static void palette(void){palette_at(milliseconds());}
 int step_native_light(unsigned pad,uint64_t *light)
 {
     uint64_t t=atomic_load(&ticket);

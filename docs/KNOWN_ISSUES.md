@@ -19,6 +19,8 @@ and physical FAT32 still need their device checks. A previous full native VM
 run verified one startup-modal error and project-copy fixture; it does not close
 every project report below. Ordinary manual External Save/Load was reported to work.
 
+Local r26t adds selected-source white/hue pulses in Copy/Batch Extract/Mono/Resample and picker cursors after the all-purple selection report. This candidate awaits a device trial and is not part of the r26s download.
+
 ## Reports and remaining checks
 
 | ID | Priority | Report / next check |

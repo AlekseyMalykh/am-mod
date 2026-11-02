@@ -137,6 +137,14 @@ int main(void){
  native_rgb(0,0xff2020);assert(sent[0]==0xff2020);
  atomic_store(&pad_colour_cursor_white,0);native_rgb(0,0x101010);assert(sent[0]==0xa00000);
  uint64_t packed;assert(pad_colour_light(0,&packed));assert((packed>>32)==0x3f800000);
+ native_workflow=2;send_step_lights();assert(music_set_pad_colour(0,8));
+ atomic_store(&pad_colour_source_white,1);native_rgb(0,0xff0000);assert(sent[0]==0xffffff);
+ atomic_store(&pad_colour_source_white,0);native_rgb(0,0xff0000);assert(sent[0]==music_sequence_colours[8]);
+ assert(pad_colour_light(0,&packed));assert((packed>>32)==0x3f0ccccd); /* .55 colour phase. */
+ native_rgb(0,0xff2020);assert(sent[0]==0xff2020);
+ atomic_store(&native_mute_mode,1);native_rgb(0,0xff0000);assert(sent[0]==0xff0000);atomic_store(&native_mute_mode,0);
+ assert(music_set_pad_colour(0,5));
+ puts("PASS ordinary native Copy selected source pulses white/assigned hue; browser and Copy overwrite/Mute red retain priority; RGB never reads Components");
  native_workflow=0;sample_visible=1;native_rgb(0,0x104020);send_step_lights();
  /* Native Mute and Erase colours retain priority. */
  atomic_store(&native_buttons_down[0x23],1);send_step_lights();assert(sent[0]==0x104020);

@@ -3,7 +3,7 @@ from pathlib import Path
 import hashlib,json,subprocess
 root=Path(__file__).resolve().parent
 out=root/'build/project-restore';out.mkdir(parents=True,exist_ok=True)
-sources=['src/pad_workflow_colour.h','src/workflow_ui.c','src/workflow_ui.h','check_workflow.c','src/music_settings.c','src/music_settings.h','src/browser_tree.c','src/phone_input.c','verify_project_restore.py']
+sources=['src/pad_palette.h','src/pad_workflow_colour.h','src/workflow_ui.c','src/workflow_ui.h','check_workflow.c','src/music_settings.c','src/music_settings.h','src/browser_tree.c','src/phone_input.c','verify_project_restore.py']
 sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
 before={n:sha(root/n) for n in sources}
 stock=root.parent/'extracted_v1.3.0/partitions/part3/usr/bin/MPC Sample'
@@ -19,4 +19,4 @@ for name,flags in [('before',['-DPROJECT_RESTORE_BASELINE=1','-DWORKFLOW_SOURCE=
  if name=='before':assert p.returncode==1 and 'REPRODUCED autoload started another project while a native modal was open' in p.stderr
  else:p.check_returncode()
 assert before=={n:sha(root/n) for n in sources}
-(out/'verification.json').write_text(json.dumps(dict(passed=True,ubsan=True,modal_baseline_reproduced=True,baseline_commit='152e07c',baseline_sha256=hashlib.sha256(baseline).hexdigest(),sources_sha256=before,stock_sha256=sha(stock),native='actual XPJ browser branch selection and File callbacks; model/GUI receivers',hardware_tested=False),indent=2)+'\n')
+(out/'verification.json').write_text(json.dumps(dict(passed=True,ubsan=True,batch_selection_pulses_verified=True,modal_baseline_reproduced=True,baseline_commit='152e07c',baseline_sha256=hashlib.sha256(baseline).hexdigest(),sources_sha256=before,stock_sha256=sha(stock),native='actual XPJ browser branch selection and File callbacks; model/GUI receivers',hardware_tested=False),indent=2)+'\n')

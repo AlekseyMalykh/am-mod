@@ -1,5 +1,11 @@
 # Changelog
 
+## r26t candidate — visible pad selection across workflows
+
+- Pulse selected Batch Copy sources and Batch Extract slices between white and their assigned/source hue, including the reported all-purple layout; unselected pads stay steady. Selected white pads pulse in brightness. Preserve red overwrite warnings and metadata.
+- Recognise the exact native Copy Pad source marker using its validated UI mode; retain Mute/browser warnings and exclude sequence-copy mode from sound-pad recolouring. Add source pulses to Mono/Resample and white/base-colour cursors to Chop/Tune event pickers. Keep native ordinary Chop, Sound and Seq markers.
+- Verify actual native Copy selected-source bitsets, purple Batch pages/eight banks, all colours, picked slice values, bank/preview/Undo and unchanged audio routing in ARM/QEMU/UBSan. Preserve r26s EQ strips and OptoCat Gain −6…+6 dB. [English](docs/RELEASE_NOTES-r26t.md) · [Русский](docs/RELEASE_NOTES-r26t.ru.md). Local device-test candidate; unpublished.
+
 ## r26s — public release, 2 November 2026
 
 - Combine r26e–r26r: experimental FAT32/installer1.0.2, confirmed native K fix, OptoCat/Warm and Shift controls, shared Bypass/master rebinding, project-start gating, Copy/Extract colour history, compressor/mute colours, Seq pulses and Sound cursor.

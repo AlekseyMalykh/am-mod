@@ -15,4 +15,4 @@ for name,flags in [('normal',[]),('ubsan',['-fsanitize=undefined','-static-libub
   (O/(name+'-'+case+'.log')).write_text(p.stdout+p.stderr)
   print(p.stdout+p.stderr,end='',flush=True);p.check_returncode();assert 'PASS ' in p.stdout
 assert hashes=={n:hashlib.sha256((R/n).read_bytes()).hexdigest() for n in sources}
-(O/'verification.json').write_text(json.dumps(dict(passed=True,ubsan=True,workflow_colours_verified=True,sound_cursor_colour_verified=True,sequence_pulses_verified=True,sequence_background_nonzero=True,sequence_other_brightness_stable=True,sequence_tempo_and_meter_verified=True,sources_sha256=hashes,hardware_tested=False),indent=2)+'\n')
+(O/'verification.json').write_text(json.dumps(dict(passed=True,ubsan=True,workflow_selection_pulses_verified=True,workflow_colours_verified=True,sound_cursor_colour_verified=True,sequence_pulses_verified=True,sequence_background_nonzero=True,sequence_other_brightness_stable=True,sequence_tempo_and_meter_verified=True,sources_sha256=hashes,hardware_tested=False),indent=2)+'\n')
