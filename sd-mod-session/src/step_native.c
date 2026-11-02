@@ -170,7 +170,32 @@ static _Atomic unsigned playback_mask;
 /* Published by the UI's native event scan; RGB receivers read only this
  * numeric snapshot, never the mutable program or playback mode. */
 static _Atomic int playback_colour_bank=-1;
-static uint64_t playback_until[16];
+static uint64_t playback_until[16],playback_muted_until[16];
+static _Atomic unsigned playback_muted_mask,sample_palette_enabled;
+static _Atomic uint64_t sample_palette[16];
+static _Atomic unsigned sample_native_rgb[16];
+void step_native_observe_rgb(unsigned pad,unsigned rgb){if(pad<16)atomic_store(&sample_native_rgb[pad],rgb);}
+static void sample_palette_publish(void *things,void *program,int bank,int enabled,uint64_t now){
+ if(!enabled||!program||bank<0||bank>=8){atomic_store(&sample_palette_enabled,0);return;}
+ void *selected=things?FIELD(things,0x60,void*):NULL;
+ int focus=selected?FN(0x286bc20,int(*)(void*,void*))(program,selected):-1;
+ for(unsigned i=0;i<16;++i){
+  unsigned n=(unsigned)bank*16+i;void*p=FN(0x286bbe0,void*(*)(void*,int))(program,(int)n);
+  int used=p&&FN(0x2804760,int(*)(void*))(p);
+  int muted=used&&(__atomic_load_n((unsigned char*)p+0x78,__ATOMIC_ACQUIRE)&1u);
+  uint32_t rgb=muted?PAD_MUTED:used?music_identity_rgb((unsigned)music_pad_colour(n)):0;
+  float strength=used?(muted?PAD_BRIGHT_MUTED:PAD_BRIGHT_CONTENT):0;
+  unsigned native=atomic_load(&sample_native_rgb[i]),top=(native>>16)&255;
+  if(((native>>8)&255)>top)top=(native>>8)&255;
+  if((native&255)>top)top=native&255;
+  if(used&&!muted&&top>=192)strength=.90f; /* real held/Loop playback remains visible */
+  if(used&&now<playback_until[i]){rgb=now<playback_muted_until[i]||muted?PAD_MUTED:rgb;strength=rgb==PAD_MUTED?.65f:.90f;}
+  uint64_t light=pad_light(rgb,strength);
+  if((int)n==focus)light=pad_selection_light(rgb?rgb:PAD_EMPTY,strength?strength:PAD_BRIGHT_EMPTY,now);
+  atomic_store(&sample_palette[i],light);
+ }
+ atomic_store(&sample_palette_enabled,1);
+}
 /* Tune pitches (-120..120) heard from the sequence, for Chords feedback. */
 static uint64_t playback_pitch_until[241];
 static int64_t playback_previous=-1;
@@ -627,25 +652,26 @@ void step_native_playback_context(void *things,int transpose,int sample_visible)
         fprintf(stderr,"PAD_STEPS PLAYBACK gate=%03x mode=%d sound=%d origin=%u tick=%lld\n",
                 gate,mode,selected,atomic_load(&native_levels_origin),(long long)tick);
     }
+    int sample_enabled=enabled&&mode==10&&!picker&&!(showing&&steps);
     if (gate || picker) { /* Editor markers describe original/choice, not loop flashes. */
-        playback_previous=-1;memset(playback_until,0,sizeof(playback_until));memset(playback_pitch_until,0,sizeof(playback_pitch_until));atomic_store(&playback_colour_bank,-1);atomic_store(&playback_mask,0);return;
+        playback_previous=-1;memset(playback_until,0,sizeof(playback_until));memset(playback_pitch_until,0,sizeof(playback_pitch_until));atomic_store(&playback_colour_bank,-1);atomic_store(&playback_mask,0);atomic_store(&playback_muted_mask,0);memset(playback_muted_until,0,sizeof(playback_muted_until));sample_palette_publish(things,program,bank,sample_enabled,now);return;
     }
     unsigned muted_pads=0;
     if(mode==10) {
         /* Native MutePadMode15309e0..1530a08 resolves the instrument and
-         * tests bit0 at+78. Muted sounds remain muted after leaving its
-         * overlay, so never flash their sequence events as audible playback.
+         * tests bit0 at+78. Muted events still flash grey after leaving its
+         * overlay; only the LED snapshot changes, never audio state.
          * Do not infer mute from a transient LED colour. */
         for(unsigned i=0;i<16;++i) {
             void *p=FN(0x286bbe0,void*(*)(void*,int))(program,bank*16+(int)i);
             if(!p || (__atomic_load_n((unsigned char*)p+0x78,__ATOMIC_ACQUIRE)&1u)) {
-                muted_pads|=1u<<i;playback_until[i]=0;
+                muted_pads|=1u<<i;
             }
         }
     }
     tick%=len;
     if(list!=playback_list || program!=playback_program || selected!=playback_sound || mode!=playback_mode || first!=playback_first) {
-        playback_previous=-1;memset(playback_until,0,sizeof(playback_until));
+        playback_previous=-1;memset(playback_until,0,sizeof(playback_until));memset(playback_muted_until,0,sizeof(playback_muted_until));
         playback_list=list;playback_program=program;playback_sound=selected;playback_mode=mode;playback_first=first;
     }
     int64_t previous=playback_previous;playback_previous=tick;
@@ -665,8 +691,10 @@ void step_native_playback_context(void *things,int transpose,int sample_visible)
                 unsigned note=e.data[0x20];
                 int pad=note<128 ? FIELD(program,0x14a8+note*4,int) : -1;
                 int parameter=mode<10 ? level_params[mode] : -1;
-                if(mode==10 && musical(&e) && !event_muted(&e) && pad>=0 && pad/16==bank && !(muted_pads&(1u<<(pad%16))))
+                if(mode==10 && musical(&e) && pad>=0 && pad/16==bank){
                     playback_until[pad%16]=now+120;
+                    playback_muted_until[pad%16]=(event_muted(&e)||(muted_pads&(1u<<(pad%16))))?now+120:0;
+                }
                 else if(mode<10 && musical(&e) && !event_muted(&e) && pad==selected && (parameter<0 || (FIELD(&e,0x14,uint16_t)&(1u<<parameter)))) {
                     if(mode==1){int v=(int)lround(level_value(&e,1));if(v>=-120&&v<=120)playback_pitch_until[v+120]=now+120;}
                     int key=level_nearest(&e,mode,first);
@@ -683,7 +711,10 @@ void step_native_playback_context(void *things,int transpose,int sample_visible)
     if(mask && mask!=atomic_load(&playback_mask) && playback_reports<32){
         ++playback_reports;fprintf(stderr,"PAD_STEPS PLAYBACK_PADS mode=%d mask=%04x\n",mode,mask);
     }
-    atomic_store(&playback_colour_bank,mode==10&&sample_visible==1?bank:-1);
+    unsigned muted_mask=0;for(unsigned i=0;i<16;++i)if(now<playback_muted_until[i]||(muted_pads&(1u<<i)))muted_mask|=1u<<i;
+    atomic_store(&playback_muted_mask,muted_mask&mask);
+    sample_palette_publish(things,program,bank,sample_enabled,now);
+    atomic_store(&playback_colour_bank,mode==10?bank:-1);
     atomic_store(&playback_mask,mask);
 }
 int64_t step_native_clock_ticks(uint64_t *serial,unsigned *running)
@@ -1031,14 +1062,15 @@ static uint64_t step_palette_value(unsigned events,unsigned muted,int mute,int e
     int has=events!=0,all_muted=has&&muted==events,mixed=muted&&!all_muted;
     (void)mute; /* the lit Mute button shows the mode; step colours keep their meaning */
     int chosen=music_pad_colour((unsigned)sound);
-    uint32_t content=chosen?music_sequence_colours[chosen]:PAD_CONTENT;
+    uint32_t content=chosen?music_identity_rgb(chosen):PAD_CONTENT;
     uint32_t rgb=!has?0:all_muted?PAD_MUTED:mixed&&phase%640>=320?PAD_MUTED:content;
     float brightness=!has?0:all_muted?PAD_BRIGHT_MUTED:PAD_BRIGHT_CONTENT;
     if(erase&&has){rgb=PAD_DANGER;brightness=pad_blink_on(phase)?PAD_BRIGHT_DANGER:.20f;}
     /* Alternate white with the semantic colour to keep both selection
      * and mute/delete status visible. Playback has a separate cyan cursor. */
-    if(selected){if(!has||phase%640<240)rgb=PAD_SELECT;brightness=.8f;}
-    if(playing){rgb=all_muted&&phase%320>=160?PAD_MUTED:PAD_PLAYHEAD;brightness=.95f;}
+    if(selected&&(!has||phase%800<120)){rgb=PAD_SELECT;brightness=.90f;}
+    if(playing){rgb=all_muted?PAD_MUTED:PAD_PLAYHEAD;brightness=all_muted?.65f:.95f;}
+    if(erase&&has){rgb=PAD_DANGER;brightness=pad_blink_on(phase)?PAD_BRIGHT_DANGER:.20f;}
     return pad_light(rgb,brightness);
 }
 /* Sound selection overlays white briefly, then reveals the assigned hue.
@@ -1046,11 +1078,11 @@ static uint64_t step_palette_value(unsigned events,unsigned muted,int mute,int e
 static uint64_t sound_palette_value(unsigned pad,uint64_t phase){
     int chosen=music_pad_colour((unsigned)browse_bank*16+pad);
     int present=!!(sound_present&(1u<<pad));
-    uint32_t rgb=present?(chosen?music_sequence_colours[chosen]:PAD_CONTENT):PAD_EMPTY;
+    uint32_t rgb=present?music_identity_rgb((unsigned)chosen):PAD_EMPTY;
     float brightness=present?PAD_BRIGHT_CONTENT:PAD_BRIGHT_EMPTY;
     if(sound/16==browse_bank&&(unsigned)(sound%16)==pad){
-        if(phase%640<240){rgb=PAD_SELECT;brightness=PAD_BRIGHT_SELECT;}
-        else if(chosen){rgb=music_sequence_colours[chosen];brightness=PAD_BRIGHT_CONTENT;}
+        if(phase%800<120){rgb=PAD_SELECT;brightness=PAD_BRIGHT_SELECT;}
+        else if(present){rgb=music_identity_rgb((unsigned)chosen);brightness=PAD_BRIGHT_CONTENT;}
     }
     return pad_light(rgb,brightness);
 }
@@ -1081,7 +1113,7 @@ static void palette_at(uint64_t phase)
                     int replace=0;uint64_t light=music_pitch_light(tune_lights,value,&replace);
                     if(replace){rgb=(uint32_t)light;uint32_t bits=(uint32_t)(light>>32);memcpy(&brightness,&bits,4);}
                 }
-                if(picker_mode==8){rgb=chop_colour?music_sequence_colours[chop_colour]:PAD_CONTENT;brightness=PAD_BRIGHT_CONTENT;}
+                if(picker_mode==8){rgb=chop_colour?music_identity_rgb(chop_colour):PAD_CONTENT;brightness=PAD_BRIGHT_CONTENT;}
                 int original=(int)i==original_pad,chosen=(int)i==selected_pad;
                 if(picker_mode==1&&picker_toggle_notes){struct step_event candidate;level_candidate(&detail_old,&candidate,1,(int)i,picker_base);chosen=picker_note_index(&candidate)>=0;}
                 if(original){rgb=PAD_ORIGINAL;brightness=PAD_BRIGHT_ORIGINAL;}
@@ -1112,12 +1144,15 @@ int step_native_light(unsigned pad,uint64_t *light)
 {
     uint64_t t=atomic_load(&ticket);
     if(pad>=16) return 0;
+    if(!(t&(T_STEPS|T_PICKER))&&atomic_load(&sample_palette_enabled)&&!atomic_load(&requested_shift)&&!atomic_load(&requested_erase)){
+        *light=atomic_load(&sample_palette[pad]);return 1;
+    }
     if (!(t&T_STEPS) && (!atomic_load(&requested_shift) || (t&T_PICKER)) && (atomic_load(&playback_mask)&(1u<<pad))) {
         int bank=atomic_load(&playback_colour_bank);
-        if(bank>=0&&(atomic_load(&native_mute)||atomic_load(&requested_erase)))return 0;
+        if(bank>=0&&atomic_load(&requested_erase))return 0;
         int chosen=bank>=0&&bank<8?music_pad_colour((unsigned)bank*16+pad):0;
-        uint32_t rgb=chosen?music_sequence_colours[chosen]:PAD_PLAYHEAD;
-        float brightness=.9f;uint32_t f;memcpy(&f,&brightness,4);*light=(uint64_t)rgb|((uint64_t)f<<32);return 1;
+        uint32_t rgb=(atomic_load(&playback_muted_mask)&(1u<<pad))?PAD_MUTED:bank>=0?music_identity_rgb((unsigned)chosen):PAD_PLAYHEAD;
+        float brightness=rgb==PAD_MUTED?.65f:.9f;uint32_t f;memcpy(&f,&brightness,4);*light=(uint64_t)rgb|((uint64_t)f<<32);return 1;
     }
     if (!(t&(T_STEPS|T_PICKER))) return 0;
     *light=atomic_load(&lights[pad]); return 1;
@@ -1578,7 +1613,7 @@ void step_native_paint(void *p,void *g)
         char s[64],name[8];pad_name(sound,name);
         /* Info: sound and sample, mode on the right; then step, positions. */
         int pad_colour=music_pad_colour((unsigned)sound);
-        colour(g,pad_colour?0xff000000u|music_sequence_colours[pad_colour]:AMBER);left_text(g,name,6,35,40,22,17);
+        colour(g,pad_colour?0xff000000u|music_identity_rgb(pad_colour):AMBER);left_text(g,name,6,35,40,22,17);
         ui_caption(s,sizeof(s),sample_name,18);colour(g,!strcmp(sample_name,"Empty") ? GREY : WHITE);left_text(g,s,46,35,170,22,15);
         colour(g,atomic_load(&requested_erase)?0xffff8000:atomic_load(&mute_active)?RED:atomic_load(&write_armed) ? RED : GREY);
         right_text(g,atomic_load(&requested_erase)?"ERASE":atomic_load(&mute_active)?"MUTE":atomic_load(&write_armed)?"WRITE ON":"WRITE OFF",216,35,98,22,13);
@@ -1703,7 +1738,7 @@ static void event_row_paint(void*model,int row,void*g,int width,int height,int s
             int pad=event_name_pad((const char*)(uintptr_t)label);
             int colour=pad>=0?music_pad_colour((unsigned)pad):0;
             FN(0xf0a290,void(*)(uint64_t*))(&label);
-            if(colour){inks=(uint32_t*)(first+16);normal=inks[0];chosen=inks[1];inks[0]=inks[1]=0xff000000u|music_sequence_colours[colour];}
+            if(colour){inks=(uint32_t*)(first+16);normal=inks[0];chosen=inks[1];inks[0]=inks[1]=0xff000000u|music_identity_rgb(colour);}
         }
     }
     FN(0x3b72210,void(*)(void*,int,void*,int,int,int))(model,row,g,width,height,selected);

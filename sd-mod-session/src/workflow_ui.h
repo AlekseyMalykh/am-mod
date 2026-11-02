@@ -28,6 +28,7 @@ int workflow_tick(void);
 int workflow_active(void);
 /* Atomic ownership:0 off,1 sample browser,2 native Copy Pad. RGB must not inspect Components. */
 int workflow_native_pad_colours(void);
+int workflow_native_occupied(void); /* atomic16-bit mask, -1 unavailable */
 /* UI thread: actual browser/Copy/Batch/Mono ownership, excluding the
  * ordinary Sample host observed for the optional Chop actions. */
 int workflow_blocks_sample_controls(void);

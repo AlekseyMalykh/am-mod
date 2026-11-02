@@ -292,15 +292,15 @@ int note_native_control(void *event)
         if (cc==0x64 && !atomic_load(&focused_trim)) return 0;
         unsigned pad;
         if (!note_native_pad_index(&pad)) return 1;
-        int current=music_pad_colour(pad),next;
-        if (cc==0x11) { if(!atomic_load(&focused_trim))take_knob_focus(); next=(int)((value&127)*MUSIC_SEQUENCE_COLOURS/128); }
+        int current=(int)music_colour_choice_index((unsigned)music_pad_colour(pad)),next;
+        if (cc==0x11) { if(!atomic_load(&focused_trim))take_knob_focus(); next=(int)((value&127)*MUSIC_IDENTITY_CHOICES/128); }
         else {
             int step=value>64 ? (int)value-128 : (int)value;
             next=current+step;
             if (next<0) next=0;
-            if (next>=MUSIC_SEQUENCE_COLOURS) next=MUSIC_SEQUENCE_COLOURS-1;
+            if (next>=MUSIC_IDENTITY_CHOICES) next=MUSIC_IDENTITY_CHOICES-1;
         }
-        if (next!=current && music_set_pad_colour(pad,(unsigned)next)) { trim_repaint(); log_note("PAD_COLOUR_CHANGED project_setting"); }
+        if (next!=current && music_set_pad_colour(pad,music_colour_choice((unsigned)next))) { trim_repaint(); log_note("PAD_COLOUR_CHANGED project_setting"); }
         return 1;
     }
     if (!showing() || !shifted()) return 0;
@@ -355,17 +355,18 @@ static void pad_colour_cell(void *g,int ox,int oy,int focused)
 {
     unsigned pad; int valid=note_native_pad_index(&pad);
     int value=valid ? music_pad_colour(pad) : 0;
+    unsigned choice=music_colour_choice_index((unsigned)value);
     uint32_t ink=!valid ? 0xff707070 : focused ? 0xffffc247 : 0xffffffff;
     colour(g,0xff000000); rect(g,ox,oy,106,38);
     colour(g,ink); text(g,"Pad Colour",ox+7,oy+2,82,12,12.0f);
     shift_badge(g,ox+94,oy+2,0);
-    uint32_t swatch=0xff000000|music_sequence_colours[value];
-    if (value==0) swatch=0xff9a9a9a;
+    uint32_t swatch=0xff000000|music_identity_rgb(value);
+
     colour(g,swatch); rect(g,ox+6,oy+18,10,10);
-    colour(g,ink); text(g,valid ? music_sequence_colour_names[value] : "--",ox+18,oy+14,84,18,16.0f);
-    for (int i=0;i<MUSIC_SEQUENCE_COLOURS;++i) {
-        int x=i*98/MUSIC_SEQUENCE_COLOURS, next=(i+1)*98/MUSIC_SEQUENCE_COLOURS;
-        colour(g,i==value ? ink : 0xff3b3b3b);
+    colour(g,ink); text(g,valid ? music_sequence_colour_names[value?(int)music_colour_effective((unsigned)value):0] : "--",ox+18,oy+14,84,18,16.0f);
+    for (int i=0;i<MUSIC_IDENTITY_CHOICES;++i) {
+        int x=i*98/MUSIC_IDENTITY_CHOICES, next=(i+1)*98/MUSIC_IDENTITY_CHOICES;
+        colour(g,(unsigned)i==choice ? ink : 0xff3b3b3b);
         rect(g,ox+4+x,oy+35,next-x-2,2);
     }
     if (focused && valid) { colour(g,ink); rect(g,ox,oy,106,2); rect(g,ox,oy,2,32); rect(g,ox+104,oy,2,32); }

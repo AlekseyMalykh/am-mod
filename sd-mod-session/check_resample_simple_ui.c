@@ -1,10 +1,11 @@
+#include "src/pad_palette.h"
 #define STOCK_BACKEND_MAIN backend_proof_main
 #include "check_resample_stock_backend.c"
 #include "src/resample_ui.h"
 #include "src/music_settings.h"
 static unsigned test_colours[128];
 int music_pad_colour(unsigned pad){assert(pad<128);return (int)test_colours[pad];}
-const uint32_t music_sequence_colours[MUSIC_SEQUENCE_COLOURS]={0x40ff40,0x32c780,0xffc247,0x8830ff,0xff20b0,0xff0000,0xff6000,0xffe000,0x2030ff,0x98ff00,0x00ffb0,0xffffff,0x00c8ff};
+const uint32_t music_sequence_colours[MUSIC_SEQUENCE_COLOURS]={0x40ff40,0x32c780,0xffc247,0x8830ff,0xff20b0,0xff0000,0xff6000,0xffe000,0x2030ff,0x98ff00,0x00ffb0,0xffffff,0x00c8ff,0xff70b8};
 static unsigned char screen[0x1600];
 static char drawn[2048];
 static int is_visible(void*p){assert(p==screen);return 1;}
@@ -24,11 +25,11 @@ int main(int argc,char**argv){
  open_ui();button(2);draw();assert(strstr(drawn,"Source")&&strstr(drawn,"Render")&&strstr(drawn,"Press a pad"));resample_ui_pad(3,1,resample_ui_ticket());resample_ui_pad(3,0,resample_ui_ticket());draw();assert(strstr(drawn,"B04"));
  for(unsigned hue=1;hue<MUSIC_SEQUENCE_COLOURS;++hue){
   test_colours[18]=hue;resample_ui_pad(3,1,resample_ui_ticket());
-  uint64_t source_colour;assert(resample_ui_light(2,&source_colour)&&((uint32_t)source_colour==music_sequence_colours[hue]||(uint32_t)source_colour==0xffffff));
+  uint64_t source_colour;assert(resample_ui_light(2,&source_colour)&&((uint32_t)source_colour==PAD_DANGER));
  }
  test_colours[18]=0;resample_ui_pad(3,1,resample_ui_ticket());
  puts("PASS actual resample UI palette retains all12 assigned source hues while choosing another pad; destination selection does not start audio");
- uint64_t selected,other;assert(resample_ui_light(3,&selected)&&resample_ui_light(2,&other)&&((uint32_t)selected==0xffffff||(uint32_t)selected==0xff2020||(uint32_t)selected==0x303030)&&((uint32_t)other==0x32c780||(uint32_t)other==0xffffff));uint64_t palette_before=resample_ui_palette_generation();
+ uint64_t selected,other;assert(resample_ui_light(3,&selected)&&resample_ui_light(2,&other)&&((uint32_t)selected==PAD_FREE)&&((uint32_t)other==PAD_DANGER));uint64_t palette_before=resample_ui_palette_generation();
  requested_target=19;button(2);assert(resample_ui_active());stock_queue_pump();resample_ui_tick(0);assert(!resample_ui_active());
  assert(!resample_ui_light(3,&selected)&&resample_ui_palette_generation()>palette_before);
  unsigned char e[16]={0};e[8]=0x13;assert(!resample_ui_control(e,resample_ui_ticket()));e[8]=0x52;e[9]=1;assert(!resample_ui_button(e,resample_ui_ticket()));

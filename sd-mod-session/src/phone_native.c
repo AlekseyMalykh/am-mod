@@ -10,6 +10,7 @@
 #endif
 #include "note_native.h"
 #include "music_settings.h"
+#include "pad_palette.h"
 #include "music_archive.h"
 #include "music_ui.h"
 #ifdef MPC_PAD_EQ
@@ -1327,20 +1328,11 @@ static void sequence_palette_tick(void){
     previous_bank=bank;previous_transport=transport;
     int playing=transport?selected:-1;
     for(unsigned i=0;i<16;++i){
-        unsigned old=(unsigned)atomic_load(&original_lights[i]);
         unsigned index=(unsigned)bank*16+i;
         int queued=transport&&pulsing[i]&&(int)index!=selected;
         unsigned brightness=sequence_brightness(!!(present&(1u<<i)),index,selected,playing,when,queued,&timing);
         int chosen=music_sequence_colour((unsigned)bank*16+i);
-        unsigned colour=music_sequence_colours[chosen];
-        if(chosen==0){ /* Stock: the hue the native app gave this pad when lit */
-            static unsigned stock_hue[16];
-            unsigned top=(old>>16)&255;if(((old>>8)&255)>top)top=(old>>8)&255;if((old&255)>top)top=old&255;
-            /* Follow the native hue as it is now (green selected/queued,
-             * yellow recorded): only a dark phase keeps the last one. */
-            if(top>=48)stock_hue[i]=((((old>>16)&255)*255/top)<<16)|((((old>>8)&255)*255/top)<<8)|((old&255)*255/top);
-            if(stock_hue[i])colour=stock_hue[i];
-        }
+        unsigned colour=music_identity_rgb(chosen);
         /* Assigned hue is retained in both pulse and background phases. */
         unsigned red=((colour>>16)&255)*brightness/255;
         unsigned green=((colour>>8)&255)*brightness/255;
@@ -1354,34 +1346,36 @@ static void sequence_palette_tick(void){
 /* UI Timer publishes screen ownership; RGB callbacks must not inspect native
  * Components, which may belong to another thread. */
 static _Atomic unsigned pad_colour_sample_layout,pad_colour_native_workflow,pad_colour_cursor_white,pad_colour_source_white;
+static _Atomic int pad_colour_native_occupied=-1;
 static _Atomic int pad_colour_bank;
 /* Sample pad layout: the user's Pad Colour (Mix, K2) keeps the
  * native brightness of each pad (dim loaded, bright playing) and replaces
  * only its hue. Stock (0) passes the native colour through. */
 static int pad_colour_light(unsigned pad,uint64_t *out){
-    if(pad>=16||!atomic_load(&pad_colour_sample_layout)||!music_pad_colours_used()||atomic_load(&led_enabled))return 0;
+    if(pad>=16||!atomic_load(&pad_colour_sample_layout)||atomic_load(&led_enabled))return 0;
     int bank=atomic_load(&pad_colour_bank);if(bank<0||bank>=8)return 0;
-    int chosen=music_pad_colour((unsigned)bank*16+pad);if(!chosen)return 0;
+    int chosen=music_pad_colour((unsigned)bank*16+pad);
     if(atomic_load(&pad_colour_native_workflow)){
-        unsigned raw=(unsigned)atomic_load(&original_lights[pad]);
-        unsigned r=(raw>>16)&255,g=(raw>>8)&255,b=raw&255,top=r>g?r:g;if(b>top)top=b;
-        /* Native CopyModePadsLighting152c6c0 emits full red for members
-         * of its selected-source bitset. Browser red remains a warning. */
-        if(atomic_load(&pad_colour_native_workflow)==2&&raw==0xff0000&&!atomic_load(&native_mute_mode)){
-            unsigned colour=atomic_load(&pad_colour_source_white)?0xffffff:music_sequence_colours[chosen];
-            float strength=atomic_load(&pad_colour_source_white)?.9f:.55f;uint32_t bits;memcpy(&bits,&strength,4);
-            *out=(uint64_t)colour|((uint64_t)bits<<32);return 1;
+        int occupied=atomic_load(&pad_colour_native_occupied);
+        if(occupied>=0){
+            unsigned raw=(unsigned)atomic_load(&original_lights[pad]);
+            int marked=raw==0xff0000||raw==0xffffff;
+            *out=pad_target_light(!!((unsigned)occupied&(1u<<pad)),marked,marked,atomic_load(&pad_colour_cursor_white)?0:400);return 1;
         }
-        if(r>80&&r>g*2&&r>b*2)return 0; /* Native overwrite warning. */
-        if(r==g&&g==b&&top>=192&&atomic_load(&pad_colour_cursor_white))return 0;
-        unsigned value=top?(top<160?160:top):0,colour=music_sequence_colours[chosen];
-        *out=((((colour>>16)&255)*value/255)<<16)|((((colour>>8)&255)*value/255)<<8)|((colour&255)*value/255);
-        *out|=UINT64_C(0x3f800000)<<32;return 1;
+        return 0;
     }
     /* Temporary native indications keep priority: Mute mode, held Mute
      * (0x23) and held Erase (0x09) show the native colours as they are. */
     if(atomic_load(&native_mute_mode)||atomic_load(&native_buttons_down[0x23])||atomic_load(&native_buttons_down[0x09]))return 0;
     unsigned enabled=0,mode=0,origin=0;music_lighting_levels_state(&enabled,&mode,&origin);
+    if(enabled&&mode==8){
+        unsigned raw=(unsigned)atomic_load(&original_lights[pad]);
+        unsigned top=(raw>>16)&255;if(((raw>>8)&255)>top)top=(raw>>8)&255;if((raw&255)>top)top=raw&255;
+        unsigned source=(unsigned)bank*16+origin;
+        uint32_t hue=music_identity_rgb((unsigned)music_pad_colour(source));
+        *out=raw==0xff7700?pad_selection_light(hue,PAD_BRIGHT_CONTENT,atomic_load(&pad_colour_cursor_white)?0:400):pad_light(top?hue:0,top?PAD_BRIGHT_CONTENT:0);
+        return 1;
+    }
     if(enabled||(step_native_active()&&!step_native_sound_layout())
 #ifdef MPC_CHORDS
        ||chords_active()
@@ -1390,7 +1384,7 @@ static int pad_colour_light(unsigned pad,uint64_t *out){
     unsigned old=(unsigned)atomic_load(&original_lights[pad]);
     unsigned level=(old>>16)&255;if(((old>>8)&255)>level)level=(old>>8)&255;if((old&255)>level)level=old&255;
     if(!level)return 0;
-    unsigned colour=music_sequence_colours[chosen];
+    unsigned colour=music_identity_rgb(chosen);
     unsigned red=((colour>>16)&255)*level/255,green=((colour>>8)&255)*level/255,blue=(colour&255)*level/255;
     float intensity=1;uint32_t bits;memcpy(&bits,&intensity,4);
     *out=(uint64_t)((red<<16)|(green<<8)|blue)|((uint64_t)bits<<32);return 1;
@@ -1400,6 +1394,7 @@ static void rgb(void *s,uint32_t colour,unsigned pad)
     if (pad < 16) {
         atomic_store(&sender,(uintptr_t)s);
         atomic_store(&original_lights[pad],colour);
+        step_native_observe_rgb(pad,colour);
         atomic_fetch_or(&light_mask,1u << pad);
         uint64_t workflow_colour;
 #ifdef MPC_STOCK_RESAMPLE
@@ -1424,6 +1419,7 @@ static void rgb(void *s,uint32_t colour,unsigned pad)
         }
         uint64_t replacement;
         if (workflow_light(pad,&replacement)
+            ||(atomic_load(&pad_colour_native_workflow)&&pad_colour_light(pad,&replacement))
 #ifdef MPC_CHORDS
             || chords_light(pad,&replacement)
 #endif
@@ -1445,10 +1441,11 @@ static void send_step_lights(void)
      * Bypass do not change pad ownership. Other FX keep native status colours. */
     unsigned native_workflow=workflow_native_pad_colours();
     atomic_store(&pad_colour_native_workflow,native_workflow);
+    atomic_store(&pad_colour_native_occupied,workflow_native_occupied());
     atomic_store(&pad_colour_bank,step_native_browser_bank(-1));
     uint64_t selection_phase=now_ms();
-    atomic_store(&pad_colour_cursor_white,selection_phase%640<240);
-    atomic_store(&pad_colour_source_white,(selection_phase+320)%640<240);
+    atomic_store(&pad_colour_cursor_white,selection_phase%800<200);
+    atomic_store(&pad_colour_source_white,selection_phase%1000<80||(selection_phase%1000>=180&&selection_phase%1000<260));
     atomic_store(&pad_colour_sample_layout,native_workflow||step_native_sound_layout()||
 #ifdef MPC_COMPRESSOR
         compressor_ui_active()||
@@ -1498,6 +1495,7 @@ static void send_step_lights(void)
             resample_ui_light(i,&light) ||
 #endif
             workflow_light(i,&light)
+            ||(atomic_load(&pad_colour_native_workflow)&&pad_colour_light(i,&light))
 #ifdef MPC_CHORDS
             || chords_light(i,&light)
 #endif

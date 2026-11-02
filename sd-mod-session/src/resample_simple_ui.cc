@@ -37,9 +37,8 @@ static void publish_palette(){
     if(palette_active.exchange(shown)!=shown)palette_epoch.fetch_add(1);
     if(!shown)return;
     for(unsigned i=0;i<16;++i){unsigned pad=dialog.bank*16+i;bool used=(dialog.occupied[pad/64]>>(pad%64))&1;
-        bool source=dialog.kind==RESAMPLE_SOUND&&pad==dialog.source_pad;
-        bool target=pad==dialog.target_pad,overwrite=target&&used&&!source;
-        uint64_t colour=pad_workflow_colour(pad,used,source,target,overwrite,now_ms());
+        bool target=pad==dialog.target_pad;
+        uint64_t colour=pad_target_light(used,target,target,now_ms());
         if(palette[i].exchange(colour)!=colour)palette_epoch.fetch_add(1);
     }
 }

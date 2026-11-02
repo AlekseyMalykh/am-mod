@@ -1,3 +1,10 @@
+## r26u — local candidate
+
+- Separate assignable identities from reserved service colours; add Pink without renumbering legacy IDs.
+- Show destination occupancy with red/green service colours and selected source double flashes.
+- Add Sample focus/Mute activity snapshots, Chop focus and Steps erase precedence; preserve Seq rhythm and OptoCat.
+- Scope, compatibility and pending hardware checks: docs/RELEASE_NOTES-r26u.md.
+
 # Changelog
 
 ## r26t candidate — visible pad selection across workflows

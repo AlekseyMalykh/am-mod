@@ -415,7 +415,7 @@ static void publish_palette(void){
  if(atomic_load(&dead_files))return;
  struct phone_input p=query;uint64_t now=now_ms();for(unsigned i=0;i<16;++i)if(feedback[i]>now)p.held|=1u<<i;
  for(unsigned i=0;i<16;++i){uint64_t light=search&&!results&&query.enabled?phone_light(&p,i+1):0;
-  if(search&&results&&sample_browser()){unsigned bank=(unsigned)step_native_browser_bank(-1);if(bank<8){void*t=note_native_context();void*program=t?FIELD(t,0xb8,void*):NULL;void*instrument=program?FN(0x286bbe0,void*(*)(void*,int))(program,(int)(bank*16+i)):NULL;int used=instrument&&FN(0x2804760,int(*)(void*))(instrument),target=result_pad_ready&&result_pad==bank*16+i;light=pad_workflow_colour(bank*16+i,used,0,target,target&&used,now);}}
+  if(search&&results&&sample_browser()){unsigned bank=(unsigned)step_native_browser_bank(-1);if(bank<8){void*t=note_native_context();void*program=t?FIELD(t,0xb8,void*):NULL;void*instrument=program?FN(0x286bbe0,void*(*)(void*,int))(program,(int)(bank*16+i)):NULL;int used=instrument&&FN(0x2804760,int(*)(void*))(instrument),target=result_pad_ready&&result_pad==bank*16+i;light=pad_target_light(used,target,target,now);}}
   if(atomic_exchange(&palette[i],light)!=light)atomic_fetch_add(&palette_generation,1);
  }
 }
@@ -503,6 +503,8 @@ int workflow_install(void(*fp)(void*,void*),void(*cp)(void*,void*)){
  for(unsigned i=0;i<2;++i){void*page=(void*)((uintptr_t)slots[i]&~(uintptr_t)4095);if(mprotect(page,4096,PROT_READ|PROT_WRITE))return 0;*slots[i]=(uintptr_t)callbacks[i];if(mprotect(page,4096,PROT_READ))_exit(121);}return 1;
 }
 void workflow_destroyed(void*p){if(p==constructed_files)constructed_files=NULL;if((uintptr_t)p==atomic_load(&chop_id)){atomic_store(&dead_chop,1);atomic_store(&chop_available,0);}if((uintptr_t)p==atomic_load(&files_id)){atomic_store(&dead_files,1);atomic_store(&active,0);atomic_store(&custom,0);atomic_fetch_add(&epoch,1);}if((uintptr_t)p==atomic_load(&copy_id)){atomic_store(&dead_copy,1);atomic_store(&active,0);atomic_store(&custom,0);atomic_fetch_add(&epoch,1);}}
+static _Atomic int native_occupied=-1;
+int workflow_native_occupied(void){return atomic_load(&native_occupied);}
 int workflow_native_pad_colours(void){return (int)atomic_load(&native_colours);}
 int workflow_active(void){return atomic_load(&active);}
 int workflow_blocks_sample_controls(void){return atomic_load(&custom)||atomic_load(&button_routes)||atomic_load(&split_forwarded)||batch_job||batch_leaving;}
@@ -584,9 +586,14 @@ int workflow_tick(void){
  int copy_visible=visible(copy_root);
  unsigned native_kind=v&&sample_browser()?1u:0u;
  if(copy_visible&&current_program()){
-  void*c=(void*)atomic_load(&copy_context),*mode=FIELD(c,0x98,void*);
+  void*c=(void*)atomic_load(&copy_context),*mode=c?FIELD(c,0x98,void*):NULL;
   native_kind=mode&&FIELD(mode,0x80,int)==0x20a7?2u:0u;
  }
+ int occupied_mask=-1;void *identity_program=current_program();
+ if(native_kind&&identity_program){int bank=step_native_browser_bank(-1);if(bank>=0&&bank<8){occupied_mask=0;
+  for(unsigned i=0;i<16;++i){void*p=FN(0x286bbe0,void*(*)(void*,int))(identity_program,bank*16+(int)i);if(p&&FN(0x2804760,int(*)(void*))(p))occupied_mask|=1<<i;}
+ }}
+ atomic_store(&native_occupied,occupied_mask);
  atomic_store(&native_colours,atomic_load(&custom)?0u:native_kind);
  atomic_store(&button_routes,(copy_visible?1u:0u)|(v?2u:0u));
  atomic_store(&active,v||copy_visible||(MPC_EXPERIMENTAL_CHOP_EXPORT&&visible(chop_root))||atomic_load(&split_forwarded)||batch_job||batch_leaving);
@@ -857,8 +864,8 @@ static void mono_palette(void){
  if(current_program()!=mono_program)return;
  for(unsigned i=0;i<16;++i){unsigned n=mono_bank*16+i;void*p=FN(0x286bbe0,void*(*)(void*,int))(mono_program,(int)n);
   int used=p&&FN(0x2804760,int(*)(void*))(p);
-  int source=n==mono_source,target=n==mono_target;
-  atomic_store(&palette[i],pad_workflow_colour(n,used,source,target,target&&used&&!source,now_ms()));}
+  int target=n==mono_target;
+  atomic_store(&palette[i],pad_target_light(used,target,target,now_ms()));}
  atomic_fetch_add(&palette_generation,1);
 }
 static void mono_paint(void*g){
@@ -867,12 +874,12 @@ static void mono_paint(void*g){
  const char*heads[3]={mono_job?(mono_progress.phase>=BATCH_JOB_DONE?"Close":"Working..."):"Cancel",mono_job?"":"Left",mono_job?"":"Right"};
  for(int i=0;i<3;++i){int x=i*107;colour(g,0xff202020);rect(g,x+1,6,105,26);colour(g,WHITE);text(g,heads[i],x+1,7,105,24,15);}
  colour(g,WHITE);text(g,"Stereo > Mono",8,38,304,26,20);
- /* Source and target blocks; the target turns red when it will replace a sound. */
+ /* Source and target blocks; all occupied targets remain red, including source. */
  void*tp=current_program()==mono_program?FN(0x286bbe0,void*(*)(void*,int))(mono_program,(int)mono_target):NULL;
  int overwrite=mono_target!=mono_source&&tp&&FN(0x2804760,int(*)(void*))(tp);
  const int bx[2]={8,166};const char*titles[2]={"Source","Target"};unsigned pads[2]={mono_source,mono_target};
  for(int i=0;i<2;++i){
-  uint32_t edge=i==0?(PAD_CONTENT|0xff000000u):overwrite?RED:WHITE;
+  uint32_t edge=i==0?(PAD_ORIGINAL|0xff000000u):tp&&FN(0x2804760,int(*)(void*))(tp)?RED:(PAD_FREE|0xff000000u);
   colour(g,0xff1c1c1c);rect(g,bx[i],72,146,84);colour(g,edge);
   rect(g,bx[i],72,146,2);rect(g,bx[i],154,146,2);rect(g,bx[i],72,2,84);rect(g,bx[i]+144,72,2,84);
   colour(g,GREY);text(g,titles[i],bx[i],78,146,18,13);
@@ -909,7 +916,7 @@ static void batch_start(int slices){
  batch_program=current_program();if(!batch_program){snprintf(batch_message,sizeof(batch_message),"Batch context unavailable");fprintf(stderr,"BATCH REJECT no_copy_program\n");repaint(batch_surface());return;}
  void*t=slices&&chop_host?FIELD(chop_root,0x148,void*):NULL;
  if(slices&&chop_host&&(!t||FIELD(t,0xb8,void*)!=batch_program)){snprintf(batch_message,sizeof(batch_message),"Project changed; reopen Chop");fprintf(stderr,"BATCH REJECT different_program\n");repaint(chop_root);return;}
- void*c=(void*)atomic_load(&copy_context),*mode=FIELD(c,0x98,void*);int mode_id=mode?FIELD(mode,0x80,int):-1;
+ void*c=(void*)atomic_load(&copy_context),*mode=c?FIELD(c,0x98,void*):NULL;int mode_id=mode?FIELD(mode,0x80,int):-1;
  if(!(slices&&chop_host&&chop_actions_visible())&&mode_id!=0x20a7){snprintf(batch_message,sizeof(batch_message),"Batch is available for Sample pads");fprintf(stderr,"BATCH REJECT mode=%x chop=%d\n",mode_id,chop_host);repaint(batch_surface());return;}
  fault=0;batch=1;batch_page=batch_bank=batch_row=batch_layout=batch_confirm=batch_events=0;batch_count=0;chop_export=slices;slice_page=slice_focus=0;slice_count=slices?source_slices():0;
  if(slices&&slice_count<1){batch=chop_export=0;snprintf(batch_message,sizeof(batch_message),"Selected sound has no slices");fprintf(stderr,"BATCH REJECT no_slices mode=%x\n",mode_id);return;}
@@ -1086,9 +1093,9 @@ static void batch_palette_at(uint64_t phase){
   unsigned colour_pad=chop_export&&!batch_page?slice_sound:n;
   int target=0,current=0;
   if(batch_page)for(unsigned j=0;j<batch_count;++j)if(destination[j]==n){target=1;current=(int)j==batch_row;break;}
-  uint64_t value=pad_workflow_colour(colour_pad,present,is_source,target,batch_page&&present&&!is_source&&target,phase);
+  uint64_t value=batch_page?pad_target_light(present,target,current,phase):pad_workflow_colour(colour_pad,present,is_source,0,0,phase);
   uint32_t c=(uint32_t)value,bits=(uint32_t)(value>>32);float strength;memcpy(&strength,&bits,4);
-  if(target&&!current)strength=.45f;
+
   uint64_t light=pad_light(c,strength);if(atomic_exchange(&palette[i],light)!=light)atomic_fetch_add(&palette_generation,1);}
 }
 static void batch_palette(void){batch_palette_at(now_ms());}
@@ -1103,7 +1110,7 @@ static void batch_paint(void*g){
   snprintf(line,sizeof(line),"%u / 16 selected",selected_count);colour(g,AMBER);left_text(g,line,8,70,304,33,25);
   colour(g,WHITE);if(chop_export)snprintf(line,sizeof(line),"%c%02u  |  Chop %d",'A'+slice_sound/16,slice_sound%16+1,slice_focus+1);else snprintf(line,sizeof(line),"Bank %c",'A'+batch_bank);left_text(g,line,8,112,304,24,18);
   colour(g,0xff373737);rect(g,8,143,304,1);colour(g,GREY);
-  left_text(g,"White blink: selected",8,151,304,18,13);
+  left_text(g,"White double blink: selected",8,151,304,18,13);
   ui_caption(line,sizeof(line),batch_message[0]?batch_message:chop_export?"Click: play/stop   Enc: choose":"Unlit: free   Pads: select",38);colour(g,batch_message[0]?RED:GREY);left_text(g,line,8,177,304,18,13);
  }else{
   colour(g,GREY);left_text(g,chop_export?"CHOP":"SOURCE",8,63,80,15,12);left_text(g,"TARGET",119,63,84,15,12);left_text(g,"ASSIGN",230,63,82,15,12);

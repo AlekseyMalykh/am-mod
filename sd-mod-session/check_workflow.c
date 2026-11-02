@@ -424,24 +424,30 @@ char path[1024];snprintf(path,sizeof(path),"%s.batch",argv[2]);draw=fopen(path,"
  * current row's destination brighter (red if it would overwrite).
  * Source pads select their mapping row and never become self targets. */
 batch_bank=0;batch_row=1;batch_palette();uint64_t light;
-assert(workflow_light(0,&light)&&((uint32_t)light==0x32c780||(uint32_t)light==PAD_SELECT));
-assert(workflow_light(15,&light)&&(uint32_t)light==0);
+#ifndef PROJECT_RESTORE_BASELINE
+batch_palette_at(0);
+assert(workflow_light(0,&light)&&(uint32_t)light==PAD_DANGER);
+assert(workflow_light(15,&light)&&(uint32_t)light==PAD_FREE);
 {uint64_t other,current;float a,b;uint32_t x,y;
- assert(workflow_light(destination[0]%16,&other)&&(uint32_t)other==0xffffff);
- assert(workflow_light(destination[1]%16,&current)&&(uint32_t)current==0xffffff);
+ assert(workflow_light(destination[0]%16,&other)&&(uint32_t)other==PAD_FREE);
+ assert(workflow_light(destination[1]%16,&current)&&(uint32_t)current==PAD_FREE);
  x=(uint32_t)(other>>32);y=(uint32_t)(current>>32);memcpy(&a,&x,4);memcpy(&b,&y,4);assert(b>a);}
-batch_row=0;batch_palette();assert(workflow_light(destination[1]%16,&light)&&(uint32_t)light==0xffffff);
+batch_row=0;batch_palette_at(0);assert(workflow_light(destination[1]%16,&light)&&(uint32_t)light==PAD_FREE);
+#endif
 /* Assignment survives browsing banks; destination service colours win. */
 #ifndef PROJECT_RESTORE_BASELINE
-assert(music_set_pad_colour(0,5));batch_palette();assert(workflow_light(0,&light)&&((uint32_t)light==0xff0000||(uint32_t)light==PAD_SELECT));
-unsigned old_occupied16=occupied[16];batch_bank=1;assert(music_set_pad_colour(16,8));occupied[16]=1;batch_palette();assert(workflow_light(0,&light)&&(uint32_t)light==0x2030ff);occupied[16]=old_occupied16;
-batch_bank=0;batch_palette();assert(workflow_light(0,&light)&&((uint32_t)light==0xff0000||(uint32_t)light==PAD_SELECT));
-assert(workflow_light(destination[1]%16,&light)&&(uint32_t)light==0xffffff);
+assert(music_set_pad_colour(0,5));batch_palette();assert(workflow_light(0,&light)&&((uint32_t)light==PAD_DANGER));
+unsigned old_occupied16=occupied[16];batch_bank=1;assert(music_set_pad_colour(16,8));occupied[16]=1;batch_palette();assert(workflow_light(0,&light)&&(uint32_t)light==PAD_DANGER);occupied[16]=old_occupied16;
+batch_bank=0;batch_palette();assert(workflow_light(0,&light)&&((uint32_t)light==PAD_DANGER));
+assert(workflow_light(destination[1]%16,&light)&&(uint32_t)light==PAD_FREE);
 music_reset();batch_palette();
 #endif
 workflow_pad(0,1,0,workflow_ticket());assert(batch_row==0);
 unsigned previous=destination[0];target_pad(source[0]);assert(destination[0]==previous&&strstr(batch_message,"itself"));
-batch_bank=2;batch_palette();assert(workflow_light(0,&light)&&(uint32_t)light==0xffffff);
+batch_bank=2;batch_palette();
+#ifndef PROJECT_RESTORE_BASELINE
+assert(workflow_light(0,&light)&&(uint32_t)light==PAD_DANGER);
+#endif
 workflow_pad(0,1,0,workflow_ticket());assert(destination[0]==32&&pinned[0]);
 batch_palette();assert(workflow_light(0,&light)&&(uint32_t)light==0xff2020);
 batch_row=1;target_pad(32);assert(destination[1]!=32&&strstr(batch_message,"already assigned"));
@@ -565,7 +571,7 @@ assert(workflow_mono_open(sample_screen));assert(mono&&workflow_owns(3,0)&&!work
 FIELD(sample_screen,0x100,void*)=volume_registry;mono_labels=0;
 workflow_sample_paint(sample_screen,(void*)1);
 assert(mono_labels==63); /* Real Sample paint route must expose all choices. */
-assert(workflow_light(mono_target%16,&light)&&((uint32_t)light==0xffffff||(uint32_t)light==0xff2020||(uint32_t)light==PAD_CONTENT||(uint32_t)light==PAD_EMPTY));
+assert(workflow_light(mono_target%16,&light)&&((uint32_t)light==0xffffff||(uint32_t)light==0xff2020||(uint32_t)light==PAD_FREE||(uint32_t)light==PAD_CONTENT||(uint32_t)light==PAD_EMPTY));
 button_event(0x0c,1);assert(!mono&&!mono_calls);
 assert(workflow_mono_open(sample_screen));mono_bank=1;workflow_pad(4,1,0,workflow_ticket());assert(mono_target==20);
 button_event(0x0e,1);if(!mono_job){assert(mono_confirm==1&&!mono_calls);button_event(0x0e,1);}
@@ -593,7 +599,7 @@ for(unsigned page=0;page<2;++page){slice_page=(int)page;
  for(unsigned ms=0;ms<1280;ms+=80){batch_palette_at(ms);
   for(unsigned pad=0;pad<16;++pad){uint64_t got;assert(workflow_light(pad,&got));
    int picked=selected_sources[page*16+pad]!=0;
-   uint64_t expected=picked?pad_selection_light(0x8830ff,PAD_BRIGHT_CONTENT,ms+320):pad_light(0x8830ff,PAD_BRIGHT_CONTENT);
+   uint64_t expected=picked?pad_source_light(0x8830ff,ms):pad_light(0x8830ff,PAD_BRIGHT_CONTENT);
    assert(got==expected);
   }
  }
@@ -603,7 +609,7 @@ for(unsigned pad=0;pad<128;++pad){occupied[pad]=1;assert(music_set_pad_colour(pa
 for(unsigned bank=0;bank<8;++bank){batch_bank=(int)bank;selected_sources[bank*16+2]=1;
  for(unsigned ms=0;ms<1280;ms+=80){batch_palette_at(ms);
   for(unsigned pad=0;pad<16;++pad){uint64_t got;assert(workflow_light(pad,&got));
-   uint64_t expected=selected_sources[bank*16+pad]?pad_selection_light(0x8830ff,PAD_BRIGHT_CONTENT,ms+320):pad_light(0x8830ff,PAD_BRIGHT_CONTENT);
+   uint64_t expected=selected_sources[bank*16+pad]?pad_source_light(0x8830ff,ms):pad_light(0x8830ff,PAD_BRIGHT_CONTENT);
    assert(got==expected);
   }
  }

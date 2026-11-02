@@ -34,8 +34,8 @@ int main(void){
  FIELD(sample,0x190+0x21c,int)=2;FIELD(sample,0x190+0x218,int)=1;
  uintptr_t*focus=(uintptr_t*)(base+0x723cde0);uintptr_t volume=(uintptr_t)sample+MIX_VOLUME_OFFSET+0x1d8,pan=volume+0x350;
  music_reset();note_native_observe_root(sample);note_native_tick();
- assert(note_native_owns(0x11)&&!note_native_owns(0x10));assert(cc(0x11,60)&&music_pad_colour(0)==6&&focused_trim&&!*focus);
- assert(cc(0x64,1)&&music_pad_colour(0)==7);assert(!cc(0x10,100)&&!focused_trim&&music_pad_colour(0)==7);
+ assert(note_native_owns(0x11)&&!note_native_owns(0x10));assert(cc(0x11,60)&&music_pad_colour(0)==3&&focused_trim&&!*focus);
+ assert(cc(0x64,1)&&music_pad_colour(0)==4);assert(!cc(0x10,100)&&!focused_trim&&music_pad_colour(0)==4);
  assert(cc(0x11,20));shift(1);int before=music_pad_colour(0);
  assert(!focused_trim&&!note_native_owns(0x11));assert(!cc(0x11,100)&&!cc(0x10,100)&&music_pad_colour(0)==before);
  texts=0;note_native_sample_overlay(sample,(void*)1);assert(!texts); /* native Kit Volume draws itself */
@@ -47,7 +47,11 @@ int main(void){
  *focus=volume;assert(button(0x6f,1));hidden=1;note_native_tick();assert(!focused_trim&&*focus==volume);assert(button(0x6f,0));hidden=0;
  note_native_tick();assert(cc(0x11,60));*focus=pan;note_native_tick();assert(!focused_trim&&*focus==pan);
  assert((music_sequence_colours[1]&255)==0&&((music_sequence_colours[1]>>8)&255)>128);assert(music_sequence_colours[1]!=music_sequence_colours[12]);
- struct music_project saved;music_snapshot(&saved);music_reset();music_replace(&saved);assert(music_pad_colour(0)==6);
+ struct music_project saved;music_snapshot(&saved);music_reset();music_replace(&saved);assert(music_pad_colour(0)==3);
+ for(unsigned value=0;value<128;++value){assert(cc(0x11,value));assert((unsigned)music_pad_colour(0)==music_colour_choice(value*MUSIC_IDENTITY_CHOICES/128));}
+ struct music_project pink,decoded;char *payload=malloc(MUSIC_PAYLOAD_BYTES);assert(payload);
+ music_snapshot(&pink);assert(pink.pad_colours[0]==13);int encoded=music_encode(&pink,payload,MUSIC_PAYLOAD_BYTES);assert(encoded>0&&music_decode(payload,(size_t)encoded,&decoded)&&decoded.pad_colours[0]==13);
+ assert(music_set_pad_colour(0,5));music_snapshot(&pink);assert(pink.pad_colours[0]==5&&music_identity_rgb(5)==music_sequence_colours[4]);free(payload);
  assert(paints);puts("PASS production Mix K2 Pad Colour, Shift K2 native Kit Volume, K1 Volume, encoder insertion/release across Shift/page changes, focus handoff, K2-only overlay, green and project persistence");
  munmap(image,0x7500000);return 0;
 }

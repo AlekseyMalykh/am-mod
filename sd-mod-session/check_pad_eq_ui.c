@@ -121,9 +121,9 @@ int main(int argc,char**argv){
  F(empty_clip,0x710,uint64_t)=1;assert(music_ui_sequence_presence(0)==((1u<<11)|(1u<<12)));
  F(empty_clip,0x710,uint64_t)=0;assert(music_ui_sequence_presence(0)==(1u<<11));
  F(sequence_model,0x6f8,uint64_t)=0;assert(!music_ui_sequence_presence(0));F(sequence_model,0x6f8,uint64_t)=1;
- sequence_only=1;paint_sequence(sequence_screen,screen);assert(music_ui_sequence_visible()&&music_ui_active());music_ui_requested(0x31,1);knob(0x10,127);assert(music_sequence_colour(11)==12&&music_sequence_colour(12)==0);
- F(sequence_model,0x480,int)=12;knob(0x10,11);assert(music_sequence_colour(12)==1&&music_sequence_colour(11)==12);
- captions[0]=0;paint_sequence(sequence_screen,screen);assert(strstr(captions,"Seq Colour")&&strstr(captions,"Green"));
+ sequence_only=1;paint_sequence(sequence_screen,screen);assert(music_ui_sequence_visible()&&music_ui_active());music_ui_requested(0x31,1);knob(0x10,127);assert(music_sequence_colour(11)==13&&music_sequence_colour(12)==0);
+ F(sequence_model,0x480,int)=12;knob(0x10,11);assert(music_sequence_colour(12)==0&&music_sequence_colour(11)==13);
+ captions[0]=0;paint_sequence(sequence_screen,screen);assert(strstr(captions,"Seq Colour")&&strstr(captions,"Default"));
  music_ui_requested(0x31,0);assert(!music_ui_owns(0x10));current_context=NULL;
  sequence_only=0;F(screen,0x7f0+0x218,int)=1;paint_ui();assert(key(0x0d,1)&&key(0x0d,0)&&music_ui_owns(0x10));
  F(project_screen,0,uintptr_t)=base+0x6e1f788;F(project_screen,0x100,void*)=controller;project_open=1;music_ui_project(project_screen,screen);

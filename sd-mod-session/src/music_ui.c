@@ -371,13 +371,13 @@ static void sequence_paint(void*p,void*g){
     if(!atomic_load(&seq_active))return;
     int index=sequence_index();if(index<0)return;
     int c=music_sequence_colour((unsigned)index);
-    colour(g,0xff000000|music_sequence_colours[c]);rect(g,304,43,7,24);
+    colour(g,0xff000000|music_identity_rgb(c));rect(g,304,43,7,24);
     if(atomic_load(&global_shift)){
         int saved=focus;focus=0;
-        cell(g,0,"Seq Colour","",1,1,1,c,MUSIC_SEQUENCE_COLOURS);
+        cell(g,0,"Seq Colour","",1,1,1,(int)music_colour_choice_index((unsigned)c),MUSIC_IDENTITY_CHOICES);
         /* Swatch beside the name, as in Pad Colour. */
-        colour(g,0xff000000|music_sequence_colours[c]);rect(g,6,218,11,11);
-        colour(g,0xffffc247);text(g,music_sequence_colour_names[c],18,214,84,19,16);
+        colour(g,0xff000000|music_identity_rgb(c));rect(g,6,218,11,11);
+        colour(g,0xffffc247);text(g,music_sequence_colour_names[c?(int)music_colour_effective((unsigned)c):0],18,214,84,19,16);
         focus=saved;
     }
 }
@@ -586,7 +586,7 @@ int music_ui_control(void *event)
 {
     music_ui_tick();
     if(atomic_load(&seq_active)&&atomic_load(&global_shift)&&FIELD(event,8,unsigned char)==0x10){
-        int index=sequence_index();if(index>=0)music_set_sequence_colour((unsigned)index,FIELD(event,9,unsigned char)*MUSIC_SEQUENCE_COLOURS/128u);
+        int index=sequence_index();if(index>=0)music_set_sequence_colour((unsigned)index,music_colour_choice(FIELD(event,9,unsigned char)*MUSIC_IDENTITY_CHOICES/128u));
         repaint(seq_screen);return 1;
     }
     if (!atomic_load(&custom)) return 0;

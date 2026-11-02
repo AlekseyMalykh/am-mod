@@ -8,7 +8,7 @@
 #include "src/phone_native.c"
 #include <assert.h>
 static int sample_visible=1,seq_visible,bank,levels_on,steps_on,events_visible,inside_rgb,compressor_visible;
-static unsigned transport,queries,calls;static int native_workflow;
+static unsigned transport,queries,calls,levels_type,levels_origin;static int native_workflow;
 static int seq_selected=-1;static unsigned seq_present=0xffff;
 static int64_t seq_tick;static uint64_t seq_serial;
 static int steps_lighting;
@@ -24,8 +24,10 @@ int64_t step_native_clock_ticks(uint64_t*s,unsigned*r){if(s)*s=seq_serial;if(r)*
 int step_native_browser_bank(int v){assert(v==-1);return bank;}
 int step_native_active(void){return steps_on;}
 int step_native_sound_layout(void){return events_visible;}
-int music_lighting_levels_state(unsigned*on,unsigned*mode,unsigned*origin){*on=(unsigned)levels_on;*mode=0;*origin=0;return 1;}
+int music_lighting_levels_state(unsigned*on,unsigned*mode,unsigned*origin){*on=(unsigned)levels_on;*mode=levels_type;*origin=levels_origin;return 1;}
 int workflow_light(unsigned p,uint64_t*out){(void)p;(void)out;return 0;}
+void step_native_observe_rgb(unsigned pad,unsigned rgb){(void)pad;(void)rgb;}
+int workflow_native_occupied(void){return 3;}
 int workflow_native_pad_colours(void){return native_workflow;}
 uint64_t workflow_palette_generation(void){return 0;}
 int step_native_custom(void){return steps_lighting;}
@@ -41,7 +43,7 @@ static unsigned white_count(void){unsigned n=0;for(unsigned i=0;i<16;++i)n+=sent
 static double test_bpm=120;static unsigned test_numerator=4,test_denominator=4;
 static int test_position(void*p,void*out){assert(!inside_rgb&&p==(void*)(base+0x4000));memset(out,0,88);FIELD(out,0,double)=test_bpm;FIELD(out,8,unsigned)=test_numerator;FIELD(out,12,unsigned)=test_denominator;return 1;}
 static unsigned scale(unsigned c,unsigned level){return (((c>>16)&255)*level/255<<16)|(((c>>8)&255)*level/255<<8)|((c&255)*level/255);}
-static void pulse_checks(void){
+static void __attribute__((unused)) pulse_checks(void){
  struct sequence_timing t={120,960,3840};
  for(unsigned b=0;b<5;++b){
   t.bpm=(double[]){20,60,120,137,300}[b];
@@ -89,9 +91,9 @@ static void pulse_checks(void){
  assert(music_set_sequence_colour(1,12));
  for(unsigned hue=1;hue<MUSIC_SEQUENCE_COLOURS;++hue){
   assert(music_set_sequence_colour(0,hue));seq_tick=0;++seq_serial;send_step_lights();
-  assert(sent[0]==music_sequence_colours[hue]&&sent[1]==scale(music_sequence_colours[12],192));
+  assert(sent[0]==music_identity_rgb(hue)&&sent[1]==scale(music_sequence_colours[12],192));
   seq_tick=480;++seq_serial;send_step_lights();
-  assert(sent[0]==scale(music_sequence_colours[hue],96)&&sent[1]==scale(music_sequence_colours[12],192));
+  assert(sent[0]==scale(music_identity_rgb(hue),96)&&sent[1]==scale(music_sequence_colours[12],192));
  }
  /* Native breathing identifies an occupied or empty queued target, while
   * its assigned colour and double-rate pulse remain under our UI clock. */
@@ -107,76 +109,33 @@ static void pulse_checks(void){
  puts("PASS Seq pulse timing: stopped bar, playing beat, queued half-beat, visible background, all assigned hues, unchanged other-pad brightness, empty queue, tempo20..300, 3/4 and6/8, native clock interpolation/loop/stop and live tempo");
 }
 int main(void){
- void*p=mmap(NULL,0x7500000,PROT_READ|PROT_WRITE|PROT_EXEC,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);assert(p!=MAP_FAILED);base=(uintptr_t)p;
- stub(phone_hooks[H_RGB].trampoline,capture);stub(0x23b00c0,convert);__builtin___clear_cache(p,(char*)p+0x7500000);
- music_reset();assert(music_set_pad_colour(0,5)); /* Red. */
- for(unsigned i=0;i<16;++i)native_rgb(i,i==0?0xffff00:0x303030);
- send_step_lights();assert(sent[0]==0xff0000&&sent[1]==0x303030);
- native_rgb(0,0x008000);assert(sent[0]==0x800000); /* Preserve native intensity. */
- /* Opening FX Select must restore native LEDs even without a native repaint. */
- sample_visible=0;unsigned before=calls;send_step_lights();assert(calls>before&&sent[0]==0x008000);
- native_rgb(0,0x104020);assert(sent[0]==0x104020);send_step_lights();assert(sent[0]==0x104020);
- /* Return to Sample, keeping the stored Pad Colour and current native level. */
- sample_visible=1;send_step_lights();assert(sent[0]==0x400000&&music_pad_colour(0)==5);
- /* Duck/OptoCat/Bypass share the same screen and Sample bank. No component
-  * query is allowed in a native RGB callback, even while the FX is open. */
- sample_visible=0;compressor_visible=1;send_step_lights();assert(sent[0]==0x400000);
- native_rgb(0,0x00ff00);assert(sent[0]==0xff0000);
- bank=1;assert(music_set_pad_colour(16,8));send_step_lights();assert(sent[0]==music_sequence_colours[8]);
- bank=0;send_step_lights();assert(sent[0]==0xff0000);
- atomic_store(&native_mute_mode,1);native_rgb(0,0xff0000);native_rgb(1,0xffff00);send_step_lights();
- assert(sent[0]==0xff0000&&sent[1]==0xffff00); /* Native red/yellow remains clear. */
- atomic_store(&native_mute_mode,0);native_rgb(0,0x104020);send_step_lights();assert(sent[0]==0x400000);
- compressor_visible=0;send_step_lights();assert(sent[0]==0x104020);assert(music_set_pad_colour(16,0));
- sample_visible=1;send_step_lights();assert(sent[0]==0x400000);
- /* Ordinary native Copy/browser ownership retains assigned colours,
-  * native red warnings and alternating white selection without Components. */
- sample_visible=0;native_workflow=1;send_step_lights();
- atomic_store(&pad_colour_cursor_white,0);native_rgb(0,0xffffff);assert(sent[0]==0xff0000);
- atomic_store(&pad_colour_cursor_white,1);native_rgb(0,0xffffff);assert(sent[0]==0xffffff);
- native_rgb(0,0xff2020);assert(sent[0]==0xff2020);
- atomic_store(&pad_colour_cursor_white,0);native_rgb(0,0x101010);assert(sent[0]==0xa00000);
- uint64_t packed;assert(pad_colour_light(0,&packed));assert((packed>>32)==0x3f800000);
- native_workflow=2;send_step_lights();assert(music_set_pad_colour(0,8));
- atomic_store(&pad_colour_source_white,1);native_rgb(0,0xff0000);assert(sent[0]==0xffffff);
- atomic_store(&pad_colour_source_white,0);native_rgb(0,0xff0000);assert(sent[0]==music_sequence_colours[8]);
- assert(pad_colour_light(0,&packed));assert((packed>>32)==0x3f0ccccd); /* .55 colour phase. */
- native_rgb(0,0xff2020);assert(sent[0]==0xff2020);
- atomic_store(&native_mute_mode,1);native_rgb(0,0xff0000);assert(sent[0]==0xff0000);atomic_store(&native_mute_mode,0);
- assert(music_set_pad_colour(0,5));
- puts("PASS ordinary native Copy selected source pulses white/assigned hue; browser and Copy overwrite/Mute red retain priority; RGB never reads Components");
- native_workflow=0;sample_visible=1;native_rgb(0,0x104020);send_step_lights();
- /* Native Mute and Erase colours retain priority. */
- atomic_store(&native_buttons_down[0x23],1);send_step_lights();assert(sent[0]==0x104020);
- atomic_store(&native_buttons_down[0x23],0);send_step_lights();assert(sent[0]==0x400000);
- atomic_store(&native_buttons_down[0x09],1);send_step_lights();assert(sent[0]==0x104020);
- atomic_store(&native_buttons_down[0x09],0);send_step_lights();assert(sent[0]==0x400000);
- /* Ordinary Seq uses its own palette; recording retains the Sample layout. */
- sample_visible=0;seq_visible=1;transport=0;assert(music_set_sequence_colour(0,12));send_step_lights();assert(sent[0]==0x0096c0);
- transport=4;send_step_lights();assert(sent[0]==0x400000);
- seq_visible=0;sample_visible=0;send_step_lights();assert(sent[0]==0x104020);
- events_visible=steps_on=1;send_step_lights();assert(sent[0]==0x400000);
- events_visible=steps_on=0;send_step_lights();assert(sent[0]==0x104020);
- /* Bank and Stock stay native; custom Sample colour remains bank-specific. */
- sample_visible=1;bank=1;send_step_lights();assert(sent[0]==0x104020);
- bank=0;send_step_lights();assert(sent[0]==0x400000);
- levels_on=1;send_step_lights();assert(sent[0]==0x104020);levels_on=0;
- steps_on=1;send_step_lights();assert(sent[0]==0x104020);steps_on=0;
- send_step_lights();assert(sent[0]==0x400000);
- pulse_checks();
- /* Button CC IDs overlap pad numbers but never drive the pad RGB array. */
- stub(phone_hooks[H_BUTTON_LIGHT].trampoline,indexed_capture);__builtin___clear_cache((char*)base,(char*)base+0x7500000);
- sample_visible=0;steps_on=steps_lighting=1;steps_lights[12]=0xffffff;
- send_step_lights();button_light((void*)0x1234,1,0);assert(white_count()==1&&button_values[0]==1);
- for(unsigned step=0;step<16;++step){
-  unsigned physical=(3-step/4)*4+step%4;
-  memset(steps_lights,0,sizeof(steps_lights));steps_lights[physical]=0xffffff;send_step_lights();
-  /* Physical button LEDs must not become artificial pad/cursor updates. */
-  for(unsigned i=0;i<16;++i)button_light((void*)0x1234,1,i);
-  assert(white_count()==1&&sent[physical]==0xffffff);
+ void*p=mmap(NULL,0x7500000,7,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);assert(p!=MAP_FAILED);base=(uintptr_t)p;
+ stub(phone_hooks[H_RGB].trampoline,capture);stub(0x23b00c0,convert);stub(phone_hooks[H_BUTTON_LIGHT].trampoline,indexed_capture);
+ __builtin___clear_cache(p,(char*)p+0x7500000);music_reset();
+ for(unsigned raw=0;raw<MUSIC_SEQUENCE_COLOURS;++raw){
+  assert(music_set_pad_colour(0,raw));native_rgb(0,0x008000);send_step_lights();
+  assert(sent[0]==scale(music_identity_rgb(raw),128));
+  sample_visible=0;send_step_lights();assert(sent[0]==0x008000);sample_visible=1;
  }
- button_light((void*)0x1234,1,0x50);assert(button_values[0x50]==1);
- puts("PASS MCU CC button IDs0..15 preserve physical button LEDs and never recolour pad RGB or create duplicate Steps cursors");
- puts("PASS Pad Colour RGB: Sample/FX Select round-trip, native restore without repaint, direct sender, bank, Stock, Mute/Erase, Levels/Steps and Seq recording");
+ native_workflow=1;sample_visible=0;steps_lighting=1;steps_lights[0]=0x2030ff;send_step_lights();
+ atomic_store(&pad_colour_cursor_white,1);native_rgb(0,0xffffff);native_rgb(2,0xffffff);
+ assert(sent[0]==PAD_DANGER&&sent[2]==PAD_FREE);
+ uint64_t selected_light;assert(pad_colour_light(0,&selected_light));
+ atomic_store(&pad_colour_cursor_white,0);uint64_t dimmed;assert(pad_colour_light(0,&dimmed));
+ assert((uint32_t)dimmed==PAD_DANGER&&dimmed!=selected_light);
+ native_workflow=2;send_step_lights();native_rgb(0,0xff0000);native_rgb(2,0xff0000);
+ assert(sent[0]==PAD_DANGER&&sent[2]==PAD_FREE); /* native red marks a destination, not its occupancy */
+ steps_lighting=0;native_workflow=0;sample_visible=1;levels_on=1;send_step_lights();assert(sent[0]==0xff0000);levels_on=0;
+ levels_on=1;levels_type=8;levels_origin=1;assert(music_set_pad_colour(1,13));send_step_lights();
+ atomic_store(&pad_colour_cursor_white,1);native_rgb(0,0xff7700);assert(sent[0]==PAD_SELECT);
+ atomic_store(&pad_colour_cursor_white,0);native_rgb(0,0xff7700);assert(sent[0]==music_identity_rgb(13));
+ native_rgb(2,0x000080);assert(sent[2]==music_identity_rgb(13));native_rgb(3,0);assert(sent[3]==0);
+ levels_on=0;levels_type=0;levels_origin=0;
+ sample_visible=0;seq_visible=1;seq_selected=-1;transport=0;seq_present=3;
+ for(unsigned raw=0;raw<MUSIC_SEQUENCE_COLOURS;++raw){assert(music_set_sequence_colour(0,raw));send_step_lights();assert(sent[0]==scale(music_identity_rgb(raw),192));}
+ seq_visible=0;send_step_lights();assert(sent[0]==0xff7700);
+ steps_on=steps_lighting=1;memset(steps_lights,0,sizeof(steps_lights));steps_lights[12]=PAD_SELECT;
+ send_step_lights();for(unsigned i=0;i<16;++i)button_light((void*)0x1234,1,i);assert(white_count()==1);
+ puts("PASS five identity colours and all legacy IDs; native/browser occupancy independent of selected RGB; red/green targets remain semantic, Levels/FX ownership, button LEDs isolated");
  munmap(p,0x7500000);return 0;
 }

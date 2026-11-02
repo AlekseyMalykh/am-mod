@@ -11,7 +11,7 @@ int music_lighting_levels_state(unsigned*on,unsigned*mode,unsigned*origin){*on=*
 static int seq_visible,seq_shift,seq_bank;
 static int seq_selected=-1;
 static unsigned seq_colours[128],seq_present[8]={0x7fff,0x7fff};
-const uint32_t music_sequence_colours[MUSIC_SEQUENCE_COLOURS]={0x40ff40,0x32c780,0xffc247,0x8830ff,0xff20b0,0xff0000,0xff6000,0xffe000,0x2030ff,0x98ff00,0x00ffb0,0xffffff,0x00c8ff};
+const uint32_t music_sequence_colours[MUSIC_SEQUENCE_COLOURS]={0x40ff40,0x32c780,0xffc247,0x8830ff,0xff20b0,0xff0000,0xff6000,0xffe000,0x2030ff,0x98ff00,0x00ffb0,0xffffff,0x00c8ff,0xff70b8};
 int music_sequence_colour(unsigned index){assert(index<128);return (int)seq_colours[index];}
 int music_ui_sequence_visible(void){return seq_visible;}
 unsigned music_ui_sequence_presence(unsigned bank){assert(bank<8);return seq_present[bank];}
@@ -26,8 +26,8 @@ int main(void){
  void*p=mmap(NULL,0x7500000,7,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);assert(p!=MAP_FAILED);base=(uintptr_t)p;
  stub(phone_hooks[H_RGB].trampoline,capture);stub(0x23b00c0,convert);__builtin___clear_cache(p,(char*)p+0x7500000);
  for(unsigned i=0;i<16;++i)rgb((void*)0x1234,i==15?0:0xffffff,i);
- seq_visible=1;seq_bank=0;seq_colours[3]=3;send_step_lights();assert(sent[3]==dim(0x8830ff)&&sent[4]==dim(0xffffff)&&sent[15]==0);
- seq_colours[3]=1;send_step_lights();assert(sent[3]==dim(0x32c780)&&sent[4]==dim(0xffffff));
+ seq_visible=1;seq_bank=0;seq_colours[3]=3;send_step_lights();assert(sent[3]==dim(0x8830ff)&&sent[4]==dim(music_identity_rgb(0))&&sent[15]==0);
+ seq_colours[3]=1;send_step_lights();assert(sent[3]==dim(music_identity_rgb(1))&&sent[4]==dim(music_identity_rgb(0)));
  seq_bank=1;seq_colours[19]=4;send_step_lights();assert(sent[3]==dim(0xff20b0));
  seq_shift=1;send_step_lights();assert(sent[3]==dim(0xff20b0));
  seq_shift=0;send_step_lights();assert(sent[3]==dim(0xff20b0));
@@ -45,9 +45,9 @@ int main(void){
  seq_present[1]&=~(1u<<4);rgb((void*)0x1234,0x00ff00,4);send_step_lights();assert(sent[4]==0);
  seq_shift=1;send_step_lights();assert(sent[4]==0&&sent[3]==dim(0xff20b0));seq_shift=0;
  /* Other occupied pads keep their assigned hue and stable baseline. */
- seq_colours[19]=5;rgb((void*)0x1234,0x001000,3);send_step_lights();assert(sent[3]==dim(0xff0000));
- rgb((void*)0x1234,0x00ff00,3);send_step_lights();assert(sent[3]==dim(0xff0000));
- for(unsigned c=0;c<MUSIC_SEQUENCE_COLOURS;++c){seq_colours[19]=c;send_step_lights();assert(sent[3]==dim(c?music_sequence_colours[c]:0x00ff00));}
+ seq_colours[19]=5;rgb((void*)0x1234,0x001000,3);send_step_lights();assert(sent[3]==dim(music_identity_rgb(5)));
+ rgb((void*)0x1234,0x00ff00,3);send_step_lights();assert(sent[3]==dim(music_identity_rgb(5)));
+ for(unsigned c=0;c<MUSIC_SEQUENCE_COLOURS;++c){seq_colours[19]=c;send_step_lights();assert(sent[3]==dim(music_identity_rgb(c)));}
  seq_selected=20;send_step_lights();assert(sent[4]!=0); /* Selected empty remains available. */
  seq_selected=19;send_step_lights();assert(sent[4]==0);
  struct sequence_timing timing={120,960,3840};

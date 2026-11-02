@@ -50,9 +50,9 @@ int main(void){
  stub(0x102d5e0,ink_set,0);stub(0x102e000,grid_rect,0);stub(0x10817b0,grid_text,0);__builtin___clear_cache(p,(char*)p+0x7500000);
  music_reset();sound=0;assert(music_set_pad_colour(0,8));assert(music_set_pad_colour(17,7));assert(music_set_pad_colour(127,4));
  assert((uint32_t)step_palette_value(1,0,0,0,0,0,400)==0x2030ff);
- sound=17;assert((uint32_t)step_palette_value(1,0,0,0,0,0,400)==0xffe000);sound=0;
+ sound=17;assert((uint32_t)step_palette_value(1,0,0,0,0,0,400)==music_identity_rgb(7));sound=0;
  for(unsigned colour=0;colour<MUSIC_SEQUENCE_COLOURS;++colour){
-  assert(music_set_pad_colour(0,colour));uint32_t expected=colour?music_sequence_colours[colour]:PAD_CONTENT;
+  assert(music_set_pad_colour(0,colour));uint32_t expected=colour?music_identity_rgb(colour):PAD_CONTENT;
   assert((uint32_t)step_palette_value(1,0,0,0,0,0,400)==expected);
   assert((uint32_t)step_palette_value(1,1,0,0,0,0,400)==PAD_MUTED);
   assert((uint32_t)step_palette_value(1,0,0,1,0,0,0)==PAD_DANGER);
@@ -66,16 +66,16 @@ int main(void){
  atomic_store(&ticket,0);atomic_store(&playback_mask,3);atomic_store(&playback_colour_bank,0);
  uint64_t pulse=0;
  for(unsigned c=0;c<MUSIC_SEQUENCE_COLOURS;++c){
-  assert(music_set_pad_colour(0,c));assert(step_native_light(0,&pulse));assert((uint32_t)pulse==(c?music_sequence_colours[c]:PAD_PLAYHEAD));
+  assert(music_set_pad_colour(0,c));assert(step_native_light(0,&pulse));assert((uint32_t)pulse==music_identity_rgb(c));
   uint32_t bits=(uint32_t)(pulse>>32);float brightness;memcpy(&brightness,&bits,4);assert(brightness==.9f);
  }
- assert(music_set_pad_colour(0,5));atomic_store(&playback_colour_bank,1);assert(step_native_light(1,&pulse)&&(uint32_t)pulse==music_sequence_colours[7]);
+ assert(music_set_pad_colour(0,5));atomic_store(&playback_colour_bank,1);assert(step_native_light(1,&pulse)&&(uint32_t)pulse==music_identity_rgb(7));
  atomic_store(&playback_colour_bank,-1);assert(step_native_light(1,&pulse)&&(uint32_t)pulse==PAD_PLAYHEAD); /* Levels/picker unchanged. */
- atomic_store(&playback_colour_bank,0);atomic_store(&native_mute,1);assert(!step_native_light(0,&pulse));atomic_store(&native_mute,0);
+ atomic_store(&playback_colour_bank,0);atomic_store(&native_mute,1);assert(step_native_light(0,&pulse));atomic_store(&native_mute,0);
  atomic_store(&requested_erase,1);assert(!step_native_light(0,&pulse));atomic_store(&requested_erase,0);
  atomic_store(&playback_mask,0);assert(!step_native_light(0,&pulse));assert(music_set_pad_colour(0,8));
  puts("PASS Sample playback flashes all12 assigned pad hues at activity brightness; Stock, Levels/picker cyan preserved; bank, Mute/Erase and stopped-mask boundaries");
- atomic_store(&requested_sound,1);palette();assert((uint32_t)atomic_load(&lights[1])==0xffe000);
+ atomic_store(&requested_sound,1);palette();assert((uint32_t)atomic_load(&lights[1])==music_identity_rgb(7));
  assert((uint32_t)atomic_load(&lights[0])==PAD_SELECT||(uint32_t)atomic_load(&lights[0])==PAD_CONTENT);assert((uint32_t)atomic_load(&lights[2])==PAD_EMPTY);
  /* Sound chooser: selected white cursor alternates with its actual hue;
   * other pads stay steady, including after bank changes and empty slots. */
@@ -83,15 +83,15 @@ int main(void){
   browse_bank=(int)b;sound=(int)b*16+5;sound_present=0xffff;
   for(unsigned c=0;c<MUSIC_SEQUENCE_COLOURS;++c){
    assert(music_set_pad_colour((unsigned)sound,c));
-   uint32_t hue=c?music_sequence_colours[c]:PAD_CONTENT;
+   uint32_t hue=music_identity_rgb(c);
    for(unsigned ms=0;ms<1280;ms+=80){
     uint64_t light=sound_palette_value(5,ms);
-    assert((uint32_t)light==(ms%640<240?PAD_SELECT:hue));
+    assert((uint32_t)light==(ms%800<120?PAD_SELECT:hue));
     assert((uint32_t)sound_palette_value(4,ms)!=(uint32_t)0);
    }
    sound_present=0;
    assert((uint32_t)sound_palette_value(5,0)==PAD_SELECT);
-   assert((uint32_t)sound_palette_value(5,400)==(c?hue:PAD_EMPTY));
+   assert((uint32_t)sound_palette_value(5,400)==PAD_EMPTY);
    assert((uint32_t)sound_palette_value(4,0)==PAD_EMPTY);
    sound_present=0xffff;
   }
@@ -152,7 +152,7 @@ int main(void){
  for(int selected=0;selected<2;++selected){
   event_row_paint(model,0,(void*)1,320,28,selected);assert(row_normal==0xff2030ff&&row_selected==0xff2030ff&&row_second==RED&&row_selection==selected);
   assert(FIELD(columns,16,uint32_t)==AMBER&&FIELD(columns,20,uint32_t)==WHITE);
-  event_row_paint(model,1,(void*)1,320,28,selected);assert(row_normal==0xffffe000);
+  event_row_paint(model,1,(void*)1,320,28,selected);assert(row_normal==(0xff000000u|music_identity_rgb(7)));
   event_row_paint(model,3,(void*)1,320,28,selected);assert(row_normal==0xffff20b0);
  }
  for(int i=2;i<6;++i)if(i!=3){event_row_paint(model,i,(void*)1,320,28,0);assert(row_normal==AMBER);}
