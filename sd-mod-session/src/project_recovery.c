@@ -1,5 +1,8 @@
 #define _GNU_SOURCE
 #include "project_recovery.h"
+#ifdef MPC_EARLY_STARTUP
+#include "startup_project.h"
+#endif
 #include <pthread.h>
 #include <stdio.h>
 #include <string.h>
@@ -178,6 +181,9 @@ void project_recovery_tick(uintptr_t image,void*services){
   * would let native background/shutdown saves overwrite it without consent.
   * Seed the visible Save editor separately when that screen opens. */
  applied=revision;first_save=1;save_prompt=save_seeded=0;snprintf(save_name,sizeof(save_name),"%s",name);snprintf(notice,sizeof(notice),"Restored: %s",name);notice_until=milliseconds()+5000;
+#ifdef MPC_EARLY_STARTUP
+ startup_project_changed();
+#endif
  fprintf(stderr,"PROJECT_RECOVERY IDENTITY_RESTORED native_data_directory_preserved\n");
 }
 static void paint_text(uintptr_t image,void*g,const char*s,int x,int y,int w,int h){

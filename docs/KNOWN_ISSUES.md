@@ -1,8 +1,8 @@
 # Known issues, testing status and requests
 
-Updated **3 November 2026**. Local prerelease **r27e** is prepared; public stable
+Updated **3 November 2026**. Public prerelease **r27f** is available; stable
 remains **r26s**. See Releases for available downloads.
-[Full changes](RELEASE_NOTES-r27e.md) · [Readiness](RELEASE_READINESS-r27e.md) ·
+[Full changes](RELEASE_NOTES-r27f.md) · [Readiness](RELEASE_READINESS-r27f.md) ·
 [Settings](MOD_SETTINGS.md) · [Original Leusha list, Russian](TESTER_FEEDBACK_LEUSHA.ru.md).
 
 Implemented means the change and stated coverage exist, not that the entire
@@ -11,6 +11,7 @@ power-off, External saves and stock startup without the mod card.
 
 | ID | Status | Implementation / next check |
 | --- | --- | --- |
+| N14 | Fixed in r27f; author confirmed on MPC | A missing temporary ProjectData folder blocked library/search imports, Copy Pad and render assignment. The shared workspace is prepared across project boundaries. The author confirmed the correction in r27e-workspace-fix1; r27f retains it with updated version branding. ARM64/UBSan reproduce the failure and recovery. [Evidence (RU)](SAMPLE_WORKSPACE_FIX.ru.md). |
 | L01–L04 | P1 / implemented; original hardware cases pending | Full project restore, original recovery identity/sample paths and separate first-Save confirmation are implemented. The author passed basic A/B cases, not every original Leusha case. Test normal shutdown → stock without SD using A → mod with B; compare notes, sequences, samples and effects. Historical Mod Off steps are obsolete in r27e. |
 | N09 | Implemented; device check pending | Delayed New Project Auto Save Error: initialize a missing Temp-Project through native serialization. Relevant ARM/UBSan branches and an earlier native VM case passed; the exact final package was not booted end-to-end in VM. Create/edit a new project, wait for autosave, then test manual Save/Load. |
 | L05 | Implemented; original device case pending | Physical ERASE deletes from Project Load with native confirmation. Retest files/folders and ordinary/search views. |

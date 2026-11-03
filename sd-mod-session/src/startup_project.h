@@ -8,6 +8,8 @@ int startup_project_install(uintptr_t image);
 int startup_project_loading(void);
 /* UI reached a usable screen without a boot Load (e.g. no Temp-Project). */
 void startup_project_ready(void);
+/* New Project or restored identity; retain the shared temporary audio workspace. */
+void startup_project_changed(void);
 #ifdef __cplusplus
 }
 #endif

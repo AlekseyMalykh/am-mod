@@ -5,6 +5,7 @@
 #include "knob_reset.h"
 #endif
 #include "phone_hooks.h"
+#include "sample_load_trace.h"
 #ifdef MPC_COMPRESSOR
 #include "compressor.h"
 #endif
@@ -599,6 +600,10 @@ static void files_dtor(void*p){workflow_destroyed(p);ORIG(H_FILES_DTOR,void(*)(v
 static void*files_ctor(void*p,void*services){void*r=ORIG(H_FILES_CTOR,void*(*)(void*,void*))(p,services);workflow_registry_bind(services);workflow_files_constructed(p);return r;}
 static void master_volume_ctor(void*p,void*parameter,void*control){ORIG(H_MASTER_VOLUME_CTOR,void(*)(void*,void*,void*))(p,parameter,control);workflow_master_volume_bind(parameter,control);}
 static void file_preview(void*p,const int*mode,const void*file){if(mode&&workflow_preview_prepare(p,*mode))ORIG(H_FILE_PREVIEW,void(*)(void*,const int*,const void*))(p,mode,file);}
+static int sample_file_copy(const uint64_t*source,const uint64_t*destination){
+ uintptr_t caller=(uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0));
+ return sample_load_copy_trace(base,caller,source,destination,ORIG(H_SAMPLE_FILE_COPY,sample_file_copy_fn));
+}
 static void private_preview_worker(void*payload){
  if(workflow_preview_worker(payload)){ORIG(H_PRIVATE_PREVIEW_WORKER,void(*)(void*))(payload);workflow_preview_played(payload);}
  else{
@@ -703,6 +708,9 @@ static void new_project(void *p,int *choice)
 #endif
     if (confirmed) step_native_project_changed();
     ORIG(H_NEW_PROJECT,void(*)(void*,int*))(p,choice);
+#ifdef MPC_EARLY_STARTUP
+    if (confirmed) startup_project_changed();
+#endif
     if (confirmed) music_reset();
 #ifdef MPC_PROJECT_RECOVERY
     if (confirmed) project_recovery_reset();
@@ -1738,7 +1746,8 @@ static void load(void)
         [H_COPY_CONTEXT_CTOR]=(void(*)(void))copy_context_ctor,[H_COPY_CONTEXT_DTOR]=(void(*)(void))copy_context_dtor,
         [H_COPY_SOURCE]=(void(*)(void))batch_copy_source,
         [H_COPY_RELEASE_EXIT]=(void(*)(void))batch_copy_native_release_exit,
-        [H_PREVIEW_EVENT_GATE]=(void(*)(void))step_native_preview_suppressed
+        [H_PREVIEW_EVENT_GATE]=(void(*)(void))step_native_preview_suppressed,
+        [H_SAMPLE_FILE_COPY]=(void(*)(void))sample_file_copy
     };
     for (unsigned i=0;i<H_COUNT;++i) {
         uint64_t *entry=(uint64_t*)(table+64+i*16);
@@ -1778,6 +1787,7 @@ static void load(void)
 #endif
     for (unsigned i=0;i<H_COUNT;++i) FIELD(table,64+i*16+8,uintptr_t)=(uintptr_t)callbacks[i];
     if (mprotect(table,4096,PROT_READ|PROT_EXEC)) _exit(120);
+    note("SAMPLE_LOAD_TRACE READY bounded_native_copy_observer_no_retry");
 #ifdef MPC_FAST_RESAMPLE
     /* Constructor runs before main/audio startup. Later Render commands only
      * check readiness; they must never revoke X on running input handlers. */

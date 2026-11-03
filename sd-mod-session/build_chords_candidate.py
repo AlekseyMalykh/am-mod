@@ -1,6 +1,6 @@
 """Build a separate r24 Chords candidate over the frozen r23a source list."""
 from pathlib import Path
-import hashlib,json,subprocess
+import hashlib,json,os,subprocess
 R=Path(__file__).resolve().parent
 O=R/'build/chords';O.mkdir(exist_ok=True)
 subprocess.run(['python3','build_pad_lighting_menu.py'],cwd=R,check=True)
@@ -11,6 +11,7 @@ sources+=['src/compressor_dsp.c','src/compressor_native.c','src/compressor_ui.c'
 sources+=['src/project_recovery.c','src/startup_splash.cc']
 sources+=['src/startup_project.cc']
 sources+=['src/knob_reset.c']
+sources+=['src/sample_load_trace.c']
 sources=list(dict.fromkeys(sources))
 tracked=sources+['src/chords.h','src/chords_ui.h','src/voice_guard.h','src/values_bipolar.h','src/poly_record.h','src/music_ui.h',
                  'src/note_native.h','src/workflow_ui.h','src/resample_ui.h','src/pad_eq.h','src/music_settings.h','src/filter_spectrum.h','src/takeover_endpoints.h','build_chords_candidate.py']
@@ -20,6 +21,7 @@ tracked+=['src/project_recovery.h','src/startup_splash.h','src/am_mod_splash.inc
 tracked+=['src/startup_project.h']
 tracked+=['src/mod_build.h','src/splash_branding.h','src/branding_font.h']
 tracked+=['src/knob_reset.h']
+tracked+=['src/sample_load_trace.h','phone_build.py','build/phone_hooks.h']
 tracked+=['src/pad_palette.h','src/pad_workflow_colour.h']
 sha=lambda b:hashlib.sha256(b).hexdigest()
 hashes={s:sha((R/s).read_bytes()) for s in tracked}
@@ -35,9 +37,10 @@ for source in sources:
 library=O/'phone-input.so'
 subprocess.run(['aarch64-linux-gnu-g++','-shared','-Wl,-z,noexecstack,-z,relro,-z,now',
  '-Wl,--no-undefined',*objects,'-ldl','-pthread','-lm','-o',str(library)],check=True)
+bootstrap=Path(os.environ.get('AM_MOD_BOOTSTRAP_DIR',str(R/'build/workspace-fix')))
 p=subprocess.run(['qemu-aarch64','-L','/home/user/mpc-rootfs-user-20260808',
- str(R/'build/r22/bootstrap'),str(R.parent/'extracted_v1.3.0/partitions/part3/usr/bin/MPC Sample'),
- str(library),str(R/'build/r22/bootstrap-patches.bin')],capture_output=True,text=True,timeout=45)
+ str(bootstrap/'bootstrap'),str(R.parent/'extracted_v1.3.0/partitions/part3/usr/bin/MPC Sample'),
+ str(library),str(bootstrap/'bootstrap-patches.bin')],capture_output=True,text=True,timeout=45)
 (O/'bootstrap.log').write_text(p.stdout+p.stderr);p.check_returncode()
 assert 'PASS real full preload constructor' in p.stdout
 assert 'PITCH_AWARE_OVERWRITE_INSTALLED' in p.stderr

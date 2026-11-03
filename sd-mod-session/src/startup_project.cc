@@ -19,9 +19,37 @@
 #ifndef STARTUP_AUTOSAVE_PATH
 #define STARTUP_AUTOSAVE_PATH "/data/TempProjects/Temp-Project.xpj"
 #endif
+#ifndef STARTUP_TEMP_ROOT
+#define STARTUP_TEMP_ROOT "/data/TempProjects"
+#endif
 namespace {
 uintptr_t image;
 std::atomic<unsigned> phase{0}; /* 0 uninstalled, 1 waiting, 2 native load, 3 done */
+std::atomic<bool> workspace_checked{false};
+/* The stock initial Temp/New Project path prepares this directory. Selecting
+ * an SD XPJ on the first load can bypass that preparation. Library import,
+ * Copy Pad and render all write here, independently of the displayed XPJ.
+ * Restore that shared workspace at project boundaries, not per-pad copies.
+ * Never create/rename a user project, seed an XPJ, follow a final symlink,
+ * clear existing audio, or alter the native project/auto-save identity. */
+bool prepare_workspace(){
+ int saved=errno,error=0,created=0;
+ if(mkdir(STARTUP_TEMP_ROOT,0755)&&errno!=EEXIST)error=errno;
+ int fd=error?-1:open(STARTUP_TEMP_ROOT,O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);
+ if(!error&&fd<0)error=errno;
+ if(fd>=0){
+  const char*name="Temp-Project_[ProjectData]";
+  if(!mkdirat(fd,name,0755))created=1;
+  else if(errno!=EEXIST)error=errno;
+  struct stat st;
+  if(!error){if(fstatat(fd,name,&st,AT_SYMLINK_NOFOLLOW))error=errno;
+   else if(!S_ISDIR(st.st_mode))error=ENOTDIR;}
+  close(fd);
+ }
+ if(error)std::fprintf(stderr,"STARTUP_PROJECT TEMP_WORKSPACE_FAILED errno=%d\n",error);
+ else if(created)std::fprintf(stderr,"STARTUP_PROJECT TEMP_WORKSPACE_CREATED path=%s/Temp-Project_[ProjectData]\n",STARTUP_TEMP_ROOT);
+ errno=saved;return !error;
+}
 char selected[PATH_MAX];
 /* Native std::vector<error> uses x8 for its nontrivial indirect result.
  * The native caller owns destruction. This wrapper transfers its three words
@@ -29,6 +57,14 @@ char selected[PATH_MAX];
 struct Errors { uintptr_t begin,end,capacity; ~Errors(){} };
 using Load=Errors(*)(void*,const uint64_t*);
 Load original;
+Errors native_load(void*saver,const uint64_t*file){
+ workspace_checked.store(false);
+ prepare_workspace();
+ Errors result=original(saver,file);
+ /* Native project cleanup may remove the old temporary workspace. */
+ prepare_workspace();workspace_checked.store(true);
+ return result;
+}
 using AutoSave=void(*)(void*);
 AutoSave original_autosave;
 struct File {
@@ -94,7 +130,7 @@ void choose(){
 }
 Errors load(void*saver,const uint64_t*file){
  unsigned waiting=1;
- if(!phase.compare_exchange_strong(waiting,2))return original(saver,file);
+ if(!phase.compare_exchange_strong(waiting,2))return native_load(saver,file);
  struct Finished { ~Finished(){phase.store(3);} } finished;
  const char*incoming=file?reinterpret_cast<const char*>(*file):nullptr;
  /* Only native boot recovery is replaced. Any unexpected first caller
@@ -102,12 +138,12 @@ Errors load(void*saver,const uint64_t*file){
  bool boot=incoming&&!std::strcmp(incoming,"/data/TempProjects/Temp-Project.xpj");
  std::fprintf(stderr,"STARTUP_PROJECT FIRST_NATIVE_LOAD path=%s selected=%u\n",incoming?incoming:"(null)",boot&&selected[0]);
  if(!boot||!selected[0]){
-  Errors result=original(saver,file);phase.store(3);
+  Errors result=native_load(saver,file);phase.store(3);
   std::fprintf(stderr,"STARTUP_PROJECT NATIVE_LOAD_FINISHED sd=0 errors=%u\n",result.begin!=result.end);return result;
  }
  File chosen(selected);
  std::fprintf(stderr,"STARTUP_PROJECT SINGLE_LOAD path=%s\n",selected);
- Errors result=original(saver,&chosen.value);phase.store(3);
+ Errors result=native_load(saver,&chosen.value);phase.store(3);
  std::fprintf(stderr,"STARTUP_PROJECT NATIVE_LOAD_FINISHED sd=1 errors=%u\n",result.begin!=result.end);
  return result;
 }
@@ -116,6 +152,12 @@ extern "C" int startup_project_loading(void){return phase.load()==1||phase.load(
 extern "C" void startup_project_ready(void){
  unsigned waiting=1;
  if(phase.compare_exchange_strong(waiting,3))std::fprintf(stderr,"STARTUP_PROJECT NATIVE_NEW_PROJECT_READY no_extra_load\n");
+ if(phase.load()==3&&!workspace_checked.exchange(true))prepare_workspace();
+}
+extern "C" void startup_project_changed(void){
+ /* Screen action is synchronous on the UI owner; also verify once when its
+  * busy dialog has closed, in case native cleanup finishes on a worker. */
+ workspace_checked.store(false);prepare_workspace();
 }
 extern "C" int startup_project_install(uintptr_t b){
  auto*slot=reinterpret_cast<uintptr_t*>(b+0x6d8cc20);

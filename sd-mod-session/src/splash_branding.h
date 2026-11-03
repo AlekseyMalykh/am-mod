@@ -15,7 +15,7 @@ static inline void am_splash_text(uint32_t*p,unsigned pitch,const char*s,unsigne
 }
 static inline void am_splash_branding(uint32_t*p,unsigned pitch){
  if(!p||pitch<1280||pitch%4)return;
- am_splash_text(p,pitch,AM_MOD_VERSION,201,1,1,0xffd4d8dfu);
+ am_splash_text(p,pitch,AM_MOD_SPLASH_VERSION,201,1,1,0xffd4d8dfu);
  am_splash_text(p,pitch,AM_MOD_REPO_LABEL,222,1,1,0xffa8b3c2u);
 }
 #endif

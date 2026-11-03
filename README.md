@@ -6,7 +6,7 @@
 
 [Feedback and help](docs/FEEDBACK.md) · [Known issues](docs/KNOWN_ISSUES.md) · [Discussions](https://github.com/AlekseyMalykh/am-mod/discussions)
 
-[**Release r26s: download the package and installer**](https://github.com/AlekseyMalykh/am-mod/releases/tag/r26s)
+[**Prerelease r27f: fixed sample loading, Copy Pad and render assignment**](https://github.com/AlekseyMalykh/am-mod/releases/tag/r27f) · [Stable r26s](https://github.com/AlekseyMalykh/am-mod/releases/tag/r26s)
 
 OptoCat/Warm, the K fix, workflow pad colours, Seq pulses, Sound cursor and EQ
 side indicators. **FAT32 is experimental**; exFAT is supported.
@@ -18,7 +18,7 @@ AM Mod is a community mod for the Akai MPC Sample (firmware **1.3.0.12**) that s
 It adds a step sequencer on the pads, a chord mode, typing names with the pads, scale
 lighting, search across folders, batch copy, a per-pad EQ, resampling and more, on top of
 the stock app. Nothing is flashed: the mod runs a patched copy of the stock app in RAM.
-Candidate r27e saves a recovery copy on normal shutdown; public r26s still includes
+r27f saves a recovery copy on normal shutdown; stable r26s still includes
 **Project → Mod Off**.
 
 <p align="center"><img src="docs/media/chords.gif" alt="Chords mode: pads play chords in the project key" width="760"></p>
@@ -29,9 +29,14 @@ Candidate r27e saves a recovery copy on normal shutdown; public r26s still inclu
 > release packages**: the mod patches the copy of the app already on your MPC Sample.
 > Use at your own risk. See [NOTICE](NOTICE.md).
 
-## r27e prerelease
+## r27f prerelease
 
-r27e is a test prerelease; the stable download above remains r26s. **Back up samples and projects before updating.**
+r27f is a public test prerelease; stable remains r26s. **Back up samples and projects before updating.**
+
+**Fixed and confirmed on MPC:** the missing temporary ProjectData folder that
+blocked library/search sample loading, Copy Pad and sound/sequence render
+assignment. The workspace is prepared across startup, Load and New Project.
+The compact splash label is now `version: r27f`.
 
 The new package combines all changes since r26s:
 
@@ -59,24 +64,24 @@ The new package combines all changes since r26s:
 - **Included:** the confirmed native K fix, OptoCat/Warm (Gain−6…+6dB, Shift
   Attack/Release/Knee, shared Bypass), all earlier musical/search/editing tools.
 
-**exFAT supported; FAT32 experimental.** Installer1.0.2 is unchanged: choose
-the local r27e ZIP for a prerelease; Latest continues to select stable releases.
+**exFAT supported; FAT32 experimental.** Installer1.0.3 has the current shutdown hint: choose
+the downloaded r27f ZIP for this prerelease; Latest continues to select stable releases.
 ARM/UBSan and targeted native VM checks passed. Exact-package full VM boot and
 final cursor/hardware scenarios are not claimed complete.
 
-[Complete changes since r26s](docs/RELEASE_NOTES-r27e.md) ·
+[Complete changes since r26s](docs/RELEASE_NOTES-r27f.md) ·
 [All features and controls](docs/FEATURES.md) · [Mod Settings](docs/MOD_SETTINGS.md) ·
-[Remaining reports/requests](docs/KNOWN_ISSUES.md) · [Readiness](docs/RELEASE_READINESS-r27e.md).
+[Remaining reports/requests](docs/KNOWN_ISSUES.md) · [Readiness](docs/RELEASE_READINESS-r27f.md).
 
 Synth, stem export, mixer/effect routing and an independent RGB editor remain
 requests, not features in this package. Thanks to Leusha, mxt1iga and all testers.
 
-Ideas C01/C02: live held-chord/arp changes and force-based expression are [future requests](docs/IDEAS.md), not implemented in r27e. New-hit velocity already passes through; continuous pressure still needs investigation.
+Ideas C01/C02: live held-chord/arp changes and force-based expression are [future requests](docs/IDEAS.md), not implemented in r27f. New-hit velocity already passes through; continuous pressure still needs investigation.
 Plan M01: audit MIDI In/Out, channels/clock, external Chords/arp operation, velocity and Note On/Off. Details are in the same roadmap; verification is pending.
 
 ## Features
 
-Local r27e candidate documentation, 3 November 2026; the public ZIP is r26s. **Confirmed** means checked on a real MPC Sample;
+Public prerelease r27f, 3 November 2026; stable is r26s. **Confirmed** means checked on a real MPC Sample;
 **trial** means the specified automated checks passed; hardware coverage is pending as noted.
 
 | Feature | Where | Status |
@@ -166,7 +171,7 @@ never touches `MPC-Sample/` (your projects and samples).
    by itself (since r22 there is no extra question). Preparation time depends on the card and project. If a start
    ever hangs at 0 %, power on without the card, wait for the normal screen, then insert it.
 
-   > **r27e shows Am MOD while preparing the app**, with the version and repository
+   > **r27f shows Am MOD while preparing the app**, with the version and repository
    > address. Public r26s has a dark transition instead. Do not power off or remove
    > the card during preparation. The splash has no artificial minimum display time.
 
@@ -174,7 +179,7 @@ never touches `MPC-Sample/` (your projects and samples).
    stock app keeps running.
 3. Work as usual. Save projects and samples to **External** (the SD card): in the mod,
    Internal storage is temporary and is lost when the mod stops.
-4. In candidate r27e, save to External and use the power key. Remove the card only
+4. In candidate r27f, save to External and use the power key. Remove the card only
    after shutdown. Start without the mod card to use stock. Public r26s still includes
    Project → Mod Off.
 
@@ -207,8 +212,9 @@ Order: get the local inputs with the expected hashes → build `sd-clone-trial` 
 revision. The current application entry is `sd-mod-session/build_chords_candidate.py`;
 `verify_*.py` run scoped checks. These research scripts depend on frozen earlier
 build outputs, verified preceding packages and your local firmware/rootfs; they
-are not a standalone fresh-checkout build. r27e was assembled with
-`package_empty_sample.py`. `refresh_release_docs.py` can refresh documentation
+are not a standalone fresh-checkout build. r27f was assembled with
+`package_workspace_release.py` over the device-confirmed workspace candidate.
+`refresh_release_docs.py` can refresh documentation
 from an explicit verified base ZIP while asserting unchanged autorun bytes. ARM/QEMU checks (`verify_*.py`, `check_*.c`) use clearly marked
 adapters and do not replace a hardware run.
 

@@ -1,5 +1,19 @@
 # Changelog
 
+## r27f — prerelease
+
+Fixed the missing temporary ProjectData folder that prevented loading samples
+from the built-in library/search, Copy Pad and assigning rendered sounds or
+sequences. The author confirmed the correction on MPC Sample. Prepare the
+shared audio workspace across startup, Load, New Project and recovery identity
+changes while preserving existing audio and native project/autosave paths.
+
+The splash now reads `version: r27f`; About and the boot helper use the same
+shared version. Includes all r27e changes, which had not been publicly released.
+Installer 1.0.3 replaces the obsolete Mod Off shutdown hint.
+[Release notes](docs/RELEASE_NOTES-r27f.md) ·
+[Описание исправления](docs/RELEASE_NOTES-r27f.ru.md).
+
 ## r27e — prerelease
 
 Consolidates all changes since public r26s: Mod Settings/Standard/AM Mod,

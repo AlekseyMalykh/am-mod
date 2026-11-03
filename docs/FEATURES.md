@@ -2,7 +2,7 @@
 
 **English** · [Русский](FEATURES.ru.md)
 
-Local candidate **r27e**, 3 November 2026; public ZIP **r26s**. MPC Sample firmware **1.3.0.12**.
+Public prerelease **r27f**, 3 November 2026; stable **r26s**. MPC Sample firmware **1.3.0.12**.
 
 **Statuses:**
 - **Confirmed**: checked on a real MPC Sample.
@@ -12,10 +12,11 @@ A confirmation covers that specific trial, not every combination of features in 
 
 Terms: **B1–B3** are the three buttons above the screen, **K1–K3** the three knobs below it, "encoder" is the large DATA wheel.
 
-## r27e prerelease
+## r27f prerelease
 
-The public ZIP above remains **r26s**. These changes belong to the local
-**r27e** candidate and still require MPC testing.
+The **r27f** prerelease combines the earlier changes and the device-confirmed
+temporary-workspace fix for sample loading, Copy Pad and render assignment.
+Remaining hardware scenarios are tracked separately.
 
 - **About** is the fifth and last read-only settings tab. Splash/About show
   the same version and repository; B2/B3 wrap through all five pages.
@@ -34,7 +35,7 @@ The public ZIP above remains **r26s**. These changes belong to the local
 - Retains K, OptoCat/Warm, EQ, pad colours, Standard Piano/Scale, Note Repeat,
   exFAT and experimental FAT32. Browser Delete uses physical **ERASE**.
 
-[Settings and testing](MOD_SETTINGS.md) · [Readiness](RELEASE_READINESS-r27e.md).
+[Settings and testing](MOD_SETTINGS.md) · [Readiness](RELEASE_READINESS-r27f.md).
 ARM/QEMU/UBSan and full native VM checks are distinct from device confirmation.
 Other Leusha reports are not declared closed by these changes.
 
@@ -65,7 +66,7 @@ Other Leusha reports are not declared closed by these changes.
 |---|---|
 | Starts from SD through the stock autorun mechanism. The mod checks the SHA-256 of the stock app and of its own files and runs a patched copy of the app in RAM. Firmware and boot loader are never written | confirmed |
 | Starts when the card is inserted into a running MPC, and when the MPC boots with the card inside | confirmed (r23a) |
-| r27e shows Am MOD during preparation, then loads the SD project once. Public r26s still has the older dark-screen transition and Mod Off | r27e candidate; device timing varies |
+| r27f shows Am MOD during preparation, then loads the SD project once. Public r26s still has the older dark-screen transition and Mod Off | r27f candidate; device timing varies |
 | In r26y normal shutdown saves the recovery project and its samples to `MPC-Sample/Projects/Mod-Exit-Last.xpj` + `Mod-Exit-Last_[ProjectData]`. Mod Off is removed; copy failure keeps the app open with Back/Retry | implemented; new device check pending |
 | **Power key** (short press): stock question → project copy to SD (*Saving project copy* screen) → power off | confirmed (r23) |
 | Saving projects and samples to **External** (`MPC-Sample/Projects`, `MPC-Sample/Samples`, including subfolders); the stock app opens them | confirmed |
@@ -92,7 +93,7 @@ Unresolved project-transition/Save cases remain in [L01–L04](KNOWN_ISSUES.md).
 | **Pan** and other ranges symmetric around zero (Tune) fill from a centre mark to the left or right | trial (r24q) |
 | **Mod windows** (Chords, Steps, Steps edit menu, Stereo → Mono, Resample) share one block layout: B1–B3 blocks on top, information blocks, a 4×4 grid that mirrors the pads | trial (r24s) |
 
-**Current r27e scheme.** Historical feature confirmations below do not cover
+**Current r27f scheme.** Historical feature confirmations below do not cover
 every newer combination. The full [mode map](PAD_LIGHTING_MAP.ru.md) also contains
 proposals; the implemented subset is described here.
 
@@ -332,6 +333,6 @@ While the selected pad sounds, its **spectrum** (4096-point FFT, 20 Hz–20 kHz)
 - An emulator run does not replace a hardware test: timing, audio, battery and USB audio differ.
 - A fast arpeggio on a slow card can bring up the stock *Disk too slow* message.
 
-Defaults AM Mod / Normal; saved card/project settings take priority. One editing cursor does not restrict simultaneous sample playback. Complete changes since r26s: [r27e](RELEASE_NOTES-r27e.md).
+Defaults AM Mod / Normal; saved card/project settings take priority. One editing cursor does not restrict simultaneous sample playback. Complete changes since r26s: [r27f](RELEASE_NOTES-r27f.md).
 
-Defaults AM Mod / Normal; saved card/project settings take priority. One editing cursor does not restrict simultaneous sample playback. Complete changes since r26s: [r27e](RELEASE_NOTES-r27e.md).
+Defaults AM Mod / Normal; saved card/project settings take priority. One editing cursor does not restrict simultaneous sample playback. Complete changes since r26s: [r27f](RELEASE_NOTES-r27f.md).

@@ -42,7 +42,7 @@ import urllib.request
 import zipfile
 from pathlib import Path, PurePosixPath
 
-__version__ = "1.0.2"
+__version__ = "1.0.3"
 REPO = "AlekseyMalykh/am-mod"
 VERSION_FILE = "MPC_MOD_VERSION.json"
 AUTORUN = "autorun"
@@ -568,7 +568,7 @@ def gui() -> None:
     log("Firmware 1.3.0.12 only. The mod runs a patched copy of the stock app in RAM; it does not flash the MPC.")
     log("SD: exFAT or experimental FAT32/MS-DOS (FAT32). FAT32 requires package r26e or later. Volume name: MPC, for example; no spaces or Cyrillic.")
     log("Start: insert the card and power on, or insert it after the normal screen appears. The mod starts automatically.")
-    log("Exit: Project (Shift+Pad 16) > Mod Off.")
+    log("Exit: save your project, then use the MPC power button. Older packages may also offer Project > Mod Off.")
     refresh()
     win.mainloop()
 

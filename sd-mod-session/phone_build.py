@@ -51,7 +51,7 @@ def build(stock, run, branch):
         'static const uintptr_t tab_screens[TAB_SCREEN_COUNT]={'+','.join(hex(x) for x in screens)+'};\n')
     assembly = ['.arch armv8.3-a', '.text']
     records = []
-    for i, (name, entry) in enumerate(HOOKS + [('NOTE_FOOTER', 0), ('MUSIC_PROJECT', 0), ('EVENT_LABEL',0),('COPY_SOURCE',0),('COPY_RELEASE_EXIT',0),('PREVIEW_EVENT_GATE',0)]):
+    for i, (name, entry) in enumerate(HOOKS + [('NOTE_FOOTER', 0), ('MUSIC_PROJECT', 0), ('EVENT_LABEL',0),('COPY_SOURCE',0),('COPY_RELEASE_EXIT',0),('PREVIEW_EVENT_GATE',0),('SAMPLE_FILE_COPY',0xf5cc80)]):
         if not entry:
             label='phone_'+name.lower()
             slot=TABLE_VA+64+i*16+8
@@ -150,7 +150,7 @@ def build(stock, run, branch):
     run('aarch64-linux-gnu-gcc', '-shared', '-fPIC', '-O2', '-std=c11',
         '-Wall', '-Wextra', '-Werror', '-Wcast-function-type', '-Ibuild','-DMPC_EXPERIMENTAL_CHOP_EXPORT=1',
         '-mbranch-protection=standard', '-Wl,-z,noexecstack,-z,relro,-z,now',
-        'src/phone_input.c', 'src/phone_events.c', 'src/phone_native.c',
+        'src/phone_input.c', 'src/phone_events.c', 'src/phone_native.c', 'src/sample_load_trace.c',
         'src/note_native.c', 'src/note_abi.S', 'src/music_settings.c',
         'src/music_archive.c', 'src/music_ui.c', 'src/music_lighting.c',
         'src/step_native.c','src/step_abi.S','src/workflow_ui.c','src/workflow_abi.S','src/browser_tree.c',

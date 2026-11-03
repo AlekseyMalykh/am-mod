@@ -5,6 +5,7 @@
 #include "src/am_mod_splash.inc"
 int main(int argc,char**argv){
  assert(argc==2&&strlen(AM_MOD_VERSION)<16&&strlen(AM_MOD_REPO_LABEL)<40);
+ assert(!strcmp(AM_MOD_SPLASH_VERSION,"version: " AM_MOD_VERSION));
  unsigned pitch=1344;uint32_t*memory=malloc((size_t)pitch*240+32);assert(memory);
  memset(memory,0xcd,(size_t)pitch*240+32);unsigned n=0;
  for(unsigned i=0;i<sizeof(am_splash_runs)/sizeof(*am_splash_runs);++i)

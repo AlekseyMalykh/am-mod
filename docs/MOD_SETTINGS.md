@@ -1,6 +1,6 @@
-# Mod Settings — r27e candidate
+# Mod Settings — r27f
 
-Unpublished local candidate; the public release remains r26s.
+Available in public prerelease r27f; stable remains r26s.
 
 **Project → Mod Settings** replaces Pad Lighting. **B2/B3** cycle tabs,
 **B1** returns. Turn the encoder to select a row, click to edit, turn to

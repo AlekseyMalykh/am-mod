@@ -30,6 +30,7 @@ FUNCTIONS={
     'FILES_CTOR':'files_ctor','MASTER_VOLUME_CTOR':'master_volume_ctor','FILE_PREVIEW':'file_preview',
     'PRIVATE_PREVIEW_WORKER':'private_preview_worker',
     'PREVIEW_EVENT_GATE':'step_native_preview_suppressed',
+    'SAMPLE_FILE_COPY':'sample_file_copy',
 }
 
 def verify(path):
