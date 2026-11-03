@@ -11,6 +11,9 @@
 #include "note_native.h"
 #include "music_settings.h"
 #include "music_archive.h"
+#ifdef MPC_MIXER_ARCHIVE
+#include "mixer_archive.h"
+#endif
 #include "music_ui.h"
 #ifdef MPC_PAD_EQ
 #include "filter_spectrum.h"
@@ -650,20 +653,41 @@ static void sixteen_process(void *properties,int pad,void *event)
         FN(0x27e4400,void(*)(void*,int,int,int))((char*)event+0x14,0,0,pitch);
     }
 }
-static void music_save(void *p,void *a)
+static void music_save_base(void *p,void *a)
 { music_archive_save(p,a,ORIG(H_MUSIC_SAVE,void(*)(void*,void*))); }
+static void music_save(void *p,void *a)
+{
+#ifdef MPC_MIXER_ARCHIVE
+    mixer_archive_save(p,a,music_save_base);
+#else
+    music_save_base(p,a);
+#endif
+}
+static void music_load_base(void *p,void *a)
+{ music_archive_load(p,a,ORIG(H_MUSIC_LOAD,void(*)(void*,void*))); }
 static void music_load(void *p,void *a)
 {
 #ifdef MPC_RESAMPLE_TRIAL
     resample_ui_project_changing();
 #endif
-    music_archive_load(p,a,ORIG(H_MUSIC_LOAD,void(*)(void*,void*))); }
+#ifdef MPC_MIXER_ARCHIVE
+    mixer_archive_load(p,a,music_load_base);
+#else
+    music_load_base(p,a);
+#endif
+}
+static int music_read_base(void *p,void *j)
+{ return music_archive_read(p,j,ORIG(H_MUSIC_READ,int(*)(void*,void*))); }
 static int music_read(void *p,void *j)
 {
 #ifdef MPC_RESAMPLE_TRIAL
     resample_ui_project_changing();
 #endif
-    int result=music_archive_read(p,j,ORIG(H_MUSIC_READ,int(*)(void*,void*)));
+#ifdef MPC_MIXER_ARCHIVE
+    int result=mixer_archive_read(p,j,music_read_base);
+#else
+    int result=music_read_base(p,j);
+#endif
     if (result) step_native_project_changed();
     return result;
 }
@@ -677,7 +701,12 @@ static void new_project(void *p,int *choice)
 #endif
     if (confirmed) step_native_project_changed();
     ORIG(H_NEW_PROJECT,void(*)(void*,int*))(p,choice);
-    if (confirmed) music_reset();
+    if (confirmed) {
+        music_reset();
+#ifdef MPC_MIXER_ARCHIVE
+        mixer_archive_reset();
+#endif
+    }
 }
 
 static void draw_text(void *g, const char *text, int y, int h, float height, uint32_t colour)
@@ -1575,6 +1604,9 @@ static void load(void)
 #endif
     note_native_init(base);
     music_reset(); music_archive_init(base); music_ui_init(base);
+#ifdef MPC_MIXER_ARCHIVE
+    mixer_archive_init(base);
+#endif
     music_lighting_init(base);
 #ifdef MPC_CHORDS
     chords_ui_init(base);

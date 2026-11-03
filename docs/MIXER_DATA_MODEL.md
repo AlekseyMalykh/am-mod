@@ -4,10 +4,10 @@
 Код: [`mixer_model.h`](../sd-mod-session/src/mixer_model.h),
 [`mixer_model.c`](../sd-mod-session/src/mixer_model.c).
 
-Модель и codec реализованы, собраны и проверены на host/ARM. Они пока **не
-подключены** к native archive, audio routing или UI. Наличие encode/decode не
-означает проверенный Save/Load на MPC. Незавершённая функция не включена в
-производственный build/constructor и не попадает в release artifacts.
+Модель и codec реализованы, собраны и проверены на host/ARM. 04.11 добавлен
+[experimental archive bridge](MIXER_ARCHIVE.md) с отдельным build flag;
+полный Save/Load XPJ на MPC ещё не подтверждён. Audio routing и UI не подключены.
+Незавершённая функция не включена в публичный build и release artifacts.
 
 ## Владение и данные
 
@@ -53,8 +53,8 @@ Track. Delta ограничивается пересечением диапаз�
 
 ## Формат optional payload
 
-Планируемое отдельное native JSON field — `amMixerV1` со строковым payload.
-Этот ключ пока не добавлен в [`music_archive.c`](../sd-mod-session/src/music_archive.c).
+Отдельное native JSON field — `amMixerV1` со строковым payload. Оно добавляется
+experimental bridge поверх существующего [`music_archive.c`](../sd-mod-session/src/music_archive.c).
 Существующее `mpcSampleModV1` и штатные поля не изменены.
 
 ```text

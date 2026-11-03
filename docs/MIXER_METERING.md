@@ -88,7 +88,7 @@ MPC_RUNTIME_ROOT='/path/to/local/runtime' python3 build_mixer_core_candidate.py
 
 Builder проверяет feature-ветку, использует существующую baseline-сборку и
 добавляет model/meter objects в отдельную `build/mixer-candidate/phone-input.so`.
-Проверяется full preload constructor на закреплённом ELF. Ни `phone_native.c`,
-ни штатный archive, ни UI dispatcher новым core не перехватываются. Mixer mode
-не включается, release/SD package не создаётся. Такой кандидат нужен для проверки
-полной линковки, а не для аппаратной проверки готовой функции.
+С 04.11 отдельно пересобирает `phone_native.c` с experimental archive flag:
+[контракт сохранения](MIXER_ARCHIVE.md). Проверяется full preload constructor на
+закреплённом ELF. Mixer mode/audio taps не включаются, release/SD package не
+создаётся. Кандидат проверяет полную линковку, не готовность функции на устройстве.
