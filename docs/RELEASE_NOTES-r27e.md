@@ -150,6 +150,7 @@ an independent RGB editor and the other unscheduled requests in
 [Known issues and requests](KNOWN_ISSUES.md).
 
 Ideas C01/C02: live held-chord/arp changes and force-based expression are [future requests](IDEAS.md), not implemented in r27e. New-hit velocity already passes through; continuous pressure still needs investigation.
+Plan M01: audit MIDI In/Out, channels/clock, external Chords/arp operation, velocity and Note On/Off. Details are in the same roadmap; verification is pending.
 
 Thanks to **Leusha**, **mxt1iga** and everyone who provided tests, reproductions
 and feedback. [Full feature/control guide](FEATURES.md) · [Mod Settings](MOD_SETTINGS.md) ·

@@ -72,6 +72,7 @@ Synth, stem export, mixer/effect routing and an independent RGB editor remain
 requests, not features in this package. Thanks to Leusha, mxt1iga and all testers.
 
 Ideas C01/C02: live held-chord/arp changes and force-based expression are [future requests](docs/IDEAS.md), not implemented in r27e. New-hit velocity already passes through; continuous pressure still needs investigation.
+Plan M01: audit MIDI In/Out, channels/clock, external Chords/arp operation, velocity and Note On/Off. Details are in the same roadmap; verification is pending.
 
 ## Features
 

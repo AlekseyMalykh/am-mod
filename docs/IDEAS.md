@@ -28,6 +28,31 @@ continuous pressure/aftertouch, verify which data MPC Sample actually reports
 after the initial strike and how Full Level/16 Levels affect it. Required
 hardware support is not confirmed yet.
 
+## M01 — MIDI and external-device chord verification
+
+Audit existing MIDI behaviour and fix issues found during that audit. This is
+a test plan, not completed validation or a new r27e feature.
+
+- **MIDI In:** external keyboard/controller notes, channels, note ranges,
+  simultaneous keys, velocity and releases.
+- **MIDI Out:** DAW/external synth output, complete chord voicings and MIDI
+  pitches matching sounding notes, Orig Note, transposition and Key/Scale.
+- **Chords:** external input/output, shared notes, inversions/octaves, latch
+  and balanced Note On/Note Off; compare MPC recording/playback and the receiver.
+- **Arpeggiator/Repeat:** live controls, rate/pattern, MIDI Clock sync,
+  Start/Stop/Continue, tempo changes and starting from a nonzero position.
+- **Expression:** soft/hard hits, multiple held pads, Full Level/16 Levels;
+  pressure/aftertouch only after verifying available data, alongside C02.
+  Check CC/sustain in supported modes.
+- **Robustness:** stuck/duplicate notes, shared chord pitches, release order,
+  Stop, mode exit, project changes and disconnects; Thru/echo feedback loops.
+- **Connections:** inventory physical/USB MIDI paths actually available on
+  the device; test clock source/follower roles and compare stock/mod behaviour.
+
+For each case record device/connection, channel, mod settings, sent/received
+MIDI events, expected result and verification status. File discovered defects
+separately from C01/C02 feature requests.
+
 ## Other requests
 
 - **Synth:** deferred by the author; not being implemented now.
