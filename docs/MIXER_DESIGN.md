@@ -6,6 +6,10 @@ Mixer, восемь live-шин и Song Stem Export в этой ревизии �
 Этот документ задаёт интерфейс и контракты интеграции; макеты не являются
 снимками работающего устройства или доказательством доступности PCM-шин.
 
+Продолжение реализации: [native audit и ARM-проверки](MIXER_NATIVE_AUDIT.md),
+[Mixer data model V1 и codec](MIXER_DATA_MODEL.md). Модель уже существует как
+проверенный независимый core; native Save/Load, live routing и UI ещё не подключены.
+
 Приоритет требований: Classic Console Layout → дополнение B1–B3 / Routing LEDs
 → исходное задание Mixer / Song / Stems. В частности, Pads 9–15 пока свободны,
 а не дублируют MIX, FX и ROUTE из первоначальной предварительной раскладки.
