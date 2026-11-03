@@ -5,6 +5,7 @@
 #include "check_fx_native.c"
 #undef main
 #include "src/mixer_meters.h"
+#include "src/mixer_buses.h"
 #define F(p,o,T) (*(T*)((char*)(p)+(o)))
 
 static void routing(void)
@@ -54,8 +55,19 @@ static void summing(void)
     assert(mixer_meters_push(meters,1,16,taps)==1&&mixer_meters_take(meters,1,&snapshot));
     assert(snapshot.valid_mask==1&&snapshot.peak[0][0]==.375f&&snapshot.peak[0][1]==.1875f);
     mixer_meters_destroy(meters);
+    struct mixer_project project;mixer_defaults(&project);project.output[0]=1;
+    enum mixer_bus_result error;struct mixer_buses*buses=mixer_buses_prepare(&project,0,48000,16,NULL,&error);
+    assert(buses&&error==MIXER_BUS_OK&&mixer_buses_begin(buses,16)==MIXER_BUS_OK);
+    assert(mixer_buses_accumulate(buses,0,out_l,out_r,2,0)==MIXER_BUS_OK);
+    assert(mixer_buses_finish(buses,NULL,0)==MIXER_BUS_OK);struct mixer_pcm_view track,direct,master;
+    assert(mixer_buses_view(buses,0,&track)&&mixer_buses_view(buses,8,&direct)&&mixer_buses_view(buses,9,&master));
+    for(unsigned i=0;i<16;++i){assert(track.channel[0][i]==.375f&&track.channel[1][i]==-.1875f);
+        assert(direct.channel[0][i]==0&&direct.channel[1][i]==0);
+        assert(master.channel[0][i]==out_l[i]&&master.channel[1][i]==out_r[i]);}
+    mixer_buses_destroy(buses);
     puts("PASS actual native stereo summing: route gain, accumulation, clear-source suppression and immutable source PCM");
     puts("PASS new meter core measures actual native summed PCM; native live tap not installed");
+    puts("PASS native summed PCM crosses real Track1/core/Master unchanged with no Master Direct duplication; native Pad adapter not installed");
 }
 
 static unsigned export_calls,export_source;

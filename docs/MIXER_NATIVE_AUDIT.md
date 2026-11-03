@@ -35,6 +35,10 @@ ELF 1.3.0.12: SHA-256
 Не подставлять вымышленные destination/subIndex в native resolver и не добавлять
 обработанный Track поверх прежнего Pad сигнала: это даст тишину или двойной звук.
 
+04.11 добавлен [eight-bus PCM core](MIXER_BUSES.md), не устанавливающий native
+adapter. Native-тест теперь передаёт результат настоящей `2769bf0` через Track 1
+и Master нового core, проверяя совпадение PCM и отсутствие Direct-дубликата.
+
 Перед установкой адаптера необходимо покрыть обычные/оптимизированные ветки,
 Pad Link, multi-output, preview/live input, sequenced notes, resample/offline,
 mute и tail, а также существующий Pad EQ hook. Захват после `2802f90` с обнулением

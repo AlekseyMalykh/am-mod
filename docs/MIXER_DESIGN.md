@@ -14,6 +14,8 @@ Mixer, восемь live-шин и Song Stem Export в этой ревизии �
 04.11 добавлен [экспериментальный archive bridge](MIXER_ARCHIVE.md) в Save/Load/New
 callbacks под отдельным build flag. Полный XPJ round-trip и аппаратный Save/Load
 ещё не подтверждены; обычная сборка этот флаг не включает.
+Также реализован [eight-bus PCM core](MIXER_BUSES.md): реальные Track/Direct/Master
+buffers и FX/mix/meters; native Pad adapter и UI ещё не подключены.
 
 Приоритет требований: Classic Console Layout → дополнение B1–B3 / Routing LEDs
 → исходное задание Mixer / Song / Stems. В частности, Pads 9–15 пока свободны,

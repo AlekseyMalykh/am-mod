@@ -1,0 +1,35 @@
+#ifndef AM_MIXER_BUSES_H
+#define AM_MIXER_BUSES_H
+#include "mixer_model.h"
+#include "mixer_meters.h"
+#ifdef __cplusplus
+extern "C" {
+#endif
+enum mixer_bus_result { MIXER_BUS_OK, MIXER_BUS_INVALID, MIXER_BUS_RESOURCE,
+    MIXER_BUS_FX_ERROR, MIXER_BUS_UNSUPPORTED, MIXER_BUS_STATE, MIXER_BUS_AUDIO_ERROR };
+struct mixer_buses;
+struct mixer_pcm_view {const float *channel[2];unsigned frames;};
+/* Prepare immutable routing/mix/FX snapshot off RT. part_id chooses an
+ * optional Scene. No native source, project, sequencer or UI is changed.
+ * Send>0 is rejected until returns/export semantics exist. Independent FX
+ * instances belong to this graph; chain bypass leaves native config intact. */
+struct mixer_buses *mixer_buses_prepare(const struct mixer_project*,uint64_t part_id,
+    double rate,unsigned max_frames,const struct fx_backend*,enum mixer_bus_result*error);
+/* Stop/join audio and readers before destroy. Backend destructors run here. */
+void mixer_buses_destroy(struct mixer_buses*);
+/* Single audio owner: begin -> any number of accumulate -> finish. Input
+ * is post-individual-Pad-processing PCM; mono duplicates to L/R. Sources may
+ * overlap, including several voices of one Pad. Inputs are never mutated.
+ * Adapter must suppress the old summing path for exactly those sources. */
+enum mixer_bus_result mixer_buses_begin(struct mixer_buses*,unsigned frames);
+enum mixer_bus_result mixer_buses_accumulate(struct mixer_buses*,unsigned pad,
+    const float *left,const float *right,unsigned channels,unsigned clear);
+enum mixer_bus_result mixer_buses_finish(struct mixer_buses*,struct mixer_meters*,uint64_t epoch);
+/* Read on the same owner before next begin/destroy. Index 0..7 Track,
+ * 8 Master Direct (post Solo), 9 final Master. No unfinished/error output. */
+int mixer_buses_view(const struct mixer_buses*,unsigned bus,struct mixer_pcm_view*);
+size_t mixer_buses_pcm_bytes(const struct mixer_buses*);
+#ifdef __cplusplus
+}
+#endif
+#endif
