@@ -14,6 +14,10 @@ release artifacts в этот этап не входят.
 
 ## 1. Проверенная основа и незакрытые вопросы
 
+Продолжение аудита с исполняемыми ARM/QEMU проверками resolver, stereo summing
+и Song/Seq export entry: [MIXER_NATIVE_AUDIT.md](MIXER_NATIVE_AUDIT.md).
+Полный Phase 0 остаётся открытым; проверенные entry points не равны live-интеграции.
+
 | Что установлено по исходникам | Основание | Следствие для Mixer |
 |---|---|---|
 | Рабочая система координат UI — **320×240** | [`resample_view.h`](../sd-mod-session/src/resample_view.h), `resample_view_paint()` в [`resample_view.c`](../sd-mod-session/src/resample_view.c), `paint()` в [`compressor_ui.c`](../sd-mod-session/src/compressor_ui.c) | Проектировать в этих пикселях, без масштабирования desktop-макета |
