@@ -7,17 +7,44 @@
 static uintptr_t image;
 static int (*page_enabled)(void*);
 static thread_local unsigned filtered;
+static thread_local bool sample_scope;
+static thread_local void*sample_graphics;
+static int (*tint_provider)(uint32_t*);
+extern "C" void filter_spectrum_tint_provider(int(*provider)(uint32_t*)){tint_provider=provider;}
 typedef int (*Waveform)(void*,const void*,int,int,void*,unsigned,float,float);
 static Waveform waveform;
 struct Scope {
     unsigned previous;
-    explicit Scope(bool on):previous(filtered){filtered=on?previous+1:0;}
-    ~Scope(){filtered=previous;}
+    bool previous_sample;
+    void*previous_graphics;
+    explicit Scope(bool on,bool sample,void*g):previous(filtered),previous_sample(sample_scope),previous_graphics(sample_graphics){filtered=on?previous+1:0;sample_scope=sample;sample_graphics=sample?g:nullptr;}
+    ~Scope(){filtered=previous;sample_scope=previous_sample;sample_graphics=previous_graphics;}
+};
+/* Pinned LowLevelGraphicsContext: saveState14, restoreState15, setFill18.
+ * Only the sample rasterizer is tinted. Restoring the context also preserves
+ * gradients/opacity used by native curves, handles and subsequent children. */
+struct WaveTint {
+    void*context;uintptr_t*table;
+    explicit WaveTint():context(nullptr),table(nullptr){
+        uint32_t rgb=0;
+        if(!sample_scope||!sample_graphics||!tint_provider||!tint_provider(&rgb))return;
+        /* draw_samples receives a waveform raster adapter, NOT a Graphics
+         * or LowLevelGraphicsContext. Use the real paint owner's Graphics. */
+        void*g=F(sample_graphics,8,void*);if(!g)return;
+        table=F(g,0,uintptr_t*);
+        if(!table||!table[14]||!table[15]||!table[18])return;
+        context=g;reinterpret_cast<void(*)(void*)>(table[14])(g);
+        struct Fill {uint32_t colour,padding;void*gradient;void*image;float transform[6];} fill={rgb|0xff000000u,0,nullptr,nullptr,{1,0,0,0,1,0}};
+        static_assert(sizeof(Fill)==48,"Pinned native FillType layout");
+        reinterpret_cast<void(*)(void*,const void*)>(table[18])(g,&fill);
+    }
+    ~WaveTint(){if(context)reinterpret_cast<void(*)(void*)>(table[15])(context);}
 };
 static int draw_samples(void*g,const void*rect,int channels,int samples,void*out,unsigned first,float scale,float y){
     /* This helper draws sample min/max data, not the filter/envelope paths.
      * A false return means no waveform drawing occurred. */
     if(filtered)return 0;
+    WaveTint tint;
     return waveform(g,rect,channels,samples,out,first,scale,y);
 }
 static void paint_waveform(void*view,void*g){
@@ -26,7 +53,8 @@ static void paint_waveform(void*view,void*g){
         if(F(root,0,uintptr_t)==image+0x6e212a0)break;
         root=F(root,0x18,void*);
     }
-    Scope scope(root&&F(root,0,uintptr_t)==image+0x6e212a0&&page_enabled(root));
+    bool sample=root&&F(root,0,uintptr_t)==image+0x6e212a0;
+    Scope scope(sample&&page_enabled(root),sample,g);
     /* Keep the original complete painter: backgrounds, native filter and
      * envelope curves, handles and child layout remain its responsibility. */
     reinterpret_cast<void(*)(void*,void*)>(image+0x2d574b0)(view,g);

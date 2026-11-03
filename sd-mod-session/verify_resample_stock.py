@@ -7,6 +7,7 @@ assert hashlib.sha256(stock.read_bytes()).hexdigest()=='b6584cba76e416e432ad2025
 out=root/'build/resample-stock';out.mkdir(exist_ok=True)
 sources=['src/pad_palette.h','src/pad_workflow_colour.h','src/resample_stock.cc','src/resample_stock.h','src/resample_stock_backend.cc','src/resample_stock_backend.h','src/resample_simple_ui.cc','src/resample_destination.c','src/resample_destination.h','check_resample_simple_ui.c','check_resample_stock.c','check_resample_stock_callback.cc','check_resample_stock_queue.cc','check_resample_stock_backend.c','check_resample_stock_sample.S','check_resample_trigger.c','check_resample_route.c','check_fx_native.c','verify_resample_stock.py']
 digest=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
+sources+=['src/music_settings.h','check_palette_receiver.h']
 before={s:digest(root/s) for s in sources}
 for s in ['src/resample_file_probe.h','check_resample_file.cc']:before[s]=digest(root/s);sources.append(s)
 for name,flags in [('normal',[]),('ubsan',['-fsanitize=undefined','-static-libubsan','-fno-sanitize-recover=all'])]:

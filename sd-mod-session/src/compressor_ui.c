@@ -92,6 +92,10 @@ int compressor_ui_control(void*e,uint64_t ticket){
  if(ticket&T_SHIFT)compressor_shift_knob(cc-0x10,value);else compressor_knob(cc-0x10,value);
  repaint();return 1;
 }
+int compressor_ui_reset_knob(unsigned column,unsigned shifted){
+ if(!visible()||music_ui_repeat_active()||compressor_type()!=COMP_OPTO)return 0;
+ compressor_reset_knob(column,shifted);repaint();return 1;
+}
 static void paint(void*p,void*g){
  if(F(p,0,uintptr_t)!=base+SCREEN)return;
  compressor_phone_wake();

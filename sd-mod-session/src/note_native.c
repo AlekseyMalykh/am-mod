@@ -324,6 +324,18 @@ int note_native_control(void *event)
     }
     return 1;
 }
+int note_native_reset_knob(unsigned column,unsigned shift){
+ if(column>2||!root)return 0;
+ if(!shift&&column==1&&trim_showing()&&music_pad_lighting_mode()){
+  unsigned pad;if(note_native_pad_index(&pad))music_set_pad_colour(pad,0);
+  trim_repaint();return 1;
+ }
+ if(shift&&column==0&&showing()){
+  char name[MUSIC_NAME_BYTES];if(note_native_current(name,sizeof(name)))music_set_sample(name,MUSIC_ROOT,-1);
+  note_native_tick();trim_repaint();return 1;
+ }
+ return 0;
+}
 
 static void colour(void *g,uint32_t c) { FN(0x102d5e0,void(*)(void*,uint32_t))(g,c); }
 static void rect(void *g,int x,int y,int w,int h)
@@ -363,7 +375,7 @@ static void pad_colour_cell(void *g,int ox,int oy,int focused)
     uint32_t swatch=0xff000000|music_identity_rgb(value);
 
     colour(g,swatch); rect(g,ox+6,oy+18,10,10);
-    colour(g,ink); text(g,valid ? music_sequence_colour_names[value?(int)music_colour_effective((unsigned)value):0] : "--",ox+18,oy+14,84,18,16.0f);
+    colour(g,ink); text(g,valid ? music_identity_name((unsigned)value) : "--",ox+18,oy+14,84,18,16.0f);
     for (int i=0;i<MUSIC_IDENTITY_CHOICES;++i) {
         int x=i*98/MUSIC_IDENTITY_CHOICES, next=(i+1)*98/MUSIC_IDENTITY_CHOICES;
         colour(g,(unsigned)i==choice ? ink : 0xff3b3b3b);

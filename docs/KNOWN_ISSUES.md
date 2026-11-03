@@ -1,94 +1,52 @@
-# Known issues and testing status
+# Known issues, testing status and requests
 
-[Русский](KNOWN_ISSUES.ru.md) · [Report / discuss](FEEDBACK.md)
+Updated **3 November 2026**. Local prerelease **r27e** is prepared; public stable
+remains **r26s**. See Releases for available downloads.
+[Full changes](RELEASE_NOTES-r27e.md) · [Readiness](RELEASE_READINESS-r27e.md) ·
+[Settings](MOD_SETTINGS.md) · [Original Leusha list, Russian](TESTER_FEEDBACK_LEUSHA.ru.md).
 
-Updated **2 November 2026**. These are reports under investigation, not all
-independently reproduced bugs. Numbers L01–L21 preserve the supplied tester
-summary; L22 is an additional report from the author. Revision and exact steps
-are still needed for some reports. Related items remain separate test cases.
+Implemented means the change and stated coverage exist, not that the entire
+original hardware report is closed. Mod Off is removed: current tests use normal
+power-off, External saves and stock startup without the mod card.
 
-**Current release: r26s.** Source and ZIP include the confirmed K fix,
-experimental FAT32, OptoCat/Warm, shared Bypass/master rebinding, startup modal
-gating, Copy/Extract colour history, workflow hues, Seq pulses and Sound cursor.
-EQ retains its native volume/pan side strips; OptoCat Gain is −6…+6 dB.
-[Changes and verification scope](RELEASE_NOTES-r26s.md).
-
-The author confirmed K on an MPC. ARM/QEMU/UBSan cover the specified native
-factory/audio/renderer/workflow boundaries; the newest combined GUI scenarios
-and physical FAT32 still need their device checks. A previous full native VM
-run verified one startup-modal error and project-copy fixture; it does not close
-every project report below. Ordinary manual External Save/Load was reported to work.
-
-**Local candidate: r26x, unpublished.** The preceding device-test package was r26w; r26x needs a new trial. [Readiness audit](RELEASE_READINESS-r26x.md). A stable release is not ready: L01–L04 remain open.
-
-## Reports and remaining checks
-
-| ID | Priority | Report / next check |
+| ID | Status | Implementation / next check |
 | --- | --- | --- |
-| L01 | P1 | Complete-project loading was fixed in r26b–r26d. Recheck the full startup/Mod Off cycle: project B must retain its own sequences, notes, samples and mixer state over project A or an empty project. This is follow-up coverage, not a confirmed new regression. |
-| L02 | P1 | Several `Could not load project` messages after Mod Off, stock project loading and restart. Exact sequence is uncertain; identify the XPJ chosen at startup and its data folder. |
-| L03 | P1 | `Could not load sample` during Mod Off. Check the exit-copy sample paths, files and handoff to stock. |
-| L04 | P1 | `Mod Exit Last` appears as the project name in ordinary Save. The exit copy is intentional; check project identity and the destination of a later Save. |
-| L05 | P2 | Delete appears unavailable in Project Load. Physical **Erase** in Open Project is already implemented; check the affected browser/search state and selected file/folder. |
-| L06 | P2 | A Chop on the first beat does not light on the first Play pass, but lights after looping. Reproduce the first-pass and restart cases. |
-| L08 | P2 | Implemented: assigned hues across ordinary Copy/browser and custom Batch/Mono/Resample/Extract; target/overwrite cues preserved. r26v refines selected red/green targets and white sources (N04). Retest the reported bank/Paste/Cancel sequence on the MPC. |
-| L09 | P2 | Implemented source-colour inheritance for Copy/Extract, captured Undo/Redo and rollback. Clearing preserves the pad colour by design. Verify device Save/Load and used/empty targets. |
-| L11 | P2 | Muted pads look empty because the waveform is hidden. Verify sample presence independently of the load errors; a previous full VM showed a grey waveform and did not reproduce the original case. N05 grey event flashes do not close this report. |
-| L13 | P2 | Shift+Pad Bank does not go to the previous bank during Copy. Batch has reverse Shift+Bank; the original native Copy case is still unconfirmed on hardware. Check it separately. A bank picker is a separate suggestion. |
-| L16 | P2 | r26s implements the agreed Seq pulses: selected once per bar at Stop, playing once per beat, queued twice per beat until handoff, with visible background and stable other-pad brightness. r26w Standard offers the native pattern as an alternative. Verify timing/readability and queue/cancel on the MPC before closing. |
-| L22 | P2 | Implemented assigned colours in Duck/OptoCat, including playback and banks; Mute/Erase priorities retained. Retest both types, Bypass, selection and exit on the MPC. |
+| L01–L04 | P1 / implemented; original hardware cases pending | Full project restore, original recovery identity/sample paths and separate first-Save confirmation are implemented. The author passed basic A/B cases, not every original Leusha case. Test normal shutdown → stock without SD using A → mod with B; compare notes, sequences, samples and effects. Historical Mod Off steps are obsolete in r27e. |
+| N09 | Implemented; device check pending | Delayed New Project Auto Save Error: initialize a missing Temp-Project through native serialization. Relevant ARM/UBSan branches and an earlier native VM case passed; the exact final package was not booted end-to-end in VM. Create/edit a new project, wait for autosave, then test manual Save/Load. |
+| L05 | Implemented; original device case pending | Physical ERASE deletes from Project Load with native confirmation. Retest files/folders and ordinary/search views. |
+| L06 | Open | First-beat Chop light appears only after looping. Need the precise first-Play/restart case. |
+| L07 / L10 / L12 | Earlier confirmation | Sample playback Pad Colour, distinct Green/Cyan and native Scaled/K end stops fixed. The author confirmed K on MPC; issue #2 closed. This does not confirm every new colour workflow. |
+| L08 / L09 / L22 | Implemented; full hardware cases pending | Assigned colours across Copy/Extract/Mono/Render/browser and Duck/OptoCat, plus Copy/Extract inheritance and Undo/Redo. Retest banks, Paste/Cancel/Undo, occupied targets, both compressors, Bypass and Save/Load. |
+| L11 | Open; original case not reproduced | Muted waveform looked absent; an earlier VM showed grey waveform. Grey recorded-muted-event flashes do not close this report and do not unmute audio. |
+| L13 | Native Copy case pending | Batch supports reverse Shift+Pad Bank; original native Copy behaviour still needs a device check. Native held-Pad-Bank pads1–8 selection is retained. |
+| L16 | Implemented; device readability pending | Seq selection pulses per bar at Stop, playing per beat, queue twice per beat; background/other brightness stable. Test queue/cancel, tempos and meters. Standard keeps native lighting. |
+| L20 / L21a | Implemented | Filter/Filter Env/EQ spectrum with curves and side strips. Pad Colour is Sample → B1 Mix → K2 in AM Mod; Shift+K2 Kit Volume, K1 Volume. |
+| N01–N03 | Implemented; targeted device checks remain | EQ Volume/Pan; OptoCat−6…+6dB, Shift Attack/Release/Knee, Warm, paw/red GR and input bow; shared Bypass, New Project rebinding and active-type entry. Retest audio/meters, New Project and restart. |
+| N04 / N05 / N10 | Implemented; device readability pending | White source/cursor uses Steady/Slow/Normal/Fast instead of the previous independent double flash. Unselected empty targets off; selected empty/occupied green/red. Five user slots stay separate from system roles. |
+| N06 / N08 / L19 | Implemented | Six Project rows without Mod Off. Five Mod Settings tabs, confirmed reset, Standard/AM Mod, tint/palette/pulse/About. Standard retains Piano/Scale/16 Levels. Display and OptoCat settings are stored in XPJ. |
+| N07 | Implemented; fast/latched Repeat check pending | Repeat B1–B3 priority and hidden-paint guard prevent compressor Type indication returning on release. Original hardware scenario remains pending. |
+| N11 | Implemented; device check pending | Pad Bank + K / Pad Bank → Shift + K resets supported factory values. Native Duck/other FX, Main Volume and object selection are not reset. |
+| N12 | Implemented in r27d; device confirmation pending | Library cursor follows native load target, not stale editor instrument; search inherits it. ARM/UBSan covers128 indexes; native VM confirms the field. |
+| N13 | Implemented in r27e; device confirmation pending | Empty selected Sample pad gets a white cursor and turns off between flashes. Checked128 pads/eight banks/four modes, missing program, stale loaded-pad cache and Standard. |
+| FAT32 / #1 | Experimental | Supported in packages from r26e. Successful startup workaround used exFAT; closing #1 does not verify physical FAT32. Separate FAT32 install/restart/save testing remains. |
 
-Project lifecycle (L01–L04) is the first investigation priority, followed by
-Chop and Copy/Extract/compressor colours. Ordinary manual Save/Load was reported
-to work with External projects; automatic restoration and Mod Off need separate checks.
+## Requests not included in this release
 
-## Fixed, implemented or awaiting a specific retest
+- Synth: **deferred by the author**, not being implemented now.
+- Stem export: not implemented; mixer/effect routing is not designed yet.
+- L15: an additional Key/Scale entry in Input Config.
+- L17/L18: investigate low-frequency detail and spectrum brightness while keeping curves readable.
+- L21b: an independent RGB editor; palette swapping is not a full RGB editor.
+- L21c/L21d: interchangeable characters/artwork help; Duck/OptoCat B2 chooses an algorithm, not an independent skin.
+- L14: Piano/Scale instructions exist; the [device walkthrough](FEATURES.md#quick-start-16-levels-pianoscale) can still be refined.
 
-| ID | Status |
-| --- | --- |
-| L07 | Sample playback retaining Pad Colour was fixed in r26b–r26d and confirmed by the author. Retest the tester's case on a current build; Copy and compressor contexts remain L08/L22. |
-| L10 | Green was made distinct from Cyan in r26b–r26d; the tester noticed the change after installing r26d. |
-| L12 | **K1–K3 end-stop stalls fixed in r26i**, confirmed on hardware by the author. [Issue #2 is closed](https://github.com/AlekseyMalykh/am-mod/issues/2). Included in the r26s ZIP. |
-| L20 | Spectrum on Filter and Filter Env, in addition to EQ, is implemented in r26d. Native curves are preserved. |
-| L21a | Pad Colour without Shift is implemented: **Sample → B1 Mix → K2 (AM Mod)**; Shift+K2 is Kit Volume, K1 is Volume. |
+Ideas C01/C02: live held-chord/arp changes and force-based expression are [future requests](IDEAS.md), not implemented in r27e. New-hit velocity already passes through; continuous pressure still needs investigation.
 
-## Later author reports
+## Limits
 
-All rows are **implemented and automatically checked**, with the complete
-original MPC scenarios still pending. r26t–r26x are local candidates.
+Autoload picks the newest saved SD XPJ, not last opened. Internal is temporary
+inside the mod. Stock resaving may discard optional mod XPJ fields. K reset does
+not cover native Duck/other FX. Newest cursors/final-package hardware confirmation
+remain pending; a full VM boot of the exact final r27e is not claimed.
 
-| ID | Change | Remaining check |
-|---|---|---|
-| N01 | Native EQ Volume/Pan side strips restored (r26s); filter/envelope curves retained | Device geometry |
-| N02 | OptoCat Gain −6…+6 dB, Shift Attack/Release/Knee, Warm; paw/red bar share real GR, bow follows input | Device audio/meter/Bypass |
-| N03 | OptoCat master rebinding after New Project, shared Bypass, open active type or Duck if both off | Repeated New Project/type/Bypass/restart |
-| N04 | Double-pulse Batch Copy/Chop Extract sources; assigned empty targets green, occupied red; unselected empty off (r26t–v) | Banks, Paste/Cancel, Undo/Redo and physical readability |
-| N05 | Default + five user colours, reserved system hues,400/400ms Sample/Chop/Sound cursor, grey muted-event flashes (r26u–v) | Physical priorities/readability, audio remains muted |
-| N06 | Global Standard / AM Mod saved on SD; seven Project entries in native six-row viewport, Mod Off last (r26w) | Scroll, return, mode switching and restart |
-| N07 | Repeat B1–B3 priority over compressor (r26w); hidden paint no longer reopens overlay, Type restore requested once after close (r26x) | Fast release, held/latched Repeat, stable Type on MPC |
-| N08 | Standard retains 16 Levels Piano/Scale settings and musical lighting, tonic/scale/Transpose16 (r26x) | Device entry and XPJ round trip; Pad/Seq Colour remain disabled |
-
-## Questions and feature requests
-
-- **L14:** [quick-start instructions](FEATURES.md#quick-start-16-levels-pianoscale) added and checked against code; physical walkthrough pending. r26x also enables Lights in Standard.
-- **L15:** another entry point for Key/Scale in Input Config; currently a project setting.
-- **L17:** investigate the visibly coarser low-frequency spectrum resolution before calling it a bug.
-- **L18:** brighter spectrum without obscuring native filter/envelope curves.
-- **L19:** waveform/spectrum colours derived from Pad Colour, retaining readable contrast.
-- **L21b:** a dedicated RGB editor.
-- **L21c:** interchangeable compressor characters. OptoCat already exists; B2 currently selects **Duck/OptoCat algorithms**, not an independent artwork skin.
-- **L21d:** offer to help with artwork; no asset task has been agreed yet.
-
-These are suggestions, not scheduled commitments. OptoCat Attack/Release/Knee,
-GR-driven paw, Warm and the gain limits are included in r26s; see its verification scope.
-
-## Current limitations
-
-- Experimental FAT32 is in r26s and packages from r26e onward; physical FAT32
-  confirmation is still pending. Closing #1 does not verify FAT32: the successful workaround used exFAT. r26d packages require exFAT.
-- OptoCat type/settings currently live in RAM and are not saved in projects.
-- Startup chooses the newest saved XPJ in SD Projects or one level below,
-  rather than keeping a history of manually opened projects.
-
-See [r26d](RELEASE_NOTES-r26d.md), [r26i](RELEASE_NOTES-r26i.md) and
-[installation/control documentation](../README.md) for the scope of existing fixes.
+Thanks to Leusha, mxt1iga and everyone providing tests and reproductions.

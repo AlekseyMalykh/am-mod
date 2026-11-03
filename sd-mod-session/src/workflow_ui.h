@@ -25,10 +25,12 @@ int workflow_event_preview(void *program,const void *event,unsigned key,unsigned
 void workflow_event_preview_stop(int cancel_pending);
 unsigned workflow_event_preview_pending(void);
 int workflow_tick(void);
+int workflow_startup_loading(void); /* UI-only; false while a native modal is active. */
 int workflow_active(void);
 /* Atomic ownership:0 off,1 sample browser,2 native Copy Pad. RGB must not inspect Components. */
 int workflow_native_pad_colours(void);
 int workflow_native_occupied(void); /* atomic16-bit mask, -1 unavailable */
+int workflow_native_selected(void); /* UI-published absolute browser destination, -1 unavailable */
 /* UI thread: actual browser/Copy/Batch/Mono ownership, excluding the
  * ordinary Sample host observed for the optional Chop actions. */
 int workflow_blocks_sample_controls(void);

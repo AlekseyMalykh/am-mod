@@ -808,6 +808,7 @@ int main(int argc,char **argv)
     }
     /* Deterministic Sample focus and muted-event UI snapshot, no audio mutation. */
     void *saved_selected=FIELD(things,0x60,void*);FIELD(things,0x60,void*)=play_instrument;
+    unsigned saved_pad_index=FIELD(things,0x5f8,unsigned);FIELD(things,0x5f8,unsigned)=6;
     memset(playback_until,0,sizeof(playback_until));memset(playback_muted_until,0,sizeof(playback_muted_until));
     play_instrument[0x78]=0;assert(music_set_pad_colour(6,13));step_native_observe_rgb(6,0);
     sample_palette_publish(things,program,0,1,0);assert((uint32_t)atomic_load(&sample_palette[6])==PAD_SELECT);
@@ -820,6 +821,7 @@ int main(int argc,char **argv)
     sample_palette_publish(things,program,0,1,1234567);assert((uint32_t)atomic_load(&sample_palette[6])==PAD_SELECT);
     sample_palette_publish(things,program,0,1,1234967);assert((uint32_t)atomic_load(&sample_palette[6])==music_identity_rgb(13));
     FIELD(things,0x60,void*)=saved_selected;assert(music_set_pad_colour(6,0));
+    FIELD(things,0x5f8,unsigned)=saved_pad_index;
     puts("PASS Sample white focus, Pink identity, native held/Loop activity, grey muted-event pulse and expiry; mute property unchanged");
     /* Returning from hidden Steps must leave ordinary Sample pulses enabled. */
     steps=0;
@@ -921,6 +923,45 @@ int main(int argc,char **argv)
     FN(0xf0a290,void(*)(void*))((void*)(sample_data+0xa8));FIELD(sample_refs,8,int)=0;instruments[6]=NULL;
     music_reset();
     puts("PASS Tune picker Lights: Events and Steps, five modes, project/local key, own source tuning, recorded transpose not doubled, old/choice markers, other Sample snapshot and events unchanged; non-Tune palettes unchanged");
+    phase="separate SAMPLE RECORD toggle and exclusive WRITE";
+    steps=want_steps=1;menu=0;sound=4;grid=2;follow=0;
+    atomic_store(&write_armed,0);atomic_store(&toggle_armed,0);
+    int empty_step=-1;
+    for(int n=0;n<count();++n){struct slot at[16];assert(scan_page(n/16,sound,grid,at));if(!at[n%16].count){empty_step=n;break;}}
+    assert(empty_step>=0);hold(empty_step);step_native_tick();
+    unsigned toggle_led=99;assert(step_native_button_owns(BUTTON_SAMPLE_RECORD));
+    assert(step_native_button_light(BUTTON_SAMPLE_RECORD,&toggle_led)&&!toggle_led);
+    button(BUTTON_SAMPLE_RECORD,1);button(BUTTON_SAMPLE_RECORD,1);button(BUTTON_SAMPLE_RECORD,0);
+    assert(atomic_load(&toggle_armed)&&!atomic_load(&write_armed));
+    assert(step_native_button_light(BUTTON_SAMPLE_RECORD,&toggle_led)&&toggle_led==1);
+    assert(step_native_record_light(&rec_led)&&!rec_led);
+    before=tree()->size;s_pad(empty_step%16,step_native_ticket());assert(tree()->size==before+1&&cursor==empty_step);
+    s_pad(empty_step%16,step_native_ticket());assert(tree()->size==before&&cursor==empty_step);
+    struct step_event foreign=make_note(5,(int64_t)empty_step*grid_ticks[grid],.6f);insert_note(&foreign);
+    s_pad(empty_step%16,step_native_ticket());assert(tree()->size==before+2);
+    s_pad(empty_step%16,step_native_ticket());assert(tree()->size==before+1&&choose_exact(&foreign));
+    struct step_event chord_a=make_note(4,(int64_t)empty_step*grid_ticks[grid],.5f),chord_b=chord_a;
+    chord_b.time++;chord_b.type|=0x200;chord_b.data[0x23]++;
+    insert_note(&chord_a);insert_note(&chord_b);int group_before=group_delete_calls;
+    s_pad(empty_step%16,step_native_ticket());assert(tree()->size==before+1&&group_delete_calls==group_before+1&&choose_exact(&foreign));
+    button(BUTTON_RECORD,1);button(BUTTON_RECORD,0);
+    assert(atomic_load(&write_armed)&&!atomic_load(&toggle_armed));
+    assert(step_native_record_light(&rec_led)&&rec_led==1);
+    assert(step_native_button_light(BUTTON_SAMPLE_RECORD,&toggle_led)&&!toggle_led);
+    s_pad(empty_step%16,step_native_ticket());s_pad(empty_step%16,step_native_ticket());
+    assert(tree()->size==before+2); /* WRITE remains add/select, never toggle. */
+    button(BUTTON_SAMPLE_RECORD,1);button(BUTTON_SAMPLE_RECORD,0);
+    assert(atomic_load(&toggle_armed)&&!atomic_load(&write_armed));
+    button(BUTTON_SAMPLE_RECORD,1);button(BUTTON_SAMPLE_RECORD,0);
+    assert(!atomic_load(&toggle_armed)&&!atomic_load(&write_armed));
+    s_pad(empty_step%16,step_native_ticket());assert(tree()->size==before+2);
+    menu=1;step_native_tick();button(BUTTON_SAMPLE_RECORD,1);button(BUTTON_SAMPLE_RECORD,0);
+    assert(!atomic_load(&toggle_armed)&&menu==1);menu=0;step_native_tick();
+    step_native_requested(0x31,1);assert(!step_native_button_owns(BUTTON_SAMPLE_RECORD));step_native_requested(0x31,0);
+    button(BUTTON_SAMPLE_RECORD,1);button(BUTTON_SAMPLE_RECORD,0);assert(atomic_load(&toggle_armed));
+    leave();step_native_tick();assert(!atomic_load(&toggle_armed)&&!atomic_load(&write_armed));
+    assert(!step_native_button_owns(BUTTON_SAMPLE_RECORD)&&!step_native_button_light(BUTTON_SAMPLE_RECORD,&toggle_led));
+    puts("PASS SAMPLE RECORD toggles a step on/off, removes the whole selected-sound chord including muted notes, preserves other sounds and cursor; WRITE remains add/select, buttons/LEDs mutually exclusive, duplicate down/menu/Shift/exit handled");
     phase="project and queue invalidation";
     step_native_project_changed();step_native_tick();assert(!clip_valid && !step_native_custom());
     step_native_queue_fault();step_native_tick();assert(!step_native_custom());

@@ -25,6 +25,14 @@ void compressor_knob(unsigned,unsigned);
 void compressor_shift_knob(unsigned,unsigned);
 void compressor_bypass(void);
 void compressor_warm(void);
+/* Versioned XPJ companion data. Duck controls and shared Bypass are owned
+ * by the native project serializer; this word holds Type and Opto controls. */
+uint64_t compressor_project_snapshot(void);
+int compressor_project_valid(uint64_t);
+int compressor_project_restore(uint64_t);
+void compressor_project_reset(void);
+void compressor_reset_knob(unsigned column,unsigned shifted);
+int compressor_ui_reset_knob(unsigned column,unsigned shifted);
 float compressor_reduction(void);
 float compressor_input_level(void);
 void compressor_meter_levels(struct comp_meter*);

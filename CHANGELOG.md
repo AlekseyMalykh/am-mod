@@ -1,5 +1,75 @@
 # Changelog
 
+## r27e — prerelease
+
+Consolidates all changes since public r26s: Mod Settings/Standard/AM Mod,
+palette/tint/pulse defaults and project snapshots, source/target and empty-pad
+cursors, native browser load-target selection, supported Pad Bank+K reset,
+recovery identity/first Save and missing Temp-Project autosave handling, first
+native startup Load/DRM splash/About, normal shutdown without Mod Off, exclusive
+Steps WRITE/TOGGLE, browser ERASE, Repeat priority and drawing fixes.
+Preserves the confirmed K end-stop fix, OptoCat/Warm and earlier musical tools.
+Hardware scenarios and future requests remain explicitly open.
+[Full English changes](docs/RELEASE_NOTES-r27e.md) ·
+[Полный список](docs/RELEASE_NOTES-r27e.ru.md).
+
+## r27d — local browser cursor fix, unpublished
+
+White browser selection follows the native load-target index, including empty pads and all banks; search retains the current destination. Steady/blink settings are preserved.
+
+## r27c — local candidate, unpublished
+
+- Fixed delayed Auto Save Error after New Project: the first autosave uses
+  the native serializer to create the missing Temp-Project.xpj from the
+  current project, without importing the previous project's data.
+- White library/Copy/Batch/Chop/Mono/Render selection now follows Selected
+  Pad → Cursor pulse: Steady / Slow / Normal / Fast. Assigned colours show
+  between flashes; empty selected pads turn off between flashes.
+- Hold Pad Bank and turn K to reset that parameter to its factory default;
+  hold Pad Bank, then Shift, and turn K for its Shift parameter. Further
+  turns are consumed until Pad Bank is released. Native held-Pad-Bank
+  selection using pads 1–8 is preserved.
+
+
+## r27b — prepared test release, unpublished
+
+- Use compact 8-pixel version/repository text near the bottom of the splash.
+
+- Shared version/repository on the DRM and in-app splashes and read-only About (5/5).
+- Circular five-tab navigation; About cannot reset or edit settings.
+- Log real splash duration without adding a minimum display delay.
+- r27a splash is now confirmed visible on MPC; preserve the validated DRM handoff.
+- Consolidate all changes since public r26s and separate remaining device checks.
+- [Changes](docs/RELEASE_NOTES-r27b.md) · [Русский](docs/RELEASE_NOTES-r27b.ru.md).
+
+## r27a — local DRM-display candidate, unpublished
+
+- Replace fbdev splash writes with an owned DRM framebuffer, explicit active
+  scanout verification, master release and automatic native-frame handoff.
+- Bound resource allocation/cleanup and preparation cancellation; repeated
+  display starts are idempotent. Application library remains byte-identical.
+- Native VM QMP output matches the owned image; handoff/cancel pass. Physical
+  MPC visibility remains pending after the failed r26y/r26z fbdev trials.
+- [Changes](docs/RELEASE_NOTES-r27a.md) · [Русский](docs/RELEASE_NOTES-r27a.ru.md).
+
+## r26z — local display-fix candidate, unpublished
+
+- Address the r26y device report of a black boot screen: blank/unblank before
+  framebuffer transfer, sequential writes, explicit layout/reset/error logs.
+- Start early recovery via an acknowledged setsid watcher; retain systemd fallback.
+- Retain the exact r26y application library, one native SD Load, project recovery,
+  OptoCat/Warm, settings and all previous fixes. Physical splash retest pending.
+- [Changes](docs/RELEASE_NOTES-r26z.md) · [Русский](docs/RELEASE_NOTES-r26z.ru.md).
+
+## r26y — local candidate, unpublished
+
+- Replace Pad Lighting with four Mod Settings tabs: optional waveform/spectrum tint, service/user palette swaps, cursor timing, confirmed per-section recommended reset (B1 Cancel / B3 Restore) and encoder scrolling. Keep five user slots and Standard Piano/Scale.
+- Persist display settings and OptoCat Type/controls/Warm in optional XPJ data; retain native Duck/Bypass. Restore on successful reads, preserve state on failure, support legacy projects and reset Opto on New Project.
+- Preserve recovery project identity across asynchronous serialization, retain recovery sample paths and the native Temp-Project autosave destination, and require a separate first-Save confirmation. Remove Project Mod Off while keeping normal-power copy saving and emergency recovery.
+- Early Am MOD splash before application preparation, independent early rollback and SD selection in the first native full Load; disable late duplicate autoload while retaining Temp-Project autosave and manual Load. Physical startup timing is pending.
+- Exclusive SEQ RECORD WRITE and SAMPLE RECORD TOGGLE in Steps. Retain K, OptoCat/Warm, browser ERASE and prior workflow fixes.
+- [Changes](docs/RELEASE_NOTES-r26y.md) · [Русский](docs/RELEASE_NOTES-r26y.ru.md) · [Readiness](docs/RELEASE_READINESS-r26y.md). Public download remains r26s; device confirmation is pending.
+
 ## r26x — local candidate, unpublished
 
 - Keep 16 Levels Lights controls and musical Piano/Scale layouts available in Standard and AM Mod; preserve tonic/scale/Transpose16 and role colours. Standard still disables Pad Colour/Seq Colour controls and identity overlays.

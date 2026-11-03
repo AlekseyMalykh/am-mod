@@ -10,6 +10,10 @@ static const char *test_metadata();
 #define PROJECT_EXIT_METADATA_PATH test_metadata()
 #include "src/project_exit.cc"
 static char metadata[1024], storage[1024], object[0x200], services[0x80];
+#ifdef MPC_PROJECT_RECOVERY
+static char things[0x1400];static std::string original_project;
+extern "C" const char*project_recovery_test_metadata(void){return metadata;}
+#endif
 static void *native_object=object;
 static std::atomic<unsigned> saved{0};
 static std::atomic<bool> native_returned{false};
@@ -30,6 +34,10 @@ static void release_receiver(void *control){
 }
 static int save_receiver(void *p,const uint64_t *file,bool samples,bool copy,bool native_options){
     assert(p==object&&samples&&copy&&native_options);
+#ifdef MPC_PROJECT_RECOVERY
+    char name[129],relative[1024];assert(project_recovery_decode(project_recovery_copy_payload(),name,sizeof(name),relative,sizeof(relative)));
+    assert(!strcmp(name,"TestB")&&!strcmp(relative,"Projects/TestB.xpj"));
+#endif
     std::string path=(const char*)*file;
     assert(path.find(std::string(storage)+"/MPC-Sample/Projects/Mod-Exit-")==0);
     assert(path.substr(path.size()-18)=="/Mod-Exit-Last.xpj");
@@ -66,10 +74,13 @@ int main(){
     stub(0xf535c0,(void*)string_receiver);stub(0xf75630,(void*)file_receiver);stub(0xf0a290,(void*)destroy_receiver);stub(0x1508bc0,(void*)save_receiver);
     stub(0x123bca0,(void*)release_receiver);
     __builtin___clear_cache((char*)memory,(char*)memory+0x7500000);F(object,0,uintptr_t)=base+0x6d8cc00;
-    strcpy(storage,"/media/mpc-exit-lab-XXXXXX");assert(mkdtemp(storage));
+    strcpy(storage,"/media/am-mod-recovery-tests/mpc-exit-lab-XXXXXX");assert(mkdtemp(storage));
     std::string root=std::string(storage)+"/MPC-Sample";assert(!mkdir(root.c_str(),0700));assert(!mkdir((root+"/Projects").c_str(),0700));
     strcpy(metadata,"/tmp/mpc-exit-meta-XXXXXX");int fd=mkstemp(metadata);assert(fd>=0);close(fd);
     {std::ofstream file(metadata);file<<root<<'\n';}
+#ifdef MPC_PROJECT_RECOVERY
+    original_project=root+"/Projects/TestB.xpj";F(object,0x90,void*)=things;F(things,0,uintptr_t)=base+0x6ecc648;F(things,0x9b0,const char*)=original_project.c_str();
+#endif
     std::string previous;
     for(unsigned n=0;n<2;++n){assert(project_exit_start(base,services));assert(wait_job()==2);std::string path=project_exit_path();assert(path==root+"/Projects/Mod-Exit-Last.xpj");std::ifstream file(path);std::string contents;std::getline(file,contents);assert(contents=="native project fixture");previous=path;}
     {unsigned entries=0;DIR*d=opendir((root+"/Projects").c_str());assert(d);while(auto*e=readdir(d))if(e->d_name[0]!='.')++entries,assert(!strcmp(e->d_name,"Mod-Exit-Last.xpj"));closedir(d);assert(entries==1);}

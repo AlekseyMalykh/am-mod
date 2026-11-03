@@ -9,6 +9,7 @@ int chords_ui_button(void *event);
 int chords_ui_button_owns(unsigned code);
 void chords_ui_button_input(unsigned code,int down);
 int chords_ui_control(void *event);
+int chords_ui_reset_knob(unsigned column,unsigned shifted);
 int chords_ui_owns(unsigned cc);
 int chords_ui_paint(void *root,void *graphics);
 int chords_ui_button_light(unsigned code,unsigned *value);

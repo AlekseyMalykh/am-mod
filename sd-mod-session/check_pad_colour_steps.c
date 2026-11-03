@@ -43,12 +43,49 @@ static void stub(uintptr_t off,void*fn,int string_result){
  uint32_t sret[]={0xaa0803e3,0x58000070,0xd61f0200,0xd503201f};
  unsigned n=string_result?16:8;memcpy((void*)(base+off),string_result?(void*)sret:(void*)plain,n);memcpy((void*)(base+off+n),&fn,8);
 }
+static unsigned char sample_instruments[128][0x80],sample_used[128],sample_program[8];
+static void*sample_instrument(void*p,int n){assert(p==sample_program&&n>=0&&n<128);return sample_used[n]?sample_instruments[n]:NULL;}
+static int sample_has_audio(void*p){for(unsigned n=0;n<128;++n)if(p==sample_instruments[n])return sample_used[n];assert(0);return 0;}
+static void empty_sample_cursor_checks(void){
+ unsigned char things[0x700]={0};
+ FIELD(things,0x60,void*)=sample_instruments[0]; /* Deliberately stale loaded-pad cache. */
+ stub(0x286bbe0,sample_instrument,0);stub(0x2804760,sample_has_audio,0);__builtin___clear_cache((char*)base,(char*)base+0x7500000);
+ atomic_store(&ticket,0);atomic_store(&requested_shift,0);atomic_store(&requested_erase,0);
+ memset(playback_until,0,sizeof(playback_until));memset(sample_native_rgb,0,sizeof(sample_native_rgb));
+ for(unsigned mode=0;mode<4;++mode){
+  assert(music_set_mod_setting(MUSIC_SETTING_BLINK,mode));unsigned period=mode==1?1200:mode==2?800:400;
+  for(unsigned selected=0;selected<128;++selected){
+   unsigned bank=selected/16,pad=selected%16,other=bank*16+(pad+1)%16;
+   memset(sample_used,0,sizeof(sample_used));sample_used[other]=1;
+   FIELD(things,0x5f8,unsigned)=selected;sample_focus_index=-1;
+   for(unsigned elapsed=0;elapsed<2400;elapsed+=40){
+    sample_palette_publish(things,sample_program,(int)bank,1,10000+elapsed);
+    int white=!mode||elapsed%period<period/2;
+    uint64_t got;assert(step_native_light(pad,&got));
+    assert(got==pad_light(white?PAD_SELECT:0,white?.95f:0));
+    for(unsigned j=0;j<16;++j)if(j!=pad){
+     assert(step_native_light(j,&got));
+     assert(got==pad_light(bank*16+j==other?music_identity_rgb(music_pad_colour(other)):0,bank*16+j==other?PAD_BRIGHT_CONTENT:0));
+    }
+   }
+   assert(FIELD(things,0x60,void*)==sample_instruments[0]);
+  }
+ }
+ memset(sample_used,0,sizeof(sample_used));FIELD(things,0x5f8,unsigned)=3;sample_focus_index=-1;
+ sample_palette_publish(things,NULL,0,1,20000);uint64_t got;assert(step_native_light(3,&got)&&(uint32_t)got==PAD_SELECT);
+ FIELD(things,0x5f8,unsigned)=128;sample_palette_publish(things,NULL,0,1,20040);
+ for(unsigned j=0;j<16;++j)assert(step_native_light(j,&got)&&got==pad_light(0,0));
+ assert(music_set_pad_lighting_mode(MUSIC_LIGHTING_STANDARD)&&!step_native_light(3,&got));
+ assert(music_set_pad_lighting_mode(MUSIC_LIGHTING_MOD)&&music_mod_restore_recommended(3));
+ sample_palette_publish(NULL,NULL,0,0,20100);
+ puts("PASS Sample empty selected cursor: all128 slots/eight banks, stale loaded-pad cache, all4 pulse modes, immediate white on selection, empty off phase, steady loaded neighbours, absent program, invalid target and Standard pass-through");
+}
 int main(void){
  void*p=mmap(NULL,0x7500000,7,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);assert(p!=MAP_FAILED);base=(uintptr_t)p;
  stub(0x3b774b0,cell_text,1);stub(0x3b72210,native_row,0);stub(0xf0a290,release_text,0);__builtin___clear_cache(p,(char*)p+0x7500000);
  stub(0xf535c0,text_make,0);stub(0x1082810,font_make,0);stub(0x102dca0,font_use,0);stub(0x1070d60,font_end,0);
  stub(0x102d5e0,ink_set,0);stub(0x102e000,grid_rect,0);stub(0x10817b0,grid_text,0);__builtin___clear_cache(p,(char*)p+0x7500000);
- music_reset();sound=0;assert(music_set_pad_colour(0,8));assert(music_set_pad_colour(17,7));assert(music_set_pad_colour(127,4));
+ music_reset();assert(music_pad_lighting_mode()==MUSIC_LIGHTING_MOD&&music_mod_setting(MUSIC_SETTING_BLINK)==2);sound=0;assert(music_set_pad_colour(0,8));assert(music_set_pad_colour(17,7));assert(music_set_pad_colour(127,4));
  assert((uint32_t)step_palette_value(1,0,0,0,0,0,400)==0x2030ff);
  sound=17;assert((uint32_t)step_palette_value(1,0,0,0,0,0,400)==music_identity_rgb(7));sound=0;
  for(unsigned colour=0;colour<MUSIC_SEQUENCE_COLOURS;++colour){
@@ -171,5 +208,6 @@ int main(void){
  atomic_store(&ticket,0);atomic_store(&sample_palette_enabled,1);assert(!step_native_light(0,&pulse));
  assert(music_set_pad_lighting_mode(MUSIC_LIGHTING_MOD));
  puts("PASS Standard fixed Steps colours and native Sample pass-through; identity settings retained");
+ empty_sample_cursor_checks();
  return 0;
 }

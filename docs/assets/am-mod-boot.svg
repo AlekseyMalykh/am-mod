@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="240" viewBox="0 0 320 240">
+  <title>Am MOD</title>
+  <desc>Minimal boot screen for the MPC Sample 320 by 240 display.</desc>
+  <rect width="320" height="240" fill="#090c10"/>
+  <text x="66" y="139" font-family="DejaVu Serif, serif" font-style="italic" font-size="66" fill="#f5f2e9">Am</text>
+  <text x="182" y="136" font-family="DejaVu Sans, sans-serif" font-weight="bold" font-size="24" letter-spacing="1" fill="#ffc247">MOD</text>
+</svg>

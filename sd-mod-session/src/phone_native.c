@@ -1,6 +1,9 @@
 #define _GNU_SOURCE
 #include "phone_input.h"
 #include "phone_events.h"
+#ifdef MPC_KNOB_RESET
+#include "knob_reset.h"
+#endif
 #include "phone_hooks.h"
 #ifdef MPC_COMPRESSOR
 #include "compressor.h"
@@ -18,6 +21,15 @@
 #include "filter_spectrum.h"
 #endif
 #include "project_exit.h"
+#ifdef MPC_PROJECT_RECOVERY
+#include "project_recovery.h"
+#endif
+#ifdef MPC_STARTUP_SPLASH
+#include "startup_splash.h"
+#ifdef MPC_EARLY_STARTUP
+#include "startup_project.h"
+#endif
+#endif
 #include "values_bipolar.h"
 #ifdef MPC_POWER_BUTTON
 #include "power_control.h"
@@ -134,6 +146,9 @@ static void note(const char *message)
 /* Match a native button-down with its native release across a workflow
  * transition. A release is not an action owned by the newly opened window. */
 static _Atomic unsigned char native_buttons_down[112],gesture_released[112];
+#ifdef MPC_KNOB_RESET
+static _Atomic unsigned bank_pad_owned;
+#endif
 static _Atomic unsigned native_shift_requested,native_mute_mode;
 static void observe_mute_indicator(unsigned value){
  /* Shift uses the Mute LED as a secondary-function hint. Update on actual
@@ -491,6 +506,9 @@ static int note_footer(void *p,void *g)
 {
     if (!ui_known) { ui_thread=pthread_self(); ui_known=1; }
     if (!on_ui()) return 0;
+#ifdef MPC_KNOB_RESET
+    knob_reset_observe(p);
+#endif
     int painted=note_native_footer(p,g);
     if (painted) start_timer();
     return painted;
@@ -498,6 +516,9 @@ static int note_footer(void *p,void *g)
 
 static void sample_dtor(void *p)
 {
+#ifdef MPC_KNOB_RESET
+    knob_reset_forget(p);
+#endif
 #ifdef MPC_RESAMPLE_TRIAL
     resample_ui_destroyed(p);
 #endif
@@ -524,6 +545,9 @@ static void music_sample_paint(void *p,void *g)
     music_ui_sample(p,g); workflow_sample_paint(p,g); note_native_sample_overlay(p,g);
 #ifdef MPC_RESAMPLE_TRIAL
     resample_ui_paint(p,g);
+#endif
+#ifdef MPC_STARTUP_SPLASH
+    if(workflow_startup_loading())startup_splash_draw(base,g);
 #endif
 #ifdef MPC_POWER_BUTTON
     power_control_paint(p,g);
@@ -680,6 +704,9 @@ static void new_project(void *p,int *choice)
     if (confirmed) step_native_project_changed();
     ORIG(H_NEW_PROJECT,void(*)(void*,int*))(p,choice);
     if (confirmed) music_reset();
+#ifdef MPC_PROJECT_RECOVERY
+    if (confirmed) project_recovery_reset();
+#endif
 }
 
 static void draw_text(void *g, const char *text, int y, int h, float height, uint32_t colour)
@@ -741,6 +768,9 @@ static void project_paint(void *p,void *g)
 {
     ORIG(H_PROJECT_PAINT,void(*)(void*,void*))(p,g);
     paint_mode(p,g,0x9f8);
+#ifdef MPC_PROJECT_RECOVERY
+    project_recovery_save_paint(base,p,g);
+#endif
 }
 
 static int before_native(void *p)
@@ -862,6 +892,9 @@ static void controller_ui(void *event,uint64_t route)
 
 static void buttons_ui(void *event,uint64_t route)
 {
+#ifdef MPC_PROJECT_RECOVERY
+    if(on_ui()&&project_recovery_save_button(base,screen,event))return;
+#endif
     int naming=on_ui()&&editor&&visible();
     unsigned code=FIELD(event,8,unsigned char),down=FIELD(event,9,unsigned char)!=0;
     if(naming&&state.enabled&&(code==0x36||code==0x37)){
@@ -966,6 +999,14 @@ static void controller(void *event)
     /* Physical Main Volume is global, including custom search/Batch views.
      * Never queue it behind modal ownership or discard it on a new ticket. */
     if(forward_main_volume(event))return;
+#ifdef MPC_KNOB_RESET
+    if(!atomic_load(&naming_active)&&knob_reset_claim(FIELD(event,8,unsigned char))){
+        struct phone_event e={0};e.kind=PHONE_KNOB_RESET;e.when_ms=now_ms();
+        e.workflow_ticket=knob_reset_ticket();memcpy(e.native,event,sizeof(e.native));
+        if(!phone_events_push(&e))queue_failed();
+        return;
+    }
+#endif
 #ifdef MPC_POWER_BUTTON
     if(power_control_busy())return;
 #endif
@@ -1006,6 +1047,9 @@ static void controller(void *event)
 static void buttons(void *event)
 {
     unsigned native_code=FIELD(event,8,unsigned char),native_down=FIELD(event,9,unsigned char)!=0;
+#ifdef MPC_KNOB_RESET
+    knob_reset_button(native_code,native_down);
+#endif
 #ifdef MPC_POWER_BUTTON
     pthread_mutex_lock(&gesture_mutex);memcpy(power_stop_template,event,16);power_stop_ready=1;pthread_mutex_unlock(&gesture_mutex);
     if(power_control_button(native_code,(int)native_down)){
@@ -1063,6 +1107,19 @@ static void pad_event(void *event)
         if (up) passed &= ~bit;
         ORIG(H_PAD,void(*)(void*))(event); return;
     }
+#ifdef MPC_KNOB_RESET
+    if((atomic_load(&bank_pad_owned)&bit)||(down&&(knob_reset_ticket()&2)&&!atomic_load(&naming_active)&&!workflow_owns(3,pad)
+#ifdef MPC_RESAMPLE_TRIAL
+       &&!resample_ui_active()
+#endif
+       )){
+        if(down)atomic_fetch_or(&bank_pad_owned,bit);
+        if(down||up){struct phone_event e={0};e.kind=PHONE_BANK_PAD;e.pad=pad;e.down=down;e.up=up;
+            memcpy(e.native,event,16);memcpy(e.midi,msg,24);if(!phone_events_push(&e))queue_failed();}
+        if(up)atomic_fetch_and(&bank_pad_owned,~bit);
+        return;
+    }
+#endif
 #ifdef MPC_CHORDS
     if((down||up)&&chords_parameter(pad,down))return;
 #endif
@@ -1133,6 +1190,30 @@ static unsigned process_events(void)
     unsigned budget = PHONE_EVENT_CAPACITY,processed=0;
     while (budget-- && phone_events_pop(&e)) {
         ++processed;
+#ifdef MPC_KNOB_RESET
+        if(e.kind==PHONE_BANK_PAD){
+            _Alignas(8) unsigned char native[40];memcpy(native,e.native,16);memcpy(native+16,e.midi,24);
+            ORIG(H_PAD,void(*)(void*))(native);continue;
+        }
+        if(e.kind==PHONE_KNOB_RESET){
+            unsigned cc=FIELD(e.native,8,unsigned char),shift=!!(e.workflow_ticket&1),column=cc-0x10;
+            if(knob_reset_begin(e.workflow_ticket,cc)&&!atomic_load(&naming_active)&&!workflow_blocks_sample_controls()&&!resample_running()){
+                int done=0;
+#ifdef MPC_COMPRESSOR
+                done=compressor_ui_reset_knob(column,shift);
+#endif
+#ifdef MPC_CHORDS
+                if(!done)done=chords_ui_reset_knob(column,shift);
+#endif
+                if(!done)done=step_native_reset_knob(column,shift);
+                if(!done)done=music_ui_reset_knob(column,shift);
+                if(!done)done=note_native_reset_knob(column,shift);
+                if(!done)done=knob_reset_native(column,shift);
+                if(!done)note("KNOB_RESET no_default_for_current_parameter");
+            }
+            continue;
+        }
+#endif
         int current = !atomic_load(&editor_destroyed) && editor &&
             e.generation == atomic_load(&generation) && visible();
         if (e.kind == PHONE_CONTROLLER) {
@@ -1348,6 +1429,7 @@ static void sequence_palette_tick(void){
  * Components, which may belong to another thread. */
 static _Atomic unsigned pad_colour_sample_layout,pad_colour_native_workflow,pad_colour_cursor_white,pad_colour_source_white;
 static _Atomic int pad_colour_native_occupied=-1;
+static _Atomic int pad_colour_native_selected=-1;
 static _Atomic uint64_t pad_colour_chop_phase,pad_colour_target_phase;
 static _Atomic int pad_colour_bank;
 /* Sample pad layout: the user's Pad Colour (Mix, K2) keeps the
@@ -1358,9 +1440,17 @@ static int pad_colour_light(unsigned pad,uint64_t *out){
     int bank=atomic_load(&pad_colour_bank);if(bank<0||bank>=8)return 0;
     int chosen=music_pad_colour((unsigned)bank*16+pad);
     if(atomic_load(&pad_colour_native_workflow)){
+        unsigned kind=atomic_load(&pad_colour_native_workflow);
+        unsigned raw=(unsigned)atomic_load(&original_lights[pad]);
+        /* The real CopyModePadsLighting emits full red for selected source
+         * bits. Do not reinterpret those source bits as occupied targets. */
+        if((kind==2&&raw==0xff0000)||(kind==1&&atomic_load(&pad_colour_native_selected)==bank*16+(int)pad)){
+            int occupied=atomic_load(&pad_colour_native_occupied);
+            int used=kind==2||(occupied>=0&&((unsigned)occupied&(1u<<pad)));
+            *out=pad_source_light(used?music_identity_rgb((unsigned)chosen):0,atomic_load(&pad_colour_target_phase));return 1;
+        }
         int occupied=atomic_load(&pad_colour_native_occupied);
         if(occupied>=0){
-            unsigned raw=(unsigned)atomic_load(&original_lights[pad]);
             int marked=raw==0xff0000||raw==0xffffff;
             *out=pad_target_colour((unsigned)bank*16+pad,!!((unsigned)occupied&(1u<<pad)),marked,marked,atomic_load(&pad_colour_target_phase));return 1;
         }
@@ -1398,6 +1488,9 @@ static void rgb(void *s,uint32_t colour,unsigned pad)
         atomic_store(&original_lights[pad],colour);
         step_native_observe_rgb(pad,colour);
         atomic_fetch_or(&light_mask,1u << pad);
+#ifdef MPC_KNOB_RESET
+        if((knob_reset_ticket()&2)&&atomic_load(&native_buttons_down[0x23])){ORIG(H_RGB,void(*)(void*,uint32_t,unsigned))(s,colour,pad);return;}
+#endif
         uint64_t workflow_colour;
 #ifdef MPC_STOCK_RESAMPLE
         if(resample_ui_light(pad,&workflow_colour)){
@@ -1444,9 +1537,10 @@ static void send_step_lights(void)
     unsigned native_workflow=workflow_native_pad_colours();
     atomic_store(&pad_colour_native_workflow,native_workflow);
     atomic_store(&pad_colour_native_occupied,workflow_native_occupied());
+    atomic_store(&pad_colour_native_selected,workflow_native_selected());
     atomic_store(&pad_colour_bank,step_native_browser_bank(-1));
     uint64_t selection_phase=now_ms();
-    atomic_store(&pad_colour_cursor_white,selection_phase%800<400);
+    atomic_store(&pad_colour_cursor_white,music_cursor_on(selection_phase,500));
     atomic_store(&pad_colour_source_white,selection_phase%1000<80||(selection_phase%1000>=180&&selection_phase%1000<260));
     atomic_store(&pad_colour_target_phase,selection_phase);
     /* Resolve Chop focus on UI only. Its first frame must be white even if
@@ -1470,6 +1564,13 @@ static void send_step_lights(void)
     static uint64_t previous[16];
     static uint64_t workflow_generation;
     uintptr_t s=atomic_load(&sender);
+#ifdef MPC_KNOB_RESET
+    if((knob_reset_ticket()&2)&&atomic_load(&native_buttons_down[0x23])){
+        if(s)for(unsigned i=0;i<16;++i)if(atomic_load(&light_mask)&(1u<<i))
+            ORIG(H_RGB,void(*)(void*,uint32_t,unsigned))((void*)s,(uint32_t)atomic_load(&original_lights[i]),i);
+        owned=0;return;
+    }
+#endif
     if (!s) {owned=0;return;}
     uint64_t palette_epoch=workflow_palette_generation();
     int force_palette=palette_epoch!=workflow_generation;workflow_generation=palette_epoch;
@@ -1547,10 +1648,10 @@ static void button_light(void *s,unsigned value,unsigned code)
 }
 static void send_record_light(void)
 {
-    static unsigned owned[4],last[4];const unsigned codes[4]={0x50,0x28,0x4b,0x2b};
+    static unsigned owned[5],last[5];const unsigned codes[5]={0x50,0x49,0x28,0x4b,0x2b};
     uintptr_t s=atomic_load(&button_sender);unsigned value;
     if (!s) return;
-    for(unsigned i=0;i<4;++i) {
+    for(unsigned i=0;i<5;++i) {
         if (
 #ifdef MPC_CHORDS
             chords_ui_button_light(codes[i],&value)||
@@ -1593,6 +1694,9 @@ static void load(void)
     compressor_ui_init(base);
 #endif
     note_native_init(base);
+#ifdef MPC_KNOB_RESET
+    knob_reset_init(base);
+#endif
     music_reset(); music_lighting_preferences_init(); music_archive_init(base); music_ui_init(base);
     music_lighting_init(base);
 #ifdef MPC_CHORDS
@@ -1646,6 +1750,9 @@ static void load(void)
     if (!workflow_install(workflow_files,workflow_copy)) _exit(121);
     if (!install_name_cursor()) _exit(121);
     if (!project_exit_install(base)) _exit(121);
+#ifdef MPC_EARLY_STARTUP
+    if (!startup_project_install(base)) _exit(121);
+#endif
 #ifdef MPC_COMPRESSOR
     if (!compressor_ui_install()) _exit(121);
 #endif
@@ -1665,6 +1772,7 @@ static void load(void)
     if (!values_loop_lock_install(base)) note("VALUES_LOOP_LOCK UNAVAILABLE");
 #ifdef MPC_PAD_EQ
     if (!filter_spectrum_install(base,music_ui_filter_spectrum_visible)) _exit(121);
+    filter_spectrum_tint_provider(music_ui_waveform_tint);
     if (!pad_eq_native_install(base)) _exit(121);
     if (!pad_eq_history_install(base)) _exit(121);
 #endif

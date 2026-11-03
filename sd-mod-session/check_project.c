@@ -38,7 +38,11 @@ static void run(uintptr_t address,const char *stock,const char *payload){
  FILE *f=fopen(stock,"rb");assert(f);load(f,0,0,0x6d3aff8);fclose(f);
  f=fopen(payload,"rb");assert(f);size_t n=fread(base+0x6d3b400,1,0xc00,f);
 #ifdef TEST_PHONE
+#ifdef TEST_NO_MOD_OFF
+ assert(n>128&&n<512);
+#else
  assert(n>280&&n<512);
+#endif
 #else
  assert(n==280);
 #endif
@@ -63,7 +67,11 @@ memcpy(base+0x1643908,&b,4);
 
 #ifdef TEST_PHONE
 #ifdef TEST_LIGHTING_MENU
+#ifdef TEST_NO_MOD_OFF
+ const char *labels[]={"Load Project","Save Project","New Project","SD Card Access","Key / Scale","Mod Settings"};const int rows=6;
+#else
  const char *labels[]={"Load Project","Save Project","New Project","SD Card Access","Key / Scale","Pad Lighting","Mod Off"};const int rows=7;
+#endif
 #else
  const char *labels[]={"Load Project","Save Project","New Project","SD Card Access","Key / Scale","Mod Off"};const int rows=6;
 #endif
@@ -82,8 +90,8 @@ memcpy(base+0x1643908,&b,4);
   assert(P(begin+3*128,0x60)!=P(begin+4*128,0x60)); // Independent map nodes.
   assert(refreshes==rows*(k+1));
 #ifdef TEST_LIGHTING_MENU
-  ((void(*)(void*,unsigned))(base+0x3b71d50))(list,6);
-  assert(*(uint64_t*)(list+0xc8)==6&&end-begin==7*128);
+  ((void(*)(void*,unsigned))(base+0x3b71d50))(list,(unsigned)rows-1);
+  assert(*(uint64_t*)(list+0xc8)==(unsigned)rows-1&&end-begin==rows*128);
 #endif
   for(int i=0;i<rows;i++)destroy(begin+128*i);
   free(begin);
@@ -110,7 +118,12 @@ memcpy(base+0x1643908,&b,4);
 #else
  row=5;
 #endif
- captured_project=0;click(&context);assert(captured_project==((uintptr_t)screen|1));
+ captured_project=0;click(&context);
+#ifdef TEST_NO_MOD_OFF
+ assert(!captured_project);
+#else
+ assert(captured_project==((uintptr_t)screen|1));
+#endif
 #ifndef TEST_LIGHTING_MENU
  assert(access("/run/mpc-trial-app/mod-off.request",F_OK)!=0);
 #endif
@@ -129,7 +142,11 @@ memcpy(base+0x1643908,&b,4);
 
 #ifdef TEST_PHONE
 #ifdef TEST_LIGHTING_MENU
+#ifdef TEST_NO_MOD_OFF
+ printf("PASS native Project six independently owned rows, Key4/Lighting5, no Mod Off row or exit dispatch, stock commands and256 lifecycle cycles across two PIE bases\n");
+#else
  printf("PASS native Project seven independently owned rows, Key4/Lighting5/Off6, six-row viewport, stock commands and256 lifecycle cycles across two PIE bases\n");
+#endif
 #else
  printf("PASS native Project six independently owned rows, Key4/Off5 tagged UI-only dispatch, stock commands retained,128 growth/destruction cycles at PIE %lx\n",(unsigned long)address);
 #endif

@@ -1,4 +1,4 @@
-/* Project menu: append one independently owned native row; request Mod Off. */
+/* Owned Project menu extensions. NO_MOD_OFF omits the manual exit row. */
 .arch armv8.3-a
 .text
 .global project_append
@@ -20,9 +20,11 @@ project_append:
  mov x1,x20
  bl list_append                  // Separate Key / Scale row, preserving Mod Off.
 #ifdef PAD_LIGHTING_MENU
+#ifndef NO_MOD_OFF
  mov x0,x19
  mov x1,x20
  bl list_append                  // Global Pad Lighting preferences.
+#endif
 #endif
 #endif
  ldr x0,[x19,#0xc0]             // Native model, vector begin/end at +8/+16.
@@ -30,7 +32,11 @@ project_append:
  sub x3,x2,x1
 #ifdef NOTE_UI
 #ifdef PAD_LIGHTING_MENU
+#ifdef NO_MOD_OFF
+ cmp x3,#0x300
+#else
  cmp x3,#0x380
+#endif
 #else
  cmp x3,#0x300
 #endif
@@ -39,18 +45,28 @@ project_append:
 #endif
  b.ne .Lappend_done
 #ifdef NOTE_UI
+#ifndef NO_MOD_OFF
  sub x0,x2,#0x80
  adr x1,mod_off_title
  bl .Lrename
  ldr x0,[x19,#0xc0]
  ldr x2,[x0,#16]
+#endif
 #ifdef PAD_LIGHTING_MENU
+#ifdef NO_MOD_OFF
+ sub x0,x2,#0x80
+#else
  sub x0,x2,#0x100
+#endif
  adr x1,lighting_title
  bl .Lrename
  ldr x0,[x19,#0xc0]
  ldr x2,[x0,#16]
+#ifdef NO_MOD_OFF
+ sub x0,x2,#0x100
+#else
  sub x0,x2,#0x180
+#endif
 #else
  sub x0,x2,#0x100
 #endif
@@ -102,11 +118,15 @@ project_dispatch:
 #ifdef PAD_LIGHTING_MENU
  cmp w0,#5
  b.eq .Llighting
+#ifndef NO_MOD_OFF
  cmp w0,#6
+#endif
 #else
  cmp w0,#5
 #endif
+#ifndef NO_MOD_OFF
  b.eq .Lconfirm_off
+#endif
 #else
  cmp w0,#4
  b.eq .Loff
@@ -114,6 +134,7 @@ project_dispatch:
  cmp w0,#3                     // Displaced stock comparison.
  b project_dispatch_continue
 .Loff:
+#ifndef NO_MOD_OFF
  // Existing callback frame is 32 bytes; x19 and the PAC-signed LR are on it.
  // No system bus or persistent filesystem operation; one-byte RAM request.
  mov x0,#-100
@@ -132,17 +153,20 @@ project_dispatch:
  mov x0,x9
  mov x8,#57                    // close
  svc #0
+#endif
 .Loff_done:
  ldr x19,[sp,#16]
  ldp x29,x30,[sp],#32
  autiasp
  ret
 #ifdef NOTE_UI
+#ifndef NO_MOD_OFF
 .Lconfirm_off:
  ldr x0,[x19]
  orr x0,x0,#1                  // Tagged UI request: confirm, never exit here.
  bl music_project_bridge
  b .Loff_done
+#endif
 #ifdef PAD_LIGHTING_MENU
 .Llighting:
  ldr x0,[x19]
@@ -156,12 +180,16 @@ project_dispatch:
  b .Loff_done
 #endif
 .size project_dispatch,.-project_dispatch
+#ifndef NO_MOD_OFF
 mod_off_title: .asciz "Mod Off"
+#endif
 #ifdef NOTE_UI
 music_title: .asciz "Key / Scale"
 #ifdef PAD_LIGHTING_MENU
-lighting_title: .asciz "Pad Lighting"
+lighting_title: .asciz "Mod Settings"
 #endif
 #endif
+#ifndef NO_MOD_OFF
 mod_off_path: .asciz "/run/mpc-trial-app/mod-off.request"
 mod_off_byte: .ascii "1"
+#endif

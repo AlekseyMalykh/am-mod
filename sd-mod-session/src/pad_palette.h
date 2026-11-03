@@ -18,14 +18,15 @@
  * steady, muted and occupied are dim. */
 #include <stdint.h>
 #include <string.h>
+#include "music_settings.h"
 
-#define PAD_CONTENT  0x2030ffu
-#define PAD_FREE     0x00c700u
-#define PAD_SELECT   0xffffffu
-#define PAD_PLAYHEAD 0x00c8ffu
-#define PAD_ORIGINAL 0xffc247u
-#define PAD_DANGER   0xff2020u
-#define PAD_MUTED    0x707070u
+#define PAD_CONTENT  music_identity_rgb(0)
+#define PAD_FREE     music_service_rgb(MUSIC_SERVICE_FREE)
+#define PAD_SELECT   music_service_rgb(MUSIC_SERVICE_SELECT)
+#define PAD_PLAYHEAD music_service_rgb(MUSIC_SERVICE_PLAYHEAD)
+#define PAD_ORIGINAL music_service_rgb(MUSIC_SERVICE_ORIGINAL)
+#define PAD_DANGER   music_service_rgb(MUSIC_SERVICE_DANGER)
+#define PAD_MUTED    music_service_rgb(MUSIC_SERVICE_MUTED)
 #define PAD_OCCUPIED 0xffffffu
 #define PAD_EMPTY    0x303030u
 #define PAD_CONTEXT  0xffffffu
@@ -49,16 +50,14 @@ static inline uint64_t pad_light(uint32_t rgb,float brightness)
 /* Selection is white briefly, then reveals the semantic/assigned base.
  * The dim phase also distinguishes selected white pads from ordinary white. */
 static inline uint64_t pad_selection_light(uint32_t rgb,float brightness,uint64_t phase)
-{ return phase%800u<120u?pad_light(PAD_SELECT,PAD_BRIGHT_SELECT):pad_light(rgb,brightness); }
+{ return music_cursor_on(phase,150)?pad_light(PAD_SELECT,PAD_BRIGHT_SELECT):pad_light(rgb,brightness); }
 static inline uint64_t pad_source_light(uint32_t rgb,uint64_t phase){
- unsigned p=(unsigned)(phase%1000u);
- return pad_light((p<80u||(p>=180u&&p<260u))?PAD_SELECT:rgb,
-                  (p<80u||(p>=180u&&p<260u))?PAD_BRIGHT_SELECT:PAD_BRIGHT_CONTENT);
+ return music_cursor_on(phase,500)?pad_light(PAD_SELECT,PAD_BRIGHT_SELECT):pad_light(rgb,PAD_BRIGHT_CONTENT);
 }
 /* Blinking white/identity focus, with equal400ms phases. Phase starts anew
  * when Sample selection changes, rather than depending on global uptime. */
 static inline uint64_t pad_focus_light(uint32_t rgb,float brightness,uint64_t phase){
- return phase%800u<400u?pad_light(PAD_SELECT,.95f):pad_light(rgb,brightness>.35f?.35f:brightness);
+ return music_cursor_on(phase,500)?pad_light(PAD_SELECT,.95f):pad_light(rgb,brightness>.35f?.35f:brightness);
 }
 /* Only assigned/current destinations get service red/green. */
 static inline uint64_t pad_target_light(int used,int assigned,int current,uint64_t phase){

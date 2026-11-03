@@ -198,7 +198,9 @@ uint64_t phone_light(const struct phone_input *s, unsigned pad)
     else if (pad == 8 || (pad == 13 && !s->numeric)) rgb = 0xffc247;
     else if (pad == 12) { rgb = 0xa84aff; brightness = s->uppercase ? 0.55f : 0.15f; }
     else if (pad == 1 || pad == 3) { rgb = 0x2030ff; brightness = 0.40f; }
-    else rgb = s->numeric ? 0x00dc64 : PAD_SELECT; /* letters white: cyan is reserved for playback */
+    /* The naming keypad has its own functional legend, independent of the
+     * musical user/service palette edited in Mod Settings. */
+    else rgb = s->numeric ? 0x00dc64 : 0xffffffu;
     if (pad >= 1 && pad <= 16 && (s->held & (1u << (pad - 1))))
         brightness = pad == 16 ? 1.0f : 0.85f;
     uint32_t bits;

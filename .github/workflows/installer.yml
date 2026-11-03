@@ -43,4 +43,13 @@ jobs:
         if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ github.event.release.tag_name }}" dist/MPC-Sample-Mod-Installer.exe --clobber
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          $assets = @(gh release view "$env:RELEASE_TAG" --json assets --jq '.assets[].name')
+          if ($LASTEXITCODE -ne 0) { throw 'Could not inspect existing release assets' }
+          if ($assets -contains 'MPC-Sample-Mod-Installer.exe') {
+            Write-Host 'Keeping the attached installer and its published checksums.'
+            exit 0
+          }
+          gh release upload "$env:RELEASE_TAG" dist/MPC-Sample-Mod-Installer.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Installer upload failed' }

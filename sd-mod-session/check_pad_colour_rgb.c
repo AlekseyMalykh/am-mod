@@ -9,6 +9,7 @@
 #include <assert.h>
 static int sample_visible=1,seq_visible,bank,levels_on,steps_on,events_visible,inside_rgb,compressor_visible;
 static unsigned transport,queries,calls,levels_type,levels_origin;static int native_workflow;
+static int browser_selected=-1;
 static int seq_selected=-1;static unsigned seq_present=0xffff;
 static int64_t seq_tick;static uint64_t seq_serial;
 static int steps_lighting;
@@ -28,6 +29,7 @@ int music_lighting_levels_state(unsigned*on,unsigned*mode,unsigned*origin){*on=(
 int workflow_light(unsigned p,uint64_t*out){(void)p;(void)out;return 0;}
 void step_native_observe_rgb(unsigned pad,unsigned rgb){(void)pad;(void)rgb;}
 int workflow_native_occupied(void){return 3;}
+int workflow_native_selected(void){return browser_selected;}
 int workflow_native_pad_colours(void){return native_workflow;}
 uint64_t workflow_palette_generation(void){return 0;}
 int step_native_custom(void){return steps_lighting;}
@@ -123,8 +125,27 @@ int main(void){
  uint64_t selected_light;assert(pad_colour_light(0,&selected_light));
  atomic_store(&pad_colour_cursor_white,0);atomic_store(&pad_colour_target_phase,400);uint64_t dimmed;assert(pad_colour_light(0,&dimmed));
  assert((uint32_t)dimmed==PAD_DANGER&&dimmed!=selected_light);
- native_workflow=2;send_step_lights();native_rgb(0,0xff0000);native_rgb(2,0xff0000);
- assert(sent[0]==PAD_DANGER&&sent[2]==PAD_FREE); /* native red marks a destination, not its occupancy */
+ browser_selected=1;send_step_lights();atomic_store(&pad_colour_target_phase,0);native_rgb(1,0x000080);assert(sent[1]==PAD_SELECT);
+ browser_selected=2;send_step_lights();atomic_store(&pad_colour_target_phase,0);native_rgb(2,0);assert(sent[2]==PAD_SELECT); /* Empty selected browser pad must light too. */
+ browser_selected=-1;
+ native_workflow=2;send_step_lights();atomic_store(&pad_colour_target_phase,0);native_rgb(0,0xff0000);native_rgb(2,0xff0000);
+ assert(sent[0]==PAD_SELECT&&sent[2]==PAD_SELECT); /* Native Copy red is the source-selection bitset. */
+ native_rgb(2,0xffffff);assert(sent[2]==PAD_FREE); /* Destination cues remain red/green. */
+ for(unsigned mode=0;mode<4;++mode){
+  assert(music_set_mod_setting(MUSIC_SETTING_BLINK,mode));
+  unsigned period=mode==1?1200:mode==2?800:400;
+  for(unsigned ms=0;ms<2400;ms+=40){
+   int white=!mode||ms%period<period/2;
+   native_workflow=1;browser_selected=1;send_step_lights();atomic_store(&pad_colour_target_phase,ms);
+   native_rgb(1,0x000080);assert(sent[1]==(white?PAD_SELECT:music_identity_rgb(music_pad_colour(1))));
+   browser_selected=2;send_step_lights();atomic_store(&pad_colour_target_phase,ms);
+   native_rgb(2,0);assert(sent[2]==(white?PAD_SELECT:0));
+   native_workflow=2;send_step_lights();atomic_store(&pad_colour_target_phase,ms);
+   native_rgb(0,0xff0000);assert(sent[0]==(white?PAD_SELECT:music_identity_rgb(music_pad_colour(0))));
+  }
+ }
+ assert(music_mod_restore_recommended(3));browser_selected=-1;
+ puts("PASS real RGB sender/timer: configurable white cursors for occupied/empty library pads and native Copy source selection; ordinary targets unchanged");
  steps_lighting=0;native_workflow=0;sample_visible=1;levels_on=1;send_step_lights();assert(sent[0]==0xff0000);levels_on=0;
  levels_on=1;levels_type=8;levels_origin=1;assert(music_set_pad_colour(1,13));send_step_lights();
  atomic_store(&pad_colour_cursor_white,1);atomic_store(&pad_colour_chop_phase,0);native_rgb(0,0xff7700);assert(sent[0]==PAD_SELECT);
@@ -144,5 +165,13 @@ int main(void){
  assert(music_pad_colour(0)==13);assert(music_set_pad_lighting_mode(MUSIC_LIGHTING_MOD));send_step_lights();assert(sent[0]==music_identity_rgb(13));
  puts("PASS live Standard restores native Sample/Copy/browser/Seq output; AM Mod restores retained Pink identity");
  puts("PASS five identity colours and all legacy IDs; native/browser occupancy independent of selected RGB; red/green targets remain semantic, Levels/FX ownership, button LEDs isolated");
+#ifdef MPC_KNOB_RESET
+ knob_reset_init(base);knob_reset_button(0x23,1);atomic_store(&native_buttons_down[0x23],1);
+ native_workflow=1;browser_selected=0;send_step_lights();
+ for(unsigned i=0;i<16;++i)native_rgb(i,i<8?0x00ff00:0);
+ send_step_lights();for(unsigned i=0;i<16;++i)assert(sent[i]==(i<8?0x00ff00u:0));
+ knob_reset_button(0x23,0);atomic_store(&native_buttons_down[0x23],0);send_step_lights();atomic_store(&pad_colour_target_phase,0);native_rgb(0,0x008000);assert(sent[0]==PAD_SELECT);
+ puts("PASS actual RGB interception/timer preserves native bank picker pads1-8 over browser/custom identity, then restores selected white cursor on release");
+#endif
  munmap(p,0x7500000);return 0;
 }

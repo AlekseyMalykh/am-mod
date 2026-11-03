@@ -21,6 +21,27 @@ int music_set_pad_lighting_mode(unsigned mode); /* UI owner; durable when SD ava
 void music_lighting_preferences_init(void);
 int music_lighting_preferences_open(const char *directory); /* caller provides owned settings directory */
 int music_lighting_preferences_durable(void);
+/* Atomic display snapshot: five user slots and six service colours form a
+ * permutation. Changing a service colour swaps its previous owner. */
+enum { MUSIC_SERVICE_SELECT, MUSIC_SERVICE_FREE, MUSIC_SERVICE_DANGER,
+       MUSIC_SERVICE_ORIGINAL, MUSIC_SERVICE_PLAYHEAD, MUSIC_SERVICE_MUTED,
+       MUSIC_SERVICE_COUNT };
+#define MUSIC_PALETTE_SIZE 11
+enum { MUSIC_SETTING_LIGHTING, MUSIC_SETTING_WAVE, MUSIC_SETTING_SPECTRUM, MUSIC_SETTING_BLINK };
+uint64_t music_mod_settings_snapshot(void);
+int music_mod_settings_valid(uint64_t value);
+int music_mod_settings_restore(uint64_t value); /* project load; no disk write */
+int music_mod_setting(unsigned field);
+int music_set_mod_setting(unsigned field,unsigned value);
+int music_mod_restore_recommended(unsigned section);
+unsigned music_service_colour(unsigned role);
+int music_set_service_colour(unsigned role,unsigned colour);
+uint32_t music_service_rgb(unsigned role);
+const char *music_palette_name(unsigned colour);
+uint32_t music_palette_rgb(unsigned colour);
+uint32_t music_user_rgb(unsigned raw);
+const char *music_identity_name(unsigned raw);
+int music_cursor_on(uint64_t phase,unsigned duty); /* duty in thousandths */
 /* Persisted IDs remain stable. Display identity never uses service colours.
  * Raw getters/setters retain legacy metadata for Undo and project round trips. */
 #define MUSIC_IDENTITY_CHOICES 6
@@ -38,7 +59,7 @@ static inline unsigned music_colour_choice_index(unsigned raw){
  for(unsigned i=1;i<MUSIC_IDENTITY_CHOICES;++i)if(music_colour_choice(i)==safe)return i;
  return 0;
 }
-static inline uint32_t music_identity_rgb(unsigned raw){return music_pad_lighting_mode()?music_sequence_colours[music_colour_effective(raw)]:0x2030ffu;}
+static inline uint32_t music_identity_rgb(unsigned raw){return music_pad_lighting_mode()?music_user_rgb(raw):0x2030ffu;}
 int music_sequence_colour(unsigned sequence);
 int music_set_sequence_colour(unsigned sequence,unsigned colour);
 /* Pad colour in Sample Mix K2 without Shift: same palette, 0 = Stock. */

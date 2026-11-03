@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "src/music_settings.h"
+#include "src/pad_workflow_colour.h"
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,7 +32,40 @@ int main(void){
  assert(music_set_pad_lighting_mode(MUSIC_LIGHTING_MOD)&&music_identity_rgb(13)==0xff70b8);
  assert(music_lighting_preferences_open(dir)&&music_pad_lighting_mode()==MUSIC_LIGHTING_MOD);
  assert(!music_set_pad_lighting_mode(2));
- char path[512],sentinel[512];snprintf(path,sizeof(path),"%s/.am-mod-pad-lighting",dir);snprintf(sentinel,sizeof(sentinel),"%s/sentinel",dir);
+ uint64_t defaults=music_mod_settings_snapshot();
+ for(unsigned role=0;role<MUSIC_SERVICE_COUNT;++role)for(unsigned c=0;c<MUSIC_PALETTE_SIZE;++c){
+  assert(music_set_service_colour(role,c)&&music_service_colour(role)==c);
+  uint64_t snapshot=music_mod_settings_snapshot();assert(music_mod_settings_valid(snapshot));
+  for(unsigned user=1;user<MUSIC_IDENTITY_CHOICES;++user)for(unsigned system=0;system<MUSIC_SERVICE_COUNT;++system)
+   assert(music_identity_rgb(music_colour_choice(user))!=music_service_rgb(system));
+  assert(music_lighting_preferences_open(dir)&&music_mod_settings_snapshot()==snapshot);
+ }
+ assert(music_mod_restore_recommended(2)&&music_mod_settings_snapshot()==defaults);
+ assert(!music_set_service_colour(6,0)&&!music_set_service_colour(0,11)&&!music_mod_settings_restore(defaults&31));
+ assert(music_set_mod_setting(MUSIC_SETTING_WAVE,1)&&music_set_mod_setting(MUSIC_SETTING_SPECTRUM,1));
+ assert(music_set_mod_setting(MUSIC_SETTING_BLINK,0)&&music_cursor_on(9999,150));
+ assert(music_set_mod_setting(MUSIC_SETTING_BLINK,3)&&music_cursor_on(100,500)&&!music_cursor_on(250,500));
+ for(unsigned mode=0;mode<4;++mode){
+  assert(music_set_mod_setting(MUSIC_SETTING_BLINK,mode));
+  uint64_t saved=music_mod_settings_snapshot();
+  assert(music_lighting_preferences_open(dir)&&music_mod_settings_snapshot()==saved);
+  unsigned period=mode==1?1200:mode==2?800:400;
+  for(unsigned ms=0;ms<2400;ms+=20){
+   int white=!mode||ms%period<period/2;
+   assert((uint32_t)pad_source_light(0xff20b0,ms)==(white?PAD_SELECT:0xff20b0));
+   assert((uint32_t)pad_operation_colour(0,0,1,0,0,ms)==(white?PAD_SELECT:0));
+   assert((uint32_t)pad_operation_colour(0,1,1,1,1,ms)==(mode&&white?PAD_SELECT:PAD_DANGER));
+   assert((uint32_t)pad_operation_colour(0,0,1,1,1,ms)==(mode&&white?PAD_SELECT:PAD_FREE));
+   assert((uint32_t)pad_workflow_colour(0,1,1,0,0,ms)==(white?PAD_SELECT:music_identity_rgb(music_pad_colour(0))));
+  }
+ }
+ puts("PASS selection/source/library cursor Steady/Slow/Normal/Fast, preserved identity and empty off phases, red/green overlap priority, durable setting");
+ uint64_t project_display=music_mod_settings_snapshot();
+ assert(music_mod_restore_recommended(1)&&!music_mod_setting(MUSIC_SETTING_WAVE)&&!music_mod_setting(MUSIC_SETTING_SPECTRUM));
+ assert(music_mod_restore_recommended(3)&&music_mod_setting(MUSIC_SETTING_BLINK)==2);
+ assert(music_mod_settings_restore(project_display)); /* load must not replace card defaults */
+ assert(music_lighting_preferences_open(dir)&&music_mod_settings_snapshot()==defaults);
+ char path[512],sentinel[512];snprintf(path,sizeof(path),"%s/.am-mod-settings",dir);snprintf(sentinel,sizeof(sentinel),"%s/sentinel",dir);
  FILE*f=fopen(path,"wb");assert(f);fputs("truncated",f);fclose(f);assert(music_lighting_preferences_open(dir)&&music_pad_lighting_mode()==MUSIC_LIGHTING_MOD);
  assert(!unlink(path));f=fopen(sentinel,"wb");assert(f);fputs("UNCHANGED",f);fclose(f);assert(!symlink(sentinel,path));
  assert(music_lighting_preferences_open(dir)&&music_pad_lighting_mode()==MUSIC_LIGHTING_MOD);

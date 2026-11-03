@@ -95,7 +95,8 @@ int step_native_sample_chop(void){return test_chop_mode;}
 void step_native_audition_bind(void*q,void*t,void*r){(void)q;(void)t;(void)r;}
 static struct batch_copy_progress test_progress;
 static unsigned copy_begins;
-int note_native_pad_index(unsigned*out){*out=0;return 1;}
+static unsigned fixture_selected_pad;
+int note_native_pad_index(unsigned*out){*out=fixture_selected_pad;return fixture_selected_pad<128;}
 static unsigned mono_calls,mono_last_target,mono_last_channel;
 int batch_mono_begin(uintptr_t b,void*c,void*s,unsigned from,unsigned to,unsigned channel){assert(b==base&&c==(void*)atomic_load(&copy_context)&&s==(void*)atomic_load(&copy_services)&&from==0);++mono_calls;mono_last_target=to;mono_last_channel=channel;test_progress=(struct batch_copy_progress){BATCH_JOB_PREPARE,0,1};return 1;}
 int step_native_browser_bank(int bank){static int current;if(bank>=0)current=bank;return current;}
@@ -109,7 +110,7 @@ int batch_chop_begin(uintptr_t b,void*c,void*services,unsigned sound,const unsig
 static unsigned char chop_sample[0x138],chop_backing[0x100],chop_properties[32][0x368];static uintptr_t chop_slices[32];
 void step_layer_sample(void*i,int layer,uintptr_t*out,uintptr_t fn){(void)i;assert(!layer&&fn==base+0x2803b90);out[0]=(uintptr_t)chop_sample;out[1]=0;}
 static unsigned char copy_context_data[0x100],copy_current[0x100],copy_mode[0x90],copy_controls[0x3400],copy_screen[0x148],copy_program[0x1400],sounds[128][0x2300];
-static unsigned char browser_things[0xc0];static int browser_context_live,sample_loads,loaded_pad,selected_pad,copy_closes;
+static unsigned char browser_things[0x700];static int browser_context_live,sample_loads,loaded_pad,selected_pad,copy_closes;
 void *note_native_context(void){return browser_context_live?browser_things:NULL;}
 static int autoload_sample;
 int note_native_sample_visible(void){return autoload_sample;}
@@ -169,7 +170,7 @@ void batch_copy_exit_reset(void){if(test_exit_state!=BATCH_EXIT_PENDING)test_exi
 static void complete_exit(void){assert(test_exit_state==BATCH_EXIT_PENDING);++copy_closes;test_exit_state=BATCH_EXIT_DONE;workflow_tick();assert(!batch_leaving&&!batch&&!workflow_owns(3,0));}
 static void*get_instrument(void*p,int i){assert(p==copy_program);return i>=0&&i<128?sounds[i]:NULL;}
 static int has_sample(void*p){return all_sounds||p==sounds[0]||p==sounds[17]||p==sounds[32];}
-static int get_sound_index(void*p,void*i){assert(p==copy_program&&i==sounds[0]);return 0;}
+static int get_sound_index(void*p,void*i){assert(p==copy_program);for(int n=0;n<128;++n)if(i==sounds[n])return n;return -1;}
 static unsigned char derived_copy[0x148];static void*threads=(void*)1;
 static int unlocked(void*p){(void)p;return 0;}
 static unsigned char volume_registry[0x80],volume_object[0x400],master_parameter[0x80];
@@ -240,7 +241,28 @@ FN(0xf1c620,void(*)(void*))(service+0x1b0);FN(0xf1c620,void(*)(void*))(service+0
 assert(strstr((char*)FIELD((void*)base,0x6e0d468,uintptr_t),"onSampleSelected"));
 assert(strstr((char*)FIELD((void*)base,0x6e0d478,uintptr_t),"onProjectSelected"));
 files=file_root;atomic_store(&files_id,(uintptr_t)files);is_visible=files;
+#ifndef PROJECT_RESTORE_BASELINE
+workflow_tick();assert(workflow_native_selected()==0);
+/* Regression: browser target changes while the Sample label and cached
+ * Instrument remain on A01. Execute the real native setter/property code. */
+{void*prop=browser_things+0x5a8;FIELD(prop,8,void*)=(char*)prop+8;FIELD(prop,16,void*)=(char*)prop+8;
+ for(unsigned n=0;n<128;++n){
+  FN(0x28f9e80,void(*)(void*,int))(browser_things,(int)n);
+  workflow_tick();assert(workflow_native_selected()==(int)n);
+  assert(fixture_selected_pad==0&&FIELD(browser_things,0x60,void*)==sounds[0]);
+ }
+ FIELD(browser_things,0x60,void*)=NULL;FN(0x28f9e80,void(*)(void*,int))(browser_things,18);workflow_tick();assert(workflow_native_selected()==18);
+ FN(0x13b16a0,void(*)(void*,int))(prop,128);workflow_tick();assert(workflow_native_selected()==-1);
+ FN(0x28f9e80,void(*)(void*,int))(browser_things,0);FIELD(browser_things,0x60,void*)=sounds[0];workflow_tick();
+}
+puts("PASS native browser cursor follows real SelectPad property for all128 loaded/empty destinations despite stale editor label/instrument; invalid target suppressed");
+FN(0x28f9e80,void(*)(void*,int))(browser_things,35);
+#endif
 search_scope=0;FIELD(surface_controls,0x22a0,unsigned char)=1;workflow_tick();button_event(0x31,1);button_event(0x0e,1);assert(search&&workflow_owns(3,0));workflow_tick();assert(!scanning&&entry_count==2&&match_count==2&&!loads);
+#ifndef PROJECT_RESTORE_BASELINE
+assert(result_pad_ready&&result_pad==35);FN(0x28f9e80,void(*)(void*,int))(browser_things,0);
+puts("PASS search inherits the actual C04 browser load target rather than the editor's old A01");
+#endif
 unsigned char main_event[16]={0};main_event[8]=0x13;main_event[9]=0;
 assert(!workflow_owns(1,0x13)&&!workflow_control(main_event,workflow_ticket()-1)); /* global even across modal tickets */
 assert(phone_sync(&query,"KICK",4));filter();assert(match_count==1&&!strcmp(filename(&entries[matches[0]]),"Kick drum.wav"));
@@ -426,7 +448,7 @@ char path[1024];snprintf(path,sizeof(path),"%s.batch",argv[2]);draw=fopen(path,"
 batch_bank=0;batch_row=1;batch_palette();uint64_t light;
 #ifndef PROJECT_RESTORE_BASELINE
 batch_palette_at(0);
-assert(workflow_light(0,&light)&&(uint32_t)light==PAD_CONTENT);
+assert(workflow_light(0,&light)&&(uint32_t)light==PAD_SELECT);
 assert(workflow_light(15,&light)&&(uint32_t)light==0);
 {uint64_t other,current;float a,b;uint32_t x,y;
  assert(workflow_light(destination[0]%16,&other)&&(uint32_t)other==PAD_FREE);
@@ -436,9 +458,9 @@ batch_row=0;batch_palette_at(0);assert(workflow_light(destination[1]%16,&light)&
 #endif
 /* Assignment survives browsing banks; destination service colours win. */
 #ifndef PROJECT_RESTORE_BASELINE
-assert(music_set_pad_colour(0,5));batch_palette();assert(workflow_light(0,&light)&&((uint32_t)light==music_identity_rgb(5)));
+assert(music_set_pad_colour(0,5));batch_palette_at(0);assert(workflow_light(0,&light)&&((uint32_t)light==PAD_SELECT));
 unsigned old_occupied16=occupied[16];batch_bank=1;assert(music_set_pad_colour(16,8));occupied[16]=1;batch_palette();assert(workflow_light(0,&light)&&(uint32_t)light==music_identity_rgb(8));occupied[16]=old_occupied16;
-batch_bank=0;batch_palette();assert(workflow_light(0,&light)&&((uint32_t)light==music_identity_rgb(5)));
+batch_bank=0;batch_palette_at(0);assert(workflow_light(0,&light)&&((uint32_t)light==PAD_SELECT));
 assert(workflow_light(destination[1]%16,&light)&&(uint32_t)light==PAD_FREE);
 music_reset();batch_palette();
 #endif
@@ -614,7 +636,7 @@ for(unsigned bank=0;bank<8;++bank){batch_bank=(int)bank;selected_sources[bank*16
   }
  }
 }
-puts("PASS Batch Copy and Chop source selection: purple-on-purple reported case, selected-only white/hue pulses, stable unselected pads, slice pages/eight banks, no content mutation");
+puts("PASS Batch Copy and Chop source selection: purple-on-purple reported case, configurable white selected-source pulses, stable unselected pads, slice pages/eight banks, no content mutation");
 #endif
 puts("PASS production autoload waits for native callback readiness and all native modals, starts a fresh quiet interval after a dialog closes, opens newest XPJ as a full project exactly once, never imports its kit");
 puts("PASS mono destination workflow: Sample-host dialog paints Cancel/Left/Right and source/target; Cancel no job, target pads/banks, channel request, occupied confirmation, completion close and Play/Stop pass-through; backend is a receiver");

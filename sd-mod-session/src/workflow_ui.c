@@ -5,6 +5,9 @@
 #include "step_native.h"
 #include "note_native.h"
 #include "music_settings.h"
+#ifdef MPC_PROJECT_RECOVERY
+#include "project_recovery.h"
+#endif
 #include "browser_tree.h"
 #include "preview_gain.h"
 #include "ui_caption.h"
@@ -78,6 +81,7 @@ static void batch_job_tick(void);
 static void batch_job_paint(void*);
 static _Atomic(uintptr_t) files_id,copy_id;
 static _Atomic unsigned dead_files,dead_copy,active,custom,button_routes,native_colours;
+static _Atomic int native_selected=-1;
 static _Atomic uint64_t epoch=1;
 static struct phone_input query;
 static int search,results,shift,selected,scanning,scan_row,scan_count,overflow;
@@ -379,7 +383,14 @@ static void scan_start(void){
  scan_count=n+(int)((end-begin)/8);
  scanning=1;
 }
-static void start_search(void){search_preview_stop();search_preview_on=0;search=1;results=0;selected=fault=0;result_pad_ready=0;void*t=note_native_context();void*p=t?FIELD(t,0xb8,void*):NULL;void*i=t?FIELD(t,0x60,void*):NULL;if(p&&i){int n=FN(0x286bc20,int(*)(void*,void*))(p,i);if(n>=0&&n<128){result_pad=(unsigned)n;result_pad_ready=1;}}void*m=FIELD(files,0xff0+0x188,void*);void*b=m?FIELD(m,0x30,void*):NULL;uint64_t directory=0;
+static int load_pad_index(void){
+ /* CurrentThings::SelectPad (28f9d60) writes IntProperty+5a8, value+50.
+  * The load target changes here even if Instrument+60 and the hidden Sample
+  * label still refer to the instrument selected before opening the browser. */
+ void*t=note_native_context();if(!t)return -1;
+ unsigned n=__atomic_load_n((unsigned*)((char*)t+0x5f8),__ATOMIC_ACQUIRE);return n<128?(int)n:-1;
+}
+static void start_search(void){search_preview_stop();search_preview_on=0;search=1;results=0;selected=fault=0;int n=load_pad_index();result_pad_ready=n>=0;if(result_pad_ready)result_pad=(unsigned)n;void*m=FIELD(files,0xff0+0x188,void*);void*b=m?FIELD(m,0x30,void*):NULL;uint64_t directory=0;
  /* Model+38 is its last asynchronous listing cache, not necessarily the
   * displayed folder. Use BrowserLogic::GetCurrentDirectory, as native row
   * lookup14f88f0 does, with the nontrivial File return in x8. */
@@ -415,7 +426,7 @@ static void publish_palette(void){
  if(atomic_load(&dead_files))return;
  struct phone_input p=query;uint64_t now=now_ms();for(unsigned i=0;i<16;++i)if(feedback[i]>now)p.held|=1u<<i;
  for(unsigned i=0;i<16;++i){uint64_t light=search&&!results&&query.enabled?phone_light(&p,i+1):0;
-  if(search&&results&&sample_browser()){unsigned bank=(unsigned)step_native_browser_bank(-1);if(bank<8){void*t=note_native_context();void*program=t?FIELD(t,0xb8,void*):NULL;void*instrument=program?FN(0x286bbe0,void*(*)(void*,int))(program,(int)(bank*16+i)):NULL;int used=instrument&&FN(0x2804760,int(*)(void*))(instrument),target=result_pad_ready&&result_pad==bank*16+i;light=pad_target_colour(bank*16+i,used,target,target,now);}}
+  if(search&&results&&sample_browser()){unsigned bank=(unsigned)step_native_browser_bank(-1);if(bank<8){void*t=note_native_context();void*program=t?FIELD(t,0xb8,void*):NULL;void*instrument=program?FN(0x286bbe0,void*(*)(void*,int))(program,(int)(bank*16+i)):NULL;int used=instrument&&FN(0x2804760,int(*)(void*))(instrument),target=result_pad_ready&&result_pad==bank*16+i;light=pad_operation_colour(bank*16+i,used,target,0,0,now);}}
   if(atomic_exchange(&palette[i],light)!=light)atomic_fetch_add(&palette_generation,1);
  }
 }
@@ -506,6 +517,7 @@ void workflow_destroyed(void*p){if(p==constructed_files)constructed_files=NULL;i
 static _Atomic int native_occupied=-1;
 int workflow_native_occupied(void){return atomic_load(&native_occupied);}
 int workflow_native_pad_colours(void){return (int)atomic_load(&native_colours);}
+int workflow_native_selected(void){return atomic_load(&native_selected);}
 int workflow_active(void){return atomic_load(&active);}
 int workflow_blocks_sample_controls(void){return atomic_load(&custom)||atomic_load(&button_routes)||atomic_load(&split_forwarded)||batch_job||batch_leaving;}
 int workflow_jobs_busy(void){return batch_job||mono_job;}
@@ -515,12 +527,22 @@ void workflow_fault(void){atomic_fetch_add(&epoch,1);fault=1;}
  * asKit=false for full LoadProject (vtable+0x20); true imports sounds via
  * 0x15076c0, retaining the old project's sequences and mixer/FX settings. */
 static int autoload_done;static uint64_t autoload_after;
+#ifdef MPC_EARLY_STARTUP
+#include "startup_project.h"
+#endif
+int workflow_startup_loading(void){
+#ifdef MPC_EARLY_STARTUP
+ return base&&startup_project_loading()&&!FN(0x10f87a0,void*(*)(int))(0);
+#else
+ return base&&!autoload_done&&!FN(0x10f87a0,void*(*)(int))(0);
+#endif
+}
 void workflow_files_constructed(void*p){constructed_files=p;}
 #ifndef WORKFLOW_AUTOLOAD_PROJECTS
 #define WORKFLOW_AUTOLOAD_PROJECTS "/media/*/MPC-Sample/Projects/*.xpj"
 #define WORKFLOW_AUTOLOAD_NESTED "/media/*/MPC-Sample/Projects/*/*.xpj"
 #endif
-static int newest_project(char*out,size_t size){
+static int __attribute__((unused)) newest_project(char*out,size_t size){
  const char*patterns[]={WORKFLOW_AUTOLOAD_PROJECTS,WORKFLOW_AUTOLOAD_NESTED};
  time_t best=0;out[0]=0;
  for(unsigned k=0;k<2;++k){glob_t g;if(glob(patterns[k],0,NULL,&g))continue;
@@ -531,6 +553,15 @@ static int newest_project(char*out,size_t size){
  return out[0]!=0;
 }
 static void autoload_tick(void){
+#ifdef MPC_EARLY_STARTUP
+ /* Native boot already chose the final SD project. Never issue another load
+  * after the UI appears, including after an error or missing-sample dialog. */
+ if(!FN(0x10f87a0,void*(*)(int))(0)&&note_native_sample_visible()){
+  if(!autoload_after)autoload_after=now_ms()+2500;
+  else if(now_ms()>=autoload_after)startup_project_ready();
+ }else autoload_after=0;
+ autoload_done=1;return;
+#endif
  if(autoload_done)return;
  /* isCurrentlyBlockedByAnotherModalComponent on Sample is not a global
   * load-completion signal: a modal can allow events on other components.
@@ -557,6 +588,9 @@ static void autoload_tick(void){
 int workflow_tick(void){
  project_cleanup_tick();
  autoload_tick();
+#ifdef MPC_PROJECT_RECOVERY
+    project_recovery_tick(base,workflow_project_services());
+#endif
  if(mono){
   if(mono_job)batch_copy_poll(&mono_progress);
   if(atomic_load(&dead_chop)||current_program()!=mono_program||atomic_load(&fault)){
@@ -594,6 +628,9 @@ int workflow_tick(void){
   for(unsigned i=0;i<16;++i){void*p=FN(0x286bbe0,void*(*)(void*,int))(identity_program,bank*16+(int)i);if(p&&FN(0x2804760,int(*)(void*))(p))occupied_mask|=1<<i;}
  }}
  atomic_store(&native_occupied,occupied_mask);
+ int selection=-1;
+ if(native_kind==1)selection=load_pad_index();
+ atomic_store(&native_selected,selection);
  atomic_store(&native_colours,atomic_load(&custom)?0u:native_kind);
  atomic_store(&button_routes,(copy_visible?1u:0u)|(v?2u:0u));
  atomic_store(&active,v||copy_visible||(MPC_EXPERIMENTAL_CHOP_EXPORT&&visible(chop_root))||atomic_load(&split_forwarded)||batch_job||batch_leaving);
@@ -865,7 +902,7 @@ static void mono_palette(void){
  for(unsigned i=0;i<16;++i){unsigned n=mono_bank*16+i;void*p=FN(0x286bbe0,void*(*)(void*,int))(mono_program,(int)n);
   int used=p&&FN(0x2804760,int(*)(void*))(p);
   int target=n==mono_target;
-  atomic_store(&palette[i],pad_target_colour(n,used,target,target,now_ms()));}
+  atomic_store(&palette[i],pad_operation_colour(n,used,n==mono_source,target,target,now_ms()));}
  atomic_fetch_add(&palette_generation,1);
 }
 static void mono_paint(void*g){
@@ -1093,7 +1130,7 @@ static void batch_palette_at(uint64_t phase){
   unsigned colour_pad=chop_export&&!batch_page?slice_sound:n;
   int target=0,current=0;
   if(batch_page)for(unsigned j=0;j<batch_count;++j)if(destination[j]==n){target=1;current=(int)j==batch_row;break;}
-  uint64_t value=batch_page?pad_target_colour(colour_pad,present,target,current,phase):pad_workflow_colour(colour_pad,present,is_source,0,0,phase);
+  uint64_t value=batch_page?pad_operation_colour(colour_pad,present,is_source,target,current,phase):pad_workflow_colour(colour_pad,present,is_source,0,0,phase);
   uint32_t c=(uint32_t)value,bits=(uint32_t)(value>>32);float strength;memcpy(&strength,&bits,4);
 
   uint64_t light=pad_light(c,strength);if(atomic_exchange(&palette[i],light)!=light)atomic_fetch_add(&palette_generation,1);}
@@ -1110,7 +1147,7 @@ static void batch_paint(void*g){
   snprintf(line,sizeof(line),"%u / 16 selected",selected_count);colour(g,AMBER);left_text(g,line,8,70,304,33,25);
   colour(g,WHITE);if(chop_export)snprintf(line,sizeof(line),"%c%02u  |  Chop %d",'A'+slice_sound/16,slice_sound%16+1,slice_focus+1);else snprintf(line,sizeof(line),"Bank %c",'A'+batch_bank);left_text(g,line,8,112,304,24,18);
   colour(g,0xff373737);rect(g,8,143,304,1);colour(g,GREY);
-  left_text(g,"White double blink: selected",8,151,304,18,13);
+  left_text(g,"White: selected source",8,151,304,18,13);
   ui_caption(line,sizeof(line),batch_message[0]?batch_message:chop_export?"Click: play/stop   Enc: choose":"Unlit: free   Pads: select",38);colour(g,batch_message[0]?RED:GREY);left_text(g,line,8,177,304,18,13);
  }else{
   colour(g,GREY);left_text(g,chop_export?"CHOP":"SOURCE",8,63,80,15,12);left_text(g,"TARGET",119,63,84,15,12);left_text(g,"ASSIGN",230,63,82,15,12);

@@ -125,6 +125,17 @@ extern "C" int modern_fx_probe(uintptr_t base,const char**phase){
  compressor_knob(2,127);compressor_config(&after);assert(after.gain==6);
  compressor_knob(2,64);compressor_config(&after);assert(after.gain==0);
  assert(before.attack==10&&before.release==1200&&before.knee==6);
+ {
+  uint64_t saved=compressor_project_snapshot();compressor_project_reset();uint64_t defaults=compressor_project_snapshot();assert(compressor_project_restore(saved));
+  const unsigned shifts[6]={2,10,17,25,34,43},bits[6]={255,127,255,511,511,63};
+  for(unsigned i=0;i<6;++i){
+   compressor_knob(i%3,127);compressor_shift_knob(i%3,127);uint64_t old=compressor_project_snapshot();
+   compressor_reset_knob(i%3,i>=3);uint64_t now=compressor_project_snapshot(),mask=(uint64_t)bits[i]<<shifts[i];
+   assert((now&mask)==(defaults&mask)&&(now&~mask)==(old&~mask));
+  }
+  assert(compressor_project_restore(saved));
+  puts("PASS Opto per-knob reset restores exact normal/Shift defaults without changing the other five controls, Type, Warm or Bypass");
+ }
  auto control=[&](unsigned k,unsigned value,uint64_t t){unsigned char e[16]{};e[8]=static_cast<unsigned char>(0x10+k);e[9]=static_cast<unsigned char>(value);assert(compressor_ui_control(e,t));};
  shifted=1;uint64_t shift_ticket=compressor_ui_ticket();assert(shift_ticket!=ticket);shifted=0;
  control(0,127,shift_ticket);compressor_config(&after);

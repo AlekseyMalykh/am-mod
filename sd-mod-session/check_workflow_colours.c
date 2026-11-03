@@ -1,6 +1,7 @@
 #include "src/pad_workflow_colour.h"
 #include <assert.h>
 #include <stdio.h>
+#include "check_palette_receiver.h"
 static unsigned colours[128];
 int music_pad_lighting_mode(void){return 1;}
 int music_pad_colour(unsigned pad){assert(pad<128);return (int)colours[pad];}
@@ -14,6 +15,7 @@ int main(void){
    assert((uint32_t)pad_workflow_colour(n,0,0,1,0,phase)==PAD_FREE);
    assert((uint32_t)pad_workflow_colour(n,1,1,1,0,phase)==PAD_DANGER);
    for(unsigned used=0;used<2;++used)for(unsigned assigned=0;assigned<2;++assigned){
+    assert((uint32_t)pad_operation_colour(n,used,1,assigned,0,phase)==(music_cursor_on(phase,500)?PAD_SELECT:assigned?(used?PAD_DANGER:PAD_FREE):used?music_identity_rgb(c):0));
     uint64_t background=pad_target_light(used,assigned,0,phase);
     assert((uint32_t)background==(assigned?(used?PAD_DANGER:PAD_FREE):used?PAD_CONTENT:0));
     uint64_t candidate=pad_target_colour(n,used,assigned,0,phase);

@@ -60,7 +60,7 @@ void music_lighting_destroyed(void *p)
 }
 void music_lighting_tick(void)
 {
-    uint64_t current=music_published()^((uint64_t)!!music_pad_lighting_mode()<<63);
+    uint64_t current=music_published()^((uint64_t)!!music_pad_lighting_mode()<<63)^music_mod_settings_snapshot();
     for (unsigned i=0;i<MAX_LAYERS;++i) {
         pthread_mutex_lock(&mutex);
         void *p=layers[i].layer;

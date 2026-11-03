@@ -5,14 +5,25 @@
 #include <stdexcept>
 static unsigned char sample[0x1100],view[0x250],other[0x100];
 static unsigned draws,curves,paints;static int tab,visible=1,fail,nested;
+static void*expected_graphics=reinterpret_cast<void*>(1);static int tint_enabled,raster_fail;
+static uint32_t ink=0xffc247,saved_ink;static unsigned saves,restores,fills;
+static uintptr_t context_table[19];static uintptr_t*context=context_table;
+static uintptr_t graphics[3];static void*raster_adapter=reinterpret_cast<void*>(1);
+static int tint(uint32_t*out){if(!tint_enabled)return 0;*out=0x8830ff;return 1;}
+static void save(void*g){assert(g==&context);saved_ink=ink;++saves;}
+static void restore(void*g){assert(g==&context);ink=saved_ink;++restores;}
+static void fill(void*g,const void*value){void*f=const_cast<void*>(value);assert(g==&context);assert(F(f,24,float)==1&&F(f,40,float)==1&&!F(f,8,uintptr_t)&&!F(f,16,uintptr_t));ink=F(f,0,uint32_t);++fills;}
 static int enabled(void*p){assert(p==sample);return visible&&(tab==0||tab==1);}
 static int body(void*g,const void*r,int channels,int samples,void*out,unsigned first,float scale,float y){
-    assert(g==reinterpret_cast<void*>(1)&&r==other&&channels==2&&samples==100&&out==view&&first==7&&scale==.25f&&y==.5f);++draws;return 1;
+    assert(g==raster_adapter&&r==other&&channels==2&&samples==100&&out==view&&first==7&&scale==.25f&&y==.5f);++draws;
+    if(tint_enabled&&sample_scope)assert(ink==0xff8830ff);
+    if(raster_fail)throw std::runtime_error("raster receiver");
+    return 1;
 }
 static void original_paint(void*v,void*g){
-    assert(g==reinterpret_cast<void*>(1));++paints;
+    assert(g==expected_graphics);++paints;
     for(unsigned i=0;i<2;++i){
-        reinterpret_cast<Waveform>(image+0x2d53470)(g,other,2,100,view,7,.25f,.5f);
+        reinterpret_cast<Waveform>(image+0x2d53470)(raster_adapter,other,2,100,view,7,.25f,.5f);
         ++curves; /* Native painter continues to its independent overlay. */
         if(fail)throw std::runtime_error("native paint receiver");
     }
@@ -41,5 +52,15 @@ int main(){
     fail=1;try{paint(view,reinterpret_cast<void*>(1));assert(false);}catch(const std::runtime_error&){}assert(!filtered);fail=0;
     tab=2;unsigned d=draws;paint(view,reinterpret_cast<void*>(1));assert(draws==d+2);
     assert(paints==8);std::puts("PASS waveform-only suppression on Filter/Filter Env: native curve stages continue, Trim/Tune/unrelated/nested views pass through, exception restores scope; pinned native prologue and float/int argument forwarding executed");
+    context_table[14]=reinterpret_cast<uintptr_t>(save);context_table[15]=reinterpret_cast<uintptr_t>(restore);context_table[18]=reinterpret_cast<uintptr_t>(fill);
+    graphics[1]=reinterpret_cast<uintptr_t>(&context);
+    filter_spectrum_tint_provider(tint);tint_enabled=1;expected_graphics=graphics;
+    tab=2;paint(view,expected_graphics);assert(saves==2&&restores==2&&fills==2&&ink==0xffc247);
+    tab=0;paint(view,expected_graphics);assert(saves==2&&restores==2); /* Filter curves stay native. */
+    paint(other,expected_graphics);assert(saves==2&&ink==0xffc247); /* unrelated view */
+    tab=2;raster_fail=1;try{paint(view,expected_graphics);assert(false);}catch(const std::runtime_error&){}raster_fail=0;
+    assert(saves==3&&restores==3&&ink==0xffc247&&!sample_scope&&!filtered);
+    tint_enabled=0;paint(view,expected_graphics);assert(saves==3&&restores==3);
+    std::puts("PASS optional pad waveform tint scopes the pinned native FillType and save/restore to sample rasterization; off/filter/unrelated views retain original colours, exceptions restore native graphics state");
     munmap(mem,0x7500000);return 0;
 }

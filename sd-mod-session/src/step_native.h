@@ -49,5 +49,6 @@ int step_native_preview_suppressed(void *track,const void *event,unsigned source
 int step_native_chop_audition(void *program,unsigned source,unsigned slice,int down);
 void step_native_queue_fault(void);
 int step_native_light(unsigned pad,uint64_t *light);
+int step_native_reset_knob(unsigned column,unsigned shifted);
 void step_native_observe_rgb(unsigned pad,unsigned rgb); /* numeric sender snapshot only */
 #endif

@@ -1,5 +1,8 @@
 #define _GNU_SOURCE
 #include "music_settings.h"
+#ifdef MPC_COMPRESSOR
+#include "compressor.h"
+#endif
 #ifdef MPC_PAD_EQ
 #include "pad_eq.h"
 #endif
@@ -9,28 +12,65 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Global display preference, deliberately outside struct music_project. */
+/* Card defaults are separate from musical data. A project carries its own
+ * complete snapshot; loading it changes this session without rewriting the
+ * card defaults. One atomic word is safe on the lighting/render paths. */
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
-static _Atomic unsigned lighting_mode=MUSIC_LIGHTING_MOD;
+#define MOD_DEFAULT ((UINT64_C(0xa9876543210)<<5)|1u|(2u<<3))
+static _Atomic uint64_t mod_settings=MOD_DEFAULT,mod_generation;
 static int lighting_directory=-1;
 static unsigned lighting_write_serial;
-int music_pad_lighting_mode(void){return (int)atomic_load(&lighting_mode);}
+static const uint32_t mod_palette_rgb[MUSIC_PALETTE_SIZE]={0x2030ff,0x8830ff,0xff20b0,0xff6000,0xff70b8,0xffffff,0x00c700,0xff2020,0xffc247,0x00c8ff,0x707070};
+static const char*const palette_names[MUSIC_PALETTE_SIZE]={"Blue","Violet","Magenta","Orange","Pink","White","Green","Red","Amber","Cyan","Grey"};
+uint64_t music_mod_settings_snapshot(void){return atomic_load(&mod_settings);}
+int music_mod_settings_valid(uint64_t v){
+ if(v>>49)return 0;
+ unsigned seen=0;
+ for(unsigned i=0;i<MUSIC_PALETTE_SIZE;++i){unsigned c=(unsigned)((v>>(5+4*i))&15);if(c>=MUSIC_PALETTE_SIZE||(seen&(1u<<c)))return 0;seen|=1u<<c;}
+ return 1;
+}
+int music_mod_settings_restore(uint64_t v){
+ if(!music_mod_settings_valid(v))return 0;
+ atomic_store(&mod_settings,v);atomic_fetch_add(&mod_generation,1);return 1;
+}
+int music_pad_lighting_mode(void){return (int)(atomic_load(&mod_settings)&1);}
+int music_mod_setting(unsigned field){uint64_t v=atomic_load(&mod_settings);return field<3?(int)((v>>field)&1):field==MUSIC_SETTING_BLINK?(int)((v>>3)&3):0;}
+static unsigned palette_slot(uint64_t v,unsigned slot){return (unsigned)((v>>(5+4*slot))&15);}
+uint32_t music_palette_rgb(unsigned c){return mod_palette_rgb[c<MUSIC_PALETTE_SIZE?c:0];}
+const char*music_palette_name(unsigned c){return palette_names[c<MUSIC_PALETTE_SIZE?c:0];}
+unsigned music_service_colour(unsigned role){return palette_slot(atomic_load(&mod_settings),5+(role<MUSIC_SERVICE_COUNT?role:0));}
+uint32_t music_service_rgb(unsigned role){uint64_t v=atomic_load(&mod_settings);return mod_palette_rgb[palette_slot((v&1)?v:MOD_DEFAULT,5+(role<MUSIC_SERVICE_COUNT?role:0))];}
+uint32_t music_user_rgb(unsigned raw){unsigned slot=music_colour_choice_index(raw);return mod_palette_rgb[palette_slot(atomic_load(&mod_settings),slot?slot-1:0)];}
+const char*music_identity_name(unsigned raw){unsigned slot=music_colour_choice_index(raw);return raw?palette_names[palette_slot(atomic_load(&mod_settings),slot?slot-1:0)]:"Default";}
+int music_cursor_on(uint64_t phase,unsigned duty){
+ unsigned mode=(unsigned)music_mod_setting(MUSIC_SETTING_BLINK);if(!mode)return 1;
+ unsigned period=mode==1?1200:mode==2?800:400;
+ return phase%period<(uint64_t)period*(duty>1000?1000:duty)/1000;
+}
 int music_lighting_preferences_durable(void){return lighting_directory>=0;}
 int music_lighting_preferences_open(const char *directory){
  int dir=open(directory,O_RDONLY|O_DIRECTORY|O_CLOEXEC|O_NOFOLLOW);if(dir<0)return 0;
- unsigned mode=MUSIC_LIGHTING_MOD;
- int fd=openat(dir,".am-mod-pad-lighting",O_RDONLY|O_CLOEXEC|O_NOFOLLOW|O_NONBLOCK);
+ uint64_t value=MOD_DEFAULT;
+ int fd=openat(dir,".am-mod-settings",O_RDONLY|O_CLOEXEC|O_NOFOLLOW|O_NONBLOCK);
+ int legacy=fd<0&&errno==ENOENT;
+ if(legacy)fd=openat(dir,".am-mod-pad-lighting",O_RDONLY|O_CLOEXEC|O_NOFOLLOW|O_NONBLOCK);
  if(fd>=0){char text[32]={0};struct stat st;ssize_t n=read(fd,text,sizeof(text));
-  int valid=!fstat(fd,&st)&&S_ISREG(st.st_mode)&&n==18&&!memcmp(text,"AM_PAD_LIGHTING=",16)&&text[17]=='\n'&&(text[16]=='0'||text[16]=='1');
-  if(valid)mode=(unsigned)(text[16]-'0');
+  if(!fstat(fd,&st)&&S_ISREG(st.st_mode)){
+   if(legacy&&n==18&&!memcmp(text,"AM_PAD_LIGHTING=",16)&&text[17]=='\n'&&(text[16]=='0'||text[16]=='1'))value=(value&~UINT64_C(1))|(unsigned)(text[16]-'0');
+   if(!legacy&&n==27&&!memcmp(text,"AM_SETTINGS1 ",13)&&text[26]=='\n'){
+    uint64_t decoded=0;int valid=1;
+    for(int i=13;i<26;++i){unsigned c=(unsigned char)text[i];if(c>='0'&&c<='9')c-='0';else if(c>='a'&&c<='f')c=c-'a'+10;else {valid=0;break;}decoded=(decoded<<4)|c;}
+    if(valid&&music_mod_settings_valid(decoded))value=decoded;
+   }
+  }
   close(fd);
  }
  if(lighting_directory>=0)close(lighting_directory);
  lighting_directory=dir;
- atomic_store(&lighting_mode,mode);return 1;
+ music_mod_settings_restore(value);return 1;
 }
 void music_lighting_preferences_init(void){
  int fd=open("/run/mpc-trial-app/storage-meta/save-path",O_RDONLY|O_CLOEXEC|O_NOFOLLOW);if(fd<0)return;
@@ -40,20 +80,40 @@ void music_lighting_preferences_init(void){
  if(strncmp(path,"/media/",7)||strstr(path,"/../")||n+10>=(ssize_t)sizeof(path))return;
  memcpy(path+n,"/Projects",10);music_lighting_preferences_open(path);
 }
-int music_set_pad_lighting_mode(unsigned mode){
- if(mode>MUSIC_LIGHTING_MOD)return 0;
+static int save_mod_settings(uint64_t value){
+ if(!music_mod_settings_valid(value))return 0;
  if(lighting_directory>=0){
   char temp[80];int fd=-1;
-  for(unsigned attempt=0;attempt<16&&fd<0;++attempt){snprintf(temp,sizeof(temp),".am-mod-pad-lighting.tmp-%ld-%u",(long)getpid(),++lighting_write_serial);
+  for(unsigned attempt=0;attempt<16&&fd<0;++attempt){snprintf(temp,sizeof(temp),".am-mod-settings.tmp-%ld-%u",(long)getpid(),++lighting_write_serial);
    fd=openat(lighting_directory,temp,O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC|O_NOFOLLOW,0600);if(fd<0&&errno!=EEXIST)return 0;}
   if(fd<0)return 0;
-  char text[]="AM_PAD_LIGHTING=0\n";text[16]=(char)('0'+mode);
+  char text[28];snprintf(text,sizeof(text),"AM_SETTINGS1 %013llx\n",(unsigned long long)value);
   int ok=write(fd,text,sizeof(text)-1)==(ssize_t)sizeof(text)-1&&!fsync(fd);if(close(fd))ok=0;
-  if(ok)ok=!renameat(lighting_directory,temp,lighting_directory,".am-mod-pad-lighting");
+  if(ok)ok=!renameat(lighting_directory,temp,lighting_directory,".am-mod-settings");
   if(!ok){unlinkat(lighting_directory,temp,0);return 0;}
   fsync(lighting_directory);
  }
- atomic_store(&lighting_mode,mode);return 1;
+ return music_mod_settings_restore(value);
+}
+int music_set_mod_setting(unsigned field,unsigned value){
+ if(field>MUSIC_SETTING_BLINK||value>(field==MUSIC_SETTING_BLINK?3u:1u))return 0;
+ uint64_t mask=field==MUSIC_SETTING_BLINK?3:1,v=atomic_load(&mod_settings);
+ return save_mod_settings((v&~(mask<<field))|((uint64_t)value<<field));
+}
+int music_set_pad_lighting_mode(unsigned mode){return music_set_mod_setting(MUSIC_SETTING_LIGHTING,mode);}
+int music_set_service_colour(unsigned role,unsigned colour){
+ if(role>=MUSIC_SERVICE_COUNT||colour>=MUSIC_PALETTE_SIZE)return 0;
+ uint64_t v=atomic_load(&mod_settings);unsigned target=role+5,previous=palette_slot(v,target),owner=0;
+ while(owner<MUSIC_PALETTE_SIZE&&palette_slot(v,owner)!=colour)++owner;
+ if(owner==MUSIC_PALETTE_SIZE)return 0;
+ v&=~((UINT64_C(15)<<(5+4*target))|(UINT64_C(15)<<(5+4*owner)));
+ v|=(uint64_t)colour<<(5+4*target);v|=(uint64_t)previous<<(5+4*owner);
+ return save_mod_settings(v);
+}
+int music_mod_restore_recommended(unsigned section){
+ uint64_t mask=section==0?1:section==1?6:section==2?UINT64_C(0x1ffffffffffe0):section==3?24:0;
+ if(section>3)return 0;
+ return save_mod_settings((atomic_load(&mod_settings)&~mask)|(MOD_DEFAULT&mask));
 }
 
 const char *const music_note_names[12]={"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
@@ -107,8 +167,11 @@ void music_reset(void)
     uint64_t empty[128]={0};pad_eq_publish_all(empty);
 #endif
     atomic_store(&published,0); atomic_store(&key_edited,0); atomic_fetch_add(&generation,1);
+#ifdef MPC_COMPRESSOR
+    compressor_project_reset();
+#endif
 }
-uint64_t music_generation(void) { return atomic_load(&generation); }
+uint64_t music_generation(void) { return atomic_load(&generation)+atomic_load(&mod_generation); }
 void music_get_key(int *tonic,int *scale)
 {
     pthread_mutex_lock(&mutex); *tonic=project.tonic; *scale=project.scale; pthread_mutex_unlock(&mutex);

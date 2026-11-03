@@ -8,6 +8,7 @@ int note_native_footer(void *component, void *graphics);
 int note_native_tick(void);
 int note_native_active(void);
 int note_native_control(void *event);
+int note_native_reset_knob(unsigned column,unsigned shifted);
 void note_native_button_requested(unsigned code,unsigned down);
 int note_native_owns(unsigned cc);
 void note_native_destroyed(void *component);

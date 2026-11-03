@@ -46,7 +46,16 @@ int phone_events_push(const struct phone_event *event)
 {
     int ok = 0;
     pthread_mutex_lock(&mutex);
-    if (replace_knob(event)) ok=1;
+    /* A reset gesture has no continuous value history. Keep one pending
+     * command per knob/modifier, without crossing a button/pad boundary. */
+    if(event->kind==PHONE_KNOB_RESET){
+        for(unsigned n=0;n<count;++n){unsigned pos=(write_pos+PHONE_EVENT_CAPACITY-1-n)%PHONE_EVENT_CAPACITY;
+            struct phone_event*old=&events[pos];
+            if(old->kind!=PHONE_KNOB_RESET||old->workflow_ticket!=event->workflow_ticket)break;
+            if(old->native[8]==event->native[8]){*old=*event;ok=1;break;}
+        }
+    }
+    if (ok || replace_knob(event)) ok=1;
     else if (count < PHONE_EVENT_CAPACITY) {
         events[write_pos] = *event;
         write_pos = (write_pos + 1) % PHONE_EVENT_CAPACITY;

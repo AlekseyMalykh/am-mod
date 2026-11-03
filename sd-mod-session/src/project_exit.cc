@@ -4,6 +4,9 @@
 #include "project_exit.h"
 extern "C" {
 #include "music_archive.h"
+#ifdef MPC_PROJECT_RECOVERY
+#include "project_recovery.h"
+#endif
 }
 #include <atomic>
 #include <cerrno>
@@ -102,10 +105,16 @@ static void save(void *saver){
          * native locks required by the sample loader in a large project. */
         completion_seen=completion_failed=false;
         copying=true;
+#ifdef MPC_PROJECT_RECOVERY
+        project_recovery_begin_copy();
+#endif
         int ok=FN(0x1508bc0,int(*)(void*,const uint64_t*,bool,bool,bool))
             (saver,&file,true,true,true);
         copying=false;
         finish_futures();
+#ifdef MPC_PROJECT_RECOVERY
+        project_recovery_end_copy();
+#endif
         FN(0xf0a290,void(*)(uint64_t*))(&file);file=0;
         FN(0xf0a290,void(*)(uint64_t*))(&string);string=0;
         if(!ok||!completion_seen||completion_failed||music_archive_saved_count()==serial||music_archive_status()!=1)
@@ -154,6 +163,9 @@ static void save(void *saver){
         state.store(2,std::memory_order_release);
     }catch(const std::exception&e){
         copying=false;
+#ifdef MPC_PROJECT_RECOVERY
+        project_recovery_end_copy();
+#endif
         release_futures();
         if(!staging.empty())remove_tree(root,staging);
         if(file)FN(0xf0a290,void(*)(uint64_t*))(&file);
@@ -163,6 +175,9 @@ static void save(void *saver){
         state.store(3,std::memory_order_release);
     }catch(...){
         copying=false;
+#ifdef MPC_PROJECT_RECOVERY
+        project_recovery_end_copy();
+#endif
         release_futures();
         if(!staging.empty())remove_tree(root,staging);
         if(file)FN(0xf0a290,void(*)(uint64_t*))(&file);
@@ -227,6 +242,9 @@ extern "C" int project_exit_start(uintptr_t b,void *services){
     base=b;message[0]=destination[0]=0;
     try{
         void *saver=management(services);
+#ifdef MPC_PROJECT_RECOVERY
+        project_recovery_capture(b,saver);
+#endif
         state.store(1,std::memory_order_release);
         std::thread(save,saver).detach();
         return 1;

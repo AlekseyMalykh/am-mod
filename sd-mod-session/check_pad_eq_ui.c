@@ -2,6 +2,7 @@
 #include "check_pad_eq_native.c"
 #include "src/music_ui.h"
 #include "pad_lighting_project.h"
+#include "src/mod_build.h"
 static unsigned char screen[0x1600],controller[0x22b0];
 static unsigned char sequence_screen[0x300],sequence_model[0x800],empty_sequence[0x800],current_things[0x1300];
 static void *sequence_array[128];
@@ -70,6 +71,16 @@ int main(int argc,char**argv){
  knob(0x12,20);knob(0x10,72);knob(0x11,22);uint64_t saved=music_get_pad_eq(18);assert(saved&&pad_eq_published(18)==saved&&!music_get_pad_eq(19));
  F(controller,0x22a0,unsigned char)=1;knob(0x11,90);uint64_t q=music_get_pad_eq(18);assert((q&~(UINT64_C(127)<<14))==(saved&~(UINT64_C(127)<<14)));knob(0x12,127);assert(music_get_pad_eq(18)==q);paint_ui();assert(strstr(captions,"Q"));
  F(controller,0x22a0,unsigned char)=0;knob(0x12,1);paint_ui();assert(strstr(captions,"BYPASS"));
+ knob(0x12,110);knob(0x10,20);knob(0x11,110);
+ uint64_t reset_before=music_get_pad_eq(18),factory=pad_eq_default();
+ assert(music_ui_reset_knob(0,0));uint64_t reset_after=music_get_pad_eq(18);
+ assert(reset_after==((reset_before&~UINT64_C(127))|(factory&127)));
+ assert(music_ui_reset_knob(1,1));uint64_t reset_q=music_get_pad_eq(18);
+ assert(reset_q==((reset_after&~(UINT64_C(127)<<14))|(factory&(UINT64_C(127)<<14))));
+ assert(music_ui_reset_knob(2,0));uint64_t type_mask=UINT64_C(15)<<21;
+ assert(music_get_pad_eq(18)==((reset_q&~type_mask)|(factory&type_mask)));
+ assert(music_get_pad_eq(18)&(UINT64_C(1)<<24));
+ puts("PASS EQ per-knob factory reset leaves unrelated fields intact; Type reset includes native Bypass choice");
  current_pad=19;paint_ui();assert(strstr(captions,"BYPASS"));current_pad=18;
  assert(!key(0x0e,1)&&!music_ui_owns(0x10));F(screen,0xe50+0x218,int)=0;paint_ui();assert(!strstr(captions,"EQ"));
  F(screen,0xe50+0x218,int)=1;assert(key(0x0e,1)&&key(0x0e,0));assert(!key(0x0c,1)&&!music_ui_owns(0x10));
@@ -138,14 +149,40 @@ int main(int argc,char**argv){
  sequence_only=0;F(screen,0x7f0+0x218,int)=1;paint_ui();assert(key(0x0d,1)&&key(0x0d,0)&&music_ui_owns(0x10));
  F(project_screen,0,uintptr_t)=base+0x6e1f788;F(project_screen,0x100,void*)=controller;project_open=1;music_ui_project(project_screen,screen);
  assert(!music_ui_owns(0x10)&&!key(0x6f,1)); /* Native Project menu owns its encoder even above Lights. */
- phase="Project Pad Lighting page and Standard/AM Mod switching";
+ phase="Project Mod Settings tabs, encoder, reset and Standard/AM Mod switching";
  project_open=1;music_ui_project(project_screen,screen);
  assert(music_set_pad_colour(18,13)&&music_set_sequence_colour(11,4));
- music_ui_request_project((void*)((uintptr_t)project_screen|2));music_ui_tick();captions[0]=0;music_ui_project(project_screen,screen);assert(strstr(captions,"Pad Lighting")&&strstr(captions,"AM Mod"));
- assert(key(0x0d,1)&&key(0x0d,0)&&music_pad_lighting_mode()==MUSIC_LIGHTING_STANDARD);
+ music_ui_request_project((void*)((uintptr_t)project_screen|2));music_ui_tick();captions[0]=0;music_ui_project(project_screen,screen);assert(strstr(captions,"Mod Settings")&&strstr(captions,"AM Mod")&&strstr(captions,"Restore recommended"));
+ knob(0x10,0);assert(music_pad_lighting_mode()==MUSIC_LIGHTING_STANDARD);
  assert(music_pad_colour(18)==13&&music_sequence_colour(11)==4);
- assert(key(0x0e,1)&&key(0x0e,0)&&music_pad_lighting_mode()==MUSIC_LIGHTING_MOD);
  knob(0x10,0);assert(music_pad_lighting_mode()==MUSIC_LIGHTING_STANDARD);knob(0x10,127);assert(music_pad_lighting_mode()==MUSIC_LIGHTING_MOD);
+ assert(key(0x0e,1)&&key(0x0e,0));captions[0]=0;music_ui_project(project_screen,screen);assert(strstr(captions,"Wave / Spectrum"));
+ knob(0x10,127);uint32_t wave=0;assert(music_mod_setting(MUSIC_SETTING_WAVE)&&music_ui_waveform_tint(&wave)&&wave==music_identity_rgb(13));
+ knob(0x64,1);knob(0x10,127);assert(music_mod_setting(MUSIC_SETTING_SPECTRUM));
+ knob(0x64,1);uint64_t before_reset=music_mod_settings_snapshot();
+ assert(key(0x6f,1)&&key(0x6f,1)&&key(0x6f,0)&&music_mod_settings_snapshot()==before_reset);
+ captions[0]=0;music_ui_project(project_screen,screen);assert(strstr(captions,"Restore recommended?")&&strstr(captions,"Wave / Spectrum")&&strstr(captions,"Cancel"));
+ knob(0x10,0);knob(0x64,127);assert(key(0x6f,1)&&key(0x6f,0)&&music_mod_settings_snapshot()==before_reset);
+ assert(key(0x0c,1)&&key(0x0c,0)&&music_mod_settings_snapshot()==before_reset);
+ captions[0]=0;music_ui_project(project_screen,screen);assert(strstr(captions,"Restore recommended")&&!strstr(captions,"Restore recommended?"));
+ assert(key(0x6f,1)&&key(0x6f,0)&&key(0x0e,1)&&key(0x0e,0)&&!music_mod_setting(MUSIC_SETTING_WAVE)&&!music_mod_setting(MUSIC_SETTING_SPECTRUM));
+ assert(key(0x0e,1)&&key(0x0e,0));knob(0x10,127);assert(music_service_colour(0)==10);
+ knob(0x64,6);captions[0]=0;music_ui_project(project_screen,screen);assert(strstr(captions,"Restore recommended")&&!strstr(captions,"Cursor / selection"));
+ assert(key(0x6f,1)&&key(0x6f,0)&&music_service_colour(0)==10);
+ captions[0]=0;music_ui_project(project_screen,screen);assert(strstr(captions,"Reset the whole colour palette"));
+ assert(key(0x0e,1)&&key(0x0e,0)&&music_service_colour(0)==5);
+ assert(key(0x0e,1)&&key(0x0e,0));knob(0x10,0);assert(!music_mod_setting(MUSIC_SETTING_BLINK));
+ assert(key(0x6f,1)&&key(0x6f,0));knob(0x64,1);assert(music_mod_setting(MUSIC_SETTING_BLINK)==1);
+ assert(key(0x6f,1)&&key(0x6f,0));knob(0x64,1);assert(key(0x6f,1)&&key(0x6f,0)&&music_mod_setting(MUSIC_SETTING_BLINK)==1);
+ assert(key(0x0e,1)&&key(0x0e,0)&&music_mod_setting(MUSIC_SETTING_BLINK)==2);
+ assert(key(0x0e,1)&&key(0x0e,0));captions[0]=0;music_ui_project(project_screen,screen);
+ assert(strstr(captions,"About")&&strstr(captions,"Version " AM_MOD_VERSION)&&strstr(captions,AM_MOD_REPO_URL)&&strstr(captions,"5 / 5")&&!strstr(captions,"Restore recommended"));
+ uint64_t about_snapshot=music_mod_settings_snapshot();knob(0x10,0);knob(0x11,127);knob(0x12,127);knob(0x64,127);assert(key(0x6f,1)&&key(0x6f,0)&&music_mod_settings_snapshot()==about_snapshot);
+ assert(key(0x0e,1)&&key(0x0e,0));captions[0]=0;music_ui_project(project_screen,screen);assert(strstr(captions,"Pad lighting"));
+ assert(key(0x0d,1)&&key(0x0d,0));captions[0]=0;music_ui_project(project_screen,screen);assert(strstr(captions,"About"));
+ assert(key(0x0d,1)&&key(0x0d,0));captions[0]=0;music_ui_project(project_screen,screen);assert(strstr(captions,"Cursor pulse"));
+ assert(key(0x0e,1)&&key(0x0e,0)&&key(0x0e,1)&&key(0x0e,0));
+ puts("PASS About is the fifth and last tab with shared version/repository, no reset/edit mutation, B2/B3 wrap through all five pages");
  assert(key(0x0c,1)&&key(0x0c,0));project_open=0;sequence_only=1;music_ui_tick();music_ui_requested(0x31,1);
  assert(music_set_pad_lighting_mode(MUSIC_LIGHTING_STANDARD));assert(!music_ui_owns(0x10)&&!music_ui_control((unsigned char[16]){[8]=0x10,[9]=127}));
  assert(music_sequence_colour(11)==4);music_ui_requested(0x31,0);

@@ -13,8 +13,8 @@
 static uintptr_t table[125],image;
 static _Atomic(uintptr_t) owner;
 static _Atomic unsigned processing,retiring,master_bypassed;
-static _Atomic uint64_t settings=UINT64_C(120)<<2|UINT64_C(20)<<10|UINT64_C(24)<<17|
-    UINT64_C(36)<<25|UINT64_C(110)<<34|UINT64_C(24)<<43;
+#define PROJECT_DEFAULT (UINT64_C(120)<<2|UINT64_C(20)<<10|UINT64_C(24)<<17|UINT64_C(36)<<25|UINT64_C(110)<<34|UINT64_C(24)<<43)
+static _Atomic uint64_t settings=PROJECT_DEFAULT;
 static _Atomic unsigned reduction,input_level=0xc2700000u,hits,blocks;
 static _Atomic uint64_t meter_input,meter_output;
 static struct comp_meter meter_envelope;
@@ -35,6 +35,16 @@ static struct comp_config decode(uint64_t v){
   (float)((v>>43)&63)*.25f,(unsigned)((v>>49)&1)};return c;
 }
 unsigned compressor_type(void){return (unsigned)(atomic_load_explicit(&settings,memory_order_acquire)&1);}
+uint64_t compressor_project_snapshot(void){return atomic_load_explicit(&settings,memory_order_acquire);}
+int compressor_project_valid(uint64_t v){return !(v>>50)&&!(v&2)&&((v>>2)&255)<=192&&((v>>10)&127)<=70&&((v>>17)&255)<=48&&((v>>25)&511)<=396&&((v>>34)&511)<=390&&((v>>43)&63)<=48;}
+int compressor_project_restore(uint64_t v){if(!compressor_project_valid(v))return 0;atomic_store_explicit(&settings,v,memory_order_release);return 1;}
+void compressor_project_reset(void){atomic_store_explicit(&settings,PROJECT_DEFAULT,memory_order_release);}
+void compressor_reset_knob(unsigned column,unsigned shifted){
+ if(column>2)return;
+ const unsigned shifts[2][3]={{2,10,17},{25,34,43}},bits[2][3]={{255,127,255},{511,511,63}};
+ unsigned offset=shifts[!!shifted][column];uint64_t mask=(uint64_t)bits[!!shifted][column]<<offset;
+ uint64_t v=atomic_load(&settings);atomic_store_explicit(&settings,(v&~mask)|(PROJECT_DEFAULT&mask),memory_order_release);
+}
 int compressor_ready(void){return atomic_load_explicit(&owner,memory_order_acquire)!=0;}
 int compressor_select(unsigned type){
  if(type>=COMP_TYPES||(type==COMP_OPTO&&!compressor_ready()))return 0;

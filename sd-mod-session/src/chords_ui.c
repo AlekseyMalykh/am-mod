@@ -150,11 +150,12 @@ void chords_ui_tick(int available){
  * chord path while the UI queue is still catching up. */
 void chords_ui_button_input(unsigned code,int down){
  if(!down||code>=112||!chords_active())return;
- if(code==0x00||code==0x0b||code==0x0d||code==0x0e||code==0x6f||code==0x31||code==0x35||code==0x50||code==0x51||code==0x52||code==0x4b)return;
+ if(code==0x00||code==0x0b||code==0x0d||code==0x0e||code==0x6f||code==0x31||code==0x35||code==0x50||code==0x51||code==0x52||code==0x4b||code==0x23)return;
  /* Held chord keys still finish through the release path after close. */
  chords_close();
 }
 int chords_ui_button_owns(unsigned code){
+ if(code==0x23)return 0; /* Native hold-bank picker remains available. */
  return code<112&&(atomic_load(&owned[code])||
    (chords_active()&&code!=0x50&&code!=0x51&&code!=0x52&&code!=0x35&&code!=0x00)||
    (code==0x4b&&atomic_load(&ready)&&!music_ui_shift_active()));
@@ -213,6 +214,11 @@ int chords_ui_control(void*event){
  int hi=field==CHORD_OCTAVE?2:field==CHORD_INVERSION?3:field==CHORD_ARP?ARP_PATTERNS-1:field==CHORD_ARP_RATE?ARP_RATES-1:2;
  int next=cc==0x64?current+(value>64?(int)value-128:(int)value):lo+(int)((value*(unsigned)(hi-lo+1))/128);
  chords_set(field,next);return 1;
+}
+int chords_ui_reset_knob(unsigned column,unsigned shifted){
+ if(!chords_active()||column>2||knob_fx())return 0;
+ int field=column==0?(shifted?CHORD_ARP_RANGE:CHORD_OCTAVE):column==1?CHORD_INVERSION:(shifted?CHORD_ARP_RATE:CHORD_ARP);
+ chords_set(field,field==CHORD_ARP_RANGE?1:0);focus=(int)column;note_native_repaint_sample();return 1;
 }
 static void colour(void*g,uint32_t c){FN(0x102d5e0,void(*)(void*,uint32_t))(g,c);}
 static void rect(void*g,int x,int y,int w,int h){FN(0x102e000,void(*)(void*,int,int,int,int))(g,x,y,w,h);}

@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "pad_eq.h"
+#include "music_settings.h"
 #include <stdatomic.h>
 #include <sys/syscall.h>
 #include <unistd.h>
@@ -101,6 +102,11 @@ static void fft(float*re,float*im,unsigned n){
 }
 void pad_eq_spectrum_paint(unsigned pad,int left,int top,int width,int height,uint32_t tint,const struct resample_painter*p){
     if(pad>=128||!p||!p->rect||width<1||height<1)return;
+    if(music_pad_lighting_mode()&&music_mod_setting(MUSIC_SETTING_SPECTRUM)){
+        uint32_t hue=music_identity_rgb((unsigned)music_pad_colour(pad));
+        /* Spectrum stays behind native response/envelope lines. */
+        tint=(tint&0xff000000u)|(((hue>>16)&255)*3/5<<16)|(((hue>>8)&255)*3/5<<8)|((hue&255)*3/5);
+    }
     static float shown[320];static int shown_pad=-1;
     if((int)pad!=shown_pad){shown_pad=(int)pad;for(int i=0;i<320;++i)shown[i]=-96;}
     pad_eq_spectrum_watch((int)pad);
