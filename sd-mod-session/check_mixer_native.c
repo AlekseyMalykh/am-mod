@@ -4,6 +4,7 @@
 #define main unused_mixer_fx_main
 #include "check_fx_native.c"
 #undef main
+#include "src/mixer_meters.h"
 #define F(p,o,T) (*(T*)((char*)(p)+(o)))
 
 static void routing(void)
@@ -45,7 +46,16 @@ static void summing(void)
     F(source,0x128,unsigned char)=0;gain=0;memcpy(route+4,&gain,4);
     assert(mix(NULL,source,destination,route,16));
     assert(!memcmp(saved_l,out_l,sizeof(out_l))&&!memcmp(saved_r,out_r,sizeof(out_r)));
+    /* Measure the PCM just produced by real native summing, not a gain,
+     * note event or guessed engine bus. This test chooses telemetry slot0. */
+    struct mixer_meters*meters=mixer_meters_create(48000);assert(meters);
+    struct mixer_meter_input taps[MIXER_METER_BUSES]={0};
+    taps[0]=(struct mixer_meter_input){{out_l,out_r},2,0};struct mixer_meter_snapshot snapshot;
+    assert(mixer_meters_push(meters,1,16,taps)==1&&mixer_meters_take(meters,1,&snapshot));
+    assert(snapshot.valid_mask==1&&snapshot.peak[0][0]==.375f&&snapshot.peak[0][1]==.1875f);
+    mixer_meters_destroy(meters);
     puts("PASS actual native stereo summing: route gain, accumulation, clear-source suppression and immutable source PCM");
+    puts("PASS new meter core measures actual native summed PCM; native live tap not installed");
 }
 
 static unsigned export_calls,export_source;
