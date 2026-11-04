@@ -5,7 +5,8 @@
 controller → actual live audio acknowledgement → archive owner.
 Candidate автоматически привязывает сессию к живому аудиовызову и снимает её
 после смены источника. Маска занятых звуков подключена через native owner queue.
-До проверки на MPC остаются native FX backend, приоритеты подсветки,
+Тракт LED и его native приоритеты подключены и проверены на ARM/QEMU.
+До проверки на MPC остаются native FX backend,
 редактор пользовательских цветов и полный цикл сохранения и загрузки XPJ.
 
 ## Управление
@@ -59,14 +60,27 @@ Controller не выводит занятость из таблицы Output и�
 назначение с другого Track. Empty не меняется. Bank/+ листают банк вперёд,
 Shift+Bank/− назад, H↔A. K3 выбирает банк напрямую; encoder — sound.
 Выбор Track сохраняется, позиции sound cursor и банка согласованы.
+В Assign/Inspect банк синхронизируется со штатной моделью Bank через существующий
+setter; это нужно для совпадения номеров звуков у routing LED и native playback.
 Bank/+ /− вне Assign/Inspect передаются штатному обработчику; поздние ups
 поглощённых нажатий остаются у Mixer после смены страницы или выхода.
 Inspect read-only, включая Fader/K1, и не создаёт DSP updates.
 
 LED API рассчитывает RGB из **подтверждённого** Output: свой Track яркий, другой
 приглушённый, Direct нейтральный, Empty off. До audio ack сохраняются прежние LED.
-Он ещё не включён в physical `rgb()` priority chain; реальные playback/Mute/Erase
-сигналы нельзя перекрывать прямой отправкой этих цветов.
+Он включён в physical `rgb()` и UI Timer priority chain через
+[`mixer_leds.c`](../sd-mod-session/src/mixer_leds.c). Три cold hooks наблюдают
+настоящие native chain/Playing callbacks. Фон разрешается только для подходящего
+Program/банка без native голоса; pulse/tail, preview, неизвестный источник,
+чужой выигравший слой, Mute и Erase оставляют native RGB. Для Mute используется
+настоящий код `2b`, Bank остаётся `23`. Resample/workflow/naming выше Mixer.
+Кэш последнего отправленного RGB восстанавливает верный цвет даже после прямой
+native записи между UI ticks. Перекрывающиеся отправки помечают кэш для повторной
+сверки; аудиопоток не ждёт UI. Возврат вкладки, Sample/Seq и снятие сессии
+отключают палитру; Load/New отзывает предыдущие native наблюдения.
+RGB путь читает только атомарные значения. Неизвестные native источники
+консервативно остаются native до следующего проверенного refresh.
+Реальная яркость, краткие переходы и CPU-бюджет ещё требуют проверки на MPC.
 
 KNOB FX использует существующий `fx_catalog`: выбор/add/replace, slot bypass,
 Shift+encoder press remove. Shift+encoder в B2 меняет порядок цепи. Все настройки
@@ -148,6 +162,8 @@ python3 verify_mixer_control.py
 python3 verify_mixer_step1.py
 MPC_RUNTIME_ROOT='/path/to/runtime' python3 verify_mixer_sources.py
 MPC_RUNTIME_ROOT='/path/to/runtime' python3 verify_mixer_session.py
+MPC_RUNTIME_ROOT='/path/to/runtime' python3 verify_mixer_rgb.py
+MPC_RUNTIME_ROOT='/path/to/runtime' python3 verify_pad_colour_rgb.py
 MPC_RUNTIME_ROOT='/path/to/runtime' python3 build_mixer_core_candidate.py
 ```
 
@@ -168,12 +184,19 @@ MPC_RUNTIME_ROOT='/path/to/runtime' python3 build_mixer_core_candidate.py
   сбалансированы; тест не запускает полный проект устройства.
 - Painter regression: 8 host/sanitizer/ARM updates/view runs; проверяются bounds,
   сохранение8 фейдеров, отдельные meters и новые context pages.
+- 2 ARM RGB runs normal/UBSan: реальные native chain, Playing callbacks,
+  PadLight setter, voice membership и converter. Проверены confirmed/pending,
+  свой/чужой/Direct/Empty, pulse/tail/preview/unknown/Mute/Erase, банк, отзыв
+  наблюдений при прежнем Program, pad127 в H, приоритет модальных палитр,
+  перекрывающиеся pthread sender calls, delta refresh и
+  восстановление native. Получатель, app services и модели — fixtures.
+  Дополнительно прошли8 прежних ARM RGB/painter regressions обычных режимов.
 - Candidate полностью линкуется с runtime/controller/session/catalog и проходит
   preload. ARM-проверка выполняет автоматическую привязку, реальный PCM, смену
   epoch при прежнем адресе Program, sample-rate replacement и retirement.
   Для live caller используется envelope вокруг настоящего callsite.
 
-Оставшаяся работа второго пакета включает native FX backend, приоритеты LED,
+Оставшаяся работа второго пакета включает native FX backend,
 редактор пользовательских цветов, полный цикл сохранения и загрузки XPJ/Mod Off и
 аппаратную проверку экрана, фейдера, LED и нагрузки. Пока эти пункты открыты,
 нельзя называть второй пакет или пользовательский Mixer завершённым.

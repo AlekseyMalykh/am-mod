@@ -18,6 +18,7 @@
 #include "mixer_live.h"
 #include "mixer_input.h"
 #include "mixer_session.h"
+#include "mixer_leds.h"
 #ifdef MPC_MIXER_AUTOBIND
 #include "mixer_runtime.h"
 #include "mixer_sources.h"
@@ -128,6 +129,24 @@ unsigned phone_native_button_light(unsigned code){return code<128?atomic_load(&n
 #define FN(off,type) ((type)(base + (off)))
 #define ORIG(id,type) FN(phone_hooks[id].trampoline, type)
 #define FIELD(p,off,type) (*(type *)((char *)(p)+(off)))
+
+#ifdef MPC_MIXER_LIVE
+static _Atomic uint32_t last_sent_rgb[16];
+static _Atomic unsigned last_sent_mask, rgb_collision, rgb_sending[16];
+#endif
+static void send_pad_rgb(void *s,uint32_t colour,unsigned pad)
+{
+#ifdef MPC_MIXER_LIVE
+    if(pad<16 && atomic_fetch_add(&rgb_sending[pad],1))atomic_fetch_or(&rgb_collision,1u<<pad);
+#endif
+    ORIG(H_RGB,void(*)(void*,uint32_t,unsigned))(s,colour,pad);
+#ifdef MPC_MIXER_LIVE
+    if(pad<16){
+        atomic_store(&last_sent_rgb[pad],colour);atomic_fetch_or(&last_sent_mask,1u<<pad);
+        atomic_fetch_sub(&rgb_sending[pad],1);
+    }
+#endif
+}
 
 static uint64_t now_ms(void)
 {
@@ -254,6 +273,7 @@ static int mixer_ui_blocked(void)
 
 static void mixer_close_ui(void)
 {
+    mixer_leds_disable();
     struct mixer_control *control = mixer_session_control(mixer_ui_session);
     if (mixer_control_active(control)) {
         mixer_control_close(control);
@@ -269,12 +289,34 @@ static void mixer_publish_route(void)
         ? MIXER_READY : 0;
     if (state && mixer_control_active(control)) state |= MIXER_OPEN;
     atomic_store(&mixer_route, state ? (mixer_binding << 2) | state : 0);
+    struct mixer_view_state view = {0};
+    mixer_control_view(control,now_ms(),&view);
+    if ((state & MIXER_OPEN) && (view.page == MIXER_ASSIGN || view.page == MIXER_INSPECT)) {
+        /* Use the existing shared bank model so native playback indications
+         * refer to the same sixteen sounds as the Mixer palette. */
+        int bank = step_native_browser_bank(-1);
+        if (bank >= 0 && bank < 8 && bank != (int)view.bank) {
+            step_native_browser_bank((int)view.bank);
+            bank = step_native_browser_bank(-1);
+        }
+        struct mixer_native_binding binding;
+        int observed = mixer_live_native_binding(&binding);
+        if (bank == (int)view.bank && observed < 0) return; /* Keep last palette through a busy snapshot. */
+        if (bank == (int)view.bank && observed == 1 && binding.epoch == view.epoch) {
+            uint32_t rgb[16];
+            for (unsigned i=0;i<16;++i) mixer_control_led(control,i,&rgb[i]);
+            mixer_leds_publish(binding.program,view.bank,rgb);
+            return;
+        }
+    }
+    mixer_leds_disable();
 }
 
 int mixer_phone_bind_ui(struct mixer_session *session)
 {
     if (!on_ui()) return 0;
     if (mixer_ui_session == session) return 1;
+    mixer_leds_disable();
     atomic_store(&mixer_route, 0);
     atomic_store(&mixer_pending, 0);
     mixer_close_ui();
@@ -296,6 +338,7 @@ int mixer_phone_bind_ui(struct mixer_session *session)
 
 static void mixer_project_changing(void)
 {
+    mixer_leds_reset();
     atomic_store(&mixer_project_invalidated,1);
     atomic_store(&mixer_route,0);
 #ifdef MPC_MIXER_AUTOBIND
@@ -589,7 +632,7 @@ static void restore_lights(void)
     if (!s) return;
     for (unsigned i = 0; i < 16; ++i) if (mask & (1u << i)) {
         uint32_t colour = (uint32_t)atomic_load(&original_lights[i]);
-        ORIG(H_RGB,void(*)(void*,uint32_t,unsigned))((void*)s,colour,i);
+        send_pad_rgb((void*)s,colour,i);
     }
 }
 
@@ -614,7 +657,7 @@ static void send_lights(unsigned mask)
     for (unsigned i=0; i<16; ++i) if (mask & (1u<<i)) {
         uint64_t light = phone_light(&colours,i+1);
         uint32_t colour = FN(0x23b00c0,uint32_t(*)(const uint64_t*))(&light);
-        ORIG(H_RGB,void(*)(void*,uint32_t,unsigned))((void*)s,colour,i);
+        send_pad_rgb((void*)s,colour,i);
     }
 }
 
@@ -1859,22 +1902,37 @@ static int pad_colour_light(unsigned pad,uint64_t *out){
     float intensity=1;uint32_t bits;memcpy(&bits,&intensity,4);
     *out=(uint64_t)((red<<16)|(green<<8)|blue)|((uint64_t)bits<<32);return 1;
 }
+#ifdef MPC_MIXER_LIVE
+static int mixer_light(unsigned pad,uint64_t *out)
+{
+    uint32_t native=(uint32_t)atomic_load(&original_lights[pad]);
+    if(!mixer_leds_light(pad,native,out))return 0;
+    if(atomic_load(&mixer_project_invalidated)||atomic_load(&mixer_input_fault)||
+       atomic_load(&native_mute_mode)||atomic_load(&native_buttons_down[0x2b])||
+       atomic_load(&native_buttons_down[0x09]))
+        *out=(UINT64_C(0x3f800000)<<32)|native;
+    return 1;
+}
+#endif
 static void rgb(void *s,uint32_t colour,unsigned pad)
 {
     if (pad < 16) {
         atomic_store(&sender,(uintptr_t)s);
         atomic_store(&original_lights[pad],colour);
         atomic_fetch_or(&light_mask,1u << pad);
+#ifdef MPC_MIXER_LIVE
+        mixer_leds_native_rgb(pad);
+#endif
         uint64_t workflow_colour;
 #ifdef MPC_STOCK_RESAMPLE
         if(resample_ui_light(pad,&workflow_colour)){
             uint32_t packed=FN(0x23b00c0,uint32_t(*)(const uint64_t*))(&workflow_colour);
-            ORIG(H_RGB,void(*)(void*,uint32_t,unsigned))(s,packed,pad);return;
+            send_pad_rgb(s,packed,pad);return;
         }
 #endif
         if(workflow_light(pad,&workflow_colour)){
             uint32_t packed=FN(0x23b00c0,uint32_t(*)(const uint64_t*))(&workflow_colour);
-            ORIG(H_RGB,void(*)(void*,uint32_t,unsigned))(s,packed,pad);return;
+            send_pad_rgb(s,packed,pad);return;
         }
         if (atomic_load(&led_enabled)) {
             struct phone_input colours = {0};
@@ -1883,11 +1941,15 @@ static void rgb(void *s,uint32_t colour,unsigned pad)
             colours.held = atomic_load(&led_pressed);
             uint64_t replacement = phone_light(&colours,pad + 1);
             uint32_t packed = FN(0x23b00c0,uint32_t(*)(const uint64_t*))(&replacement);
-            ORIG(H_RGB,void(*)(void*,uint32_t,unsigned))(s,packed,pad);
+            send_pad_rgb(s,packed,pad);
             return;
         }
         uint64_t replacement;
-        if (workflow_light(pad,&replacement)
+        if (
+#ifdef MPC_MIXER_LIVE
+            mixer_light(pad,&replacement) ||
+#endif
+            workflow_light(pad,&replacement)
 #ifdef MPC_CHORDS
             || chords_light(pad,&replacement)
 #endif
@@ -1898,10 +1960,10 @@ static void rgb(void *s,uint32_t colour,unsigned pad)
             || pad_colour_light(pad,&replacement)
         ) {
             uint32_t packed=FN(0x23b00c0,uint32_t(*)(const uint64_t*))(&replacement);
-            ORIG(H_RGB,void(*)(void*,uint32_t,unsigned))(s,packed,pad);return;
+            send_pad_rgb(s,packed,pad);return;
         }
     }
-    ORIG(H_RGB,void(*)(void*,uint32_t,unsigned))(s,colour,pad);
+    send_pad_rgb(s,colour,pad);
 }
 static void send_step_lights(void)
 {
@@ -1960,6 +2022,9 @@ static void send_step_lights(void)
             resample_ui_light(i,&light) ||
 #endif
             workflow_light(i,&light)
+#ifdef MPC_MIXER_LIVE
+            || mixer_light(i,&light)
+#endif
 #ifdef MPC_CHORDS
             || chords_light(i,&light)
 #endif
@@ -1969,15 +2034,26 @@ static void send_step_lights(void)
 #endif
             || pad_colour_light(i,&light)
         ) {
-            if (force_palette || !(owned&bit) || previous[i]!=light) {
+            int changed = force_palette || !(owned&bit) || previous[i]!=light;
+#ifdef MPC_MIXER_LIVE
+            uint32_t packed=FN(0x23b00c0,uint32_t(*)(const uint64_t*))(&light);
+            changed |= (atomic_load(&last_sent_mask)&bit) && atomic_load(&last_sent_rgb[i])!=packed;
+            changed |= !!(atomic_load(&rgb_collision)&bit) || atomic_load(&rgb_sending[i]);
+#endif
+            if (changed) {
                 previous[i]=light;
+#ifdef MPC_MIXER_LIVE
+                atomic_fetch_and(&rgb_collision,~bit);
+#endif
+#ifndef MPC_MIXER_LIVE
                 uint32_t packed=FN(0x23b00c0,uint32_t(*)(const uint64_t*))(&light);
-                ORIG(H_RGB,void(*)(void*,uint32_t,unsigned))((void*)s,packed,i);
+#endif
+                send_pad_rgb((void*)s,packed,i);
             }
             owned|=bit;
         } else if ((owned&bit)||resync) {
             if(atomic_load(&light_mask)&bit)
-                ORIG(H_RGB,void(*)(void*,uint32_t,unsigned))((void*)s,(uint32_t)atomic_load(&original_lights[i]),i);
+                send_pad_rgb((void*)s,(uint32_t)atomic_load(&original_lights[i]),i);
             owned&=~bit;
         }
     }
@@ -2125,6 +2201,7 @@ static void load(void)
 #endif
 #ifdef MPC_MIXER_LIVE
     if (!mixer_live_native_install(base)) _exit(121);
+    if (!mixer_leds_install(base)) _exit(121);
 #endif
     for (unsigned i=0;i<H_COUNT;++i) FIELD(table,64+i*16+8,uintptr_t)=(uintptr_t)callbacks[i];
     if (mprotect(table,4096,PROT_READ|PROT_EXEC)) _exit(120);

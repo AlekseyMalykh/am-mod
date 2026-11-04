@@ -15,7 +15,9 @@ int workflow_blocks_sample_controls(void) { return 0; }
 int note_native_active(void) { return 0; }
 int music_ui_active(void) { return 0; }
 int step_native_active(void) { return 0; }
-int step_native_browser_bank(int bank) { assert(bank==-1); return 5; }
+int step_native_browser_bank(int bank) { static int current=5;if(bank>=0)current=bank;return current; }
+int mixer_live_native_binding(struct mixer_native_binding *binding)
+{ memset(binding,0,sizeof(*binding));binding->epoch=1;binding->program=(void*)0x2000;return 1; }
 int workflow_active(void) { return 0; }
 int music_ui_exit_saving(void) { return 0; }
 int note_native_owns(unsigned c) { (void)c; return 0; }
@@ -124,6 +126,9 @@ int main(void)
     button(0x23,1);button(0x23,0);drain();
     mixer_control_view(session.control,0,&view);
     assert(view.page==MIXER_ASSIGN&&view.bank==6&&view.primary==4);
+    assert(step_native_browser_bank(-1)==6);
+    uint64_t colour;
+    assert(mixer_leds_light(0,0x123456,&colour)); /* Palette owns unknown/native fallback too. */
     assert(stock_down[0x23]==1&&stock_up[0x23]==1);
     button(0x36,1);drain();
     button(1,1);button(1,0);drain(); /* Return while + is held. */
@@ -131,6 +136,7 @@ int main(void)
     assert(!stock_down[0x36]&&!stock_up[0x36]);
     mixer_control_view(session.control,0,&view);
     assert(view.page==MIXER_MIX&&view.bank==7&&view.primary==4);
+    assert(step_native_browser_bank(-1)==7&&!mixer_leds_light(0,0,&colour));
     unsigned char knob[16]={0};
     knob[8]=0x10;
     controller(knob);
@@ -150,7 +156,10 @@ int main(void)
 
     /* Mode exit remains paired when there is room for only one event. */
     assert(mixer_control_open(session.control,1,0));
+    assert(mixer_control_button(session.control,MIXER_PAD_FX,1,mixer_control_ticket(session.control)));
+    assert(mixer_control_button(session.control,MIXER_PAD_FX,0,mixer_control_ticket(session.control)));
     mixer_publish_route();
+    assert(mixer_leds_light(0,0,&colour));
     struct phone_event dummy={0};
     for(unsigned i=0;i<PHONE_EVENT_CAPACITY-1;++i) assert(phone_events_push(&dummy));
     button(6,1);
@@ -159,6 +168,7 @@ int main(void)
     drain();
     mixer_tick_ui();
     assert(!mixer_control_active(session.control));
+    assert(!mixer_leds_light(0,0,&colour));
 
     button(0x31,1);
     pad(8,1);
