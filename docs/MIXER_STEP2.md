@@ -4,8 +4,9 @@
 Реализованы UI-owner controller, подробные FX/Assign pages и связка
 controller → actual live audio acknowledgement → archive owner.
 Candidate автоматически привязывает сессию к живому аудиовызову и снимает её
-после смены источника. До проверки на MPC остаются маска занятых звуков,
-native FX backend, приоритеты подсветки и полный цикл сохранения и загрузки XPJ.
+после смены источника. Маска занятых звуков подключена через native owner queue.
+До проверки на MPC остаются native FX backend, приоритеты подсветки,
+редактор пользовательских цветов и полный цикл сохранения и загрузки XPJ.
 
 ## Управление
 
@@ -47,10 +48,19 @@ controller mode action. `phone_native` пропускает события че�
 
 ## Assign / Inspect и FX
 
-Нативный model owner должен передать маску действительно занятых звуков128 pads.
-Controller не выводит её из таблицы Output или MIDI activity. PAD FX использует
+[`mixer_sources`](../sd-mod-session/src/mixer_sources.cc) получает маску128 pads
+через существующую Copy owner queue и реальные getters `286bbe0`/`2803b90`.
+Проверяются все8 слоёв, каждый sample reference освобождается. Snapshot связан
+с Program, live epoch и archive generation; загрузка проекта и stop отзывают
+старые данные. Опрос ограничен250ms при открытом Mixer; после750ms без свежего
+захвата назначения блокируются. При закрытом Mixer новых запросов нет.
+Controller не выводит занятость из таблицы Output или MIDI activity. PAD FX использует
 все16 pads текущего банка; Assign переключает выбранный Track ↔ Master, переносит
-назначение с другого Track. Empty не меняется. K3 меняет банк; encoder — sound.
+назначение с другого Track. Empty не меняется. Bank/+ листают банк вперёд,
+Shift+Bank/− назад, H↔A. K3 выбирает банк напрямую; encoder — sound.
+Выбор Track сохраняется, позиции sound cursor и банка согласованы.
+Bank/+ /− вне Assign/Inspect передаются штатному обработчику; поздние ups
+поглощённых нажатий остаются у Mixer после смены страницы или выхода.
 Inspect read-only, включая Fader/K1, и не создаёт DSP updates.
 
 LED API рассчитывает RGB из **подтверждённого** Output: свой Track яркий, другой
@@ -119,9 +129,9 @@ retirement, после чего освобождает DSP на UI owner. Native
 для сравнения. Доступ к объектам прошивки выполняется внутри их аудиовызова.
 Смена Program, частоты, ёмкости или числа Program отзывает текущую привязку.
 
-Automatic runtime сейчас создаёт встроенный EQ и mix/routing DSP. Передача
-native FX backend и получение маски занятых звуков для Assign ещё требуют
-подключения к владельцу нативных сервисов.
+Automatic runtime сейчас создаёт встроенный EQ и mix/routing DSP, получает
+маску звуков через отдельную native owner queue. Передача native FX backend
+ещё требует подключения к владельцу нативных сервисов.
 
 Успешный edit попадает в существующий versioned archive payload, а не только
 в UI session. Confirmed model проверен через encode/decode; прежние реальные
@@ -136,6 +146,7 @@ XPJ Save As/перезапуск/Mod Off round-trip на устройстве. �
 ```sh
 python3 verify_mixer_control.py
 python3 verify_mixer_step1.py
+MPC_RUNTIME_ROOT='/path/to/runtime' python3 verify_mixer_sources.py
 MPC_RUNTIME_ROOT='/path/to/runtime' python3 verify_mixer_session.py
 MPC_RUNTIME_ROOT='/path/to/runtime' python3 build_mixer_core_candidate.py
 ```
@@ -147,7 +158,14 @@ MPC_RUNTIME_ROOT='/path/to/runtime' python3 build_mixer_core_candidate.py
 - 2 ARM session runs: normal/UBSan с настоящими установленными native live hooks,
   реальным output processing и audio revision. Archive до ack не меняется,
   после ack/model confirm сохраняется; закрытие UI оставляет audio работающим.
+  Проверена также цепочка source queue → runtime → controller: маска pad127
+  доходит до UI, старый capture истекает, закрытый Mixer не ставит новый опрос.
   Native model/services/voice oscillator fixtures, реальный XPJ на SD не открыт.
+- 2 ARM source runs: normal/UBSan. Настоящие getters и очередь из private ELF,
+  fixtures Program/Instrument/слоёв: крайний pad127/layer7, пустой pad, смена
+  маски и epoch, чужой Program, malformed layers, New до queued capture,
+  остановленная очередь и stop перед уничтожением контекста. Sample/weak counts
+  сбалансированы; тест не запускает полный проект устройства.
 - Painter regression: 8 host/sanitizer/ARM updates/view runs; проверяются bounds,
   сохранение8 фейдеров, отдельные meters и новые context pages.
 - Candidate полностью линкуется с runtime/controller/session/catalog и проходит
@@ -155,7 +173,7 @@ MPC_RUNTIME_ROOT='/path/to/runtime' python3 build_mixer_core_candidate.py
   epoch при прежнем адресе Program, sample-rate replacement и retirement.
   Для live caller используется envelope вокруг настоящего callsite.
 
-Оставшаяся работа второго пакета включает native FX backend, маску занятых
-звуков и приоритеты LED, полный цикл сохранения и загрузки XPJ/Mod Off и
+Оставшаяся работа второго пакета включает native FX backend, приоритеты LED,
+редактор пользовательских цветов, полный цикл сохранения и загрузки XPJ/Mod Off и
 аппаратную проверку экрана, фейдера, LED и нагрузки. Пока эти пункты открыты,
 нельзя называть второй пакет или пользовательский Mixer завершённым.

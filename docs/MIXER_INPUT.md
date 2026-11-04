@@ -35,11 +35,17 @@ framebuffer, driver и полный asynchronous queue scheduler не запус
 | `0c/0d/0e` | `1bc8/1c20/1c78` | B1/B2/B3 |
 | `6f` | `2d50` | Encoder press / Select |
 | `31` | `2250` | Observe Shift; forward обе границы |
+| `23` | `2300` | Assign/Inspect: Bank вперёд, с Shift назад |
+| `36/37` | `29e0/2930` | Assign/Inspect: следующий/предыдущий банк |
 | `06/07` | `1f90/2040` | Закрыть Mixer, forward штатного Sample/Seq action |
 
 Native modes получают исходные события и свои модификаторы. Mixer не подменяет
-native IDs назначения и не имитирует собственные команды транспорта. Bank23,
-Plus36 и Minus37 ещё не подключены к Assign/Inspect.
+native IDs назначения и не имитирует собственные команды транспорта.
+Bank23, Plus36 и Minus37 вне Assign/Inspect получают штатную обработку.
+В Assign/Inspect они циклически переключают банки A–H, сохраняя Track,
+и согласуют sound cursor с банком. Release удержанной кнопки остаётся у Mixer
+после смены вкладки или выхода. При short entry начальный банк читается из
+существующей UI-модели; источники звуков UI самостоятельно не разыменовывает.
 
 ## Реализованный input adapter
 

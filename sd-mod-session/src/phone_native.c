@@ -20,6 +20,7 @@
 #include "mixer_session.h"
 #ifdef MPC_MIXER_AUTOBIND
 #include "mixer_runtime.h"
+#include "mixer_sources.h"
 #endif
 #endif
 #include "music_ui.h"
@@ -396,6 +397,7 @@ static int mixer_replay_entry(void)
 
 static void mixer_tick_ui(void)
 {
+    static uint64_t shown_presence[2];
     if (atomic_exchange(&mixer_input_fault, 0)) {
         mixer_close_ui();
         atomic_store(&mixer_pending, 0);
@@ -416,7 +418,10 @@ static void mixer_tick_ui(void)
     mixer_publish_route();
     if (!was_open) return;
     mixer_control_view(control,now,&after);
-    if (!mixer_control_active(control) || before.revision != after.revision || before.pending != after.pending)
+    int presence_changed = shown_presence[0] != after.present[0] || shown_presence[1] != after.present[1];
+    shown_presence[0] = after.present[0];
+    shown_presence[1] = after.present[1];
+    if (!mixer_control_active(control) || before.revision != after.revision || before.pending != after.pending || presence_changed)
         note_native_repaint_sample();
     else
         note_native_repaint_sample_region(0,102,320,93);
@@ -439,8 +444,12 @@ static void mixer_pad_ui(const struct phone_event *e, struct mixer_control *cont
         enum mixer_entry_action action = mixer_entry_pad(&mixer_entry,e->pad,e->down,
             e->when_ms,e->generation,1,ready,mixer_ui_blocked());
         if (e->down && action == MIXER_ENTRY_CONSUME) memcpy(mixer_entry_down,raw,sizeof(raw));
-        if (action == MIXER_ENTRY_OPEN && mixer_control_open(control,ready,0))
+        if (action == MIXER_ENTRY_OPEN && mixer_control_open(control,ready,0)) {
+            int bank = step_native_browser_bank(-1);
+            if (bank >= 0 && bank < 8)
+                mixer_control_presence(control,0,0,(unsigned)bank);
             mixer_input_button(control,0x31,atomic_load(&native_buttons_down[0x31]),mixer_control_ticket(control));
+        }
         if (action == MIXER_ENTRY_LONG_PAIR && e->up && mixer_replay_entry()) mixer_forward_pad(raw);
         if (!suppress && action == MIXER_ENTRY_PASS && e->down) {
             mixer_forward_pad(raw);
@@ -935,8 +944,14 @@ static void copy_context_ctor(void*p,void*a,void*b,void*c){ORIG(H_COPY_CONTEXT_C
 #ifdef MPC_RESAMPLE_TRIAL
     resample_ui_bind(p);
 #endif
+#ifdef MPC_MIXER_AUTOBIND
+    mixer_sources_bind(base,p);
+#endif
 }
 static void copy_context_dtor(void*p){
+#ifdef MPC_MIXER_AUTOBIND
+    mixer_sources_stop(p);
+#endif
 #ifdef MPC_RESAMPLE_TRIAL
     resample_ui_context_dead(p);
 #endif

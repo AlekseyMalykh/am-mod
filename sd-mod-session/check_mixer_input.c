@@ -53,7 +53,14 @@ static void keys(void)
     }
     assert(mixer_input_button(c,1,1,t)&&view(c).page==MIXER_ASSIGN);
     assert(mixer_input_button(c,1,0,t));
+    assert(mixer_input_button(c,0x23,1,t)&&view(c).bank==1);
+    assert(mixer_input_button(c,0x23,0,t));
+    assert(mixer_input_button(c,0x37,1,t)&&view(c).bank==0);
+    assert(mixer_input_button(c,0x37,0,t));
+    assert(mixer_input_button(c,0x36,1,t)&&view(c).bank==1);
     assert(mixer_input_button(c,0,1,t)&&view(c).page==MIXER_KNOB_FX);
+    assert(mixer_input_button(c,0x36,0,t)); /* Captured up after changing tabs. */
+    assert(!mixer_input_button(c,0x36,1,t));
     assert(mixer_input_button(c,0x6f,1,t)&&view(c).pending);
     assert(mixer_input_button(c,0x6f,0,t));
     /* Sample closes before forwarding; late FX release remains consumed. */

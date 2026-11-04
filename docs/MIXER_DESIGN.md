@@ -7,8 +7,9 @@
 Второй пакет в работе: [controller, FX pages и audio→archive ack](MIXER_STEP2.md).
 Experimental candidate автоматически создаёт сессию по снимку живого
 аудиовызова и подключает её к UI. Восемь Track, primary-output Master, updates,
-ввод и lifecycle проверены в ARM/QEMU. Для Assign и native FX остаются
-подключение маски занятых звуков, LED и backend эффектов. Впереди аппаратная
+ввод и lifecycle проверены в ARM/QEMU. Assign получает маску занятых звуков
+из native owner queue; Bank, +/− и K3 переключают все восемь банков.
+Остаются physical LED и backend нативных эффектов. Впереди аппаратная
 проверка, Song Mode и стемы.
 
 Продолжение реализации: [native audit и ARM-проверки](MIXER_NATIVE_AUDIT.md),
@@ -309,7 +310,15 @@ resample и т.п.); owner arbitration расширяет существующи
 Assign требует одного выбранного Track; при группе или Master показать
 `Select one Track` без изменения маршрутов. Inspect разрешён для просмотра,
 ничего не пишет. В обоих режимах 16 физических пэдов — звуки текущего банка;
-Bank меняет банк, сразу обновляет экран/LED и сохраняет выбранный Track.
+Bank/+ меняют банк вперёд, Shift+Bank/− — назад, с переходом H↔A;
+K3 выбирает банк напрямую. Выбранный Track сохраняется. При входе в Mixer
+исходный банк берётся из существующей модели UI. В Assign/Inspect выбор банка
+локален Mixer; вне этих страниц Bank/+ /− получают штатную обработку.
+Маска занятости обновляется через Copy owner queue: все128 пэдов, до8 слоёв,
+с release каждого native sample reference. Snapshot связан с Program, audio
+epoch и поколением проекта. Опрос не чаще4Hz только при открытом Mixer;
+данные старше750ms не разрешают назначения. UI передаётся только копия маски.
+Перерисовка маски реализована; физическая LED priority chain ещё не подключена.
 В split layout справа показывать банк, sound cursor и старый/новый Output.
 
 | Состояние Pad | Базовый LED | Нажатие в Assign |

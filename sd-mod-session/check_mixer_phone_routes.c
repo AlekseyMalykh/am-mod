@@ -15,6 +15,7 @@ int workflow_blocks_sample_controls(void) { return 0; }
 int note_native_active(void) { return 0; }
 int music_ui_active(void) { return 0; }
 int step_native_active(void) { return 0; }
+int step_native_browser_bank(int bank) { assert(bank==-1); return 5; }
 int workflow_active(void) { return 0; }
 int music_ui_exit_saving(void) { return 0; }
 int note_native_owns(unsigned c) { (void)c; return 0; }
@@ -116,7 +117,20 @@ int main(void)
     drain();
     struct mixer_view_state view;
     mixer_control_view(session.control,0,&view);
-    assert(view.page==MIXER_MIX && view.primary==4 && !stock_pad[0] && !stock_pad[1]);
+    assert(view.page==MIXER_MIX && view.primary==4 && view.bank==5 && !stock_pad[0] && !stock_pad[1]);
+    button(0x23,1);button(0x23,0);drain();
+    assert(stock_down[0x23]==1&&stock_up[0x23]==1); /* Native outside Assign. */
+    button(1,1);button(1,0);drain();
+    button(0x23,1);button(0x23,0);drain();
+    mixer_control_view(session.control,0,&view);
+    assert(view.page==MIXER_ASSIGN&&view.bank==6&&view.primary==4);
+    assert(stock_down[0x23]==1&&stock_up[0x23]==1);
+    button(0x36,1);drain();
+    button(1,1);button(1,0);drain(); /* Return while + is held. */
+    button(0x36,0);drain();
+    assert(!stock_down[0x36]&&!stock_up[0x36]);
+    mixer_control_view(session.control,0,&view);
+    assert(view.page==MIXER_MIX&&view.bank==7&&view.primary==4);
     unsigned char knob[16]={0};
     knob[8]=0x10;
     controller(knob);

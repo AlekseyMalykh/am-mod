@@ -3,6 +3,8 @@
 #include "src/mixer_session.h"
 #include "src/mixer_archive.h"
 #include "src/mixer_runtime.h"
+#include "src/mixer_sources.h"
+#include <pthread.h>
 static void session_test(void)
 {
     service(0x220a4a0,reset_engine);service(0x2226d10,events);service(0x18c6990,render_list);service(0x221ee10,voice_chunk);
@@ -53,6 +55,37 @@ static void run_discovery(void)
     FN(0x18dbffc,void(*)(void*,void*,unsigned))(engine_owner,entry_clock,N);
     in_audio=0;
 }
+static void source_runtime_test(void)
+{
+    static _Alignas(16) unsigned char context[0x100],owner[0x260],slots[4][0xc0],things[0x100];
+    static _Alignas(16) unsigned char layers[3][8][0xb30],reference[0x20];
+    static void *pads[128];
+    F(context,0,uintptr_t)=base+0x6e0dfd8;F(context,0x48,void*)=owner;F(context,0x78,void*)=things;
+    F(things,0xb8,void*)=program;F(owner+0x1d8,0,uint64_t)=4;F(owner+0x1d8,0x30,void*)=slots;
+    assert(!pthread_mutex_init((void*)(owner+0x220),NULL));
+    for(unsigned i=0;i<4;++i){F(slots[i],0,uintptr_t)=base+0xb57a7c;F(slots[i],8,uintptr_t)=base+0x15265b0;}
+    service(0xf40e50,pthread_mutex_lock);service(0xf40e90,pthread_mutex_unlock);
+    pads[0]=instruments[0];pads[127]=instruments[2];
+    F(program,0x2808,void*)=pads;F(program,0x2810,void*)=pads+128;
+    for(unsigned i=0;i<3;++i){F(instruments[i],0x22e8,void*)=layers[i];F(instruments[i],0x22f0,void*)=layers[i]+8;}
+    F(reference,8,unsigned)=2;F(reference,12,unsigned)=2;
+    F(layers[2][7],0x4a8,void*)=(void*)1;F(layers[2][7],0x4b0,void*)=reference;
+    mixer_sources_bind(base,context);
+    mixer_runtime_ui_tick();assert(F(context,0x50,unsigned)==1);
+    uint64_t cursor=0;FN(0x2b59200,void(*)(void*,uint64_t*))(owner+0x1d8,&cursor);
+    usleep(260000);mixer_runtime_ui_tick();
+    struct mixer_control *control=mixer_session_control(automatic);struct mixer_view_state view;
+    mixer_control_view(control,0,&view);assert(!view.present[0]&&view.present[1]==(UINT64_C(1)<<63));
+    FN(0x2b59200,void(*)(void*,uint64_t*))(owner+0x1d8,&cursor);
+    F(owner+0x1d8,0x2d,unsigned char)=1;usleep(800000);mixer_runtime_ui_tick();
+    mixer_control_view(control,0,&view);assert(!view.present[0]&&!view.present[1]); /* Capture age, not consumption time. */
+    F(owner+0x1d8,0x2d,unsigned char)=0;mixer_control_close(control);
+    mixer_runtime_ui_tick();mixer_runtime_ui_tick();assert(!F(context,0x50,unsigned));
+    mixer_sources_stop(context);struct mixer_sources_snapshot out;
+    assert(!mixer_sources_poll(program,1,&out));
+    assert(F(reference,8,unsigned)==2&&!pthread_mutex_destroy((void*)(owner+0x220)));
+    puts("PASS native source queue -> runtime -> controller mask, stale capture expires and closed Mixer stops polling");
+}
 static void automatic_test(void)
 {
     live_caller_fixture();
@@ -81,6 +114,7 @@ static void automatic_test(void)
     assert(mixer_session_status(automatic)==1);
     assert(mixer_control_open(mixer_session_control(automatic),1,0));
     live_fixture();run_live();compare_pcm(root_pcm[0],applied,2); /* offline bypass */
+    source_runtime_test();
 
     /* A native project operation invalidates the audio attachment immediately.
      * Retirement and preparation happen on the UI/control owner afterwards. */

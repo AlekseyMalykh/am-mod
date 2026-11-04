@@ -1,6 +1,8 @@
 #include "mixer_runtime.h"
 #include "mixer_session.h"
 #include "mixer_archive.h"
+#include "mixer_sources.h"
+#include <ctime>
 
 namespace {
 mixer_session *current = nullptr;
@@ -9,6 +11,41 @@ mixer_native_binding source{};
 mixer_native_binding rejected{};
 uint64_t archive_generation = 0;
 bool stopped = false;
+uint64_t presence_poll_ms = 0, presence_seen_ms = 0;
+uint64_t occupied[2]{};
+
+uint64_t now_ms()
+{
+    timespec time{};
+    clock_gettime(CLOCK_MONOTONIC,&time);
+    return static_cast<uint64_t>(time.tv_sec)*1000+time.tv_nsec/1000000;
+}
+
+void refresh_presence()
+{
+    if (!current) return;
+    mixer_control *control = mixer_session_control(current);
+    if (!mixer_control_active(control)) {
+        presence_poll_ms = presence_seen_ms = 0;
+        return;
+    }
+    uint64_t now = now_ms();
+    if (!presence_poll_ms || now-presence_poll_ms >= 250) {
+        presence_poll_ms = now;
+        mixer_sources_snapshot snapshot{};
+        if (mixer_sources_poll(source.program,source.epoch,&snapshot)) {
+            presence_seen_ms = snapshot.captured_ms;
+            occupied[0] = snapshot.present[0];
+            occupied[1] = snapshot.present[1];
+        } else {
+            presence_seen_ms = 0;
+        }
+    }
+    mixer_view_state view;
+    mixer_control_view(control,now,&view);
+    bool fresh = presence_seen_ms && now >= presence_seen_ms && now-presence_seen_ms <= 750;
+    mixer_control_presence(control,fresh?occupied[0]:0,fresh?occupied[1]:0,view.bank);
+}
 
 bool same_source(const mixer_native_binding &a,const mixer_native_binding &b)
 {
@@ -23,6 +60,8 @@ void retire()
     if (!mixer_live_native_attach(nullptr)) return;
     retiring = current;
     current = nullptr;
+    presence_poll_ms = presence_seen_ms = 0;
+    occupied[0] = occupied[1] = 0;
 }
 
 bool collect()
@@ -61,7 +100,10 @@ extern "C" void mixer_runtime_ui_tick()
     mixer_native_binding observed{};
     int observed_status = mixer_live_native_binding(&observed);
     if (observed_status < 0) {
-        if (current) mixer_session_owner_tick(current);
+        if (current) {
+            mixer_session_owner_tick(current);
+            refresh_presence();
+        }
         return;
     }
     bool available = observed_status == 1;
@@ -72,6 +114,7 @@ extern "C" void mixer_runtime_ui_tick()
     }
     if (current) {
         mixer_session_owner_tick(current);
+        refresh_presence();
         return;
     }
     if (!available || same_source(rejected,observed)) return;

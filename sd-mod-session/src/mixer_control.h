@@ -5,7 +5,7 @@
 extern "C" {
 #endif
 enum mixer_action {MIXER_B1,MIXER_B2,MIXER_B3,MIXER_PAD_FX,MIXER_KNOB,
-    MIXER_SELECT,MIXER_NATIVE_MODE,MIXER_SHIFT};
+    MIXER_SELECT,MIXER_NATIVE_MODE,MIXER_SHIFT,MIXER_BANK,MIXER_BANK_NEXT,MIXER_BANK_PREVIOUS};
 struct mixer_control;
 /* Transient state belongs exclusively to the UI owner. Input producers must
  * enqueue numeric events/tickets; they must never call this API concurrently.

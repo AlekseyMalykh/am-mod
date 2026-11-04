@@ -11,6 +11,9 @@ int mixer_input_action(unsigned code, enum mixer_action *mapped)
     case 0x0e:action=MIXER_B3;break;
     case 0x6f:action=MIXER_SELECT;break;
     case 0x31:action=MIXER_SHIFT;break;
+    case 0x23:action=MIXER_BANK;break;
+    case 0x36:action=MIXER_BANK_NEXT;break;
+    case 0x37:action=MIXER_BANK_PREVIOUS;break;
     case 0x06:case 0x07:action=MIXER_NATIVE_MODE;break;
     default:return 0;
     }

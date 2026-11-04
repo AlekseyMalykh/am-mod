@@ -35,6 +35,15 @@ int main(void)
     mixer_control_presence(c,1,UINT64_C(1)<<63,7);button(c,MIXER_PAD_FX);pad(c,15,1);pad(c,15,0);
     assert(view(c).project->output[127]==0&&view(c).pending);uint32_t led;assert(mixer_control_led(c,15,&led)&&led==0x181818);ack(c);
     assert(accepted.output[127]==1&&mixer_control_led(c,15,&led)&&led==accepted.track[0].colour);pad(c,14,1);pad(c,14,0);assert(!strcmp(mixer_control_message(c),"Empty pad"));
+    unsigned bank_submissions=submissions;
+    button(c,MIXER_BANK);assert(view(c).bank==0&&view(c).sound==14&&view(c).primary==0);
+    button(c,MIXER_BANK_PREVIOUS);assert(view(c).bank==7&&view(c).sound==126);
+    mixer_control_button(c,MIXER_SHIFT,1,ticket);button(c,MIXER_BANK);
+    mixer_control_button(c,MIXER_SHIFT,0,ticket);assert(view(c).bank==6);
+    button(c,MIXER_BANK_NEXT);assert(view(c).bank==7);
+    cc(c,0x12,0);assert(view(c).bank==0&&view(c).sound==14);
+    cc(c,0x12,127);assert(view(c).bank==7&&view(c).sound==126);
+    mixer_control_tick(c);assert(submissions==bank_submissions);
     button(c,MIXER_PAD_FX);button(c,MIXER_KNOB);assert(view(c).fx_catalog);cc(c,0x10,0);button(c,MIXER_SELECT);ack(c);assert(accepted.track[0].fx.count==1&&accepted.track[0].fx.stage[0].kind==FX_STAGE_EQ);
     accepted.track[0].fx.stage[0].eq.count=8;for(unsigned i=4;i<8;++i)accepted.track[0].fx.stage[0].eq.band[i]=accepted.track[0].fx.stage[0].eq.band[0];
     ++revision;assert(mixer_control_confirm(c,&accepted,revision,epoch));
@@ -46,6 +55,9 @@ int main(void)
     assert(accepted.track[0].fx.stage[0].native_id==0x61465276);cc(c,0x64,5);cc(c,0x12,127);ack(c);assert(accepted.track[0].fx.stage[0].parameter[17]==1);
     unsigned unchanged=submissions;mixer_control_button(c,MIXER_SHIFT,1,ticket);button(c,MIXER_PAD_FX);mixer_control_button(c,MIXER_SHIFT,0,ticket);
     assert(view(c).page==MIXER_INSPECT);cc(c,0x10,127);cc(c,0x14,127);pad(c,15,1);pad(c,15,0);mixer_control_tick(c);assert(submissions==unchanged);
+    button(c,MIXER_BANK_NEXT);assert(view(c).bank==0&&view(c).sound==15);
+    button(c,MIXER_BANK_PREVIOUS);assert(view(c).bank==7&&view(c).sound==127);
+    mixer_control_tick(c);assert(submissions==unchanged);
     button(c,MIXER_PAD_FX);assert(view(c).page==MIXER_MIX);
     accepted.track[2].mix.level_db=-INFINITY;++revision;assert(mixer_control_confirm(c,&accepted,revision,epoch));
     pad(c,0,1);pad(c,2,1);pad(c,0,0);pad(c,2,0);cc(c,0x14,127);cc(c,0x14,103);ack(c);

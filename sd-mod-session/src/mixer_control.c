@@ -75,17 +75,23 @@ static void open_fx(struct mixer_control*c)
 }
 int mixer_control_button(struct mixer_control*c,enum mixer_action action,int down,uint64_t ticket)
 {
-    if(!c||(unsigned)action>MIXER_SHIFT)return 0;
+    if(!c||(unsigned)action>MIXER_BANK_PREVIOUS)return 0;
     unsigned bit=1u<<action;
     if(action==MIXER_SHIFT){c->shift=down!=0;return 0;}
     if(!down&&(c->owned_buttons&bit)){c->owned_buttons&=~bit;return 1;}
     if(down&&(c->owned_buttons&bit))return 1;
+    int bank_action=action>=MIXER_BANK;
+    if(bank_action&&c->view.page!=MIXER_ASSIGN&&c->view.page!=MIXER_INSPECT)return 0;
     if(action==MIXER_NATIVE_MODE){if(down&&c->active)mixer_control_close(c);return 0;}
     if(!c->active)return 0;
     if(ticket!=c->ticket)return 1;
     if(!down)return 1;
     c->owned_buttons|=bit;c->message="";
-    if(action<=MIXER_B3){
+    if(bank_action){
+        int previous=action==MIXER_BANK_PREVIOUS||(action==MIXER_BANK&&c->shift);
+        c->view.bank=(c->view.bank+(previous?7:1))%8;
+        c->view.sound=c->view.bank*16+c->view.sound%16;
+    }else if(action<=MIXER_B3){
         if(c->shift){if(action==MIXER_B1||action==MIXER_B3)group_gate(c,action==MIXER_B3);
             else if(one(c)){selected(c)->fx_bypass^=1;changed(c);}else c->message="Select one Track";
         }else{enum mixer_page page=(enum mixer_page)(action+1);c->view.page=!c->temporary&&c->view.page==page?MIXER_OVERVIEW:page;
@@ -173,7 +179,7 @@ int mixer_control_cc(struct mixer_control*c,unsigned cc,unsigned value,uint64_t 
     if(cc!=0x10&&cc!=0x11&&cc!=0x12&&cc!=0x14&&cc!=0x64)return 0;
     if(ticket!=c->ticket||value>127)return 1;
     if(c->view.page==MIXER_INSPECT||c->view.page==MIXER_ASSIGN){
-        if(cc==0x12)c->view.bank=value*8/128;
+        if(cc==0x12){c->view.bank=value*8/128;c->view.sound=c->view.bank*16+c->view.sound%16;}
         else if(cc==0x64){int delta=value>64?(int)value-128:(int)value;
             int sound=(int)c->view.sound+delta;if(sound<0)sound=0;if(sound>127)sound=127;c->view.sound=(unsigned)sound;c->view.bank=(unsigned)sound/16;}
         return 1; /* Inspect is read-only, including Fader and K1. */
@@ -236,7 +242,9 @@ void mixer_control_tick(struct mixer_control*c)
 }
 void mixer_control_presence(struct mixer_control*c,uint64_t lo,uint64_t hi,unsigned bank)
 {
-    if(c&&bank<8){c->present[0]=lo;c->present[1]=hi;c->view.bank=bank;}
+    if(c&&bank<8){c->present[0]=lo;c->present[1]=hi;
+        if(c->view.bank!=bank)c->view.sound=bank*16+c->view.sound%16;
+        c->view.bank=bank;}
 }
 int mixer_control_led(const struct mixer_control*c,unsigned pad,uint32_t*rgb)
 {
