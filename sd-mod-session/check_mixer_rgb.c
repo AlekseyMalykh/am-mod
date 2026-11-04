@@ -89,6 +89,8 @@ int main(int argc,char **argv)
     struct sigaction sa={.sa_sigaction=fault,.sa_flags=SA_SIGINFO};
     sigaction(SIGSEGV,&sa,NULL);sigaction(SIGABRT,&sa,NULL);sigaction(SIGILL,&sa,NULL);
     phase="Mixer native lighting installer";
+    assert(MIXER_COLOURS+1==MUSIC_SEQUENCE_COLOURS);
+    for(unsigned i=0;i<MIXER_COLOURS;++i){assert(mixer_colour_at(i)==music_sequence_colours[i+1]);assert(!strcmp(mixer_colour_name(mixer_colour_at(i)),music_sequence_colour_names[i+1]));}
     assert(mixer_leds_install(base)&&mixer_leds_install(base));
     assert(!mixer_leds_install(base+4096));
     stub(phone_hooks[H_RGB].trampoline,capture);
@@ -160,6 +162,13 @@ int main(int argc,char **argv)
     resample_colours=1;native_refresh(16);send_step_lights();assert(sent[0]==0x12abcd);
     workflow_colours=resample_colours=0;atomic_store(&led_enabled,1);native_refresh(16);
     assert(sent[0]!=0x804020);atomic_store(&led_enabled,0);send_step_lights();assert(sent[0]==0x804020);
+    /* User K3 colour edit is visible on physical output only after confirm. */
+    assert(mixer_control_button(control,MIXER_PAD_FX,1,ticket)&&mixer_control_button(control,MIXER_PAD_FX,0,ticket));
+    assert(mixer_control_button(control,MIXER_B1,1,ticket)&&mixer_control_button(control,MIXER_B1,0,ticket));
+    assert(mixer_control_cc(control,0x12,127,ticket));mixer_control_tick(control);
+    assert(mixer_control_button(control,MIXER_PAD_FX,1,ticket)&&mixer_control_button(control,MIXER_PAD_FX,0,ticket));
+    publish(control,1);native_refresh(16);assert(sent[0]==0x804020);
+    assert(mixer_control_confirm(control,&accepted,3,1));publish(control,1);send_step_lights();assert(sent[0]==mixer_colour_at(11));
     mixer_leds_disable();send_step_lights();assert(sent[0]==native_value);
     mixer_control_destroy(control);
     puts("PASS Mixer physical RGB path: actual native chain/Playing refresh/event, real voice membership and converter, confirmed routing colours, other/direct/empty, playback/tail/preview/unknown/Mute/Erase priority, bank identity, epoch reset, modal priorities, delta refresh and native restore; receiver/app-model fixtures, no hardware");

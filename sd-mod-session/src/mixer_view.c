@@ -64,6 +64,13 @@ static uint32_t colour(const struct mixer_channel*c)
     unsigned rgb=c->colour;unsigned brightness=((rgb>>16)&255)+((rgb>>8)&255)+(rgb&255);
     return brightness<150?WHITE:0xff000000u|rgb;
 }
+static int single(const struct mixer_view_state*s)
+{return s->master||(s->selected&&!(s->selected&(s->selected-1)));}
+static void colour_label(char*out,size_t size,uint32_t rgb)
+{
+    const char*name=mixer_colour_name(rgb);
+    if(name)snprintf(out,size,"%s",name);else snprintf(out,size,"#%06X",rgb);
+}
 static int available(const struct mixer_view_state*s,unsigned bus)
 {
     return s->meter&&s->meter->epoch==s->epoch&&s->now_ms>=s->meter_ms&&s->now_ms-s->meter_ms<=250&&
@@ -120,7 +127,13 @@ static void chrome(const struct mixer_view_state*s,const struct resample_painter
     pan(title,sizeof(title),m->pan);
     text(p,"Pan",4,200,98,12,11,AMBER,1);text(p,title,4,215,98,18,14,WHITE,1);
     text(p,"Send",110,200,98,12,11,GREY,1);text(p,"Disabled",110,215,98,18,12,GREY,1);
-    text(p,"Select",217,200,99,12,11,AMBER,1);text(p,s->pickup?"PICKUP":s->master?"Master":"Track",217,215,99,18,14,WHITE,1);
+    if(s->page==MIXER_MIX){
+        colour_label(title,sizeof(title),s->master?s->project->master.colour:s->project->track[s->primary].colour);
+        text(p,"Colour",217,200,99,12,11,single(s)?AMBER:GREY,1);
+        text(p,single(s)?title:"One track",217,215,99,18,12,single(s)?WHITE:GREY,1);
+    }else{
+        text(p,"Select",217,200,99,12,11,AMBER,1);text(p,s->pickup?"PICKUP":s->master?"Master":"Track",217,215,99,18,14,WHITE,1);
+    }
 }
 void mixer_view_overview(const struct mixer_view_state*s,const struct resample_painter*p)
 {
@@ -137,9 +150,23 @@ void mixer_view_context(const struct mixer_view_state*s,const struct resample_pa
     rect(p,80,50,240,148,BLACK);rect(p,79,50,1,148,GREY);
     const struct mixer_channel*c=s->master?&s->project->master:s->project->track+s->primary;
     struct mixer_mix resolved[8];const struct mixer_mix*m=mix(s,s->master?8:s->primary,resolved);char value[40];
-    if(s->page==MIXER_MIX){pan(value,sizeof(value),m->pan);row(s,0,"Pan",value,0,p);
-        row(s,1,"Send","Disabled",1,p);row(s,2,"Mute",s->master?"--":m->mute?"On":"Off",s->master,p);
-        row(s,3,"Solo",s->master?"--":m->solo?"On":"Off",s->master,p);row(s,4,"FX Bypass",c->fx_bypass?"On":"Off",0,p);
+    if(s->page==MIXER_MIX){
+        struct mixer_view_state visible=*s;visible.cursor=s->cursor>=s->scroll?s->cursor-s->scroll:6;
+        for(unsigned i=0;i<5&&s->scroll+i<6;++i){
+            unsigned index=s->scroll+i;
+            if(index==0){pan(value,sizeof(value),m->pan);row(&visible,i,"Pan",value,0,p);}
+            else if(index==1)row(&visible,i,"Send","Disabled",1,p);
+            else if(index==2)row(&visible,i,"Mute",s->master?"--":m->mute?"On":"Off",s->master,p);
+            else if(index==3)row(&visible,i,"Solo",s->master?"--":m->solo?"On":"Off",s->master,p);
+            else if(index==4)row(&visible,i,"FX Bypass",c->fx_bypass?"On":"Off",0,p);
+            else{
+                colour_label(value,sizeof(value),c->colour);row(&visible,i,"Colour",single(s)?value:"One track",!single(s),p);
+                if(single(s)){int y=57+(int)i*26;border(p,217,y+4,12,12,GREY);rect(p,218,y+5,10,10,0xff000000u|c->colour);}
+            }
+        }
+        rect(p,317,57,2,129,DARK);rect(p,317,57+(s->scroll?22:0),2,107,AMBER);
+        if(s->message&&*s->message)text(p,s->message,88,185,226,11,9,AMBER,0);
+        else if(s->cursor==5)text(p,s->colour_edit?"Encoder: Colour   Press: Done":"K3: Colour   Press: Edit",88,185,226,11,9,single(s)?AMBER:GREY,0);
     }else if(s->page==MIXER_FX){
         for(unsigned i=0;i<5;++i){unsigned slot=s->scroll+i;if(slot>=5)break;
             char label[64];snprintf(label,sizeof(label),"%u. %s",slot+1,slot<c->fx.count?fx_catalog_stage_name(c->fx.stage+slot):"Empty");

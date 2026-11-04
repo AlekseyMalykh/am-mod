@@ -16,6 +16,7 @@ extern "C" {
 #define MIXER_LEVEL_MIN_DB (-60.f)
 #define MIXER_LEVEL_MAX_DB 6.f
 #define MIXER_MODEL_VERSION 1u
+#define MIXER_COLOURS 12u
 enum mixer_result { MIXER_OK, MIXER_INVALID, MIXER_FULL, MIXER_UNSUPPORTED,
                     MIXER_CORRUPT, MIXER_SHORT_BUFFER };
 enum mixer_scene_field { MIXER_SCENE_LEVEL=1, MIXER_SCENE_PAN=2,
@@ -45,6 +46,11 @@ struct mixer_project {
     struct mixer_scene scene[MIXER_MAX_SCENES];
 };
 void mixer_defaults(struct mixer_project*);
+/* Optional UI palette uses the existing AM Mod hues. Persist actual RGB,
+ * including older/custom values; palette indices are never stored. */
+uint32_t mixer_colour_at(unsigned index);
+int mixer_colour_index(uint32_t rgb);
+const char*mixer_colour_name(uint32_t rgb); /* NULL for a custom RGB value. */
 int mixer_project_valid(const struct mixer_project*);
 enum mixer_result mixer_set_output(struct mixer_project*,unsigned pad,unsigned output);
 enum mixer_result mixer_scene_set(struct mixer_project*,const struct mixer_scene*);

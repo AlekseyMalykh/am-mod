@@ -14,6 +14,41 @@ static void button(struct mixer_control*c,enum mixer_action a){uint64_t t=mixer_
 static void cc(struct mixer_control*c,unsigned k,unsigned v){assert(mixer_control_cc(c,k,v,mixer_control_ticket(c)));}
 static void pad(struct mixer_control*c,unsigned p,int down){assert(mixer_control_pad(c,p,down,mixer_control_ticket(c)));}
 static void ack(struct mixer_control*c){mixer_control_tick(c);assert(mixer_control_confirm(c,&accepted,revision,epoch));}
+static void colour_controls(void)
+{
+    mixer_defaults(&accepted);++revision;++epoch;struct mixer_control_ops ops={NULL,submit};
+    struct mixer_control*c=mixer_control_create(&ops,48000);assert(c);
+    assert(mixer_control_confirm(c,&accepted,revision,epoch)&&mixer_control_open(c,1,0));button(c,MIXER_B1);
+    for(unsigned index=0;index<MIXER_COLOURS;++index){
+        struct mixer_project expected=accepted;expected.track[0].colour=mixer_colour_at(index);
+        cc(c,0x12,(index*128+MIXER_COLOURS-1)/MIXER_COLOURS);ack(c);
+        assert(!memcmp(&accepted,&expected,sizeof(expected))&&view(c).cursor==5&&view(c).scroll==1);
+        unsigned unchanged=submissions;cc(c,0x12,(index*128+MIXER_COLOURS-1)/MIXER_COLOURS);mixer_control_tick(c);assert(submissions==unchanged);
+    }
+    accepted.track[0].colour=0x123456;++revision;assert(mixer_control_confirm(c,&accepted,revision,epoch));
+    unsigned unchanged=submissions;button(c,MIXER_B1);button(c,MIXER_B1);mixer_control_tick(c);
+    assert(accepted.track[0].colour==0x123456&&submissions==unchanged);
+    cc(c,0x64,5);assert(view(c).cursor==5&&view(c).scroll==1);button(c,MIXER_SELECT);assert(view(c).colour_edit);
+    cc(c,0x64,127);ack(c);assert(accepted.track[0].colour==mixer_colour_at(MIXER_COLOURS-1));
+    unchanged=submissions;cc(c,0x64,1);mixer_control_tick(c);assert(submissions==unchanged);
+    cc(c,0x64,117);ack(c);assert(accepted.track[0].colour==mixer_colour_at(0));
+    cc(c,0x64,127);mixer_control_tick(c);assert(accepted.track[0].colour==mixer_colour_at(0));
+    button(c,MIXER_SELECT);assert(!view(c).colour_edit);cc(c,0x64,123);assert(view(c).cursor==0&&!view(c).scroll);
+    cc(c,0x64,5);button(c,MIXER_SELECT);button(c,MIXER_PAD_FX);assert(!view(c).colour_edit);
+    button(c,MIXER_PAD_FX);assert(view(c).cursor==5&&view(c).scroll==1&&!view(c).colour_edit);
+    pad(c,0,1);pad(c,1,1);pad(c,0,0);pad(c,1,0);unchanged=submissions;
+    cc(c,0x12,127);button(c,MIXER_SELECT);mixer_control_tick(c);
+    assert(submissions==unchanged&&!view(c).colour_edit&&!strcmp(mixer_control_message(c),"Select one Track"));
+    pad(c,15,1);pad(c,15,0);struct mixer_project expected=accepted;expected.master.colour=mixer_colour_at(11);
+    cc(c,0x12,127);ack(c);assert(!memcmp(&accepted,&expected,sizeof(expected)));
+    uint64_t ticket=mixer_control_ticket(c);assert(!mixer_control_button(c,MIXER_SHIFT,1,ticket));
+    button(c,MIXER_PAD_FX);assert(!mixer_control_button(c,MIXER_SHIFT,0,ticket));
+    unchanged=submissions;cc(c,0x12,0);mixer_control_tick(c);assert(view(c).page==MIXER_INSPECT&&submissions==unchanged);
+    button(c,MIXER_PAD_FX);button(c,MIXER_SELECT);assert(view(c).colour_edit);
+    assert(!mixer_control_button(c,MIXER_NATIVE_MODE,1,ticket));assert(!view(c).colour_edit);
+    mixer_control_destroy(c);
+    puts("PASS twelve user colours, no-op edits, preserved custom RGB, scroll/focus/navigation, group guard, independent Master and read-only Inspect");
+}
 int main(void)
 {
     mixer_defaults(&accepted);accepted.track[0].mix.level_db=-3;accepted.track[1].mix.level_db=-9;accepted.track[2].mix.level_db=-6;
@@ -75,5 +110,5 @@ int main(void)
     assert(!mixer_control_button(c,MIXER_NATIVE_MODE,1,ticket)&&!mixer_control_active(c));assert(mixer_control_ticket(c)!=ticket);
     assert(mixer_control_button(c,MIXER_B1,0,ticket));assert(mixer_control_pad(c,3,0,ticket));assert(!mixer_control_button(c,MIXER_B1,1,mixer_control_ticket(c)));assert(!mixer_control_cc(c,0x10,1,ticket));
     assert(mixer_control_open(c,1,0));ticket=mixer_control_ticket(c);++epoch;++revision;assert(mixer_control_confirm(c,&accepted,revision,epoch)&&!mixer_control_active(c));assert(mixer_control_ticket(c)!=ticket);
-    mixer_control_destroy(c);puts("PASS coalesced confirmed edits, busy retry, mode exit, stale tickets/paired release recovery and Load/New epoch invalidation");return 0;
+    mixer_control_destroy(c);puts("PASS coalesced confirmed edits, busy retry, mode exit, stale tickets/paired release recovery and Load/New epoch invalidation");colour_controls();return 0;
 }

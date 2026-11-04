@@ -6,8 +6,8 @@ controller → actual live audio acknowledgement → archive owner.
 Candidate автоматически привязывает сессию к живому аудиовызову и снимает её
 после смены источника. Маска занятых звуков подключена через native owner queue.
 Тракт LED и его native приоритеты подключены и проверены на ARM/QEMU.
-До проверки на MPC остаются native FX backend,
-редактор пользовательских цветов и полный цикл сохранения и загрузки XPJ.
+В B1 MIX добавлен выбор цвета Track/Master. До проверки на MPC остаются
+native FX backend и полный цикл сохранения и загрузки XPJ.
 
 ## Управление
 
@@ -34,6 +34,14 @@ Controller не читает native objects, не запускает audio и н
   Одиночный Off можно поднять после pickup в нижней точке; группа Off не включается.
 - Fader mapping:0=Off,1=-60dB,103=unity,127=+6dB. Ни K1, ни encoder не пишут Volume.
   K1 обычных MIX/Overview страниц меняет Pan; Send остаётся Disabled.
+- В B1 MIX K3 выбирает Colour из12 существующих оттенков AM Mod. Encoder
+  прокручивает6 строк в правой панели (видно5), не затрагивая левый strip.
+  Press на Colour включает/завершает настройку вращением; выход, смена трека
+  или страницы снимают focus. Группа не перекрашивается; Master независим.
+  Повтор неизменённого цвета не создаёт обновление. Сохранённый нестандартный
+  RGB показывается как `#RRGGBB` и не заменяется при открытии страницы.
+  RGB, а не индекс палитры, проходит существующие audio ack/archive/confirm.
+  PICKUP и сообщения выбора отображаются над footer, сохраняя K3 Colour.
 - Native mode action сначала закрывает controller, затем возвращает `forward`.
   Shift наблюдается и остаётся штатным модификатором. Поздние ups от поглощённых
   downs поглощаются даже после закрытия/смены ticket. Следующая полная пара вне
@@ -171,9 +179,12 @@ MPC_RUNTIME_ROOT='/path/to/runtime' python3 build_mixer_core_candidate.py
   return context, groups, pickup/Off/clamps, K1≠Volume, Mute/Solo, occupied-only
   assignment, read-only Inspect, confirmed LEDs, FX parameters/bypass/remove,
   repeat-down suppression, coalescing, late ups и epoch invalidation.
+  Также все12 цветов, no-op, custom RGB, scroll/focus, group guard и Master.
 - 2 ARM session runs: normal/UBSan с настоящими установленными native live hooks,
   реальным output processing и audio revision. Archive до ack не меняется,
   после ack/model confirm сохраняется; закрытие UI оставляет audio работающим.
+  Для K3 Colour проверены прежний RGB до ack, новый RGB после него, encode/decode
+  и неизменившийся PCM относительно установившегося микса.
   Проверена также цепочка source queue → runtime → controller: маска pad127
   доходит до UI, старый capture истекает, закрытый Mixer не ставит новый опрос.
   Native model/services/voice oscillator fixtures, реальный XPJ на SD не открыт.
@@ -184,12 +195,17 @@ MPC_RUNTIME_ROOT='/path/to/runtime' python3 build_mixer_core_candidate.py
   сбалансированы; тест не запускает полный проект устройства.
 - Painter regression: 8 host/sanitizer/ARM updates/view runs; проверяются bounds,
   сохранение8 фейдеров, отдельные meters и новые context pages.
+  Левый strip сравнивается по точным draw commands до/после прокрутки Colour;
+  проверены swatch/HEX label и Master. Новые макеты: `painter-colour.png`,
+  `painter-master-colour.png`.
 - 2 ARM RGB runs normal/UBSan: реальные native chain, Playing callbacks,
   PadLight setter, voice membership и converter. Проверены confirmed/pending,
   свой/чужой/Direct/Empty, pulse/tail/preview/unknown/Mute/Erase, банк, отзыв
   наблюдений при прежнем Program, pad127 в H, приоритет модальных палитр,
   перекрывающиеся pthread sender calls, delta refresh и
   восстановление native. Получатель, app services и модели — fixtures.
+  K3 Colour меняет отправленный RGB только после confirm; палитра сверена
+  с существующей палитрой AM Mod.
   Дополнительно прошли8 прежних ARM RGB/painter regressions обычных режимов.
 - Candidate полностью линкуется с runtime/controller/session/catalog и проходит
   preload. ARM-проверка выполняет автоматическую привязку, реальный PCM, смену
@@ -197,6 +213,6 @@ MPC_RUNTIME_ROOT='/path/to/runtime' python3 build_mixer_core_candidate.py
   Для live caller используется envelope вокруг настоящего callsite.
 
 Оставшаяся работа второго пакета включает native FX backend,
-редактор пользовательских цветов, полный цикл сохранения и загрузки XPJ/Mod Off и
+полный цикл сохранения и загрузки XPJ/Mod Off и
 аппаратную проверку экрана, фейдера, LED и нагрузки. Пока эти пункты открыты,
 нельзя называть второй пакет или пользовательский Mixer завершённым.

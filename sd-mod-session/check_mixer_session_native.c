@@ -22,9 +22,22 @@ static void session_test(void)
     live_fixture();run_live();mixer_session_owner_tick(s);mixer_session_ui_tick(s);
     assert(mixer_archive_snapshot(&observed,&after,&mode)&&after==rev+1&&observed.track[0].mix.pan==-1);
     struct mixer_view_state v;mixer_control_view(c,1000,&v);assert(v.project->track[0].mix.pan==-1&&!v.pending);
+    /* Metadata edits use the same acknowledgement/archive path and do not
+     * change the PCM, gains, routes or the other channel colours. */
+    live_fixture();run_live(); /* Compare with steady Pan, after its ramp block. */
+    float before_colour[2][N];memcpy(before_colour,root_pcm,sizeof(before_colour));
+    uint32_t old_colour=observed.track[0].colour;
+    assert(mixer_control_button(c,MIXER_B1,1,ticket)&&mixer_control_button(c,MIXER_B1,0,ticket));
+    assert(mixer_control_cc(c,0x12,127,ticket));mixer_session_ui_tick(s);mixer_session_owner_tick(s);
+    assert(mixer_archive_snapshot(&observed,&after,&mode)&&after==rev+1&&observed.track[0].colour==old_colour);
+    mixer_control_view(c,1000,&v);assert(v.pending&&v.project->track[0].colour==old_colour);
+    live_fixture();run_live();compare_pcm(root_pcm[0],before_colour[0],1);compare_pcm(root_pcm[1],before_colour[1],1);
+    mixer_session_owner_tick(s);mixer_session_ui_tick(s);
+    assert(mixer_archive_snapshot(&observed,&after,&mode)&&after==rev+2&&observed.track[0].colour==mixer_colour_at(11));
+    assert(observed.track[0].mix.pan==-1&&observed.output[0]==1&&observed.master.colour==initial.master.colour);
     char *payload=malloc(MIXER_PAYLOAD_BYTES);assert(payload);size_t length;
     assert(mixer_encode(&observed,payload,MIXER_PAYLOAD_BYTES,&length)==MIXER_OK);
-    struct mixer_project decoded;assert(mixer_decode(payload,length,&decoded)==MIXER_OK&&decoded.track[0].mix.pan==-1&&decoded.output[0]==1);free(payload);
+    struct mixer_project decoded;assert(mixer_decode(payload,length,&decoded)==MIXER_OK&&decoded.track[0].mix.pan==-1&&decoded.output[0]==1&&decoded.track[0].colour==mixer_colour_at(11));free(payload);
     assert(!mixer_control_button(c,MIXER_NATIVE_MODE,1,ticket)&&!mixer_control_active(c));
     live_fixture();run_live();struct mixer_meter_snapshot meter;assert(mixer_live_take_meter(mixer_session_live(s),&meter)&&meter.valid_mask==0x3ff);
     mixer_archive_reset();mixer_session_owner_tick(s);mixer_session_ui_tick(s);assert(mixer_session_status(s)==-1&&!mixer_control_active(c));

@@ -8,6 +8,11 @@ _Static_assert(sizeof(float)==4&&sizeof(double)==8&&FLT_RADIX==2&&FLT_MANT_DIG==
                "Mixer codec requires IEEE binary32/binary64");
 #define ALL_FIELDS (MIXER_SCENE_LEVEL|MIXER_SCENE_PAN|MIXER_SCENE_SEND|MIXER_SCENE_MUTE|MIXER_SCENE_SOLO)
 static const char prefix[]="AMMX:";
+static const uint32_t colours[MIXER_COLOURS]={0x00c700,0xffc247,0x8830ff,0xff20b0,0xff0000,0xff6000,0xffe000,0x2030ff,0x98ff00,0x00ffb0,0xffffff,0x00c8ff};
+static const char*const colour_names[MIXER_COLOURS]={"Green","Amber","Violet","Magenta","Red","Orange","Yellow","Blue","Lime","Mint","White","Cyan"};
+uint32_t mixer_colour_at(unsigned index){return index<MIXER_COLOURS?colours[index]:0;}
+int mixer_colour_index(uint32_t rgb){for(unsigned i=0;i<MIXER_COLOURS;++i)if(colours[i]==rgb)return (int)i;return -1;}
+const char*mixer_colour_name(uint32_t rgb){int index=mixer_colour_index(rgb);return index<0?NULL:colour_names[index];}
 static int level_valid(float v){return (isinf(v)&&v<0)||(isfinite(v)&&v>=MIXER_LEVEL_MIN_DB&&v<=MIXER_LEVEL_MAX_DB);}
 static int mix_valid(const struct mixer_mix*m){return level_valid(m->level_db)&&isfinite(m->pan)&&m->pan>=-1&&m->pan<=1&&isfinite(m->send)&&m->send>=0&&m->send<=1&&m->mute<=1&&m->solo<=1;}
 static int name_valid(const char*s)
@@ -44,9 +49,9 @@ static int scene_valid(const struct mixer_scene*s)
 void mixer_defaults(struct mixer_project*p)
 {
     if(!p)return;
-    static const uint32_t colours[]={0x00c700,0x00c8ff,0x8830ff,0xffc247,0x2030ff,0xff6000,0xff20b0,0x98ff00};
+    static const unsigned default_colours[]={0,11,2,1,7,5,3,8};
     memset(p,0,sizeof(*p));
-    for(unsigned i=0;i<MIXER_TRACKS;++i){snprintf(p->track[i].name,MIXER_NAME_BYTES,"Track %c",'A'+i);p->track[i].colour=colours[i];}
+    for(unsigned i=0;i<MIXER_TRACKS;++i){snprintf(p->track[i].name,MIXER_NAME_BYTES,"Track %c",'A'+i);p->track[i].colour=mixer_colour_at(default_colours[i]);}
     memcpy(p->master.name,"Master",7);p->master.colour=0xffc247;
 }
 int mixer_project_valid(const struct mixer_project*p)

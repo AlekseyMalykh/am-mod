@@ -39,26 +39,33 @@ int mixer_control_confirm(struct mixer_control*c,const struct mixer_project*p,ui
     int own_ack=c->submitted&&revision==c->submitted;
     c->model=*p;c->revision=revision;c->submitted=0;
     if(!own_ack||!c->dirty)c->desired=*p;
-    if(!own_ack){c->dirty=0;pickup(c);}
+    if(!own_ack){c->dirty=0;c->view.colour_edit=0;pickup(c);}
     return 1;
 }
 int mixer_control_open(struct mixer_control*c,int ready,int blocked)
 {
     if(!c||!ready||blocked||!c->epoch)return 0;
     c->active=1;c->view.page=MIXER_OVERVIEW;c->temporary=0;c->held_tracks=0;
-    c->view.cursor=c->view.scroll=0;c->message="";++c->ticket;pickup(c);return 1;
+    c->view.cursor=c->view.scroll=c->view.colour_edit=0;c->message="";++c->ticket;pickup(c);return 1;
 }
 void mixer_control_close(struct mixer_control*c)
 {
-    if(c){c->active=0;c->temporary=0;c->held_tracks=0;c->shift=0;++c->ticket;pickup(c);}
+    if(c){c->active=0;c->temporary=0;c->held_tracks=0;c->shift=c->view.colour_edit=0;++c->ticket;pickup(c);}
 }
 int mixer_control_active(const struct mixer_control*c){return c&&c->active;}
 uint64_t mixer_control_ticket(const struct mixer_control*c){return c?c->ticket:0;}
 static void temporary(struct mixer_control*c,unsigned kind,enum mixer_page page)
 {
+    c->view.colour_edit=0;
     if(c->temporary==kind){enum mixer_page back=c->back.page;unsigned cursor=c->back.cursor,scroll=c->back.scroll;
         c->temporary=0;c->view.page=back;c->view.cursor=cursor;c->view.scroll=scroll;
     }else{if(!c->temporary)c->back=c->view;c->temporary=kind;c->view.page=page;c->view.cursor=c->view.scroll=0;}
+}
+static void set_colour(struct mixer_control*c,unsigned index)
+{
+    if(!one(c)){c->message="Select one Track";return;}
+    uint32_t rgb=mixer_colour_at(index);
+    if(selected(c)->colour!=rgb){selected(c)->colour=rgb;changed(c);}
 }
 static void group_gate(struct mixer_control*c,int solo)
 {
@@ -95,7 +102,7 @@ int mixer_control_button(struct mixer_control*c,enum mixer_action action,int dow
         if(c->shift){if(action==MIXER_B1||action==MIXER_B3)group_gate(c,action==MIXER_B3);
             else if(one(c)){selected(c)->fx_bypass^=1;changed(c);}else c->message="Select one Track";
         }else{enum mixer_page page=(enum mixer_page)(action+1);c->view.page=!c->temporary&&c->view.page==page?MIXER_OVERVIEW:page;
-            c->temporary=0;c->view.cursor=c->view.scroll=0;}
+            c->temporary=0;c->view.cursor=c->view.scroll=c->view.colour_edit=0;}
     }else if(action==MIXER_PAD_FX){
         if(c->temporary==1){temporary(c,1,MIXER_ASSIGN);return 1;}
         if((!one(c)||c->view.master)&&!c->shift){c->message="Select one Track";return 1;}
@@ -119,6 +126,7 @@ int mixer_control_button(struct mixer_control*c,enum mixer_action action,int dow
         }else if(c->view.page==MIXER_MIX){
             if(c->view.cursor==2)group_gate(c,0);else if(c->view.cursor==3)group_gate(c,1);
             else if(c->view.cursor==4&&one(c)){selected(c)->fx_bypass^=1;changed(c);}
+            else if(c->view.cursor==5){if(one(c))c->view.colour_edit^=1;else c->message="Select one Track";}
         }
     }
     return 1;
@@ -143,6 +151,7 @@ int mixer_control_pad(struct mixer_control*c,unsigned pad,int down,uint64_t tick
         else c->view.selected|=bit;
         c->held_tracks|=bit;c->view.master=0;pickup(c);
     }else if(pad==15){c->view.master=1;c->view.selected=0;c->held_tracks=0;pickup(c);}
+    c->view.colour_edit=0;
     return 1;
 }
 float mixer_fader_db(unsigned value)
@@ -186,7 +195,18 @@ int mixer_control_cc(struct mixer_control*c,unsigned cc,unsigned value,uint64_t 
     }
     if(cc==0x14){fader(c,value);return 1;}
     struct mixer_channel*ch=selected(c);
+    if(c->view.page==MIXER_MIX&&cc==0x12){
+        c->view.cursor=5;c->view.scroll=1;set_colour(c,value*MIXER_COLOURS/128);return 1;
+    }
     if(cc==0x64){int delta=value>64?(int)value-128:(int)value;
+        if(c->view.page==MIXER_MIX&&c->view.colour_edit){
+            if(!delta)return 1;
+            int index=mixer_colour_index(ch->colour);
+            int next=index<0?(delta>0?0:(int)MIXER_COLOURS-1):index+delta;
+            if(next<0)next=0;
+            if(next>=(int)MIXER_COLOURS)next=MIXER_COLOURS-1;
+            set_colour(c,(unsigned)next);return 1;
+        }
         if(c->view.page==MIXER_FX&&c->shift){
             if(!one(c)){c->message="Select one Track";return 1;}
             int next=(int)c->view.cursor+delta;
@@ -194,7 +214,7 @@ int mixer_control_cc(struct mixer_control*c,unsigned cc,unsigned value,uint64_t 
                fx_chain_move(&ch->fx,c->view.cursor,(unsigned)next)==FX_OK){c->view.cursor=(unsigned)next;changed(c);}
             return 1;
         }
-        unsigned limit=c->view.page==MIXER_KNOB_FX&&c->catalog?fx_catalog_count():c->view.page==MIXER_OVERVIEW?8:5;
+        unsigned limit=c->view.page==MIXER_KNOB_FX&&c->catalog?fx_catalog_count():c->view.page==MIXER_OVERVIEW?8:c->view.page==MIXER_MIX?6:5;
         if(c->view.page==MIXER_KNOB_FX&&!c->catalog&&c->view.fx_slot<ch->fx.count){
             const struct fx_stage*s=ch->fx.stage+c->view.fx_slot;
             if(s->kind==FX_STAGE_EQ)limit=s->eq.count?s->eq.count:1;
@@ -203,6 +223,7 @@ int mixer_control_cc(struct mixer_control*c,unsigned cc,unsigned value,uint64_t 
                 limit=(n+2)/3;if(!limit)limit=1;}
         }
         int next=(int)c->view.cursor+delta;if(next<0)next=0;if((unsigned)next>=limit)next=(int)limit-1;c->view.cursor=(unsigned)next;
+        if(c->view.page==MIXER_MIX){if(c->view.cursor<c->view.scroll)c->view.scroll=c->view.cursor;else if(c->view.cursor>=c->view.scroll+5)c->view.scroll=c->view.cursor-4;}
         if(c->view.page==MIXER_KNOB_FX&&!c->catalog){c->parameter_page=c->view.cursor;}
         return 1;
     }

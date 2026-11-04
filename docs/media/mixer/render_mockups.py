@@ -165,8 +165,8 @@ def details():
     row(c, 93, "Send", "--")
     row(c, 119, "Mute", "Off")
     row(c, 145, "Solo", "Off")
-    c.text("Send: not implemented", 88, 178, 224, 10, GREY)
-    footer(c, [("Pan", "C"), ("Send", "--"), ("Mute", "Off")], split=True)
+    row(c, 171, "FX Bypass", "Off")
+    footer(c, [("Pan", "C"), ("Send", "--"), ("Colour", "Violet")], split=True)
     c.save("mix.png")
 
     c = detail_base(1, title="FX CHAIN")
