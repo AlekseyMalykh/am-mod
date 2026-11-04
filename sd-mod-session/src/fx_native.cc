@@ -18,8 +18,11 @@ struct Text {const char*data;};
 using Callback=std::function<void(NativePtr,const Text&)>;
 struct PlayHead {
     double bpm=120,rate=48000;unsigned numerator=4,denominator=4;uint64_t frame=0;
+    bool live=false;
+    alignas(8) unsigned char current[88]{};
     virtual ~PlayHead(){}
     virtual bool position(void*out){
+        if(live){std::memcpy(out,current,88);return true;}
         std::memset(out,0,88);F(out,0,double)=bpm;F(out,8,int)=(int)numerator;F(out,12,int)=(int)denominator;
         double ppq=frame/rate*bpm/60,bar=numerator*4./denominator;
         F(out,16,int64_t)=(int64_t)frame;F(out,24,double)=frame/rate;F(out,40,double)=ppq;
@@ -36,6 +39,10 @@ struct Processor {
     float*channels[2]={left,right};
     alignas(8) unsigned char audio[320]{};
     alignas(8) unsigned char midi[16]{};
+    void *position_user=nullptr;
+    int (*position)(void*,void*,uint64_t*)=nullptr;
+    uint64_t block=0,offset=0;
+    bool have_block=false;
     ~Processor(){object.reset();} // playhead is still alive during native destruction
 };
 static void*create(void*user,uint32_t id,double rate,const float*parameters){
@@ -68,6 +75,8 @@ static void*create(void*user,uint32_t id,double rate,const float*parameters){
         unsigned n=(unsigned)reinterpret_cast<int(*)(void*)>(v[24])(p->object.get());if(!n||n>FX_CHAIN_PARAMETERS)throw 0;
         for(unsigned i=0;i<n;++i)reinterpret_cast<void(*)(void*,int,float)>(v[40])(p->object.get(),(int)i,parameters[i]);
         p->playhead.bpm=c->bpm;p->playhead.rate=rate;p->playhead.numerator=c->numerator;p->playhead.denominator=c->denominator;
+        p->position=c->position;p->position_user=c->position_user;p->playhead.live=c->position!=nullptr;
+        if(p->playhead.live)std::memcpy(p->playhead.current,c->initial_position,88);
         reinterpret_cast<void(*)(void*,void*)>(c->base+0xe9fe30)(p->object.get(),&p->playhead);
         reinterpret_cast<void(*)(void*,double,int)>(v[4])(p->object.get(),rate,256);
         F(p->audio,0,int)=2;F(p->audio,16,float**)=p->channels;
@@ -77,13 +86,34 @@ static void*create(void*user,uint32_t id,double rate,const float*parameters){
 static void destroy(void*,void*processor){delete static_cast<Processor*>(processor);}
 static void process(void*,void*processor,float*data,size_t frames){
     auto*p=static_cast<Processor*>(processor);auto*v=F(p->object.get(),0,uintptr_t*);
+    alignas(8) unsigned char native_position[88]{};
+    if(p->position){
+        uint64_t block;
+        if(!p->position(p->position_user,native_position,&block))return;
+        if(!p->have_block||p->block!=block){p->block=block;p->offset=0;p->have_block=true;}
+    }
     for(size_t at=0;at<frames;){size_t n=frames-at;if(n>256)n=256;
+        if(p->position){
+            std::memcpy(p->playhead.current,native_position,88);
+            /* fx_exchange also splits calls at256. Offset belongs to each
+             * processor/block, never a global counter shared by channels. */
+            if(native_position[60]&1){
+                double advance=(p->offset+at)/p->playhead.rate;
+                F(p->playhead.current,16,int64_t)+=(int64_t)(p->offset+at);
+                F(p->playhead.current,24,double)+=advance;
+                double ppq=F(p->playhead.current,40,double)+advance*F(native_position,0,double)/60.;
+                F(p->playhead.current,40,double)=ppq;
+                double bar=F(native_position,8,unsigned)*4./F(native_position,12,unsigned);
+                F(p->playhead.current,48,double)=std::floor(ppq/bar)*bar;
+            }
+        }
         for(size_t i=0;i<n;++i){p->left[i]=data[(at+i)*2];p->right[i]=data[(at+i)*2+1];}
         F(p->audio,4,int)=(int)n;
         reinterpret_cast<void(*)(void*,void*,void*)>(v[7])(p->object.get(),p->audio,p->midi);
         for(size_t i=0;i<n;++i){data[(at+i)*2]=p->left[i];data[(at+i)*2+1]=p->right[i];}
         p->playhead.frame+=n;at+=n;
     }
+    if(p->position)p->offset+=frames;
 }
 }
 extern "C" int fx_native_context_from_manager(uintptr_t base,void*manager,fx_native_context*out){
@@ -106,6 +136,17 @@ extern "C" int fx_native_context_from_manager(uintptr_t base,void*manager,fx_nat
     return out->air_format&&out->mpc_format;
 }
 extern "C" void fx_native_backend(fx_native_context*c,fx_backend*out){if(out)*out={c,create,destroy,process};}
+extern "C" int fx_native_application_formats(uintptr_t base,fx_native_context*out){
+    if(!out)return 0;
+    *out={};if(!base)return 0;
+    void*app=F(reinterpret_cast<void*>(base),0x71e3dc8,void*);
+    if(!app||F(app,0,uintptr_t)!=base+0x6e07288)return 0;
+    void*audio=F(app,0xd8,void*);
+    if(!audio||F(audio,0,uintptr_t)!=base+0x6e0c430)return 0;
+    void*core=F(audio,0x148,void*);
+    return core&&F(core,0,uintptr_t)==base+0x6e0cf38&&
+        fx_native_context_from_manager(base,F(core,0x4d0,void*),out);
+}
 extern "C" void fx_native_registry_bind(void*p){registry.store(p,std::memory_order_release);}
 extern "C" int fx_native_context_capture(uintptr_t base,fx_native_context*out){
     if(!out)return 0;

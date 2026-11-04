@@ -21,6 +21,10 @@ void mixer_control_destroy(struct mixer_control*);
 /* Confirmed snapshot from the project/audio owner. Load/New/source epoch change
  * invalidates input ticket and pickup; stale acknowledgements are ignored. */
 int mixer_control_confirm(struct mixer_control*,const struct mixer_project*,uint64_t revision,uint64_t source_epoch);
+/* UI owner: failed preparation never replaces the confirmed mix or closes UI.
+ * Only a matching submitted revision may discard its unconfirmed desired copy.
+ * reason is borrowed and must outlive the controller's displayed message. */
+int mixer_control_reject(struct mixer_control*,uint64_t revision,const char *reason);
 int mixer_control_open(struct mixer_control*,int audio_ready,int modal_blocked);
 void mixer_control_close(struct mixer_control*);
 int mixer_control_active(const struct mixer_control*);

@@ -86,6 +86,10 @@ crossfade, затем выводится из процесса. Неизменё
 контракт; без backend native-effect prepare отклоняется. Неподдержанный Send>0
 не принимается; Sidechain не включён.
 
+Обновление04.11: live native backend и его отдельные ARM/UBSan проверки
+добавлены во [втором пакете](MIXER_STEP2.md#live-native-fx). Аппаратный RT-бюджет
+по-прежнему требует измерений.
+
 ## Настоящий C painter
 
 [`mixer_view.c`](../sd-mod-session/src/mixer_view.c) использует существующий

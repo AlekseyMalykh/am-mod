@@ -4,7 +4,8 @@
 extern "C" {
 #endif
 /* The phone UI Timer owns discovery, preparation, edits and retirement.
- * The native render publishes opaque identities and owns all native access. */
+ * The native render publishes opaque identities and owns Engine/Program/clock
+ * reads. Application FX formats are borrowed on the UI owner while alive. */
 void mixer_runtime_ui_tick(void);
 void mixer_runtime_ui_stop(void);
 #ifdef __cplusplus

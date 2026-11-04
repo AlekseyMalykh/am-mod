@@ -10,9 +10,10 @@ Experimental candidate автоматически создаёт сессию п
 ввод и lifecycle проверены в ARM/QEMU. Assign получает маску занятых звуков
 из native owner queue; Bank, +/− и K3 переключают все восемь банков.
 Тракт физических LED подключён с приоритетами штатных слоёв и голосов,
-проверен на ARM/QEMU с подменённым получателем. Остаётся backend нативных эффектов.
-Пользовательские цвета доступны в B1 MIX через K3 и энкодер. Впереди аппаратная
-проверка, Song Mode и стемы.
+проверен на ARM/QEMU с подменённым получателем. Native FX работают на Track/Master
+с живым transport clock; [проверены все 25 эффектов каталога](MIXER_STEP2.md).
+Пользовательские цвета доступны в B1 MIX через K3 и энкодер. Впереди полный XPJ
+round-trip, аппаратная проверка, Song Mode и стемы.
 
 Продолжение реализации: [native audit и ARM-проверки](MIXER_NATIVE_AUDIT.md),
 [Mixer data model V1 и codec](MIXER_DATA_MODEL.md).
@@ -455,7 +456,7 @@ callback, underruns и реальную частоту repaint измерить 
 До подключения UI: закончить audio/Song audit → версионируемая data model →
 доказанные восемь шин и Master Direct → реальные meter snapshots → input owner и
 split painter → проверки согласованности UI/audio/save → аппаратная проба.
-Song Playback Plan, Stem Export, Track FX и Sidechain остаются отдельными этапами;
+Song Playback Plan, Stem Export и Sidechain остаются отдельными этапами;
 открытая вкладка не должна стать их зависимостью. Каждый функциональный этап —
 отдельный коммит, сборка и релевантные проверки. PC/ARM/QEMU и макеты не заменяют
 проверку читаемости, Fader, LED и отсутствия audio underruns на MPC Sample.

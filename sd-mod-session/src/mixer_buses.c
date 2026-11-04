@@ -102,7 +102,9 @@ static void accept_update(struct mixer_buses*b)
 {
     if(b->transition||atomic_load_explicit(&b->retired,memory_order_acquire))return;
     for(unsigned i=0;i<9;++i)if(!fx_exchange_ready_audio(b->fx[i]))return;
-    struct mixer_bus_update*u=atomic_exchange_explicit(&b->pending,NULL,memory_order_acquire);
+    struct mixer_bus_update*u=atomic_load_explicit(&b->pending,memory_order_acquire);
+    if(u)for(unsigned i=0;i<9;++i)if(!same_fx(b->config+i,u->config+i)&&!u->fx[i])return;
+    u=atomic_exchange_explicit(&b->pending,NULL,memory_order_acquire);
     if(!u)return;
     if(u->revision>b->target_revision){
         memcpy(b->previous_output,b->output,sizeof(b->output));memcpy(b->output,u->output,sizeof(b->output));
@@ -211,8 +213,8 @@ int mixer_buses_view(const struct mixer_buses*b,unsigned bus,struct mixer_pcm_vi
     out->channel[0]=channel(b,bus,0);out->channel[1]=channel(b,bus,1);out->frames=b->frames;return 1;
 }
 size_t mixer_buses_pcm_bytes(const struct mixer_buses*b){return b?(size_t)b->max_frames*22*sizeof(float):0;}
-struct mixer_bus_update*mixer_buses_update_prepare(const struct mixer_project*p,uint64_t part,double rate,
-    uint64_t revision,const struct fx_backend*backend,enum mixer_bus_result*error)
+struct mixer_bus_update*mixer_buses_update_prepare_delta(const struct mixer_project*p,uint64_t part,double rate,
+    uint64_t revision,const struct fx_backend*backend,const struct fx_chain_config previous[9],enum mixer_bus_result*error)
 {
     result(error,MIXER_BUS_INVALID);
     if(!revision||!mixer_project_valid(p)||!isfinite(rate)||rate<8000||rate>192000)return NULL;
@@ -226,12 +228,17 @@ struct mixer_bus_update*mixer_buses_update_prepare(const struct mixer_project*p,
         if(!fx_chain_valid(&c->fx,rate))goto fail;
         gains(u->gain[i],m,i==8||(!m->mute&&(!u->solo||m->solo)));
         if(!c->fx_bypass)u->config[i]=c->fx;
-        u->fx[i]=fx_program_prepare(u->config+i,rate,backend);
-        if(!u->fx[i]){result(error,MIXER_BUS_FX_ERROR);goto fail;}
+        if(!previous||!same_fx(previous+i,u->config+i)){
+            u->fx[i]=fx_program_prepare(u->config+i,rate,backend);
+            if(!u->fx[i]){result(error,MIXER_BUS_FX_ERROR);goto fail;}
+        }
     }
     result(error,MIXER_BUS_OK);return u;
 fail:mixer_buses_update_destroy(u);return NULL;
 }
+struct mixer_bus_update*mixer_buses_update_prepare(const struct mixer_project*p,uint64_t part,double rate,
+    uint64_t revision,const struct fx_backend*backend,enum mixer_bus_result*error)
+{return mixer_buses_update_prepare_delta(p,part,rate,revision,backend,NULL,error);}
 void mixer_buses_update_destroy(struct mixer_bus_update*u)
 {
     if(u){for(unsigned i=0;i<9;++i)fx_program_destroy(u->fx[i]);free(u);}

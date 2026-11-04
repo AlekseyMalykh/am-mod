@@ -9,7 +9,9 @@ struct mixer_session {
     mixer_live*live=nullptr;
     mixer_control*control=nullptr;
     mixer_project confirmed{},command{},inflight{};
-    uint64_t revision=0,expected=0,target=0,epoch=0,part=0;
+    uint64_t revision=0,expected=0,target=0,epoch=0,part=0,rejected=0;
+    const char *error=nullptr;
+    int(*healthy)(void*)=nullptr;void *health_user=nullptr;
     bool queued=false,published=false;
     std::atomic<int> status{0};
 };
@@ -32,6 +34,8 @@ extern "C" mixer_session*mixer_session_create(uint64_t epoch,uint64_t part,doubl
     mixer_control_confirm(s->control,&s->confirmed,s->revision,epoch);return s;
 }
 extern "C" mixer_control*mixer_session_control(mixer_session*s){return s?s->control:nullptr;}
+extern "C" void mixer_session_health(mixer_session*s,int(*healthy)(void*),void*user)
+{if(s){s->healthy=healthy;s->health_user=user;}}
 extern "C" mixer_live*mixer_session_live(mixer_session*s){return s?s->live:nullptr;}
 extern "C" int mixer_session_status(const mixer_session*s){return s?s->status.load(std::memory_order_acquire):-2;}
 extern "C" void mixer_session_owner_tick(mixer_session*s)
@@ -43,6 +47,7 @@ extern "C" void mixer_session_owner_tick(mixer_session*s)
     std::lock_guard<std::mutex>lock(s->mutex);
     if(revision!=s->revision||mode==MIXER_ARCHIVE_OPAQUE){s->status.store(-1,std::memory_order_release);return;}
     if(s->published&&mixer_live_applied_revision(s->live)>=s->target){
+        if(s->healthy&&!s->healthy(s->health_user)){s->status.store(-2,std::memory_order_release);return;}
         if(mixer_archive_replace(&s->inflight,s->expected)!=MIXER_EDIT_OK){s->status.store(-1,std::memory_order_release);return;}
         s->confirmed=s->inflight;s->revision=s->target;s->published=false;
     }
@@ -50,7 +55,11 @@ extern "C" void mixer_session_owner_tick(mixer_session*s)
     if(s->expected!=s->revision){s->status.store(-1,std::memory_order_release);return;}
     enum mixer_bus_result result=mixer_live_publish(s->live,&s->command,s->part,s->expected+1);
     if(result==MIXER_BUS_STATE)return;
-    if(result!=MIXER_BUS_OK){s->status.store(-2,std::memory_order_release);return;}
+    if(result!=MIXER_BUS_OK){
+        s->rejected=s->expected+1;s->queued=false;
+        s->error=result==MIXER_BUS_FX_ERROR?"FX unavailable":result==MIXER_BUS_RESOURCE?"FX resources unavailable":"Update rejected";
+        return;
+    }
     s->inflight=s->command;s->target=s->expected+1;s->published=true;s->queued=false;
 }
 extern "C" void mixer_session_ui_tick(mixer_session*s)
@@ -67,8 +76,9 @@ extern "C" void mixer_session_ui_tick(mixer_session*s)
         s->status.compare_exchange_strong(expected,ready?1:0,std::memory_order_acq_rel);
         if(!ready)mixer_control_close(s->control);
     }
-    mixer_project model;uint64_t revision;
-    {std::lock_guard<std::mutex>lock(s->mutex);model=s->confirmed;revision=s->revision;}
+    mixer_project model;uint64_t revision,rejected;const char *error;
+    {std::lock_guard<std::mutex>lock(s->mutex);model=s->confirmed;revision=s->revision;rejected=s->rejected;error=s->error;s->rejected=0;}
+    if(rejected)mixer_control_reject(s->control,rejected,error);
     mixer_control_confirm(s->control,&model,revision,s->epoch);mixer_control_tick(s->control);
 }
 extern "C" void mixer_session_destroy(mixer_session*s)

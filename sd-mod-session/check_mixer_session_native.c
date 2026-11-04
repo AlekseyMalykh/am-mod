@@ -35,6 +35,18 @@ static void session_test(void)
     mixer_session_owner_tick(s);mixer_session_ui_tick(s);
     assert(mixer_archive_snapshot(&observed,&after,&mode)&&after==rev+2&&observed.track[0].colour==mixer_colour_at(11));
     assert(observed.track[0].mix.pan==-1&&observed.output[0]==1&&observed.master.colour==initial.master.colour);
+    /* A missing factory rejects this edit without retiring the active mix. */
+    assert(mixer_control_button(c,MIXER_KNOB,1,ticket)&&mixer_control_button(c,MIXER_KNOB,0,ticket));
+    assert(mixer_control_cc(c,0x10,5,ticket)); /* Delay: native backend is absent in this session. */
+    assert(mixer_control_button(c,MIXER_SELECT,1,ticket)&&mixer_control_button(c,MIXER_SELECT,0,ticket));
+    mixer_session_ui_tick(s);mixer_session_owner_tick(s);mixer_session_ui_tick(s);
+    mixer_control_view(c,1000,&v);assert(mixer_session_status(s)==1&&mixer_control_active(c)&&!v.pending);
+    assert(!v.project->track[0].fx.count&&v.fx_catalog&&!strcmp(mixer_control_message(c),"FX unavailable"));
+    assert(mixer_archive_snapshot(&observed,&after,&mode)&&after==rev+2&&!observed.track[0].fx.count);
+    assert(mixer_control_cc(c,0x10,0,ticket));
+    assert(mixer_control_button(c,MIXER_SELECT,1,ticket)&&mixer_control_button(c,MIXER_SELECT,0,ticket));
+    mixer_session_ui_tick(s);mixer_session_owner_tick(s);live_fixture();run_live();mixer_session_owner_tick(s);mixer_session_ui_tick(s);
+    assert(mixer_archive_snapshot(&observed,&after,&mode)&&after==rev+3&&observed.track[0].fx.count==1&&observed.track[0].fx.stage[0].kind==FX_STAGE_EQ);
     char *payload=malloc(MIXER_PAYLOAD_BYTES);assert(payload);size_t length;
     assert(mixer_encode(&observed,payload,MIXER_PAYLOAD_BYTES,&length)==MIXER_OK);
     struct mixer_project decoded;assert(mixer_decode(payload,length,&decoded)==MIXER_OK&&decoded.track[0].mix.pan==-1&&decoded.output[0]==1&&decoded.track[0].colour==mixer_colour_at(11));free(payload);
@@ -162,7 +174,10 @@ static void automatic_test(void)
     assert(!automatic&&automatic_unbinds==4);
     puts("PASS automatic audio-observed session creation, real PCM readiness, offline isolation, Load/New revocation, same-address epoch reuse, sample-rate replacement and retirement");
 }
-int main(int argc,char**argv)
+#ifndef MIXER_SESSION_PROOF_MAIN
+#define MIXER_SESSION_PROOF_MAIN main
+#endif
+int MIXER_SESSION_PROOF_MAIN(int argc,char**argv)
 {
     assert(argc==2);setbuf(stdout,NULL);struct sigaction sa={.sa_sigaction=fault,.sa_flags=SA_SIGINFO};
     sigaction(SIGSEGV,&sa,NULL);sigaction(SIGILL,&sa,NULL);sigaction(SIGABRT,&sa,NULL);load(argv[1]);phase="Mixer session persistence";

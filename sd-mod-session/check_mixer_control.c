@@ -49,6 +49,17 @@ static void colour_controls(void)
     mixer_control_destroy(c);
     puts("PASS twelve user colours, no-op edits, preserved custom RGB, scroll/focus/navigation, group guard, independent Master and read-only Inspect");
 }
+static void fx_slots(void)
+{
+    mixer_defaults(&accepted);++revision;++epoch;struct mixer_control_ops ops={NULL,submit};
+    struct mixer_control*c=mixer_control_create(&ops,48000);assert(c);
+    assert(mixer_control_confirm(c,&accepted,revision,epoch)&&mixer_control_open(c,1,0));
+    button(c,MIXER_B2);cc(c,0x64,4);button(c,MIXER_SELECT);assert(view(c).fx_slot==4&&view(c).fx_catalog);
+    button(c,MIXER_SELECT);ack(c);assert(accepted.track[0].fx.count==1&&view(c).fx_slot==0&&!view(c).fx_catalog);
+    pad(c,1,1);pad(c,1,0);assert(view(c).fx_catalog);
+    pad(c,0,1);pad(c,0,0);assert(!view(c).fx_catalog);
+    mixer_control_destroy(c);puts("PASS empty FX slot appends at actual chain position; editor refreshes after Track change");
+}
 int main(void)
 {
     mixer_defaults(&accepted);accepted.track[0].mix.level_db=-3;accepted.track[1].mix.level_db=-9;accepted.track[2].mix.level_db=-6;
@@ -110,5 +121,5 @@ int main(void)
     assert(!mixer_control_button(c,MIXER_NATIVE_MODE,1,ticket)&&!mixer_control_active(c));assert(mixer_control_ticket(c)!=ticket);
     assert(mixer_control_button(c,MIXER_B1,0,ticket));assert(mixer_control_pad(c,3,0,ticket));assert(!mixer_control_button(c,MIXER_B1,1,mixer_control_ticket(c)));assert(!mixer_control_cc(c,0x10,1,ticket));
     assert(mixer_control_open(c,1,0));ticket=mixer_control_ticket(c);++epoch;++revision;assert(mixer_control_confirm(c,&accepted,revision,epoch)&&!mixer_control_active(c));assert(mixer_control_ticket(c)!=ticket);
-    mixer_control_destroy(c);puts("PASS coalesced confirmed edits, busy retry, mode exit, stale tickets/paired release recovery and Load/New epoch invalidation");colour_controls();return 0;
+    mixer_control_destroy(c);puts("PASS coalesced confirmed edits, busy retry, mode exit, stale tickets/paired release recovery and Load/New epoch invalidation");colour_controls();fx_slots();return 0;
 }

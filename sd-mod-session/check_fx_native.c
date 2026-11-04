@@ -16,6 +16,8 @@
 static uintptr_t base;
 static uintptr_t guard=0x1020304050607080ULL;
 static const char *phase="load";
+/* Optional test-only import observer. Native production images are untouched. */
+extern void*check_native_symbol(const char*,void*) __attribute__((weak));
 #define FN(o,t) ((t)(base+(o)))
 static void fault(int signal,siginfo_t *info,void *context)
 {
@@ -56,6 +58,7 @@ static void load(const char *path)
         if(ELF64_R_TYPE(r->r_info)==R_AARCH64_RELATIVE)*out=base+r->r_addend;
         else {Elf64_Sym *s=(void*)(m+sym+ELF64_R_SYM(r->r_info)*sizeof(*s));
             void *fn=dlsym(RTLD_DEFAULT,(char*)m+str+s->st_name);
+            if(fn&&check_native_symbol)fn=check_native_symbol((char*)m+str+s->st_name,fn);
             if(fn)*out=(uintptr_t)fn+r->r_addend;}
     }
     fclose(f);*(void**)(m+0x7164398)=&guard;

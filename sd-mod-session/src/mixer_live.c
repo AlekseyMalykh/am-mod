@@ -15,6 +15,7 @@ struct mixer_live {
     double rate;unsigned capacity;
     uint64_t epoch;
     uint64_t submitted_revision; /* single control producer only */
+    struct fx_chain_config track_fx[9],master_fx[9]; /* control owner only */
     void*engine,*program;
     enum mixer_route_result block_result;
     unsigned matched_program;
@@ -29,6 +30,11 @@ static void split(const struct mixer_project*p,struct mixer_project*t,struct mix
 static void destroy_update(struct live_update*u)
 {
     if(u){mixer_buses_update_destroy(u->track);mixer_buses_update_destroy(u->master);free(u);}
+}
+static void fx_configs(const struct mixer_project*p,struct fx_chain_config out[9])
+{
+    for(unsigned i=0;i<9;++i){const struct mixer_channel*c=i<8?p->track+i:&p->master;
+        memset(out+i,0,sizeof(*out));if(!c->fx_bypass)out[i]=c->fx;}
 }
 static void commit(void*user)
 {
@@ -52,6 +58,7 @@ struct mixer_live*mixer_live_prepare(const struct mixer_project*p,uint64_t part,
     if(!s->track)goto fail;
     s->master=mixer_buses_prepare(&m,0,rate,capacity,backend,error);if(!s->master)goto fail;
     s->meters=mixer_meters_create(rate);if(!s->meters){if(error)*error=MIXER_BUS_RESOURCE;goto fail;}
+    fx_configs(&t,s->track_fx);fx_configs(&m,s->master_fx);
     mixer_route_before_block(s->track,commit,s);return s;
 fail:mixer_live_destroy(s);return NULL;
 }
@@ -67,11 +74,11 @@ enum mixer_bus_result mixer_live_publish(struct mixer_live*s,const struct mixer_
     if(atomic_load_explicit(&s->pending,memory_order_relaxed))return MIXER_BUS_STATE;
     struct mixer_project t,m;split(p,&t,&m);enum mixer_bus_result error;
     struct live_update*u=calloc(1,sizeof(*u));if(!u)return MIXER_BUS_RESOURCE;
-    u->track=mixer_buses_update_prepare(&t,part,s->rate,revision,&s->backend,&error);if(!u->track)goto fail;
-    u->master=mixer_buses_update_prepare(&m,0,s->rate,revision,&s->backend,&error);if(!u->master)goto fail;
+    u->track=mixer_buses_update_prepare_delta(&t,part,s->rate,revision,&s->backend,s->track_fx,&error);if(!u->track)goto fail;
+    u->master=mixer_buses_update_prepare_delta(&m,0,s->rate,revision,&s->backend,s->master_fx,&error);if(!u->master)goto fail;
     struct live_update*expected=NULL;
     if(atomic_compare_exchange_strong_explicit(&s->pending,&expected,u,memory_order_release,memory_order_relaxed)){
-        s->submitted_revision=revision;return MIXER_BUS_OK;
+        fx_configs(&t,s->track_fx);fx_configs(&m,s->master_fx);s->submitted_revision=revision;return MIXER_BUS_OK;
     }
     error=MIXER_BUS_STATE;
 fail:destroy_update(u);return error;

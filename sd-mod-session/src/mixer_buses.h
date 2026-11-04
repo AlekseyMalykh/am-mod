@@ -35,6 +35,11 @@ size_t mixer_buses_pcm_bytes(const struct mixer_buses*);
  * publish never changes audio immediately. No native/UI pointers in packets. */
 struct mixer_bus_update *mixer_buses_update_prepare(const struct mixer_project*,uint64_t part_id,
     double rate,uint64_t revision,const struct fx_backend*,enum mixer_bus_result*);
+/* Same single producer, using effective FX configs from its last successful
+ * publication (or initial preparation). Unchanged chains need no new factory
+ * instance. Publication order must remain the same as this configuration base. */
+struct mixer_bus_update *mixer_buses_update_prepare_delta(const struct mixer_project*,uint64_t part_id,
+    double rate,uint64_t revision,const struct fx_backend*,const struct fx_chain_config previous[9],enum mixer_bus_result*);
 void mixer_buses_update_destroy(struct mixer_bus_update*);
 enum mixer_bus_result mixer_buses_publish(struct mixer_buses*,struct mixer_bus_update*);
 /* Control owner: frees retired packets/processors, never called from audio. */

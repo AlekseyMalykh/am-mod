@@ -16,6 +16,32 @@ static _Atomic unsigned callbacks;
 static _Atomic uint64_t binding_epoch = 1, attached_epoch;
 static atomic_flag binding_lock = ATOMIC_FLAG_INIT;
 static struct mixer_native_binding binding, attached_binding;
+static uint64_t clock_serial;
+static _Thread_local uint64_t clock_scope,clock_epoch;
+static int position(void *out)
+{
+    void *app=*(void**)(image+0x71e3dc8);
+    if(!app||*(uintptr_t*)app!=image+0x6e07288)return 0;
+    void *audio=*(void**)((char*)app+0xd8);
+    if(!audio||*(uintptr_t*)audio!=image+0x6e0c430)return 0;
+    void *core=*(void**)((char*)audio+0x148);
+    if(!core||*(uintptr_t*)core!=image+0x6e0cf38)return 0;
+    void *playhead=*(void**)((char*)core+0x490);
+    if(!playhead||*(uintptr_t*)playhead!=image+0x6d8a418)return 0;
+    if(!((int(*)(void*,void*))(image+0x13ad070))(playhead,out))return 0;
+    double bpm,seconds,ppq,bar;unsigned numerator,denominator;int64_t frame;
+    memcpy(&bpm,out,8);memcpy(&numerator,(char*)out+8,4);memcpy(&denominator,(char*)out+12,4);
+    memcpy(&frame,(char*)out+16,8);memcpy(&seconds,(char*)out+24,8);
+    memcpy(&ppq,(char*)out+40,8);memcpy(&bar,(char*)out+48,8);
+    return isfinite(bpm)&&bpm>=20&&bpm<=999&&numerator>=1&&numerator<=32&&
+        denominator>=1&&denominator<=64&&!(denominator&(denominator-1))&&
+        frame>-(INT64_C(1)<<55)&&frame<(INT64_C(1)<<55)&&isfinite(seconds)&&isfinite(ppq)&&isfinite(bar);
+}
+int mixer_live_native_position(uint64_t epoch,void *out,uint64_t *block)
+{
+    if(!out||!block||!clock_scope||clock_epoch!=epoch||epoch!=atomic_load(&binding_epoch))return 0;
+    *block=clock_scope;return position(out);
+}
 static int same_binding(const struct mixer_native_binding *a,const struct mixer_native_binding *b)
 {
     return a->epoch == b->epoch && a->engine == b->engine && a->program == b->program &&
@@ -65,6 +91,9 @@ static void engine(void*p,void*c,unsigned n)
     struct mixer_live*s=atomic_load_explicit(&attached,memory_order_seq_cst);
     uint64_t expected = atomic_load_explicit(&attached_epoch,memory_order_acquire);
     uintptr_t caller = (uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0));
+    uint64_t previous_scope=clock_scope,previous_epoch=clock_epoch;
+    clock_scope=caller==image+0x18dc010?++clock_serial:0;
+    clock_epoch=atomic_load(&binding_epoch);
     if (s && expected) {
         struct mixer_native_binding current = observe(p,n);
         if (caller != image + 0x18dc010 || !same_binding(&current,&attached_binding) ||
@@ -75,8 +104,10 @@ static void engine(void*p,void*c,unsigned n)
      * call the same entry from18b556c/18b98bc and have independent lifetimes. */
     if (caller == image + 0x18dc010) {
         struct mixer_native_binding current = observe(p,n);
+        current.clock_valid=position(current.position);
         publish_binding(&current);
     }
+    clock_scope=previous_scope;clock_epoch=previous_epoch;
     atomic_fetch_sub_explicit(&callbacks,1,memory_order_seq_cst);
 }
 static void program(void*p,void*c,unsigned n){mixer_live_program(&ops.route,p,c,n);}
@@ -139,6 +170,7 @@ int mixer_live_native_install(uintptr_t base)
     image=base;return 1;
 }
 const struct mixer_live_ops*mixer_live_native_ops(void){return image?&ops:NULL;}
+uintptr_t mixer_live_native_image(void){return image;}
 int mixer_live_native_attach(struct mixer_live*s)
 {
     if(!image||atomic_load_explicit(&retired,memory_order_acquire))return 0;

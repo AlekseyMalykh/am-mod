@@ -33,6 +33,7 @@ void mixer_live_program(const struct mixer_route_ops*,void*program,void*clock,un
  * ownership transfers on success, and retirement never waits on audio. */
 int mixer_live_native_install(uintptr_t image);
 const struct mixer_live_ops*mixer_live_native_ops(void);
+uintptr_t mixer_live_native_image(void);
 int mixer_live_native_attach(struct mixer_live*);
 struct mixer_live*mixer_live_native_take_retired(void);
 /* A copied observation from the pinned live render callsite. Identities are
@@ -42,9 +43,14 @@ struct mixer_native_binding {
     void *engine, *program;
     double rate;
     unsigned capacity;
+    unsigned clock_valid;
+    unsigned char position[88]; /* Actual native clock, copied on audio owner. */
 };
 /*1=snapshot,0=unavailable,-1=busy. Busy preserves the previous UI binding. */
 int mixer_live_native_binding(struct mixer_native_binding*);
+/* Audio only, inside the matching real live caller. No UI reads or fabricated
+ * stopped/offline clock. Block identity changes even on loop/seek at same frame. */
+int mixer_live_native_position(uint64_t epoch,void *position88,uint64_t *block);
 /* Revoke immediately on Load/New. The current callback may complete, and
  * take_retired still governs destruction. New observations use a new epoch. */
 void mixer_live_native_invalidate(void);

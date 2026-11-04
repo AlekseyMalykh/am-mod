@@ -209,6 +209,8 @@ void mixer_view_context(const struct mixer_view_state*s,const struct resample_pa
         }
         snprintf(value,sizeof(value),"%u",s->parameter_page+1);row(s,4,fx->kind==FX_STAGE_EQ?"EQ band":"Parameter page",value,0,p);
     }else row(s,0,"Effect","Empty",0,p);
+    if(s->page!=MIXER_MIX&&s->page!=MIXER_ASSIGN&&s->page!=MIXER_INSPECT&&s->message&&*s->message)
+        text(p,s->message,88,185,226,11,9,AMBER,0);
 }
 void mixer_view_meters(const struct mixer_view_state*s,unsigned mask,const struct resample_painter*p)
 {

@@ -21,6 +21,7 @@ static struct mixer_channel*selected(struct mixer_control*c){return c->view.mast
 static void pickup(struct mixer_control*c){c->pickup=0;c->last_fader_valid=0;}
 static void changed(struct mixer_control*c){c->dirty=1;c->message="";}
 static int one(const struct mixer_control*c){return c->view.master||count(c->view.selected)==1;}
+static void open_fx(struct mixer_control*);
 struct mixer_control*mixer_control_create(const struct mixer_control_ops*ops,double rate)
 {
     if(!ops||!ops->submit||!isfinite(rate)||rate<8000||rate>192000)return NULL;
@@ -47,6 +48,13 @@ int mixer_control_open(struct mixer_control*c,int ready,int blocked)
     if(!c||!ready||blocked||!c->epoch)return 0;
     c->active=1;c->view.page=MIXER_OVERVIEW;c->temporary=0;c->held_tracks=0;
     c->view.cursor=c->view.scroll=c->view.colour_edit=0;c->message="";++c->ticket;pickup(c);return 1;
+}
+int mixer_control_reject(struct mixer_control*c,uint64_t revision,const char *reason)
+{
+    if(!c||!revision||revision!=c->submitted)return 0;
+    c->submitted=c->dirty=0;c->desired=c->model;c->message=reason?reason:"Update failed";
+    if(c->view.page==MIXER_KNOB_FX)open_fx(c);
+    pickup(c);return 1;
 }
 void mixer_control_close(struct mixer_control*c)
 {
@@ -119,7 +127,10 @@ int mixer_control_button(struct mixer_control*c,enum mixer_action action,int dow
             if(c->catalog){struct fx_stage stage;
                 if(fx_catalog_stage(c->view.cursor,c->rate,&stage)){
                     if(c->view.fx_slot<ch->fx.count)ch->fx.stage[c->view.fx_slot]=stage;
-                    else if(fx_chain_add(&ch->fx,&stage,c->rate)!=FX_OK){c->message="FX chain full";return 1;}
+                    else{
+                        if(fx_chain_add(&ch->fx,&stage,c->rate)!=FX_OK){c->message="FX chain full";return 1;}
+                        c->view.fx_slot=ch->fx.count-1;
+                    }
                     c->catalog=0;c->parameter_page=c->view.cursor=0;changed(c);}
             }else if(c->shift){if(fx_chain_remove(&ch->fx,c->view.fx_slot)==FX_OK){c->catalog=1;changed(c);}}
             else if(c->view.fx_slot<ch->fx.count){ch->fx.stage[c->view.fx_slot].bypass^=1;changed(c);}
@@ -152,6 +163,7 @@ int mixer_control_pad(struct mixer_control*c,unsigned pad,int down,uint64_t tick
         c->held_tracks|=bit;c->view.master=0;pickup(c);
     }else if(pad==15){c->view.master=1;c->view.selected=0;c->held_tracks=0;pickup(c);}
     c->view.colour_edit=0;
+    if(c->view.page==MIXER_KNOB_FX&&(pad<8||pad==15))open_fx(c);
     return 1;
 }
 float mixer_fader_db(unsigned value)

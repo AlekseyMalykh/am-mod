@@ -6,8 +6,9 @@ controller → actual live audio acknowledgement → archive owner.
 Candidate автоматически привязывает сессию к живому аудиовызову и снимает её
 после смены источника. Маска занятых звуков подключена через native owner queue.
 Тракт LED и его native приоритеты подключены и проверены на ARM/QEMU.
-В B1 MIX добавлен выбор цвета Track/Master. До проверки на MPC остаются
-native FX backend и полный цикл сохранения и загрузки XPJ.
+В B1 MIX добавлен выбор цвета Track/Master. Native FX backend включён в live
+Track/Master с настоящим transport clock. Полный цикл сохранения и загрузки XPJ
+и аппаратная проверка на MPC остаются открытыми.
 
 ## Управление
 
@@ -103,6 +104,11 @@ native slots; K1–K3 меняют их нормализованные знач�
 не объявляются физическими ms/Hz, если такая шкала не подтверждена metadata.
 Sidechain/Advanced по-прежнему Disabled.
 
+Добавление в любой Empty slot выбирает фактически добавленную позицию цепи.
+Переключение Track/Master в KNOB FX обновляет редактор для нового канала.
+При отказе создания эффекта показывается `FX unavailable`; редактор возвращается
+к подтверждённой цепи, сохраняя выбор канала и доступ к каталогу для повторной попытки.
+
 [`mixer_view.c`](../sd-mod-session/src/mixer_view.c) дополнен реальными страницами
 каталога, EQ/native parameters, Shift EQ, Assign/Inspect, GROUP n/primary,
 PICKUP и Pending. Общий левый channel strip сохраняется. Painter получает только
@@ -138,8 +144,10 @@ UI edit -> complete copied desired model / expected revision
 ```
 
 UI может объединять движения, пока предыдущая ревизия ожидает ack. Busy не меняет
-архив и не объявляет успех. При prepare rejection/error либо external Load/New
-старый controller закрывается; stale desired snapshot не переписывает новый проект.
+архив и не объявляет успех. При prepare rejection/error отклоняется только
+неподтверждённое изменение: прежняя цепь продолжает играть, controller остаётся
+открытым и показывает причину. External Load/New закрывает старый controller;
+stale desired snapshot не переписывает новый проект.
 Сессию можно считать ready только после реального snapshot с valid всех10 taps;
 само выделение объектов не доказывает готовность audio. Неподдержанный audio block
 убирает readiness и закрывает controller, сохраняя штатный fallback движка.
@@ -148,18 +156,48 @@ UI может объединять движения, пока предыдуща
 `owner_tick` и `ui_tick` продолжаются на UI Timer во всех режимах.
 Runtime отвязывает UI, снимает audio attachment и ожидает возврата через atomic
 retirement, после чего освобождает DSP на UI owner. Native identities служат
-для сравнения. Доступ к объектам прошивки выполняется внутри их аудиовызова.
+для сравнения. Доступ к Engine/Program выполняется внутри их аудиовызова.
 Смена Program, частоты, ёмкости или числа Program отзывает текущую привязку.
 
-Automatic runtime сейчас создаёт встроенный EQ и mix/routing DSP, получает
-маску звуков через отдельную native owner queue. Передача native FX backend
-ещё требует подключения к владельцу нативных сервисов.
+Automatic runtime создаёт встроенный EQ, native FX и mix/routing DSP, получает
+маску звуков через отдельную native owner queue.
 
 Успешный edit попадает в существующий versioned archive payload, а не только
 в UI session. Confirmed model проверен через encode/decode; прежние реальные
 native archive writer/reader tests относятся к отдельному bridge. Это не полный
 XPJ Save As/перезапуск/Mod Off round-trip на устройстве. Если Save происходит
 пока edit Pending, сохраняется последняя подтверждённая модель.
+
+## Live native FX
+
+[`mixer_fx.cc`](../sd-mod-session/src/mixer_fx.cc) соединяет automatic session с
+существующим [`fx_native`](../sd-mod-session/src/fx_native.cc). На UI owner
+проверяется цепочка application → AudioIO → core → PluginManager и берутся
+заимствованные AIR/MPC formats. Registry lookup, способный создать сервис,
+не вызывается. Formats принадлежат application и должны жить дольше DSP.
+Создание, установка параметров, prepare и destruction выполняются вне audio;
+FX context освобождается после снятия attachment и возврата всех callbacks.
+
+На настоящем live callsite `18dc010` читается 88-byte PositionInfo через native
+`MpcPlayHead::getCurrentPosition` (`13ad070`). В DSP передаются реальные BPM,
+размер, Play/Stop и позиция. Внутри 256-frame chunks позиция сдвигается отдельно
+для каждого процессора; новый audio block сбрасывает offset даже при повторе
+той же позиции в loop. При Stop позиция не сдвигается. Offline вызовы того же
+движка не получают Mixer session; прежний offline transport FX backend сохранён.
+
+Потеря валидного native clock отзывает FX context, а не заменяет темп на 120 BPM.
+Health проверяется после acquire audio acknowledgement: edit, обработанный
+с dry fallback из-за clock failure, не записывается в архив. После нового
+валидного наблюдения runtime снова готовит сохранённый микс. Неудачная начальная
+подготовка повторяется с ограниченной частотой; session не объявляется готовой
+до настоящего audio snapshot.
+
+При изменении Level/Pan/Colour/Output неизменённые FX не создаются заново.
+Парные Track/Master updates содержат новые DSP только для изменённых цепей;
+история работающих эффектов сохраняется. Изменённая цепь подготавливается
+вне audio и проходит существующий 5ms crossfade. Send и Sidechain не добавлены.
+CPU, максимальная полифония, память и underruns при множестве цепей ещё
+не измерены на MPC; ARM/QEMU не подтверждает аппаратный realtime-бюджет.
 
 ## Проверки
 
@@ -170,6 +208,9 @@ python3 verify_mixer_control.py
 python3 verify_mixer_step1.py
 MPC_RUNTIME_ROOT='/path/to/runtime' python3 verify_mixer_sources.py
 MPC_RUNTIME_ROOT='/path/to/runtime' python3 verify_mixer_session.py
+MPC_RUNTIME_ROOT='/path/to/runtime' python3 verify_mixer_fx.py
+MPC_RUNTIME_ROOT='/path/to/runtime' python3 verify_modern_fx.py
+MPC_RUNTIME_ROOT='/path/to/runtime' python3 verify_modern_fx.py --ubsan
 MPC_RUNTIME_ROOT='/path/to/runtime' python3 verify_mixer_rgb.py
 MPC_RUNTIME_ROOT='/path/to/runtime' python3 verify_pad_colour_rgb.py
 MPC_RUNTIME_ROOT='/path/to/runtime' python3 build_mixer_core_candidate.py
@@ -180,6 +221,7 @@ MPC_RUNTIME_ROOT='/path/to/runtime' python3 build_mixer_core_candidate.py
   assignment, read-only Inspect, confirmed LEDs, FX parameters/bypass/remove,
   repeat-down suppression, coalescing, late ups и epoch invalidation.
   Также все12 цветов, no-op, custom RGB, scroll/focus, group guard и Master.
+  Добавлены выбор фактического Empty slot и обновление FX editor при смене Track.
 - 2 ARM session runs: normal/UBSan с настоящими установленными native live hooks,
   реальным output processing и audio revision. Archive до ack не меняется,
   после ack/model confirm сохраняется; закрытие UI оставляет audio работающим.
@@ -188,6 +230,20 @@ MPC_RUNTIME_ROOT='/path/to/runtime' python3 build_mixer_core_candidate.py
   Проверена также цепочка source queue → runtime → controller: маска pad127
   доходит до UI, старый capture истекает, закрытый Mixer не ставит новый опрос.
   Native model/services/voice oscillator fixtures, реальный XPJ на SD не открыт.
+- 2 ARM live FX runs normal/UBSan: все 25 native эффектов каталога на Track
+  вместе с native Limiter на Master. Для каждого проверены defaults и обе
+  нормализованные границы всех именованных параметров, включая первый process.
+  Настоящие factory/prepare/process/destructor из pinned ELF; application
+  services и голоса — fixtures. Во время audio запрещены перехваченные native
+  allocation/deallocation и mutex imports. Проверены finite PCM, изменение
+  звука, BPM/размер/Stop/loop и offset каждого chunk, audio→archive ack,
+  отказ factory без потери UI/микса, отсутствие новых factory calls для
+  Colour/Fader, отзыв clock с отклонением ack и восстановлением,
+  offline isolation, bypass и balanced off-audio destruction.
+  Это не перебор всех сочетаний параметров, многоканальных цепей и sample rates.
+  В каждом прогоне созданы и освобождены 82 native processor instances,
+  выполнены 5196 native process calls. Прежние 25 offline native FX также
+  проходят normal/UBSan regression.
 - 2 ARM source runs: normal/UBSan. Настоящие getters и очередь из private ELF,
   fixtures Program/Instrument/слоёв: крайний pad127/layer7, пустой pad, смена
   маски и epoch, чужой Program, malformed layers, New до queued capture,
@@ -212,7 +268,6 @@ MPC_RUNTIME_ROOT='/path/to/runtime' python3 build_mixer_core_candidate.py
   epoch при прежнем адресе Program, sample-rate replacement и retirement.
   Для live caller используется envelope вокруг настоящего callsite.
 
-Оставшаяся работа второго пакета включает native FX backend,
-полный цикл сохранения и загрузки XPJ/Mod Off и
-аппаратную проверку экрана, фейдера, LED и нагрузки. Пока эти пункты открыты,
+Оставшаяся работа второго пакета включает полный цикл сохранения и загрузки
+XPJ/Mod Off и аппаратную проверку экрана, фейдера, LED и нагрузки. Пока эти пункты открыты,
 нельзя называть второй пакет или пользовательский Mixer завершённым.
