@@ -4,6 +4,7 @@
 Ветка: `feature/mixer-song-stems`.
 Основа аудита исходников: `am-mod/main`, `160cee8` (r26s).
 Первый пакет: [audio hooks, block updates и C painter](MIXER_STEP1.md).
+Второй пакет в работе: [controller, FX pages и audio→archive ack](MIXER_STEP2.md).
 Experimental candidate устанавливает native hooks без активной сессии. Восемь
 Track, primary-output Master и updates проверены в ARM/QEMU; painter Overview
 и split pages реализован. Native UI/session owner и физическое управление ещё

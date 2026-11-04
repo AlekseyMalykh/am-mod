@@ -1,4 +1,5 @@
 #include "mixer_view.h"
+#include "fx_catalog.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -104,13 +105,15 @@ static void chrome(const struct mixer_view_state*s,const struct resample_painter
         int active=s->page==(enum mixer_page)(i+1);
         text(p,tab[i],x,6,w,22,14,active?AMBER:WHITE,1);if(active)rect(p,x+4,28,w-8,2,AMBER);}
     char title[80],db[24];level(db,sizeof(db),s->project->master.mix.level_db);
-    snprintf(title,sizeof(title),"%s  dB     M %s%s",s->master?"MASTER":"MIXER",db,s->pending?"  ...":"");
+    unsigned group=0;for(unsigned i=0;i<8;++i)if(s->selected&(1u<<i))++group;
+    if(group>1)snprintf(title,sizeof(title),"GROUP %u  T%u  M %s%s",group,s->primary+1,db,s->pending?" ...":"");
+    else snprintf(title,sizeof(title),"%s  dB     M %s%s",s->master?"MASTER":"MIXER",db,s->pending?"  ...":"");
     text(p,title,4,33,312,15,11,WHITE,0);
     rect(p,0,198,320,42,BLACK);struct mixer_mix resolved[8];const struct mixer_mix*m=mix(s,s->master?8:s->primary,resolved);
     snprintf(title,sizeof(title),"%+.0f%%",(double)m->pan*100);
     text(p,"Pan",4,200,98,12,11,AMBER,1);text(p,title,4,215,98,18,14,WHITE,1);
     text(p,"Send",110,200,98,12,11,GREY,1);text(p,"Disabled",110,215,98,18,12,GREY,1);
-    text(p,"Select",217,200,99,12,11,AMBER,1);text(p,s->master?"Master":"Track",217,215,99,18,14,WHITE,1);
+    text(p,"Select",217,200,99,12,11,AMBER,1);text(p,s->pickup?"PICKUP":s->master?"Master":"Track",217,215,99,18,14,WHITE,1);
 }
 void mixer_view_overview(const struct mixer_view_state*s,const struct resample_painter*p)
 {
@@ -132,7 +135,7 @@ void mixer_view_context(const struct mixer_view_state*s,const struct resample_pa
         row(s,3,"Solo",s->master?"--":m->solo?"On":"Off",s->master,p);row(s,4,"FX Bypass",c->fx_bypass?"On":"Off",0,p);
     }else if(s->page==MIXER_FX){
         for(unsigned i=0;i<5;++i){unsigned slot=s->scroll+i;if(slot>=5)break;
-            char label[20];snprintf(label,sizeof(label),"%u. %s",slot+1,slot<c->fx.count?(c->fx.stage[slot].kind==FX_STAGE_EQ?"EQ":"Effect"):"Empty");
+            char label[64];snprintf(label,sizeof(label),"%u. %s",slot+1,slot<c->fx.count?fx_catalog_stage_name(c->fx.stage+slot):"Empty");
             row(s,i,label,slot<c->fx.count?(c->fx_bypass||c->fx.stage[slot].bypass?"Bypass":"On"):"--",0,p);}
     }else if(s->page==MIXER_ROUTE){unsigned assigned=0,direct=0;
         for(unsigned pad=0;pad<128;++pad){if(!s->project->output[pad])++direct;else if(s->project->output[pad]==s->primary+1)++assigned;}
@@ -140,8 +143,38 @@ void mixer_view_context(const struct mixer_view_state*s,const struct resample_pa
         snprintf(value,sizeof(value),"Bank %c",'A'+s->bank);row(s,1,"Sound bank",value,0,p);
         row(s,2,"Output","Master",0,p);row(s,3,"PAD FX","Assign",0,p);row(s,4,"Banks A-H","128 pads",0,p);
     }else if(s->page==MIXER_ADVANCED){row(s,0,"Advanced FX","Disabled",1,p);row(s,1,"Sidechain","Disabled",1,p);
-    }else{row(s,0,"Effect",s->fx_slot<c->fx.count?(c->fx.stage[s->fx_slot].kind==FX_STAGE_EQ?"EQ":"Effect"):"Empty",0,p);
-        row(s,1,"Parameters","Select FX",0,p);row(s,2,"Advanced","Disabled",1,p);}
+    }else if(s->page==MIXER_ASSIGN||s->page==MIXER_INSPECT){
+        row(s,0,s->page==MIXER_ASSIGN?"Assign sounds":"Inspect sounds","PAD FX",0,p);
+        snprintf(value,sizeof(value),"%c%02u",'A'+s->sound/16,s->sound%16+1);row(s,1,"Sound",value,0,p);
+        unsigned output=s->project->output[s->sound<128?s->sound:0];
+        if(output)snprintf(value,sizeof(value),"Track %u",output);else snprintf(value,sizeof(value),"Master");
+        row(s,2,"Output",value,0,p);snprintf(value,sizeof(value),"%c",'A'+s->bank);row(s,3,"Bank",value,0,p);
+        row(s,4,s->message&&*s->message?s->message:"LED routing",s->pending?"Pending":"",0,p);
+        rect(p,0,198,320,42,BLACK);text(p,s->page==MIXER_INSPECT?"INSPECT: Read only":"Pads: Toggle Track output",4,201,312,15,12,AMBER,1);
+        text(p,"Encoder: Sound    K3: Bank",4,220,312,14,11,WHITE,1);
+    }else if(s->fx_catalog){unsigned first=s->cursor/5*5;
+        for(unsigned i=0;i<5;++i){const struct fx_catalog_entry*e=fx_catalog_at(first+i);if(!e)break;
+            struct mixer_view_state row_state=*s;row_state.cursor=s->cursor-first;row(&row_state,i,e->name,e->category,0,p);}
+        rect(p,0,198,320,42,BLACK);text(p,"K1 / Encoder: Select effect",4,200,312,15,12,AMBER,1);
+        text(p,"Encoder press: Add / Replace",4,219,312,15,11,WHITE,1);
+    }else if(s->fx_slot<c->fx.count){const struct fx_stage*fx=c->fx.stage+s->fx_slot;
+        text(p,fx_catalog_stage_name(fx),88,52,224,20,13,AMBER,0);
+        const struct fx_catalog_entry*e=fx->kind==FX_STAGE_NATIVE?fx_catalog_find(fx->native_id):NULL;
+        unsigned indices[32],n=0;if(e)for(unsigned i=0;i<e->count;++i)if(e->parameter[i]&&*e->parameter[i])indices[n++]=i;
+        for(unsigned k=0;k<3;++k){const char*label="--";strcpy(value,"--");
+            if(e){unsigned position=s->parameter_page*3+k;if(position<n){label=e->parameter[indices[position]];snprintf(value,sizeof(value),"%.1f%%",(double)fx->parameter[indices[position]]*100);}}
+            else if(fx->eq.count){const struct fx_eq_band*b=fx->eq.band+(s->parameter_page<fx->eq.count?s->parameter_page:0);
+                if(s->shifted){static const char*types[]={"Bell","Low Shelf","High Shelf","High Pass","Low Pass","Notch"};
+                    label=k==0?"Type":k==1?"Band":"EQ Output";
+                    if(k==0)snprintf(value,sizeof(value),"%s",b->type<6?types[b->type]:"--");
+                    else if(k==1)snprintf(value,sizeof(value),"%s",b->enabled?"On":"Off");
+                    else snprintf(value,sizeof(value),"%+.1f dB",fx->eq.output_db);
+                }else{label=k==0?"Freq":k==1?"Gain":"Q";snprintf(value,sizeof(value),k==0?"%.0f Hz":k==1?"%+.1f dB":"%.2f",k==0?b->hz:k==1?b->gain_db:b->q);}}
+            int y=80+(int)k*27; text(p,label,88,y,132,21,12,WHITE,0);text(p,value,220,y,94,21,12,AMBER,1);
+            rect(p,(int)k*106,198,k==2?108:106,42,BLACK);text(p,label,(int)k*106+3,200,100,13,10,WHITE,1);text(p,value,(int)k*106+3,216,100,18,13,AMBER,1);
+        }
+        snprintf(value,sizeof(value),"%u",s->parameter_page+1);row(s,4,fx->kind==FX_STAGE_EQ?"EQ band":"Parameter page",value,0,p);
+    }else row(s,0,"Effect","Empty",0,p);
 }
 void mixer_view_meters(const struct mixer_view_state*s,unsigned mask,const struct resample_painter*p)
 {
@@ -151,7 +184,7 @@ void mixer_view_meters(const struct mixer_view_state*s,unsigned mask,const struc
 }
 void mixer_view_paint(const struct mixer_view_state*s,const struct resample_painter*p)
 {
-    if(!s||!s->project||!p||!p->rect||!p->text||s->primary>=8||s->bank>=8||s->page>MIXER_ADVANCED)return;
+    if(!s||!s->project||!p||!p->rect||!p->text||s->primary>=8||s->bank>=8||s->page>MIXER_INSPECT)return;
     chrome(s,p);
     if(s->page==MIXER_OVERVIEW)mixer_view_overview(s,p);
     else {mixer_view_channel_strip(s,s->master?8:s->primary,0,80,p);mixer_view_context(s,p);}

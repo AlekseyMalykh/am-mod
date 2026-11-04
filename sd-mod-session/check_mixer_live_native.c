@@ -77,7 +77,10 @@ static void tests_live(void)
     live_fixture();run_live();compare_pcm(root_pcm[0],baseline[0],1);assert(engine_pre==5&&engine_mid==5&&downstream==5);
     pad_eq_native_clear();puts("PASS installed pinned live hooks: native2226fb0/18c79f0 downstream and actual Program summing, final physical Master gain/meter, coherent Track/routing/Master update and native detach");
 }
-int main(int argc,char**argv)
+#ifndef MIXER_LIVE_PROOF_MAIN
+#define MIXER_LIVE_PROOF_MAIN main
+#endif
+int MIXER_LIVE_PROOF_MAIN(int argc,char**argv)
 {
     assert(argc==2);setbuf(stdout,NULL);struct sigaction sa={.sa_sigaction=fault,.sa_flags=SA_SIGINFO};
     sigaction(SIGSEGV,&sa,NULL);sigaction(SIGILL,&sa,NULL);sigaction(SIGABRT,&sa,NULL);load(argv[1]);phase="Mixer installed live routing";

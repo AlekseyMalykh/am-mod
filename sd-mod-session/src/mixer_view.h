@@ -6,7 +6,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-enum mixer_page {MIXER_OVERVIEW,MIXER_MIX,MIXER_FX,MIXER_ROUTE,MIXER_KNOB_FX,MIXER_ADVANCED};
+enum mixer_page {MIXER_OVERVIEW,MIXER_MIX,MIXER_FX,MIXER_ROUTE,MIXER_KNOB_FX,MIXER_ADVANCED,MIXER_ASSIGN,MIXER_INSPECT};
 struct mixer_view_state {
     enum mixer_page page;
     unsigned selected,primary,master,cursor,scroll,bank,fx_slot;
@@ -14,6 +14,10 @@ struct mixer_view_state {
     const struct mixer_project*project;
     const struct mixer_meter_snapshot*meter;
     unsigned pending;
+    unsigned sound,fx_catalog,parameter_page,pickup;
+    unsigned shifted;
+    uint64_t present[2];
+    const char*message;
 };
 /* UI-owner only. Existing 320x240 rect/text painter, no image/framebuffer,
  * global mode state or native object ownership. Meter age>250ms => N/A. */
