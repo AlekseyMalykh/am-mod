@@ -17,6 +17,7 @@
 
 static unsigned char surface[0x2200],control[0x400],things[0x700],program[0x2900];
 static unsigned char seq[0x400],list_storage[0x200],ui_model[0x600],factory[0x80];
+static unsigned char undo_manager;
 static unsigned char time_list[0x60],sig_node[0x20],clock_object[0x268];
 static unsigned char engine[0x800],native_position[0x140],instrument[0x2300],layer[0x1660],sample_data[0x200],sample_refs[0x20],second_refs[0x20],slice_data[0x90];
 static uintptr_t slice_objects[8];
@@ -89,12 +90,20 @@ static void ctor_change(void *p,void *l,const struct step_event *a,const struct 
 {(void)p;assert(l==list_storage && flags==0);old_command=*a;new_command=*b;execution_kind=2;}
 static void ctor_delete(void *p,void *l,const struct step_event *a,int flags)
 {(void)p;assert(l==list_storage && flags==0);old_command=*a;execution_kind=3;}
-static void dispatch_command(void *p,uintptr_t result[2])
+static int dispatch_command(void *p,uintptr_t result[2])
 {
-    (void)p;assert(result[0] && result[1]);last_control_block=(void*)result[1];
+    assert(result[0] && result[1]);
+    void *command=(void*)result[0];
+    if(FIELD(command,0,uintptr_t)==base+0x6e41e40){
+        assert(p==&undo_manager&&FIELD(command,0x50,void*)==seq);
+        FIELD(seq,0x200,int)=FIELD(command,0x58,int);
+        return 0;
+    }
+    last_control_block=(void*)result[1];
     assert(erase_note(&old_command));
     if(execution_kind==2) {insert_note(&new_command);++change_calls;}
     else {assert(execution_kind==3);++delete_calls;}
+    return 0;
 }
 void mute_dispatch(void*p,void*l,void*opaque,uint64_t*title,uint64_t*merge,void*unused,int flags)
 {
@@ -241,6 +250,7 @@ static void setup(void)
     FIELD(surface,0x28,uint64_t)=320|((uint64_t)240<<32);
     FIELD(control,0,uintptr_t)=base+CONTROLLER_VPTR;FIELD(control,0x248,void*)=things;
     FIELD(control,0xc0,void*)=list_storage;FIELD(control,0x240,void*)=factory;
+    FIELD(factory,0x60,void*)=&undo_manager;
     FIELD(control,0x250,void*)=ui_model;FIELD(control,0x78,int64_t)=240;
     FIELD(control,0x138,void*)=(void*)1;FIELD(control,0x140,uintptr_t)=(uintptr_t)normalize_index;
     FIELD(things,0x1c8,void*)=seq;FIELD(things,0xb8,void*)=program;FIELD(things,0x88,void*)=wrong_facade;FIELD(wrong_facade,0x188,void*)=wrong_state;
@@ -317,7 +327,7 @@ int main(int argc,char **argv)
     assert(scan_page(0,2,2,page_slots) && page_slots[4].count==1);
     s_pad(4,step_native_ticket());assert(delete_calls==0 && scan_page(0,2,2,page_slots) && page_slots[4].count==1);
     step_native_requested(BUTTON_ERASE,1);button(BUTTON_ERASE,1);
-    uint64_t erase_light;step_native_tick();assert(step_native_light(pad_step(4),&erase_light) && ((uint32_t)erase_light==0xff2020||(uint32_t)erase_light==0xffffff));
+    uint64_t erase_light;step_native_tick();assert(step_native_light(pad_step(4),&erase_light) && ((uint32_t)erase_light==PAD_DANGER||(uint32_t)erase_light==PAD_SELECT));
     uint64_t erase_ticket=step_native_ticket();step_native_requested(BUTTON_ERASE,0);button(BUTTON_ERASE,0);
     s_pad(4,erase_ticket);assert(delete_calls==1 && scan_page(0,2,2,page_slots) && !page_slots[4].count);
     s_pad(4,step_native_ticket());assert(scan_page(0,2,2,page_slots) && page_slots[4].count==1);
@@ -333,11 +343,15 @@ int main(int argc,char **argv)
     button(0x0b,1);button(0x0b,0);button(0x23,1);button(0x23,0);assert(steps && want_steps);
     step_native_requested(0x31,0);hold(2);sound=2;step_native_tick();
     before=tree()->size;s_pad(2,step_native_ticket());assert(tree()->size==before); /* multi-note not erased */
-    /* K1 is local to a bank; Shift+K1 preserves its pad number. */
-    unsigned char knob[16]={0};knob[8]=0x10;knob[9]=127;
-    step_native_control(knob,step_native_ticket());assert(sound==15);
-    step_native_requested(0x31,1);step_native_control(knob,step_native_ticket());assert(sound==15 && browse_bank==7);
+    /* K1 no longer changes sound; Shift+K1 is deliberately unassigned. */
+    unsigned char knob[16]={0};knob[8]=0x10;knob[9]=1;
+    int before_bank=browse_bank;
+    FIELD(seq,0x200,int)=1;
+    step_native_control(knob,step_native_ticket());assert(sound==2&&FIELD(seq,0x200,int)==2);
+    knob[9]=127;
+    step_native_requested(0x31,1);step_native_control(knob,step_native_ticket());assert(sound==2&&browse_bank==before_bank&&FIELD(seq,0x200,int)==2);
     step_native_requested(0x31,0);
+    sound=15;step_native_tick();
     int before_grid=grid,before_velocity=velocity;int old_cursor=cursor;
     event_control(1);assert(sound==15 && grid==before_grid && velocity==before_velocity && cursor==old_cursor+1);
     button(0x6f,1);button(0x6f,0);event_control(127);assert(sound==15 && cursor==old_cursor);
@@ -368,16 +382,16 @@ int main(int argc,char **argv)
     assert(FN(0x2133870,int(*)(void*))(play_facade)==1);
     assert(FN(0x2133800,int(*)(void*))(play_facade)==0);
     step_native_clock(clock_object);step_native_tick();uint64_t light;assert(was_playing);
-    assert(step_native_light(pad_step(4),&light) && (uint32_t)light==0x00c8ff);
+    assert(step_native_light(pad_step(4),&light) && (uint32_t)light==PAD_PLAYHEAD);
     FIELD(native_position,0x130,int64_t)=1200;step_native_clock(clock_object);step_native_tick();
-    assert(step_native_light(pad_step(5),&light) && (uint32_t)light==0x00c8ff);
+    assert(step_native_light(pad_step(5),&light) && (uint32_t)light==PAD_PLAYHEAD);
     assert(!atomic_load(&write_armed));uint64_t no_write=tree()->size;
     s_pad(10,step_native_ticket());assert(cursor==10 && tree()->size==no_write);
     FIELD(record_state,0x9e8,int)=1;step_native_clock(clock_object);step_native_tick();assert(was_playing);
     s_pad(10,step_native_ticket());assert(tree()->size==no_write); /* native record is not Write */
     FIELD(playing_interface,0x1f0,unsigned char)=0;
     step_native_clock(clock_object);step_native_tick();assert(!was_playing);
-    for(unsigned i=0;i<16;++i) assert(step_native_light(i,&light) && (uint32_t)light!=0x00c8ff);
+    for(unsigned i=0;i<16;++i) assert(step_native_light(i,&light) && (uint32_t)light!=PAD_PLAYHEAD);
     button(BUTTON_RECORD,1);button(BUTTON_RECORD,0);assert(atomic_load(&write_armed));
     s_pad(10,step_native_ticket());assert(tree()->size==no_write+1); /* stopped Write On */
     s_pad(10,step_native_ticket());assert(tree()->size==no_write+1);
@@ -429,8 +443,8 @@ int main(int argc,char **argv)
     step_native_requested(0x0c,1);button(0x0c,1);step_native_pad(2,step_native_ticket());
     step_native_requested(0x0c,0);button(0x0c,0);assert(sound==50); /* explicit D03 selection */
     set_sound_bank(5);step_native_tick();assert(sound==50 && browse_bank==5 && native_bank()==5);
-    unsigned char select_sound[16]={0};select_sound[8]=0x10;select_sound[9]=0;
-    step_native_control(select_sound,step_native_ticket());assert(sound==80); /* explicit K1 selects F01 */
+    step_native_requested(0x0c,1);button(0x0c,1);step_native_pad(0,step_native_ticket());
+    step_native_requested(0x0c,0);button(0x0c,0);assert(sound==80); /* explicit Sound+Pad selects F01 */
     step_native_bank_destroyed(bank_control);assert(native_bank()==-1);
     FN(0x236f110,void(*)(void*))(bank_list+0x108);
     button(0x0d,1);button(0x0d,0);assert(!steps);
@@ -465,18 +479,17 @@ int main(int argc,char **argv)
     assert((own_rgb&255)>10*(context_rgb&255)&&(cursor_rgb&255)>20*(context_rgb&255));
     printf("PASS native LED conversion: other sounds=%06x, own=%06x, cursor=%06x, empty=000000\n",context_rgb,own_rgb,cursor_rgb);
     for(int mute=0;mute<2;++mute)for(int erase=0;erase<2;++erase){
-      /* Shared pad palette: content green, muted violet, erase red (blinking),
-       * selection white, playhead cyan. Mute mode does not recolour steps. */
-      uint32_t base_colour=erase?PAD_DANGER:PAD_CONTENT;
+      uint32_t base_colour=erase?PAD_DANGER:mute?PAD_FREE:PAD_CONTENT;
+      uint32_t muted_colour=(erase||mute)?PAD_DANGER:PAD_MUTED;
       assert((uint32_t)step_palette_value(1,0,mute,erase,0,0,0)==base_colour);
-      assert((uint32_t)step_palette_value(1,1,mute,erase,0,0,0)==(erase?PAD_DANGER:PAD_MUTED));
-      assert((uint32_t)step_palette_value(1,1,mute,erase,1,0,0)==(erase?PAD_DANGER:PAD_SELECT));
-      assert((uint32_t)step_palette_value(1,1,mute,erase,1,0,400)==(erase?PAD_DANGER:PAD_MUTED));
-      assert((uint32_t)step_palette_value(1,1,mute,erase,1,1,0)==(erase?PAD_DANGER:PAD_MUTED));
-      assert((uint32_t)step_palette_value(1,1,mute,erase,1,1,200)==(erase?PAD_DANGER:PAD_MUTED));
-      assert((uint32_t)step_palette_value(1,0,mute,erase,1,1,0)==(erase?PAD_DANGER:PAD_PLAYHEAD));
+      assert((uint32_t)step_palette_value(1,1,mute,erase,0,0,0)==muted_colour);
+      assert((uint32_t)step_palette_value(1,1,mute,erase,1,0,0)==((erase||mute)?PAD_DANGER:PAD_SELECT));
+      assert((uint32_t)step_palette_value(1,1,mute,erase,1,0,400)==muted_colour);
+      assert((uint32_t)step_palette_value(1,1,mute,erase,1,1,0)==muted_colour);
+      assert((uint32_t)step_palette_value(1,1,mute,erase,1,1,200)==muted_colour);
+      assert((uint32_t)step_palette_value(1,0,mute,erase,1,1,0)==(erase?PAD_DANGER:mute?PAD_FREE:PAD_PLAYHEAD));
       assert((uint32_t)step_palette_value(2,1,mute,erase,0,0,0)==base_colour);
-      assert((uint32_t)step_palette_value(2,1,mute,erase,0,0,400)==(erase?PAD_DANGER:PAD_MUTED));
+      assert((uint32_t)step_palette_value(2,1,mute,erase,0,0,400)==muted_colour);
       if(erase){float on,off;uint64_t a=step_palette_value(1,0,mute,1,0,0,0),b=step_palette_value(1,0,mute,1,0,0,400);
         uint32_t x=(uint32_t)(a>>32),y=(uint32_t)(b>>32);memcpy(&on,&x,4);memcpy(&off,&y,4);assert(on>off);} /* erase blinks */
     }
@@ -488,11 +501,11 @@ int main(int argc,char **argv)
     assert(step_native_button_light(BUTTON_MUTE,&button_ink)&&button_ink==2);
     s_pad(10,step_native_ticket());assert(group_mute_calls==1&&tree()->size==before);
     assert(scan_page(0,4,2,page_slots)&&page_slots[10].muted==2);
-    palette();uint32_t selected_mute=(uint32_t)atomic_load(&lights[pad_step(10)]);assert(selected_mute==0xffffff||selected_mute==PAD_MUTED);
+    palette();assert((uint32_t)atomic_load(&lights[pad_step(10)])==PAD_DANGER);
     int saved_playing=was_playing;int64_t saved_play_tick=play_tick;was_playing=1;play_tick=2400;palette();
-    uint32_t mute_cursor=(uint32_t)atomic_load(&lights[pad_step(10)]);assert(mute_cursor==0x00c8ff||mute_cursor==PAD_MUTED);was_playing=saved_playing;play_tick=saved_play_tick;
+    assert(atomic_load(&lights[pad_step(10)])==pad_light(PAD_DANGER,1.f));was_playing=saved_playing;play_tick=saved_play_tick;
 
-    hold(9);step_native_tick();assert(step_native_light(pad_step(10),&light)&&(uint32_t)light==PAD_MUTED);
+    hold(9);step_native_tick();assert(step_native_light(pad_step(10),&light)&&(uint32_t)light==PAD_DANGER);
     s_pad(10,step_native_ticket());assert(group_mute_calls==2&&tree()->size==before);
     assert(scan_page(0,4,2,page_slots)&&page_slots[10].muted==0);
     s_pad(14,step_native_ticket());assert(tree()->size==before&&group_mute_calls==2); /* Write cannot add in mute. */
@@ -715,7 +728,7 @@ int main(int argc,char **argv)
     atomic_store(&clock_tick,105);step_native_playback_context(things,0,1);
     assert(atomic_load(&playback_mask)==(1u<<5));
     assert(ui_known); /* No Step Edit paint was needed to initialize UI. */
-    assert(step_native_light(5,&light) && (uint32_t)light==0x00c8ff);
+    assert(step_native_light(5,&light) && (uint32_t)light==PAD_PLAYHEAD);
     phase="Simultaneous Tune events illuminate every chord note";
     step_native_native_mute(1); /* Native Mute LED can be lit while Levels is active. */
     struct step_event simultaneous=sounding;event_choice_set(&simultaneous,0,6);
@@ -758,9 +771,9 @@ int main(int argc,char **argv)
     step_native_native_mute(1);
     atomic_store(&clock_tick,90);step_native_playback_context(things,0,1);
     atomic_store(&clock_tick,105);step_native_playback_context(things,0,1);
-    assert(atomic_load(&playback_mask)==(1u<<6));
+    assert(atomic_load(&playback_mask)==(1u<<6));assert(step_native_light(6,&light)&&(uint32_t)light==PAD_FREE);
     play_instrument[0x78]=1;step_native_playback_context(things,0,1);
-    assert(atomic_load(&playback_muted_mask)==(1u<<6));assert(step_native_light(6,&light)&&(uint32_t)light==PAD_MUTED);
+    assert(atomic_load(&playback_muted_mask)==(1u<<6));assert(step_native_light(6,&light)&&(uint32_t)light==PAD_DANGER);
     play_instrument[0x78]=0;step_native_native_mute(0);
     step_native_native_mute(1);step_native_playback_context(things,0,0);assert(!atomic_load(&playback_mask));step_native_native_mute(0);
     phase="Seq Mute source pulses; ordinary Seq remains dark";
@@ -811,15 +824,15 @@ int main(int argc,char **argv)
     unsigned saved_pad_index=FIELD(things,0x5f8,unsigned);FIELD(things,0x5f8,unsigned)=6;
     memset(playback_until,0,sizeof(playback_until));memset(playback_muted_until,0,sizeof(playback_muted_until));
     play_instrument[0x78]=0;assert(music_set_pad_colour(6,13));step_native_observe_rgb(6,0);
-    sample_palette_publish(things,program,0,1,0);assert((uint32_t)atomic_load(&sample_palette[6])==PAD_SELECT);
-    sample_palette_publish(things,program,0,1,650);assert(atomic_load(&sample_palette[6])==pad_light(music_identity_rgb(13),.35f));
-    step_native_observe_rgb(6,0x00ffff);sample_palette_publish(things,program,0,1,650);assert(atomic_load(&sample_palette[6])==pad_light(music_identity_rgb(13),.35f));
-    play_instrument[0x78]=1;sample_palette_publish(things,program,0,1,650);assert(atomic_load(&sample_palette[6])==pad_light(PAD_MUTED,PAD_BRIGHT_MUTED));
-    playback_until[6]=playback_muted_until[6]=700;sample_palette_publish(things,program,0,1,650);assert(atomic_load(&sample_palette[6])==pad_light(PAD_MUTED,.65f)&&play_instrument[0x78]==1);
-    sample_palette_publish(things,program,0,1,750);assert(atomic_load(&sample_palette[6])==pad_light(PAD_MUTED,PAD_BRIGHT_MUTED));
+    sample_palette_publish(things,program,0,1,0,0);assert((uint32_t)atomic_load(&sample_palette[6])==PAD_SELECT);
+    sample_palette_publish(things,program,0,1,0,650);assert(atomic_load(&sample_palette[6])==pad_light(music_identity_rgb(13),.35f));
+    step_native_observe_rgb(6,0x00ffff);sample_palette_publish(things,program,0,1,0,650);assert(atomic_load(&sample_palette[6])==pad_light(music_identity_rgb(13),.35f));
+    play_instrument[0x78]=1;sample_palette_publish(things,program,0,1,0,650);assert(atomic_load(&sample_palette[6])==pad_light(PAD_MUTED,.32f));
+    playback_until[6]=playback_muted_until[6]=700;sample_palette_publish(things,program,0,1,0,650);assert(atomic_load(&sample_palette[6])==pad_light(PAD_MUTED,.65f)&&play_instrument[0x78]==1);
+    sample_palette_publish(things,program,0,1,0,750);assert(atomic_load(&sample_palette[6])==pad_light(PAD_MUTED,.32f));
     play_instrument[0x78]=0;sample_focus_program=NULL;memset(playback_until,0,sizeof(playback_until));
-    sample_palette_publish(things,program,0,1,1234567);assert((uint32_t)atomic_load(&sample_palette[6])==PAD_SELECT);
-    sample_palette_publish(things,program,0,1,1234967);assert((uint32_t)atomic_load(&sample_palette[6])==music_identity_rgb(13));
+    sample_palette_publish(things,program,0,1,0,1234567);assert((uint32_t)atomic_load(&sample_palette[6])==PAD_SELECT);
+    sample_palette_publish(things,program,0,1,0,1234967);assert((uint32_t)atomic_load(&sample_palette[6])==music_identity_rgb(13));
     FIELD(things,0x60,void*)=saved_selected;assert(music_set_pad_colour(6,0));
     FIELD(things,0x5f8,unsigned)=saved_pad_index;
     puts("PASS Sample white focus, Pink identity, native held/Loop activity, grey muted-event pulse and expiry; mute property unchanged");
@@ -871,7 +884,7 @@ int main(int argc,char **argv)
     assert(cursor_visible);button(0x6f,1);button(0x6f,0);assert(!cursor_visible);
     assert(step_native_light(15,&light)&&(uint32_t)light==PAD_CONTEXT);
     uint64_t background_light=light;
-    was_playing=1;play_tick=720;palette();assert(step_native_light(15,&light)&&(uint32_t)light==0x00c8ff);was_playing=0;
+    was_playing=1;play_tick=720;palette();assert(step_native_light(15,&light)&&(uint32_t)light==PAD_PLAYHEAD);was_playing=0;
     struct step_event own_background=make_note(4,720,.5f);own_background.type|=0x200;insert_note(&own_background);++count_before_background;
     step_native_tick();assert(step_native_light(15,&light)&&(uint32_t)light==PAD_MUTED);
     button(0x6f,1);button(0x6f,0);assert(cursor_visible);
@@ -904,17 +917,17 @@ int main(int argc,char **argv)
                     int replace=0;uint64_t expected=music_pitch_light(snapshot,(int)pad-3,&replace);
                     assert((uint32_t)atomic_load(&lights[pad])==(replace?(uint32_t)expected:0xffffff));
                 }
-                assert((uint32_t)atomic_load(&lights[8])==0xffc247);
+                assert((uint32_t)atomic_load(&lights[8])==PAD_ORIGINAL);
                 picker_has_choice=1;level_candidate(&detail_old,&detail_edit,1,11,picker_base);palette_at(0);
                 assert((uint32_t)atomic_load(&lights[11])==0xffffff);picker_has_choice=0;
                 assert(music_published()==published_before_picker);
             }
         }
         picker_mode=0;palette();assert((uint32_t)atomic_load(&lights[15])==0xffffff);
-        picker_mode=8;picker_base=1;picker_slice_count=16;assert(music_set_pad_colour(6,3));palette_at(0);assert((uint32_t)atomic_load(&lights[15])==0x8830ff);
+        picker_mode=8;picker_base=1;picker_slice_count=16;assert(music_set_pad_colour(6,3));palette_at(0);assert((uint32_t)atomic_load(&lights[15])==music_identity_rgb(3));
         picker_has_choice=1;level_candidate(&detail_old,&detail_edit,8,2,picker_base);
         palette_at(0);assert((uint32_t)atomic_load(&lights[2])==PAD_SELECT);
-        palette_at(400);assert((uint32_t)atomic_load(&lights[2])==0x8830ff);
+        palette_at(400);assert((uint32_t)atomic_load(&lights[2])==music_identity_rgb(3));
         picker_has_choice=0;assert(music_set_pad_colour(6,0));
         menu=0;preview_gate_set(NULL,NULL);
     }

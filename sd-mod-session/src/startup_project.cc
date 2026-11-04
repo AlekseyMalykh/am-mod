@@ -2,6 +2,9 @@
  * loader still owns sample staging, events, effects, errors and Temp-Project
  * autosave. No project bytes or persistent preferences are rewritten here. */
 #include "startup_project.h"
+#ifdef MPC_PROJECT_RECOVERY
+#include "project_recovery.h"
+#endif
 #include <atomic>
 #include <cstdio>
 #include <cstring>
@@ -67,6 +70,18 @@ Errors native_load(void*saver,const uint64_t*file){
 }
 using AutoSave=void(*)(void*);
 AutoSave original_autosave;
+using Save=int(*)(void*,const uint64_t*,bool,bool,bool);
+Save original_save;
+int save(void*saver,const uint64_t*file,bool a,bool b,bool c){
+ char target[1200]={0};
+ const char*incoming=file?reinterpret_cast<const char*>(*file):nullptr;
+ if(incoming&&strnlen(incoming,sizeof(target))<sizeof(target))std::snprintf(target,sizeof(target),"%s",incoming);
+ int result=original_save(saver,file,a,b,c);
+#ifdef MPC_PROJECT_RECOVERY
+ if(result&&target[0])project_recovery_saved(target);
+#endif
+ return result;
+}
 struct File {
  uint64_t value=0;
  explicit File(const char*path){reinterpret_cast<void(*)(uint64_t*,const char*)>(image+0xf535c0)(&value,path);}
@@ -162,13 +177,16 @@ extern "C" void startup_project_changed(void){
 extern "C" int startup_project_install(uintptr_t b){
  auto*slot=reinterpret_cast<uintptr_t*>(b+0x6d8cc20);
  auto*auto_slot=reinterpret_cast<uintptr_t*>(b+0x6d8cc10);
- if(*slot!=b+0x1506b00||*auto_slot!=b+0x1506580)return 0;
+ auto*save_slot=reinterpret_cast<uintptr_t*>(b+0x6d8cc18);
+ if(*slot!=b+0x1506b00||*auto_slot!=b+0x1506580||*save_slot!=b+0x1508bc0)return 0;
  image=b;original=reinterpret_cast<Load>(*slot);choose();
  original_autosave=reinterpret_cast<AutoSave>(*auto_slot);
+ original_save=reinterpret_cast<Save>(*save_slot);
  void*page=reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(slot)&~uintptr_t(4095));
  if(mprotect(page,4096,PROT_READ|PROT_WRITE))return 0;
  *slot=reinterpret_cast<uintptr_t>(load);
  *auto_slot=reinterpret_cast<uintptr_t>(autosave);
+ *save_slot=reinterpret_cast<uintptr_t>(save);
  if(mprotect(page,4096,PROT_READ))_exit(121);
  phase.store(1);std::fprintf(stderr,"STARTUP_PROJECT FIRST_LOAD_INSTALLED selected=%u\n",selected[0]!=0);return 1;
 }

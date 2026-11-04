@@ -22,6 +22,7 @@
 static pthread_mutex_t mutex=PTHREAD_MUTEX_INITIALIZER;
 static char captured[PROJECT_RECOVERY_BYTES],pending[PROJECT_RECOVERY_BYTES];
 static unsigned generation,applied;
+static unsigned named_save;
 static unsigned waiting_revision;static uint64_t waiting_since;
 static _Thread_local char copying[PROJECT_RECOVERY_BYTES];
 static char copy_payload[PROJECT_RECOVERY_BYTES];
@@ -80,7 +81,30 @@ static void*current_things(uintptr_t image,void*saver){
  void*p=F(saver,0x90,void*);return p&&F(p,0,uintptr_t)==image+0x6ecc648?p:NULL;
 }
 static int copy_string(const char*p,char*out,size_t size){if(!p||strnlen(p,size)>=size)return 0;memcpy(out,p,strlen(p)+1);return 1;}
+static int saved_identity(const char*path,char*payload,size_t size){
+ char root[1024],relative[1024]="",name[129];
+ if(!path||strnlen(path,1200)>=1200)return 0;
+ const char*leaf=strrchr(path,'/');if(!leaf)return 0;++leaf;
+ size_t n=strlen(leaf);if(n<=4||n-4>=sizeof(name)||strcmp(leaf+n-4,".xpj"))return 0;
+ memcpy(name,leaf,n-4);name[n-4]=0;
+ if(!valid_name(name)||!strncmp(name,"Mod-Exit-",9)||!strcmp(name,"Temp-Project"))return 0;
+ int internal=!strncmp(path,"/data/UserContent/Projects/",27);
+ if(storage_root(root,sizeof(root))&&!strncmp(path,root,strlen(root))&&path[strlen(root)]=='/'&&valid_relative(path+strlen(root)+1))
+  snprintf(relative,sizeof(relative),"%s",path+strlen(root)+1);
+ else if(!internal)return 0;
+ return project_recovery_encode(name,relative,payload,size);
+}
+void project_recovery_saved(const char*path){
+ char payload[PROJECT_RECOVERY_BYTES];if(!saved_identity(path,payload,sizeof(payload)))return;
+ pthread_mutex_lock(&mutex);memcpy(captured,payload,strlen(payload)+1);named_save=1;pending[0]=0;++generation;pthread_mutex_unlock(&mutex);
+ fprintf(stderr,"PROJECT_RECOVERY NAMED_SAVE_CAPTURED path=%s\n",path);
+}
 void project_recovery_capture(uintptr_t image,void*saver){
+ /* Save Project may write a named copy while CurrentThings still points at
+  * Temp-Project or the old recovered identity. A confirmed explicit target
+  * wins until a different project is loaded or New Project is created. */
+ pthread_mutex_lock(&mutex);int saved=named_save&&captured[0];pthread_mutex_unlock(&mutex);
+ if(saved)return;
  char root[1024],path[1200],name[129]="Recovered Project",relative[1024]="",payload[PROJECT_RECOVERY_BYTES];
  void*things=current_things(image,saver);
  if(things&&copy_string(F(things,0x9b0,const char*),path,sizeof(path))){
@@ -123,7 +147,7 @@ const char*project_recovery_copy_payload(void){
 }
 void project_recovery_loaded(const char*payload){
  char name[129],relative[1024];int valid=project_recovery_decode(payload,name,sizeof(name),relative,sizeof(relative));
- pthread_mutex_lock(&mutex);captured[0]=pending[0]=0;if(valid)memcpy(pending,payload,strlen(payload)+1);++generation;pthread_mutex_unlock(&mutex);
+ pthread_mutex_lock(&mutex);captured[0]=pending[0]=0;named_save=0;if(valid)memcpy(pending,payload,strlen(payload)+1);++generation;pthread_mutex_unlock(&mutex);
 }
 void project_recovery_reset(void){project_recovery_loaded(NULL);notice[0]=0;notice_until=0;first_save=save_prompt=save_seeded=0;}
 const char*project_recovery_notice(void){return milliseconds()<notice_until?notice:NULL;}
@@ -141,9 +165,10 @@ void project_recovery_tick(uintptr_t image,void*services){
  if(!saver||F(saver,0,uintptr_t)!=image+0x6d8cc00)return;
  void*things=current_things(image,saver);if(!things)return;
  char path[1200];if(!copy_string(F(things,0x9b0,const char*),path,sizeof(path)))return;
- /* Cache only real external projects on the UI thread, never the native
+ /* Cache real saved projects on the UI thread, never the native
   * temporary autosave path or the recovery file's technical identity. */
- if(storage_root(root,sizeof(root))&&!strncmp(path,root,strlen(root))&&path[strlen(root)]=='/'&&valid_relative(path+strlen(root)+1))
+ if(!strncmp(path,"/data/UserContent/Projects/",27)||
+    (storage_root(root,sizeof(root))&&!strncmp(path,root,strlen(root))&&path[strlen(root)]=='/'&&valid_relative(path+strlen(root)+1)))
   project_recovery_capture(image,saver);
  if(revision==applied||!payload[0])return;
  const char*file=strrchr(path,'/');if(!file||strcmp(file+1,"Mod-Exit-Last.xpj")){waiting_since=0;return;}

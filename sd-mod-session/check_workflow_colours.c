@@ -25,6 +25,6 @@ int main(void){
    assert(colours[n]==c);
   }
  }
- for(unsigned i=0;i<MUSIC_IDENTITY_CHOICES;++i){unsigned id=music_colour_choice(i);assert(id==0||id==3||id==4||id==6||id==8||id==13);}
- puts("PASS five identity colours; all legacy IDs render safely; all128 pads, sources, free/occupied targets including source=target; metadata unchanged");return 0;
+ for(unsigned i=0;i<MUSIC_IDENTITY_CHOICES;++i){unsigned id=music_colour_choice(i);assert(id<MUSIC_SEQUENCE_COLOURS);for(unsigned j=0;j<i;++j)assert(music_colour_choice(j)!=id);}
+ puts("PASS eight identity colours; all legacy IDs render safely; all128 pads, sources, free/occupied targets including source=target; metadata unchanged");return 0;
 }

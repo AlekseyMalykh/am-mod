@@ -12,7 +12,7 @@ uint64_t pad_eq_default(void);
 int pad_eq_valid(uint64_t);
 uint64_t pad_eq_edit(uint64_t,int field,unsigned value,int relative);
 void pad_eq_config(uint64_t,double,struct fx_eq_config*);
-void pad_eq_paint(uint64_t,unsigned pad,int shift,int focus,const struct resample_painter*);
+void pad_eq_paint(uint64_t,unsigned pad,int muted,int shift,int focus,const struct resample_painter*);
 /* Numeric snapshot only: one atomic load per instrument block. */
 void pad_eq_publish(unsigned pad,uint64_t);
 uint64_t pad_eq_published(unsigned pad);
@@ -23,7 +23,7 @@ void pad_eq_publish_all(const uint64_t values[128]);
 int pad_eq_audio(unsigned pad,uintptr_t instrument,double rate,float**channels,unsigned count,unsigned frames,int silent);
 /* Shared selected-pad spectrum for Filter, Filter Env and EQ. UI drawing
  * accepts a tint so native filter/envelope curves can remain visible. */
-void pad_eq_spectrum_paint(unsigned pad,int left,int top,int width,int height,uint32_t tint,const struct resample_painter*);
+void pad_eq_spectrum_paint(unsigned pad,int muted,int left,int top,int width,int height,uint32_t tint,const struct resample_painter*);
 /* UI timer keeps the selected page's capture alive even during silence. */
 void pad_eq_spectrum_watch(int pad);
 int pad_eq_spectrum_wanted(unsigned pad);

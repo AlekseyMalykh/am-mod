@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "music_ui.h"
+#include "sample_mute.h"
 #include "music_settings.h"
 #include "mod_build.h"
 #ifdef MPC_PROJECT_RECOVERY
@@ -134,9 +135,18 @@ int music_ui_install(void (*sp)(void*,void*),void (*pp)(void*,void*),void (*tp)(
 }
 static int visible(void *p)
 { return p && FN(0x112fd50,int(*)(void*))(p) && !FN(0x112f6b0,int(*)(void*))(p); }
+static int sample_pad_muted(unsigned pad)
+{
+    void *things=note_native_context();
+    void *program=things?FIELD(things,0xb8,void*):NULL;
+    void *instrument=program&&pad<128?FN(0x286bbe0,void*(*)(void*,int))(program,(int)pad):NULL;
+    return sample_instrument_muted(instrument);
+}
 int music_ui_waveform_tint(uint32_t*rgb){
  unsigned pad;
- if(!rgb||!music_pad_lighting_mode()||!music_mod_setting(MUSIC_SETTING_WAVE)||!note_native_pad_index(&pad))return 0;
+ if(!rgb||!note_native_pad_index(&pad))return 0;
+ if(sample_pad_muted(pad)){*rgb=SAMPLE_MUTED_TINT;return 1;}
+ if(!music_pad_lighting_mode()||!music_mod_setting(MUSIC_SETTING_WAVE))return 0;
  *rgb=music_identity_rgb((unsigned)music_pad_colour(pad));return 1;
 }
 int music_ui_filter_spectrum_visible(void*p){
@@ -190,6 +200,10 @@ int music_ui_tick(void)
     /* Project is a native overlay; underlying Sample can remain showing.
      * Its hidden Lights controls must not consume the menu's encoder click. */
     if(pv)sv=0;
+    static int last_mute;
+    unsigned edited_pad;
+    int muted=sv&&note_native_pad_index(&edited_pad)&&sample_pad_muted(edited_pad);
+    if(muted!=last_mute){last_mute=muted;if(sv)repaint(sample);}
     atomic_store(&seq_active,!pv&&visible(seq_screen)&&!music_ui_repeat_active());
     if (!sv) lights=0;
 #ifdef MPC_PAD_EQ
@@ -415,7 +429,7 @@ static void eq_rect(void*g,int x,int y,int w,int h,uint32_t ink){colour(g,ink);r
 static void eq_text(void*g,const char*s,int x,int y,int w,int h,unsigned size,uint32_t ink,int centre){
     (void)centre;colour(g,ink);text(g,s,x,y,w,h,(float)size);
 }
-static void eq_paint(void*g,unsigned pad){struct resample_painter p={g,eq_rect,eq_text};pad_eq_paint(music_get_pad_eq(pad),pad,shifted(sample,0),focus,&p);}
+static void eq_paint(void*g,unsigned pad){struct resample_painter p={g,eq_rect,eq_text};pad_eq_paint(music_get_pad_eq(pad),pad,sample_pad_muted(pad),shifted(sample,0),focus,&p);}
 static int eq_control(unsigned cc,unsigned value){
     unsigned pad;if(!note_native_pad_index(&pad))return 1;
     int rel=cc==0x64;if(!rel)focus=(int)cc-0x10;
@@ -528,7 +542,7 @@ void music_ui_sample(void *p,void *g)
     if(music_ui_filter_spectrum_visible(p)){
         unsigned pad;if(note_native_pad_index(&pad)){
             struct resample_painter painter={g,eq_rect,eq_text};
-            pad_eq_spectrum_paint(pad,15,94,289,94,0x605a4419u,&painter);
+            pad_eq_spectrum_paint(pad,sample_pad_muted(pad),15,94,289,94,0x605a4419u,&painter);
         }
     }
 #endif
@@ -566,18 +580,20 @@ void music_ui_sample(void *p,void *g)
         text(g,"Set Orig Note: Tune > Shift+K1",2,180,316,15,11);
     }
 }
-static unsigned mod_rows(void){return mod_tab==MOD_ABOUT_TAB?0:mod_tab==2?MUSIC_SERVICE_COUNT:mod_tab==1?2:1;}
-static unsigned mod_field(void){return mod_tab==1?MUSIC_SETTING_WAVE+mod_row:mod_tab==3?MUSIC_SETTING_BLINK:MUSIC_SETTING_LIGHTING;}
-static unsigned mod_value(void){return mod_tab==2?music_service_colour(mod_row):(unsigned)music_mod_setting(mod_field());}
+static unsigned mod_rows(void){return mod_tab==MOD_ABOUT_TAB?0:mod_tab==2?MUSIC_SERVICE_COUNT:mod_tab==1?3:1;}
+static unsigned mod_field(unsigned row){return mod_tab==1?(row==2?MUSIC_SETTING_TAIL:MUSIC_SETTING_WAVE+row):mod_tab==3?MUSIC_SETTING_BLINK:MUSIC_SETTING_LIGHTING;}
+static unsigned mod_value(void){return mod_tab==2?music_service_colour(mod_row):(unsigned)music_mod_setting(mod_field(mod_row));}
 static void mod_change(unsigned value,int relative){
  if(mod_tab==MOD_ABOUT_TAB||mod_row==mod_rows())return;
- unsigned hi=mod_tab==2?MUSIC_PALETTE_SIZE-1:mod_tab==3?3:1;
+ unsigned field=mod_field(mod_row);
+ unsigned hi=mod_tab==2?MUSIC_PALETTE_SIZE-1:field==MUSIC_SETTING_TAIL?MUSIC_TAIL_CHOICES-1:mod_tab==3?3:1;
  unsigned next=(unsigned)choice(value,(int)mod_value(),0,(int)hi,relative);
- lighting_save_error=!(mod_tab==2?music_set_service_colour(mod_row,next):music_set_mod_setting(mod_field(),next));
+ lighting_save_error=!(mod_tab==2?music_set_service_colour(mod_row,next):music_set_mod_setting(field,next));
  repaint(project);
 }
 static void mod_settings_paint(void*g){
- static const char*const tabs[]={"Pads","Wave / Spectrum","System Colours","Selected Pad","About"};
+ static const char*const tabs[]={"Pads","Sample","System Colours","Selected Pad","About"};
+ static const char*const sample_labels[]={"Waveform tint","Spectrum tint","Preview from end"};
  static const char*const services[]={"Cursor / selection","Free target","Occupied target","Original value","Play position","Muted"};
  static const char*const speeds[]={"Steady","Slow","Normal","Fast"};
  colour(g,0xff000000);rect(g,0,0,320,240);colour(g,0xffffffff);
@@ -608,15 +624,18 @@ static void mod_settings_paint(void*g){
    if(i==mod_row)rect(g,5,y,2,21);
    text(g,"Restore recommended",12,y,300,21,13);continue;
   }
-  const char*label=mod_tab==0?"Pad lighting":mod_tab==1?(i?"Spectrum tint":"Waveform tint"):mod_tab==2?services[i]:"Cursor pulse";
-  unsigned value=mod_tab==2?music_service_colour(i):(unsigned)music_mod_setting(mod_tab==1?MUSIC_SETTING_WAVE+i:mod_tab==3?MUSIC_SETTING_BLINK:MUSIC_SETTING_LIGHTING);
-  const char*name=mod_tab==0?(value?"AM Mod":"Standard"):mod_tab==1?(value?"Pad colour":"Original"):mod_tab==2?music_palette_name(value):speeds[value];
+  const char*label=mod_tab==0?"Pad lighting":mod_tab==1?sample_labels[i]:mod_tab==2?services[i]:"Cursor pulse";
+  unsigned field=mod_field(i);
+  unsigned value=mod_tab==2?music_service_colour(i):(unsigned)music_mod_setting(field);
+  char duration[16];
+  if(field==MUSIC_SETTING_TAIL)snprintf(duration,sizeof(duration),"%u ms",music_tail_ms(value));
+  const char*name=mod_tab==0?(value?"AM Mod":"Standard"):field==MUSIC_SETTING_TAIL?duration:mod_tab==1?(value?"Pad colour":"Original"):mod_tab==2?music_palette_name(value):speeds[value];
   int y=82+23*(int)(i-first);
   if(i==mod_row){colour(g,mod_edit?0xffffc247:0xffffffff);rect(g,5,y,2,21);}
   colour(g,i==mod_row?0xffffc247:0xffffffff);text(g,label,12,y,181,21,13);text(g,name,196,y,116,21,13);
  }
  colour(g,0xffa0a0a0);
- text(g,mod_tab==2?"Colours swap; five user colours remain":mod_tab==1?"Tint follows the pad in AM Mod mode":mod_tab==3?"Sequence pulses still follow tempo":"Standard keeps Piano / Scale layouts",4,174,312,14,11);
+ text(g,mod_tab==2?"Colours swap; eight user colours remain":mod_tab==1?"Hold STOP and tap a pad to hear its end":mod_tab==3?"Sequence pulses still follow tempo":"Standard keeps Piano / Scale layouts",4,174,312,14,11);
  colour(g,lighting_save_error?0xffff4040:0xffa0a0a0);
  text(g,lighting_save_error?"Could not save settings": "Saved with project; edits set card defaults",4,188,312,14,11);
  colour(g,0xffffffff);text(g,mod_edit?"Turn: change value":"Turn: select row",6,204,308,16,14);

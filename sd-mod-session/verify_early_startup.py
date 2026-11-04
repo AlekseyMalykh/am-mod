@@ -3,7 +3,7 @@ from pathlib import Path
 import subprocess,hashlib,json,zipfile,tempfile,os
 from early_startup import transform_launcher
 R=Path(__file__).resolve().parent;O=R/'build/early-startup';O.mkdir(exist_ok=True)
-sources=['src/startup_project.cc','src/startup_project.h','src/early_splash.c','src/early_startup.sh','src/am_mod_splash.inc','src/phone_native.c','src/workflow_ui.c','build_chords_candidate.py','early_startup.py','check_startup_project.cc','check_early_splash.c','verify_early_startup.py']
+sources=['src/startup_project.cc','src/startup_project.h','src/project_recovery.h','src/early_splash.c','src/early_startup.sh','src/am_mod_splash.inc','src/phone_native.c','src/workflow_ui.c','build_chords_candidate.py','early_startup.py','check_startup_project.cc','check_early_splash.c','verify_early_startup.py']
 sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest();before={s:sha(R/s) for s in sources}
 stock=R.parent/'extracted_v1.3.0/partitions/part3/usr/bin/MPC Sample';assert sha(stock)=='b6584cba76e416e432ad202509099d34373dc2c3d6a8fb625f5678bf0193b508'
 for mode,flags in [('normal',[]),('ubsan',['-fsanitize=undefined','-static-libubsan','-fno-sanitize-recover=all'])]:

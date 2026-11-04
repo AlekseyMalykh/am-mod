@@ -36,12 +36,16 @@ static const char settings_extension[]="mpcSampleModSettingsV1";
 /* Fixed-length hex accepts no whitespace, overflows, trailing data or
  * partially valid settings. Commit only with a successful native read. */
 static int settings_decode(const char*s,struct settings_snapshot*out){
- if(!s||strlen(s)!=33||memcmp(s,"AMS1 ",5)||s[18]!=' '||s[32]!='\n')return 0;
+ if(!s||strlen(s)<5)return 0;
+ int extended=!memcmp(s,"AMS3 ",5);
+ unsigned digits=extended||!memcmp(s,"AMS2 ",5)?16:13;
+ unsigned length=5+digits+1+13+1;
+ if(strlen(s)!=length||(!extended&&memcmp(s,"AMS1 ",5)&&memcmp(s,"AMS2 ",5))||s[5+digits]!=' '||s[length-1]!='\n')return 0;
  uint64_t values[2]={0,0};
- for(unsigned k=0;k<2;++k)for(unsigned i=0;i<13;++i){unsigned c=(unsigned char)s[5+k*14+i];
+ for(unsigned k=0;k<2;++k)for(unsigned i=0;i<(k?13:digits);++i){unsigned c=(unsigned char)s[k?6+digits+i:5+i];
   if(c>='0'&&c<='9')c-='0';else if(c>='a'&&c<='f')c=c-'a'+10;else return 0;
   values[k]=(values[k]<<4)|c;}
- if(!music_mod_settings_valid(values[0]))return 0;
+ if((!extended&&(values[0]>>61))||!music_mod_settings_valid(values[0]))return 0;
 #ifdef MPC_COMPRESSOR
  if(!compressor_project_valid(values[1]))return 0;
 #else
@@ -191,10 +195,10 @@ void music_archive_save(void *data,void *archive,void (*original)(void*,void*))
      * 0x1d27d90 only reads data/size; it neither owns nor modifies this view. */
     struct { const char *data; size_t size,capacity,unused; } text={payload,(size_t)length,(size_t)length,0};
     FN(0x1d27d90,void(*)(void*,const char*,const void*))(archive,extension,&text);
-    char settings[35];
-    int settings_size=snprintf(settings,sizeof(settings),"AMS1 %013llx %013llx\n",(unsigned long long)display_settings,(unsigned long long)compressor_settings);
-    if(settings_size==33){
-        struct {const char*data;size_t size,capacity,unused;} value={settings,33,33,0};
+    char settings[38];
+    int settings_size=snprintf(settings,sizeof(settings),"AMS%c %016llx %013llx\n",display_settings>>61?'3':'2',(unsigned long long)display_settings,(unsigned long long)compressor_settings);
+    if(settings_size==36){
+        struct {const char*data;size_t size,capacity,unused;} value={settings,36,36,0};
         FN(0x1d27d90,void(*)(void*,const char*,const void*))(archive,settings_extension,&value);
     }
 #ifdef MPC_PROJECT_RECOVERY

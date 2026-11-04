@@ -164,7 +164,7 @@ int main(void){
  native_workflow=0;seq_visible=1;sample_visible=0;send_step_lights();assert(sent[0]==0xff0000);seq_visible=0;sample_visible=1;
  assert(music_pad_colour(0)==13);assert(music_set_pad_lighting_mode(MUSIC_LIGHTING_MOD));send_step_lights();assert(sent[0]==music_identity_rgb(13));
  puts("PASS live Standard restores native Sample/Copy/browser/Seq output; AM Mod restores retained Pink identity");
- puts("PASS five identity colours and all legacy IDs; native/browser occupancy independent of selected RGB; red/green targets remain semantic, Levels/FX ownership, button LEDs isolated");
+ puts("PASS eight identity colours and all legacy IDs; native/browser occupancy independent of selected RGB; red/green targets remain semantic, Levels/FX ownership, button LEDs isolated");
 #ifdef MPC_KNOB_RESET
  knob_reset_init(base);knob_reset_button(0x23,1);atomic_store(&native_buttons_down[0x23],1);
  native_workflow=1;browser_selected=0;send_step_lights();

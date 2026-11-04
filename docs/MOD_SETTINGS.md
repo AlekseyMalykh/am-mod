@@ -1,6 +1,6 @@
-# Mod Settings — r27f
+# Mod Settings — r27n
 
-Available in public prerelease r27f; stable remains r26s.
+Available in public prerelease r27n; stable remains r26s.
 
 **Project → Mod Settings** replaces Pad Lighting. **B2/B3** cycle tabs,
 **B1** returns. Turn the encoder to select a row, click to edit, turn to
@@ -10,7 +10,7 @@ Lists scroll with the cursor.
 | Tab | Controls | Recommended defaults |
 | --- | --- | --- |
 | Pads | Standard / AM Mod | AM Mod |
-| Wave / Spectrum | Independent waveform/spectrum pad-colour tint | Original / Original |
+| Sample | Independent waveform/spectrum pad-colour tint; Preview from end | Original / Original; 1000 ms |
 | System Colours | Cursor, free/occupied target, original value, play position, muted | White, Green, Red, Amber, Cyan, Grey |
 | Selected Pad | Steady / Slow / Normal / Fast | Normal: 800 ms cycle |
 | About (5/5) | Version and repository URL; read-only | No settings or reset |
@@ -23,11 +23,13 @@ Knob movement and another encoder click do not confirm.
 The palette reset restores all user and service slots together.
 Samples, events, pad assignments and compressor settings are preserved.
 
-Changing a service colour swaps it with its existing owner. Giving Pink to
-the white cursor makes the former Pink user slot White. Names update accordingly.
-Five user slots plus Default remain, without collisions with six service roles.
+Changing a service colour swaps it with its existing owner. Giving Violet to
+the white cursor makes the former Violet user slot White. Names update accordingly.
+Eight user slots plus Default remain, without collisions with six service roles.
 Existing project colour IDs stay stable; swapping a slot changes every pad or
 sequence assigned to that slot.
+
+**Sample → Preview from end** selects how far before the trim or slice end playback starts when holding **STOP** and pressing a pad in Sample or Chop. It defaults to 1000 ms and is saved in the project and card defaults.
 
 Standard disables Pad Colour/Seq Colour without deleting assignments and keeps
 16 Levels Piano/Scale layouts. Optional waveform/spectrum tint applies in AM Mod.

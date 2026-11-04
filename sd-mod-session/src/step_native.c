@@ -14,6 +14,10 @@
 #include <time.h>
 #include <unistd.h>
 #include "pad_palette.h"
+#include "sample_mute.h"
+#ifdef MPC_LOOP_FEEDBACK
+#include "sample_playing.h"
+#endif
 
 #define FN(off,type) ((type)(base+(off)))
 #define FIELD(p,off,type) (*(type *)((char *)(p)+(off)))
@@ -58,6 +62,7 @@ _Static_assert(offsetof(struct step_event,data)==16,"Native event payload");
 extern void step_command_result(void *,void *,const void *,const void *,void *,uintptr_t);
 extern void step_add_result(void *,void *,void *,void *,void *,uint64_t *,uint64_t *,int,void *,uintptr_t);
 extern int step_try_call(void (*)(void*),void*);
+extern int step_set_bars(uintptr_t,void*,void*,int);
 extern void step_layer_sample(void *,unsigned,uintptr_t[2],uintptr_t);
 extern void step_pad_string(int,uint64_t *,uintptr_t);
 extern void step_table_cell_string(void *,int,const void *,uint64_t *,uintptr_t);
@@ -179,7 +184,7 @@ static void *sample_focus_program;
 static int sample_focus_index=-1,sample_focus_bank=-1;
 static uint64_t sample_focus_since;
 void step_native_observe_rgb(unsigned pad,unsigned rgb){if(pad<16)atomic_store(&sample_native_rgb[pad],rgb);}
-static void sample_palette_publish(void *things,void *program,int bank,int enabled,uint64_t now){
+static void sample_palette_publish(void *things,void *program,int bank,int enabled,int mute_mode,uint64_t now){
  if(!enabled||bank<0||bank>=8){atomic_store(&sample_palette_enabled,0);sample_focus_program=NULL;sample_focus_index=-1;return;}
  /* SelectPad's absolute index exists even for an empty slot. The cached
   * Instrument at+60 can still point to the previously selected loaded pad. */
@@ -191,17 +196,37 @@ static void sample_palette_publish(void *things,void *program,int bank,int enabl
  for(unsigned i=0;i<16;++i){
   unsigned n=(unsigned)bank*16+i;void*p=program?FN(0x286bbe0,void*(*)(void*,int))(program,(int)n):NULL;
   int used=p&&FN(0x2804760,int(*)(void*))(p);
-  int muted=used&&(__atomic_load_n((unsigned char*)p+0x78,__ATOMIC_ACQUIRE)&1u);
+  int muted=used&&sample_instrument_muted(p);
+  if(mute_mode){
+   uint64_t light=used?pad_light(muted?PAD_DANGER:PAD_FREE,now<playback_until[i]?1.f:.75f):0;
+   atomic_store(&sample_palette[i],light);
+   continue;
+  }
   uint32_t rgb=muted?PAD_MUTED:used?music_identity_rgb((unsigned)music_pad_colour(n)):0;
-  float strength=used?(muted?PAD_BRIGHT_MUTED:PAD_BRIGHT_CONTENT):0;
+  float strength=used?(muted?.32f:PAD_BRIGHT_CONTENT):0;
   unsigned native=atomic_load(&sample_native_rgb[i]),top=(native>>16)&255;
   if(((native>>8)&255)>top)top=(native>>8)&255;
   if((native&255)>top)top=native&255;
   if(used&&!muted&&top>=192)strength=.90f; /* real held/Loop playback remains visible */
   if(used&&now<playback_until[i]){rgb=now<playback_muted_until[i]||muted?PAD_MUTED:rgb;strength=rgb==PAD_MUTED?.65f:.90f;}
+#ifdef MPC_LOOP_FEEDBACK
+  int sustained=used&&!(rgb==PAD_MUTED&&now<playback_until[i])&&sample_playing_active(program,n);
+  if(sustained){
+   /* A playing unselected pad must visibly turn OFF, not merely blend back
+    * into the .45 content brightness shared by all loaded pads. */
+   if(now%800<400)strength=muted?.65f:.95f;
+   else{rgb=0;strength=0;}
+  }
+#endif
   uint64_t light=pad_light(rgb,strength);
   if((int)n==focus&&!(rgb==PAD_MUTED&&now<playback_until[i]))
+#ifdef MPC_LOOP_FEEDBACK
+   light=sustained?(music_cursor_on(now-sample_focus_since,500)?pad_light(PAD_SELECT,.95f):
+       pad_light(muted?PAD_MUTED:music_identity_rgb((unsigned)music_pad_colour(n)),muted?.65f:.95f)):
+       pad_focus_light(rgb,strength,now-sample_focus_since);
+#else
    light=pad_focus_light(rgb,strength,now-sample_focus_since);
+#endif
   atomic_store(&sample_palette[i],light);
  }
  atomic_store(&sample_palette_enabled,1);
@@ -639,6 +664,7 @@ void step_native_playback_context(void *things,int transpose,int sample_visible)
     /* Mode10 is the outer Sample pad bank: any event flashes its source.
      * Inside an enabled native mode, decode the corresponding value instead. */
     int seq_mute=sample_visible==2&&atomic_load(&native_mute);
+    int sample_mute=sample_visible==1&&atomic_load(&native_mute);
     int mode=picker ? picker_mode : seq_mute ? 10 : atomic_load(&native_levels_enabled) ? (int)atomic_load(&native_levels_mode) : 10;
     /* A lit Mute button is not a screen/mode identity. Never let it turn
      * note-layout playback into source-bank playback or enable hidden Seq. */
@@ -668,7 +694,7 @@ void step_native_playback_context(void *things,int transpose,int sample_visible)
     }
     int sample_enabled=enabled&&mode==10&&!picker&&!(showing&&steps);
     if (gate || picker) { /* Editor markers describe original/choice, not loop flashes. */
-        playback_previous=-1;memset(playback_until,0,sizeof(playback_until));memset(playback_pitch_until,0,sizeof(playback_pitch_until));atomic_store(&playback_colour_bank,-1);atomic_store(&playback_mask,0);atomic_store(&playback_muted_mask,0);memset(playback_muted_until,0,sizeof(playback_muted_until));sample_palette_publish(things,program,bank,sample_enabled,now);return;
+        playback_previous=-1;memset(playback_until,0,sizeof(playback_until));memset(playback_pitch_until,0,sizeof(playback_pitch_until));atomic_store(&playback_colour_bank,-1);atomic_store(&playback_mask,0);atomic_store(&playback_muted_mask,0);memset(playback_muted_until,0,sizeof(playback_muted_until));sample_palette_publish(things,program,bank,sample_enabled,sample_mute,now);return;
     }
     unsigned muted_pads=0;
     if(mode==10) {
@@ -678,7 +704,7 @@ void step_native_playback_context(void *things,int transpose,int sample_visible)
          * Do not infer mute from a transient LED colour. */
         for(unsigned i=0;i<16;++i) {
             void *p=FN(0x286bbe0,void*(*)(void*,int))(program,bank*16+(int)i);
-            if(!p || (__atomic_load_n((unsigned char*)p+0x78,__ATOMIC_ACQUIRE)&1u)) {
+            if(!p || sample_instrument_muted(p)) {
                 muted_pads|=1u<<i;
             }
         }
@@ -727,7 +753,7 @@ void step_native_playback_context(void *things,int transpose,int sample_visible)
     }
     unsigned muted_mask=0;for(unsigned i=0;i<16;++i)if(now<playback_muted_until[i]||(muted_pads&(1u<<i)))muted_mask|=1u<<i;
     atomic_store(&playback_muted_mask,muted_mask&mask);
-    sample_palette_publish(things,program,bank,sample_enabled,now);
+    sample_palette_publish(things,program,bank,sample_enabled,sample_mute,now);
     atomic_store(&playback_colour_bank,mode==10?bank:-1);
     atomic_store(&playback_mask,mask);
 }
@@ -1074,17 +1100,24 @@ int step_native_shortcut(uint64_t t)
 static uint64_t step_palette_value(unsigned events,unsigned muted,int mute,int erase,int selected,int playing,uint64_t phase)
 {
     int has=events!=0,all_muted=has&&muted==events,mixed=muted&&!all_muted;
-    (void)mute; /* the lit Mute button shows the mode; step colours keep their meaning */
+    if(erase&&has)return pad_light(PAD_DANGER,pad_blink_on(phase)?PAD_BRIGHT_DANGER:.20f);
+    if(mute&&has){
+        /* Keep the mute status visible under both cursors. A mixed step
+         * still has notes to mute, so show both states in turn. */
+        uint32_t status=all_muted||(mixed&&phase%640>=320)?PAD_DANGER:PAD_FREE;
+        return pad_light(status,playing?1.f:.75f);
+    }
     int chosen=music_pad_colour((unsigned)sound);
     uint32_t content=chosen?music_identity_rgb(chosen):PAD_CONTENT;
-    uint32_t rgb=!has?0:all_muted?(music_pad_lighting_mode()?PAD_MUTED:PAD_DANGER):mixed&&phase%640>=320?(music_pad_lighting_mode()?PAD_MUTED:PAD_DANGER):content;
-    float brightness=!has?0:all_muted?PAD_BRIGHT_MUTED:PAD_BRIGHT_CONTENT;
-    if(erase&&has){rgb=PAD_DANGER;brightness=pad_blink_on(phase)?PAD_BRIGHT_DANGER:.20f;}
+    /* Called only for valid steps: keep the writable range visible even
+     * when empty; positions beyond sequence length stay completely off. */
+    int muted_phase=all_muted||(mixed&&phase%640>=320);
+    uint32_t rgb=!has?0xffffffu:muted_phase?(music_pad_lighting_mode()?PAD_MUTED:PAD_DANGER):content;
+    float brightness=!has?.06f:muted_phase?.32f:.80f;
     /* Alternate white with the semantic colour to keep both selection
      * and mute/delete status visible. Playback has a separate cyan cursor. */
     if(selected&&(!has||music_cursor_on(phase,150))){rgb=PAD_SELECT;brightness=.90f;}
     if(playing){rgb=all_muted?(music_pad_lighting_mode()?PAD_MUTED:PAD_DANGER):(music_pad_lighting_mode()?PAD_PLAYHEAD:PAD_FREE);brightness=all_muted?.65f:.95f;}
-    if(erase&&has){rgb=PAD_DANGER;brightness=pad_blink_on(phase)?PAD_BRIGHT_DANGER:.20f;}
     return pad_light(rgb,brightness);
 }
 /* Sound selection overlays white briefly, then reveals the assigned hue.
@@ -1103,6 +1136,7 @@ static uint64_t sound_palette_value(unsigned pad,uint64_t phase){
 }
 static void palette_at(uint64_t phase)
 {
+    int mute_mode=atomic_load(&mute_active)!=0;
     uint64_t tune_lights=0;
     if(menu==3&&picker_mode==1){
         struct music_sample settings;
@@ -1142,12 +1176,12 @@ static void palette_at(uint64_t phase)
         }
         else if (n<count()) {
             int playing=was_playing&&(int)(play_tick/grid_ticks[grid])==n;
-            if(show_other_sounds&&(other_sound_steps&(1u<<slot))&&!slots[slot].count&&(!cursor_visible||n!=cursor)&&!playing){
-                rgb=PAD_CONTEXT;brightness=PAD_BRIGHT_CONTEXT;
+            if(!mute_mode&&show_other_sounds&&(other_sound_steps&(1u<<slot))&&!slots[slot].count&&(!cursor_visible||n!=cursor)&&!playing){
+                rgb=PAD_CONTEXT;brightness=.20f;
                 uint32_t f;memcpy(&f,&brightness,4);atomic_store(&lights[i],(uint64_t)rgb|((uint64_t)f<<32));continue;
             }
             atomic_store(&lights[i],step_palette_value(slots[slot].count,slots[slot].muted,
-                atomic_load(&mute_active)!=0,atomic_load(&requested_erase)!=0,cursor_visible&&n==cursor,
+                mute_mode,atomic_load(&requested_erase)!=0,cursor_visible&&n==cursor,
                 was_playing&&(int)(play_tick/grid_ticks[grid])==n,phase));
             continue;
         }
@@ -1160,7 +1194,9 @@ int step_native_light(unsigned pad,uint64_t *light)
     uint64_t t=atomic_load(&ticket);
     if(pad>=16) return 0;
     if(!music_pad_lighting_mode()&&!(t&(T_STEPS|T_PICKER)))return 0;
-    if(!(t&(T_STEPS|T_PICKER))&&atomic_load(&sample_palette_enabled)&&!atomic_load(&requested_shift)&&!atomic_load(&requested_erase)){
+    /* Shift alone changes knob/button meanings, not Sample pad ownership.
+     * Real bank/workflow overlays are handled before this receiver. */
+    if(!(t&(T_STEPS|T_PICKER))&&atomic_load(&sample_palette_enabled)&&!atomic_load(&requested_erase)){
         *light=atomic_load(&sample_palette[pad]);return 1;
     }
     if (!(t&T_STEPS) && (!atomic_load(&requested_shift) || (t&T_PICKER)) && (atomic_load(&playback_mask)&(1u<<pad))) {
@@ -1355,6 +1391,7 @@ int step_native_control(void *event,uint64_t t)
     }
     if (cc==0x14) return 1; /* Native fader target is not the Step selection. */
     if (cc!=0x10 && cc!=0x11 && cc!=0x12 && !rel) return 0;
+    if (cc==0x10 && event_shift) return 1;
     if (!rel) focus=(int)cc-0x10+1;
     if (rel) {
         int d=v>64 ? (int)v-128 : (int)v;
@@ -1373,9 +1410,16 @@ int step_native_control(void *event,uint64_t t)
         }
         hold((int)(clamp_tick(time)/grid_ticks[grid]));
     } else if (cc==0x10) {
-        if (event_shift) set_sound_bank(choose(v,browse_bank,0,7,rel));
-        else sound=browse_bank*16+choose(v,sound%16,0,15,rel);
+        int bars=sequence?FIELD(sequence,0x200,int):0;
+        int next=choose(v,bars,1,128,rel);
         message[0]=0;
+        if(bars>=1&&bars<=128&&next!=bars){
+            /* Event command factory 19500e0 dereferences this context's
+             * +60 before dispatching to the native Undo manager. */
+            void *context=FIELD(controller,0x240,void*);
+            void *manager=context?FIELD(context,0x60,void*):NULL;
+            if(!step_set_bars(base,manager,sequence,next))say("Cannot change sequence length");
+        }
     } else if (cc==0x11) {
         grid=event_shift ? grid%5+5*choose(v,grid>=5,0,1,rel)
             : choose(v,grid%5,0,4,rel)+(grid>=5 ? 5 : 0);
@@ -1397,7 +1441,7 @@ int step_native_reset_knob(unsigned column,unsigned shifted){
  if(menu||column>2)return 1;
  if(column==1){grid=shifted?grid%5:2+(grid>=5?5:0);cursor=(int)(edit_tick/grid_ticks[grid]);page=cursor/16;}
  else if(column==2){if(shifted)show_other_sounds=1;else velocity=100;}
- /* Sound/bank selects an object, not a value to reset. */
+    /* Length is a structural edit; reset gestures do not shorten a sequence. */
  step_native_tick();repaint();return 1;
 }
 int step_native_button_at(void *event,uint64_t t,uint64_t when_ms)
@@ -1609,13 +1653,14 @@ static void steps_grid_paint(void*g)
         uint64_t light=atomic_load(&lights[i]);uint32_t rgb=(uint32_t)light;float bright;uint32_t bits=(uint32_t)(light>>32);memcpy(&bright,&bits,4);
         if(!(bright>=0.f&&bright<=1.f))bright=0.f;
         int lit=bright>=.2f&&rgb;
-        uint32_t fill=0xff1c1c1c;
+        int valid=page*16+slot<count();
+        uint32_t fill=valid?0xff242424:0xff070707;
         if(lit){float k=bright<.55f?.55f:bright;
             fill=0xff000000u|((uint32_t)(((rgb>>16)&255)*k)<<16)|((uint32_t)(((rgb>>8)&255)*k)<<8)|(uint32_t)((rgb&255)*k);}
         colour(g,fill);rect(g,x,y,w,h);
         int step=page*16+slot+1;snprintf(s,sizeof(s),"%d",step);
         unsigned luma=((fill>>16)&255)*3+((fill>>8)&255)*6+(fill&255);
-        colour(g,lit&&luma>1100?0xff000000:scan_ok&&slots[slot].count?WHITE:GREY);text(g,s,x,y+1,w,h-2,14);
+        colour(g,!valid?0xff353535:lit&&luma>1100?0xff000000:scan_ok&&slots[slot].count?WHITE:GREY);text(g,s,x,y+1,w,h-2,14);
         if(cursor_visible&&cursor/16==page&&cursor%16==slot){colour(g,WHITE);outline(g,x-1,y-1,w+2,h+2);outline(g,x-2,y-2,w+4,h+4);}
     }
 }
@@ -1663,8 +1708,9 @@ void step_native_paint(void *p,void *g)
         }
         steps_grid_paint(g);
         char value[24];
-        if (shift) snprintf(value,sizeof(value),"%c",'A'+browse_bank);else snprintf(value,sizeof(value),"%s",name);
-        cell(g,0,shift ? "Bank" : "Sound",value,focus==1,shift ? browse_bank : sound%16,shift ? 8 : 16);
+        int bars=clamp(sequence?FIELD(sequence,0x200,int):1,1,128);
+        if(shift)snprintf(value,sizeof(value),"--");else snprintf(value,sizeof(value),"%d",bars);
+        cell(g,0,shift ? "--" : "Bars",value,!shift&&focus==1,shift?0:bars-1,shift?1:0);
         cell(g,106,shift ? "Triplet" : "Grid",shift ? (grid>=5 ? "On" : "Off") : grid_names[grid],focus==2,shift ? grid>=5 : grid%5,shift ? 2 : 5);
         int vel=scan_ok && cursor/16==page && slots[cursor%16].count==1
             ? (int)lroundf(FIELD(&slots[cursor%16].first,0x10,float)*127) : velocity;

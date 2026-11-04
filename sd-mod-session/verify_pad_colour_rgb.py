@@ -5,7 +5,7 @@ R=Path(__file__).resolve().parent
 O=R/'build/pad-colour-rgb';O.mkdir(parents=True,exist_ok=True)
 sources=['src/workflow_ui.h','src/pad_workflow_colour.h','check_workflow_colours.c','check_sequence_rgb.c','check_workflow_rgb.c','check_pad_colour_rgb.c','check_pad_colour_steps.c','src/phone_native.c','src/phone_input.c','src/music_settings.c','src/step_native.c','src/step_native.h','src/step_abi.S','src/pad_palette.h','src/compressor.h','src/compressor_ui.c','verify_pad_colour_rgb.py']
 hashes={n:hashlib.sha256((R/n).read_bytes()).hexdigest() for n in sources}
-sources+=['src/music_settings.h','check_palette_receiver.h','check_workflow_rgb.c','src/knob_reset.c','src/knob_reset.h']
+sources+=['src/music_settings.h','check_palette_receiver.h','check_workflow_rgb.c','src/knob_reset.c','src/knob_reset.h','src/sample_playing.h']
 hashes={n:hashlib.sha256((R/n).read_bytes()).hexdigest() for n in sources}
 for name,flags in [('normal',[]),('ubsan',['-fsanitize=undefined','-static-libubsan','-fno-sanitize-recover=all'])]:
  for case,inputs in [('workflow-colours',['check_workflow_colours.c']),('rgb',['check_pad_colour_rgb.c','src/phone_input.c','src/music_settings.c']),('sequence',['check_sequence_rgb.c','src/phone_input.c']),('steps',['check_pad_colour_steps.c','src/music_settings.c','src/step_abi.S'])]:

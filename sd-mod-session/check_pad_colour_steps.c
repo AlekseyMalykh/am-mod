@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#define MPC_LOOP_FEEDBACK 1
 /* Production Steps palette and Events row wrapper; capture the original
  * painter's inputs rather than run a display/audio service. */
 #include "src/step_native.c"
@@ -44,6 +45,8 @@ static void stub(uintptr_t off,void*fn,int string_result){
  unsigned n=string_result?16:8;memcpy((void*)(base+off),string_result?(void*)sret:(void*)plain,n);memcpy((void*)(base+off+n),&fn,8);
 }
 static unsigned char sample_instruments[128][0x80],sample_used[128],sample_program[8];
+static unsigned active_voices[128];
+int sample_playing_active(const void*p,unsigned pad){assert(p==sample_program&&pad<128);return active_voices[pad];}
 static void*sample_instrument(void*p,int n){assert(p==sample_program&&n>=0&&n<128);return sample_used[n]?sample_instruments[n]:NULL;}
 static int sample_has_audio(void*p){for(unsigned n=0;n<128;++n)if(p==sample_instruments[n])return sample_used[n];assert(0);return 0;}
 static void empty_sample_cursor_checks(void){
@@ -59,7 +62,7 @@ static void empty_sample_cursor_checks(void){
    memset(sample_used,0,sizeof(sample_used));sample_used[other]=1;
    FIELD(things,0x5f8,unsigned)=selected;sample_focus_index=-1;
    for(unsigned elapsed=0;elapsed<2400;elapsed+=40){
-    sample_palette_publish(things,sample_program,(int)bank,1,10000+elapsed);
+    sample_palette_publish(things,sample_program,(int)bank,1,0,10000+elapsed);
     int white=!mode||elapsed%period<period/2;
     uint64_t got;assert(step_native_light(pad,&got));
     assert(got==pad_light(white?PAD_SELECT:0,white?.95f:0));
@@ -72,13 +75,56 @@ static void empty_sample_cursor_checks(void){
   }
  }
  memset(sample_used,0,sizeof(sample_used));FIELD(things,0x5f8,unsigned)=3;sample_focus_index=-1;
- sample_palette_publish(things,NULL,0,1,20000);uint64_t got;assert(step_native_light(3,&got)&&(uint32_t)got==PAD_SELECT);
- FIELD(things,0x5f8,unsigned)=128;sample_palette_publish(things,NULL,0,1,20040);
+ sample_palette_publish(things,NULL,0,1,0,20000);uint64_t got;assert(step_native_light(3,&got)&&(uint32_t)got==PAD_SELECT);
+ FIELD(things,0x5f8,unsigned)=128;sample_palette_publish(things,NULL,0,1,0,20040);
  for(unsigned j=0;j<16;++j)assert(step_native_light(j,&got)&&got==pad_light(0,0));
  assert(music_set_pad_lighting_mode(MUSIC_LIGHTING_STANDARD)&&!step_native_light(3,&got));
  assert(music_set_pad_lighting_mode(MUSIC_LIGHTING_MOD)&&music_mod_restore_recommended(3));
- sample_palette_publish(NULL,NULL,0,0,20100);
+ sample_palette_publish(NULL,NULL,0,0,0,20100);
  puts("PASS Sample empty selected cursor: all128 slots/eight banks, stale loaded-pad cache, all4 pulse modes, immediate white on selection, empty off phase, steady loaded neighbours, absent program, invalid target and Standard pass-through");
+}
+static void sample_playing_checks(void){
+ unsigned char things[0x700]={0};
+ memset(sample_used,1,sizeof(sample_used));memset(sample_native_rgb,0,sizeof(sample_native_rgb));
+ memset(playback_until,0,sizeof(playback_until));assert(music_set_mod_setting(MUSIC_SETTING_BLINK,2));
+ for(unsigned bank=0;bank<8;++bank)for(unsigned pad=0;pad<16;++pad){
+  unsigned n=bank*16+pad;FIELD(things,0x5f8,unsigned)=(n+1)%128;sample_focus_index=-1;
+  for(unsigned colour=1;colour<MUSIC_IDENTITY_CHOICES;++colour){
+   assert(music_set_pad_colour(n,music_colour_choice(colour)));active_voices[n]=1;
+   sample_palette_publish(things,sample_program,(int)bank,1,0,40000);uint64_t out;
+   assert(step_native_light(pad,&out)&&out==pad_light(music_identity_rgb(music_colour_choice(colour)),.95f));
+   sample_palette_publish(things,sample_program,(int)bank,1,0,40400);
+   assert(step_native_light(pad,&out)&&out==pad_light(0,0));
+   atomic_store(&requested_shift,1);
+   assert(step_native_light(pad,&out)&&out==pad_light(0,0));
+   unsigned neighbour=(pad+2)%16;
+   assert(step_native_light(neighbour,&out)&&out==pad_light(music_identity_rgb(music_pad_colour(bank*16+neighbour)),PAD_BRIGHT_CONTENT));
+   atomic_store(&requested_shift,0);
+   active_voices[n]=0;sample_palette_publish(things,sample_program,(int)bank,1,0,40800);
+   assert(step_native_light(pad,&out)&&out==pad_light(music_identity_rgb(music_colour_choice(colour)),PAD_BRIGHT_CONTENT));
+  }
+ }
+ /* Cursor is still white; its colour phase retains real playback intensity. */
+ FIELD(things,0x5f8,unsigned)=0;sample_focus_index=-1;active_voices[0]=1;
+ sample_palette_publish(things,sample_program,0,1,0,40000);uint64_t out;assert(step_native_light(0,&out)&&(uint32_t)out==PAD_SELECT);
+ sample_palette_publish(things,sample_program,0,1,0,40400);assert(step_native_light(0,&out)&&out==pad_light(music_identity_rgb(music_pad_colour(0)),.95f));
+ /* Moving the cursor away exposes the playing pad's real off phase. */
+ FIELD(things,0x5f8,unsigned)=1;sample_palette_publish(things,sample_program,0,1,0,40440);
+ assert(step_native_light(0,&out)&&out==pad_light(0,0));assert(step_native_light(1,&out)&&(uint32_t)out==PAD_SELECT);
+ /* Recorded muted events keep their grey flash above the loop off phase. */
+ FIELD(sample_instruments[0],0x78,unsigned char)=1;FIELD(things,0x5f8,unsigned)=0;playback_until[0]=41000;
+ sample_palette_publish(things,sample_program,0,1,0,40480);assert(step_native_light(0,&out)&&out==pad_light(PAD_MUTED,.65f));
+ playback_until[0]=0;FIELD(things,0x5f8,unsigned)=1;
+ sample_palette_publish(things,sample_program,0,1,0,40520);assert(step_native_light(0,&out)&&out==pad_light(0,0));
+ sample_palette_publish(things,sample_program,0,1,0,40800);assert(step_native_light(0,&out)&&out==pad_light(PAD_MUTED,.65f));
+ sample_used[2]=0;FIELD(things,0x5f8,unsigned)=0;
+ sample_palette_publish(things,sample_program,0,1,1,40800);
+ assert(step_native_light(0,&out)&&out==pad_light(PAD_DANGER,.75f));
+ assert(step_native_light(1,&out)&&out==pad_light(PAD_FREE,.75f));
+ assert(step_native_light(2,&out)&&out==0);
+ FIELD(sample_instruments[0],0x78,unsigned char)=0;
+ active_voices[0]=0;sample_palette_publish(NULL,NULL,0,0,0,50500);
+ puts("PASS active Sample/Loop voices blink assigned hue/OFF across128 pads/eight banks/eight colours with transport stopped; moving selection keeps the playing pad blinking, stop restores content; selected white cursor keeps priority");
 }
 int main(void){
  void*p=mmap(NULL,0x7500000,7,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);assert(p!=MAP_FAILED);base=(uintptr_t)p;
@@ -95,7 +141,7 @@ int main(void){
   assert((uint32_t)step_palette_value(1,0,0,1,0,0,0)==PAD_DANGER);
   assert((uint32_t)step_palette_value(1,0,0,0,1,0,0)==PAD_SELECT);
   assert((uint32_t)step_palette_value(1,0,0,0,0,1,0)==PAD_PLAYHEAD);
-  assert(step_palette_value(0,0,0,0,0,0,0)==0);
+  assert(step_palette_value(0,0,0,0,0,0,0)==pad_light(0xffffff,.06f));
  }
  assert(music_set_pad_colour(0,8));length=7680;menu=0;browse_bank=1;sound=16;sound_present=3;
  /* Sample playback used to force cyan before the ordinary Pad Colour
@@ -138,28 +184,32 @@ int main(void){
  atomic_store(&requested_sound,0);
  assert(show_other_sounds);cursor_visible=0;was_playing=0;grid=2;page=0;sound=0;other_sound_steps=1;
  memset(slots,0,sizeof(slots));palette();
- assert((uint32_t)atomic_load(&lights[12])==PAD_CONTEXT&&atomic_load(&lights[13])==0);
+ assert(atomic_load(&lights[12])==pad_light(PAD_CONTEXT,.20f)&&atomic_load(&lights[13])==pad_light(0xffffff,.06f));
  slots[0].count=1;palette();assert((uint32_t)atomic_load(&lights[12])==0x2030ff);
  slots[0].muted=1;palette();assert((uint32_t)atomic_load(&lights[12])==PAD_MUTED);
  memset(slots,0,sizeof(slots));other_sound_steps=0;
  /* Sparse and dense sequence context: only real other-sound steps get a
   * dim background, and own events win even where another sound also plays. */
- palette();for(unsigned key=0;key<16;++key)assert(atomic_load(&lights[key])==0);
+ palette();for(unsigned key=0;key<16;++key)assert(atomic_load(&lights[key])==pad_light(0xffffff,.06f));
  slots[2].count=slots[9].count=1;
  other_sound_steps=(1u<<1)|(1u<<2)|(1u<<12);palette();
  for(unsigned key=0;key<16;++key){
   unsigned step=(3-key/4)*4+key%4;
-  uint64_t expected=(step==2||step==9)?pad_light(0x2030ff,PAD_BRIGHT_CONTENT)
-      :(step==1||step==12)?pad_light(PAD_CONTEXT,PAD_BRIGHT_CONTEXT):0;
+  uint64_t expected=(step==2||step==9)?pad_light(0x2030ff,.80f)
+      :(step==1||step==12)?pad_light(PAD_CONTEXT,.20f):pad_light(0xffffff,.06f);
   assert(atomic_load(&lights[key])==expected);
  }
  other_sound_steps=0xffff;palette();
  for(unsigned key=0;key<16;++key){
   unsigned step=(3-key/4)*4+key%4;
-  assert(atomic_load(&lights[key])==((step==2||step==9)?pad_light(0x2030ff,PAD_BRIGHT_CONTENT):pad_light(PAD_CONTEXT,PAD_BRIGHT_CONTEXT)));
+  assert(atomic_load(&lights[key])==((step==2||step==9)?pad_light(0x2030ff,.80f):pad_light(PAD_CONTEXT,.20f)));
  }
  show_other_sounds=0;palette();
- for(unsigned key=0;key<16;++key){unsigned step=(3-key/4)*4+key%4;assert(atomic_load(&lights[key])==((step==2||step==9)?pad_light(0x2030ff,PAD_BRIGHT_CONTENT):0));}
+ for(unsigned key=0;key<16;++key){unsigned step=(3-key/4)*4+key%4;assert(atomic_load(&lights[key])==((step==2||step==9)?pad_light(0x2030ff,.80f):pad_light(0xffffff,.06f)));}
+ /* A partial page must distinguish writable empties from out-of-range pads. */
+ int64_t old_length=length;length=5*grid_ticks[grid];memset(slots,0,sizeof(slots));other_sound_steps=0;palette();
+ for(unsigned key=0;key<16;++key)assert(atomic_load(&lights[key])==(pad_step(key)<5?pad_light(0xffffff,.06f):0));
+ length=old_length;
  show_other_sounds=1;memset(slots,0,sizeof(slots));other_sound_steps=0;
  /* Actual production grid drawing must agree with physical pads, not just
   * with its own numbering. Cover mirrored pairs and every page position. */
@@ -209,5 +259,6 @@ int main(void){
  assert(music_set_pad_lighting_mode(MUSIC_LIGHTING_MOD));
  puts("PASS Standard fixed Steps colours and native Sample pass-through; identity settings retained");
  empty_sample_cursor_checks();
+ sample_playing_checks();
  return 0;
 }

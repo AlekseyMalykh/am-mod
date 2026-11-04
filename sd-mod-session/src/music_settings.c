@@ -19,30 +19,52 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#define MOD_DEFAULT ((UINT64_C(0xa9876543210)<<5)|1u|(2u<<3))
+#define MOD_DEFAULT ((UINT64_C(0xdcba9876543210)<<5)|1u|(2u<<3))
+#define TAIL_SHIFT 61
+#define TAIL_MASK (UINT64_C(7)<<TAIL_SHIFT)
 static _Atomic uint64_t mod_settings=MOD_DEFAULT,mod_generation;
 static int lighting_directory=-1;
 static unsigned lighting_write_serial;
-static const uint32_t mod_palette_rgb[MUSIC_PALETTE_SIZE]={0x2030ff,0x8830ff,0xff20b0,0xff6000,0xff70b8,0xffffff,0x00c700,0xff2020,0xffc247,0x00c8ff,0x707070};
-static const char*const palette_names[MUSIC_PALETTE_SIZE]={"Blue","Violet","Magenta","Orange","Pink","White","Green","Red","Amber","Cyan","Grey"};
+static const uint32_t mod_palette_rgb[MUSIC_PALETTE_SIZE]={0x2030ff,0x8830ff,0xff20b0,0xff6000,0xff4070,0x98ff00,0x00b080,0xfff000,0xffffff,0x00ff00,0xff0000,0xffb000,0x00ffff,0x707070};
+static const char*const palette_names[MUSIC_PALETTE_SIZE]={"Blue","Violet","Magenta","Orange","Coral","Lime","Teal","Yellow","White","Green","Red","Amber","Cyan","Grey"};
 uint64_t music_mod_settings_snapshot(void){return atomic_load(&mod_settings);}
-int music_mod_settings_valid(uint64_t v){
- if(v>>49)return 0;
+static int palette_valid(uint64_t v,unsigned count){
+ if(v>>(5+4*count))return 0;
  unsigned seen=0;
- for(unsigned i=0;i<MUSIC_PALETTE_SIZE;++i){unsigned c=(unsigned)((v>>(5+4*i))&15);if(c>=MUSIC_PALETTE_SIZE||(seen&(1u<<c)))return 0;seen|=1u<<c;}
+ for(unsigned i=0;i<count;++i){unsigned c=(unsigned)((v>>(5+4*i))&15);if(c>=count||(seen&(1u<<c)))return 0;seen|=1u<<c;}
  return 1;
+}
+int music_mod_settings_valid(uint64_t v){return palette_valid(v&~TAIL_MASK,MUSIC_PALETTE_SIZE)||palette_valid(v,11);}
+static uint64_t palette_upgrade(uint64_t v){
+ if(palette_valid(v&~TAIL_MASK,MUSIC_PALETTE_SIZE))return v;
+ /* Original IDs retain their owners and role swaps. The three new colours
+  * occupy the extra user slots; no older service colour becomes user-owned. */
+ static const unsigned colour[11]={0,1,2,3,4,8,9,10,11,12,13};
+ uint64_t out=v&31;
+ for(unsigned slot=0;slot<MUSIC_PALETTE_SIZE;++slot){unsigned c;
+  if(slot<5)c=colour[(v>>(5+4*slot))&15];
+  else if(slot<MUSIC_USER_COLOURS)c=slot;
+  else c=colour[(v>>(5+4*(slot-3)))&15];
+  out|=(uint64_t)c<<(5+4*slot);
+ }
+ return out;
 }
 int music_mod_settings_restore(uint64_t v){
  if(!music_mod_settings_valid(v))return 0;
+ v=palette_upgrade(v);
  atomic_store(&mod_settings,v);atomic_fetch_add(&mod_generation,1);return 1;
 }
 int music_pad_lighting_mode(void){return (int)(atomic_load(&mod_settings)&1);}
-int music_mod_setting(unsigned field){uint64_t v=atomic_load(&mod_settings);return field<3?(int)((v>>field)&1):field==MUSIC_SETTING_BLINK?(int)((v>>3)&3):0;}
+unsigned music_tail_ms(unsigned choice){
+ static const unsigned ms[MUSIC_TAIL_CHOICES]={100,250,500,750,1000,1500,2000,4000};
+ return ms[choice<MUSIC_TAIL_CHOICES?choice:4];
+}
+int music_mod_setting(unsigned field){uint64_t v=atomic_load(&mod_settings);return field<3?(int)((v>>field)&1):field==MUSIC_SETTING_BLINK?(int)((v>>3)&3):field==MUSIC_SETTING_TAIL?(int)(v>>TAIL_SHIFT)^4:0;}
 static unsigned palette_slot(uint64_t v,unsigned slot){return (unsigned)((v>>(5+4*slot))&15);}
 uint32_t music_palette_rgb(unsigned c){return mod_palette_rgb[c<MUSIC_PALETTE_SIZE?c:0];}
 const char*music_palette_name(unsigned c){return palette_names[c<MUSIC_PALETTE_SIZE?c:0];}
-unsigned music_service_colour(unsigned role){return palette_slot(atomic_load(&mod_settings),5+(role<MUSIC_SERVICE_COUNT?role:0));}
-uint32_t music_service_rgb(unsigned role){uint64_t v=atomic_load(&mod_settings);return mod_palette_rgb[palette_slot((v&1)?v:MOD_DEFAULT,5+(role<MUSIC_SERVICE_COUNT?role:0))];}
+unsigned music_service_colour(unsigned role){return palette_slot(atomic_load(&mod_settings),MUSIC_USER_COLOURS+(role<MUSIC_SERVICE_COUNT?role:0));}
+uint32_t music_service_rgb(unsigned role){uint64_t v=atomic_load(&mod_settings);return mod_palette_rgb[palette_slot((v&1)?v:MOD_DEFAULT,MUSIC_USER_COLOURS+(role<MUSIC_SERVICE_COUNT?role:0))];}
 uint32_t music_user_rgb(unsigned raw){unsigned slot=music_colour_choice_index(raw);return mod_palette_rgb[palette_slot(atomic_load(&mod_settings),slot?slot-1:0)];}
 const char*music_identity_name(unsigned raw){unsigned slot=music_colour_choice_index(raw);return raw?palette_names[palette_slot(atomic_load(&mod_settings),slot?slot-1:0)]:"Default";}
 int music_cursor_on(uint64_t phase,unsigned duty){
@@ -60,10 +82,11 @@ int music_lighting_preferences_open(const char *directory){
  if(fd>=0){char text[32]={0};struct stat st;ssize_t n=read(fd,text,sizeof(text));
   if(!fstat(fd,&st)&&S_ISREG(st.st_mode)){
    if(legacy&&n==18&&!memcmp(text,"AM_PAD_LIGHTING=",16)&&text[17]=='\n'&&(text[16]=='0'||text[16]=='1'))value=(value&~UINT64_C(1))|(unsigned)(text[16]-'0');
-   if(!legacy&&n==27&&!memcmp(text,"AM_SETTINGS1 ",13)&&text[26]=='\n'){
+   if(!legacy&&((n==27&&!memcmp(text,"AM_SETTINGS1 ",13)&&text[26]=='\n')||
+                 (n==30&&(!memcmp(text,"AM_SETTINGS2 ",13)||!memcmp(text,"AM_SETTINGS3 ",13))&&text[29]=='\n'))){
     uint64_t decoded=0;int valid=1;
-    for(int i=13;i<26;++i){unsigned c=(unsigned char)text[i];if(c>='0'&&c<='9')c-='0';else if(c>='a'&&c<='f')c=c-'a'+10;else {valid=0;break;}decoded=(decoded<<4)|c;}
-    if(valid&&music_mod_settings_valid(decoded))value=decoded;
+    for(int i=13;i<n-1;++i){unsigned c=(unsigned char)text[i];if(c>='0'&&c<='9')c-='0';else if(c>='a'&&c<='f')c=c-'a'+10;else {valid=0;break;}decoded=(decoded<<4)|c;}
+    if(valid&&(!(decoded&TAIL_MASK)||text[11]=='3')&&music_mod_settings_valid(decoded))value=decoded;
    }
   }
   close(fd);
@@ -87,7 +110,7 @@ static int save_mod_settings(uint64_t value){
   for(unsigned attempt=0;attempt<16&&fd<0;++attempt){snprintf(temp,sizeof(temp),".am-mod-settings.tmp-%ld-%u",(long)getpid(),++lighting_write_serial);
    fd=openat(lighting_directory,temp,O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC|O_NOFOLLOW,0600);if(fd<0&&errno!=EEXIST)return 0;}
   if(fd<0)return 0;
-  char text[28];snprintf(text,sizeof(text),"AM_SETTINGS1 %013llx\n",(unsigned long long)value);
+  char text[31];snprintf(text,sizeof(text),"AM_SETTINGS%c %016llx\n",value&TAIL_MASK?'3':'2',(unsigned long long)value);
   int ok=write(fd,text,sizeof(text)-1)==(ssize_t)sizeof(text)-1&&!fsync(fd);if(close(fd))ok=0;
   if(ok)ok=!renameat(lighting_directory,temp,lighting_directory,".am-mod-settings");
   if(!ok){unlinkat(lighting_directory,temp,0);return 0;}
@@ -96,6 +119,7 @@ static int save_mod_settings(uint64_t value){
  return music_mod_settings_restore(value);
 }
 int music_set_mod_setting(unsigned field,unsigned value){
+ if(field==MUSIC_SETTING_TAIL)return value<MUSIC_TAIL_CHOICES&&save_mod_settings((atomic_load(&mod_settings)&~TAIL_MASK)|((uint64_t)(value^4u)<<TAIL_SHIFT));
  if(field>MUSIC_SETTING_BLINK||value>(field==MUSIC_SETTING_BLINK?3u:1u))return 0;
  uint64_t mask=field==MUSIC_SETTING_BLINK?3:1,v=atomic_load(&mod_settings);
  return save_mod_settings((v&~(mask<<field))|((uint64_t)value<<field));
@@ -103,7 +127,7 @@ int music_set_mod_setting(unsigned field,unsigned value){
 int music_set_pad_lighting_mode(unsigned mode){return music_set_mod_setting(MUSIC_SETTING_LIGHTING,mode);}
 int music_set_service_colour(unsigned role,unsigned colour){
  if(role>=MUSIC_SERVICE_COUNT||colour>=MUSIC_PALETTE_SIZE)return 0;
- uint64_t v=atomic_load(&mod_settings);unsigned target=role+5,previous=palette_slot(v,target),owner=0;
+ uint64_t v=atomic_load(&mod_settings);unsigned target=role+MUSIC_USER_COLOURS,previous=palette_slot(v,target),owner=0;
  while(owner<MUSIC_PALETTE_SIZE&&palette_slot(v,owner)!=colour)++owner;
  if(owner==MUSIC_PALETTE_SIZE)return 0;
  v&=~((UINT64_C(15)<<(5+4*target))|(UINT64_C(15)<<(5+4*owner)));
@@ -111,7 +135,7 @@ int music_set_service_colour(unsigned role,unsigned colour){
  return save_mod_settings(v);
 }
 int music_mod_restore_recommended(unsigned section){
- uint64_t mask=section==0?1:section==1?6:section==2?UINT64_C(0x1ffffffffffe0):section==3?24:0;
+ uint64_t mask=section==0?1:section==1?6|TAIL_MASK:section==2?UINT64_C(0x1fffffffffffffe0):section==3?24:0;
  if(section>3)return 0;
  return save_mod_settings((atomic_load(&mod_settings)&~mask)|(MOD_DEFAULT&mask));
 }

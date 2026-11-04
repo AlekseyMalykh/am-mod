@@ -21,13 +21,16 @@ int music_set_pad_lighting_mode(unsigned mode); /* UI owner; durable when SD ava
 void music_lighting_preferences_init(void);
 int music_lighting_preferences_open(const char *directory); /* caller provides owned settings directory */
 int music_lighting_preferences_durable(void);
-/* Atomic display snapshot: five user slots and six service colours form a
+/* Atomic display snapshot: eight user slots and six service colours form a
  * permutation. Changing a service colour swaps its previous owner. */
 enum { MUSIC_SERVICE_SELECT, MUSIC_SERVICE_FREE, MUSIC_SERVICE_DANGER,
        MUSIC_SERVICE_ORIGINAL, MUSIC_SERVICE_PLAYHEAD, MUSIC_SERVICE_MUTED,
        MUSIC_SERVICE_COUNT };
-#define MUSIC_PALETTE_SIZE 11
-enum { MUSIC_SETTING_LIGHTING, MUSIC_SETTING_WAVE, MUSIC_SETTING_SPECTRUM, MUSIC_SETTING_BLINK };
+#define MUSIC_USER_COLOURS 8
+#define MUSIC_PALETTE_SIZE (MUSIC_USER_COLOURS+MUSIC_SERVICE_COUNT)
+enum { MUSIC_SETTING_LIGHTING, MUSIC_SETTING_WAVE, MUSIC_SETTING_SPECTRUM, MUSIC_SETTING_BLINK, MUSIC_SETTING_TAIL };
+#define MUSIC_TAIL_CHOICES 8
+unsigned music_tail_ms(unsigned choice);
 uint64_t music_mod_settings_snapshot(void);
 int music_mod_settings_valid(uint64_t value);
 int music_mod_settings_restore(uint64_t value); /* project load; no disk write */
@@ -44,13 +47,13 @@ const char *music_identity_name(unsigned raw);
 int music_cursor_on(uint64_t phase,unsigned duty); /* duty in thousandths */
 /* Persisted IDs remain stable. Display identity never uses service colours.
  * Raw getters/setters retain legacy metadata for Undo and project round trips. */
-#define MUSIC_IDENTITY_CHOICES 6
+#define MUSIC_IDENTITY_CHOICES (MUSIC_USER_COLOURS+1)
 static inline unsigned music_colour_choice(unsigned index){
- static const unsigned ids[MUSIC_IDENTITY_CHOICES]={0,8,3,4,6,13};
+ static const unsigned ids[MUSIC_IDENTITY_CHOICES]={0,8,3,4,6,13,9,10,7};
  return ids[index<MUSIC_IDENTITY_CHOICES?index:MUSIC_IDENTITY_CHOICES-1];
 }
 static inline unsigned music_colour_effective(unsigned raw){
- static const unsigned ids[MUSIC_SEQUENCE_COLOURS]={8,8,3,3,4,4,6,3,8,8,8,3,8,13};
+ static const unsigned ids[MUSIC_SEQUENCE_COLOURS]={8,8,3,3,4,4,6,7,8,9,10,3,8,13};
  return ids[raw<MUSIC_SEQUENCE_COLOURS?raw:0];
 }
 static inline unsigned music_colour_choice_index(unsigned raw){

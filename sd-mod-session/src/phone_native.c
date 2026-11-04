@@ -6,6 +6,9 @@
 #endif
 #include "phone_hooks.h"
 #include "sample_load_trace.h"
+#ifdef MPC_LOOP_FEEDBACK
+#include "sample_playing.h"
+#endif
 #ifdef MPC_COMPRESSOR
 #include "compressor.h"
 #endif
@@ -151,6 +154,7 @@ static _Atomic unsigned char native_buttons_down[112],gesture_released[112];
 static _Atomic unsigned bank_pad_owned;
 #endif
 static _Atomic unsigned native_shift_requested,native_mute_mode;
+static _Atomic unsigned tail_layout,tail_pads,stop_requested;
 static void observe_mute_indicator(unsigned value){
  /* Shift uses the Mute LED as a secondary-function hint. Update on actual
   * LED notifications, never sample a stale hint at the next UI tick. */
@@ -165,9 +169,26 @@ static unsigned power_stop_ready;
 int power_control_operation_busy(void){return workflow_jobs_busy()||resample_ui_shutdown_busy();}
 #endif
 static int on_ui(void);
+static unsigned tail_mode(void){
+ if(!note_native_sample_visible()||!music_ui_chords_available()||music_ui_sequence_visible()
+    ||workflow_blocks_sample_controls()||step_native_active()||(step_native_transport_state()&4u)
+    ||atomic_load(&naming_active)||atomic_load(&native_mute_mode)||atomic_load(&native_shift_requested))return 0;
+#ifdef MPC_COMPRESSOR
+ if(compressor_ui_active())return 0;
+#endif
+#ifdef MPC_CHORDS
+ if(chords_active())return 0;
+#endif
+#ifdef MPC_RESAMPLE_TRIAL
+ if(resample_ui_active()||resample_running())return 0;
+#endif
+ unsigned enabled=0,mode=0,origin=0;
+ music_lighting_levels_state(&enabled,&mode,&origin);
+ return enabled?(mode==8?2u:0u):1u;
+}
 static void forward_buttons(void*event){
  unsigned code=FIELD(event,8,unsigned char),down=FIELD(event,9,unsigned char)!=0;
- if(code==0x51&&down)workflow_button(event,0); /* Stop preview, then native sequence Stop. */
+ if((code==0x51||code==0x52)&&down)workflow_button(event,0);
  if(code<112){
   if(!down&&atomic_exchange(&gesture_released[code],0))return;
   if(down&&(code==0x31||code==0x09)){pthread_mutex_lock(&gesture_mutex);memcpy(gesture_down_events[code==0x31?0:1],event,16);pthread_mutex_unlock(&gesture_mutex);}
@@ -424,6 +445,8 @@ static void tick(void *unused)
 #ifdef MPC_POLY_RECORD
     poly_record_context(note_native_context());
 #endif
+    unsigned tail=tail_mode();
+    atomic_store(&tail_layout,tail);workflow_tail_tick(tail!=0);
     send_step_lights();send_record_light();
     music_lighting_tick();
     if(action_batch)atomic_fetch_sub(&ui_dispatching,1);
@@ -1055,6 +1078,7 @@ static void controller(void *event)
 static void buttons(void *event)
 {
     unsigned native_code=FIELD(event,8,unsigned char),native_down=FIELD(event,9,unsigned char)!=0;
+    if(native_code==0x51)atomic_store(&stop_requested,native_down);
 #ifdef MPC_KNOB_RESET
     knob_reset_button(native_code,native_down);
 #endif
@@ -1111,6 +1135,7 @@ static void pad_event(void *event)
     unsigned bit = 1u << pad;
     int down = FN(0xddfed0,int(*)(void*,int))(msg,0);
     int up = FN(0xddff20,int(*)(void*,int))(msg,1);
+    if(atomic_load(&tail_pads)&bit){if(up)atomic_fetch_and(&tail_pads,~bit);return;}
     if (passed & bit) {
         if (up) passed &= ~bit;
         ORIG(H_PAD,void(*)(void*))(event); return;
@@ -1151,6 +1176,13 @@ static void pad_event(void *event)
     unsigned owned = consumed & bit;
     uint64_t route=step_native_ticket();
     int pad_route=step_native_pad_route(route);
+    unsigned tail=atomic_load(&tail_layout);
+    if(down&&!owned&&!pad_route&&tail&&atomic_load(&stop_requested)&&!atomic_load(&native_shift_requested)){
+        atomic_fetch_or(&tail_pads,bit);
+        struct phone_event e={0};e.kind=PHONE_TAIL_PAD;e.pad=pad;e.workflow_ticket=tail;
+        if(!phone_events_push(&e))queue_failed();
+        return;
+    }
     if ((atomic_load(&shortcut_pads)&bit) ||
         (down && !owned && !atomic_load(&naming_active) && (pad_route==2 || pad_route==3))) {
         if (down) atomic_fetch_or(&shortcut_pads,bit);
@@ -1198,6 +1230,11 @@ static unsigned process_events(void)
     unsigned budget = PHONE_EVENT_CAPACITY,processed=0;
     while (budget-- && phone_events_pop(&e)) {
         ++processed;
+        if(e.kind==PHONE_TAIL_PAD){
+            unsigned tail=tail_mode();
+            if(tail&&tail==e.workflow_ticket)workflow_tail_preview(e.pad,tail==2);
+            continue;
+        }
 #ifdef MPC_KNOB_RESET
         if(e.kind==PHONE_BANK_PAD){
             _Alignas(8) unsigned char native[40];memcpy(native,e.native,16);memcpy(native+16,e.midi,24);
@@ -1757,6 +1794,9 @@ static void load(void)
     if (!music_ui_install(music_sample_paint,music_project_paint,music_tab_paint)) _exit(121);
     if (!step_native_install(step_paint)) _exit(121);
     if (!workflow_install(workflow_files,workflow_copy)) _exit(121);
+#ifdef MPC_LOOP_FEEDBACK
+    if (!sample_playing_install(base)) _exit(121);
+#endif
     if (!install_name_cursor()) _exit(121);
     if (!project_exit_install(base)) _exit(121);
 #ifdef MPC_EARLY_STARTUP

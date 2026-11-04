@@ -3,7 +3,7 @@
  * against music_settings.c in check_lighting_preferences/project_recovery. */
 #include "src/music_settings.h"
 uint32_t music_service_rgb(unsigned role){
- static const uint32_t rgb[]={0xffffff,0x00c700,0xff2020,0xffc247,0x00c8ff,0x707070};
+ static const uint32_t rgb[]={0xffffff,0x00ff00,0xff0000,0xffb000,0x00ffff,0x707070};
  return rgb[role<MUSIC_SERVICE_COUNT?role:0];
 }
 uint32_t music_user_rgb(unsigned raw){return music_sequence_colours[music_colour_effective(raw)];}

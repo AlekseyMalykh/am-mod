@@ -471,7 +471,7 @@ batch_bank=2;batch_palette();
 assert(workflow_light(0,&light)&&(uint32_t)light==PAD_CONTENT);
 #endif
 workflow_pad(0,1,0,workflow_ticket());assert(destination[0]==32&&pinned[0]);
-batch_palette();assert(workflow_light(0,&light)&&(uint32_t)light==0xff2020);
+batch_palette();assert(workflow_light(0,&light)&&(uint32_t)light==PAD_DANGER);
 batch_row=1;target_pad(32);assert(destination[1]!=32&&strstr(batch_message,"already assigned"));
 batch_row=0;unsigned char k2[16]={0};k2[8]=0x11; /* Auto = first of17 slots */
 workflow_control(k2,workflow_ticket());assert(!pinned[0]&&destination[0]!=32);
@@ -568,6 +568,13 @@ button_event(0x37,1);workflow_pad(0,1,0,workflow_ticket());button_event(0x36,1);
 batch_auto_bank=3;table();assert(batch_count==16);for(unsigned i=0;i<batch_count;++i)assert(destination[i]>=48&&destination[i]<64&&destination[i]!=slice_sound);
 shift=0;button_event(0x6f,1);assert(!chop_auditions&&preview_private&&private_previews==before_chop_preview+2&&private_first==(int64_t)source[batch_row]*1000);button_event(0x6f,0);assert(!chop_stops&&preview_private);
 button_event(0x36,1);assert(!preview_private&&preview_source==128);
+#ifndef PROJECT_RESTORE_BASELINE
+FIELD(chop_backing,8,int)=8000;
+assert(preview_region(sounds[0],1,1,100)&&tail_preview&&private_first==1200&&private_last==2000);
+assert(preview_region(sounds[0],1,1,1000)&&private_first==1000&&private_last==2000);
+assert(!preview_region(sounds[0],32,1,100));
+workflow_tail_tick(0);assert(!tail_preview&&preview_source==128);
+#endif
 destination[0]=slice_sound;assert(!review(&overwrite));arrange();assert(review(&overwrite));
 snprintf(path,sizeof(path),"%s.chops",argv[2]);draw=fopen(path,"w");assert(draw);batch_paint((void*)1);fclose(draw);draw=NULL;
 button_event(0x0e,1);assert(batch_confirm&&!chop_calls);button_event(0x0e,1);assert(batch_job&&!chop_calls);
@@ -593,7 +600,7 @@ assert(workflow_mono_open(sample_screen));assert(mono&&workflow_owns(3,0)&&!work
 FIELD(sample_screen,0x100,void*)=volume_registry;mono_labels=0;
 workflow_sample_paint(sample_screen,(void*)1);
 assert(mono_labels==63); /* Real Sample paint route must expose all choices. */
-assert(workflow_light(mono_target%16,&light)&&((uint32_t)light==0xffffff||(uint32_t)light==0xff2020||(uint32_t)light==PAD_FREE||(uint32_t)light==PAD_CONTENT||(uint32_t)light==PAD_EMPTY));
+assert(workflow_light(mono_target%16,&light)&&((uint32_t)light==0xffffff||(uint32_t)light==PAD_DANGER||(uint32_t)light==PAD_FREE||(uint32_t)light==PAD_CONTENT||(uint32_t)light==PAD_EMPTY));
 button_event(0x0c,1);assert(!mono&&!mono_calls);
 assert(workflow_mono_open(sample_screen));mono_bank=1;workflow_pad(4,1,0,workflow_ticket());assert(mono_target==20);
 button_event(0x0e,1);if(!mono_job){assert(mono_confirm==1&&!mono_calls);button_event(0x0e,1);}

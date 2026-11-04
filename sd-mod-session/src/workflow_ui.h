@@ -1,6 +1,8 @@
 #ifndef MPC_WORKFLOW_UI_H
 #define MPC_WORKFLOW_UI_H
 #include <stdint.h>
+void workflow_tail_tick(int available);
+void workflow_tail_preview(unsigned pad,int chop);
 void workflow_init(uintptr_t base);
 void workflow_registry_bind(void *services);
 void workflow_files_constructed(void *files);

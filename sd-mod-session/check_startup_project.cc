@@ -9,10 +9,13 @@
 static const char*metadata;
 static const char*autosave_path;
 static const char*temp_root;
+static unsigned named_saved;static std::string named_target;
+#define MPC_PROJECT_RECOVERY 1
 #define STARTUP_STORAGE_META metadata
 #define STARTUP_AUTOSAVE_PATH autosave_path
 #define STARTUP_TEMP_ROOT temp_root
 #include "src/startup_project.cc"
+extern "C" void project_recovery_saved(const char*path){++named_saved;named_target=path;}
 static void elf(const char*path,uintptr_t base){
  FILE*f=fopen(path,"rb");assert(f);Elf64_Ehdr h;assert(fread(&h,1,sizeof(h),f)==sizeof(h));
  auto*memory=static_cast<unsigned char*>(mmap(reinterpret_cast<void*>(base),0x7500000,7,MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED_NOREPLACE,-1,0));assert(memory==reinterpret_cast<void*>(base));
@@ -47,6 +50,10 @@ static int save_current(void*,const uint64_t*file,bool a,bool b,bool c){
  std::ofstream f(autosave_path);f<<"current NEW project, not the previous SD project";return !!f;
 }
 static void auto_receiver(void*){++auto_calls;}
+static unsigned explicit_calls;static bool explicit_ok=true;
+static int explicit_save(void*p,const uint64_t*file,bool a,bool b,bool c){
+ assert(p==(void*)0x1234&&file&&a&&!b&&c);++explicit_calls;return explicit_ok?7:0;
+}
 int main(int argc,char**argv){
  assert(argc==2);setbuf(stdout,nullptr);elf(argv[1],0x5000000000ULL);image=0x5000000000ULL;
  char dir[]="/media/am-startup-XXXXXX";assert(mkdtemp(dir));std::string root=std::string(dir)+"/MPC-Sample",projects=root+"/Projects";assert(!mkdir(root.c_str(),0700)&&!mkdir(projects.c_str(),0700));
@@ -57,6 +64,11 @@ int main(int argc,char**argv){
  struct timespec stamp[2]={{1000,0},{1000,0}};assert(!utimensat(AT_FDCWD,a.c_str(),stamp,0)&&!utimensat(AT_FDCWD,b.c_str(),stamp,0));
  assert(!symlink("B.xpj",(projects+"/Z.xpj").c_str()));
  assert(startup_project_install(image));assert(!strcmp(selected,b.c_str()));original=receiver;
+ original_save=explicit_save;File explicit_file(b.c_str());
+ auto save_method=*reinterpret_cast<Save*>(image+0x6d8cc18);
+ assert(save_method((void*)0x1234,&explicit_file.value,true,false,true)==7&&explicit_calls==1&&named_saved==1&&named_target==b);
+ explicit_ok=false;assert(!save_method((void*)0x1234,&explicit_file.value,true,false,true)&&explicit_calls==2&&named_saved==1);
+ puts("PASS native Save vtable forwards exact arguments/result once and remembers only its successful named target");
  invoke("/data/TempProjects/Temp-Project.xpj");assert(calls==1&&loaded==b&&phase==3&&!startup_project_loading());
  invoke(a.c_str());assert(calls==2&&loaded==a);puts("PASS first native Temp load selects SD once; later manual Load unchanged; actual AArch64 nontrivial vector result and native File/String ownership retained");
  assert(!access(workspace.c_str(),F_OK));puts("PASS workspace exists before the native load and is recreated after its cleanup, for boot and later manual project loads");

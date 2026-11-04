@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "pad_eq.h"
+#include "sample_mute.h"
 #include "music_settings.h"
 #include <stdatomic.h>
 #include <sys/syscall.h>
@@ -100,10 +101,10 @@ static void fft(float*re,float*im,unsigned n){
             re[i+k]=ur+vr;im[i+k]=ui+vi;re[i+k+len/2]=ur-vr;im[i+k+len/2]=ui-vi;
             float nr=cr*wr-ci*wi;ci=cr*wi+ci*wr;cr=nr;}}}
 }
-void pad_eq_spectrum_paint(unsigned pad,int left,int top,int width,int height,uint32_t tint,const struct resample_painter*p){
+void pad_eq_spectrum_paint(unsigned pad,int muted,int left,int top,int width,int height,uint32_t tint,const struct resample_painter*p){
     if(pad>=128||!p||!p->rect||width<1||height<1)return;
-    if(music_pad_lighting_mode()&&music_mod_setting(MUSIC_SETTING_SPECTRUM)){
-        uint32_t hue=music_identity_rgb((unsigned)music_pad_colour(pad));
+    if(muted||(music_pad_lighting_mode()&&music_mod_setting(MUSIC_SETTING_SPECTRUM))){
+        uint32_t hue=muted?SAMPLE_MUTED_TINT:music_identity_rgb((unsigned)music_pad_colour(pad));
         /* Spectrum stays behind native response/envelope lines. */
         tint=(tint&0xff000000u)|(((hue>>16)&255)*3/5<<16)|(((hue>>8)&255)*3/5<<8)|((hue&255)*3/5);
     }
@@ -134,7 +135,7 @@ void pad_eq_spectrum_paint(unsigned pad,int left,int top,int width,int height,ui
         p->rect(p->user,left+x,top+height-h,1,h,tint);
     }
 }
-void pad_eq_paint(uint64_t v,unsigned pad,int shift,int focus,const struct resample_painter*p){
+void pad_eq_paint(uint64_t v,unsigned pad,int muted,int shift,int focus,const struct resample_painter*p){
     if(!p||!p->text||!p->rect)return;
     struct fx_eq_config cfg;pad_eq_config(v,48000,&cfg);unsigned type=v?((v>>21)&7):0;
     const uint32_t white=0xffffffffu,amber=0xffffc247u,grey=0xff777777u;char s[64];
@@ -142,7 +143,7 @@ void pad_eq_paint(uint64_t v,unsigned pad,int shift,int focus,const struct resam
      * centre graph and our complete K footer belong to this overlay. */
     p->rect(p->user,14,33,292,165,0xff000000u);p->rect(p->user,0,198,320,42,0xff000000u);snprintf(s,sizeof(s),"%c%02u  EQ%s",'A'+pad/16,pad%16+1,cfg.bypass?"  BYPASS":"");p->text(p->user,s,18,36,284,24,18,white,0);
     int left=42,top=72,width=260,height=105;
-    pad_eq_spectrum_paint(pad,left,top,width,height,0xff5a4419u,p);
+    pad_eq_spectrum_paint(pad,muted,left,top,width,height,0xff5a4419u,p);
     for(int db=-18;db<=18;db+=9){int y=top+(18-db)*height/36;p->rect(p->user,left,y,width,1,db?0xff252525:0xff666666);snprintf(s,sizeof(s),"%+d",db);p->text(p->user,s,16,y-6,23,13,10,grey,1);}
     int previous=-1;for(int x=0;x<width;++x){double hz=20*pow(1000,x/(double)(width-1)),db=fx_eq_response_db(&cfg,48000,hz);if(db>18)db=18;if(db< -18)db=-18;int y=top+(int)lround((18-db)*height/36);if(previous<0)previous=y;
         int a=previous<y?previous:y,b=previous>y?previous:y;p->rect(p->user,left+x,a,1,b-a+1,cfg.bypass?grey:amber);previous=y;}

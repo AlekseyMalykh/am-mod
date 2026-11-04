@@ -65,6 +65,7 @@ static char batch_message[64];
 static int batch_job,batch_job_presented,batch_job_queued,batch_leaving;
 static unsigned preview_source=128;
 static int preview_private;
+static int tail_preview;
 static void preview_stop(void);
 static void preview_refresh(void);
 extern void phone_release_copy_gesture(void);
@@ -684,7 +685,7 @@ int workflow_control(void*e,uint64_t ticket){
  filter();search_preview_update();publish_palette();repaint(files);return 1;
 }
 int workflow_button(void*e,uint64_t ticket){
- if(FIELD(e,8,unsigned char)==0x51||FIELD(e,8,unsigned char)==0x52){if(FIELD(e,8,unsigned char)==0x51&&FIELD(e,9,unsigned char))preview_stop();return 0;}
+ if(FIELD(e,8,unsigned char)==0x51||FIELD(e,8,unsigned char)==0x52){if(FIELD(e,9,unsigned char)&&(FIELD(e,8,unsigned char)==0x51||tail_preview))preview_stop();return 0;}
  /* A physical Shift transition belongs to GlobalControls, not a particular
   * window generation. In particular, Shift-up queued before Batch opened
   * must not be dropped when batch_start/exit increments epoch. */
@@ -966,33 +967,33 @@ static void batch_start(int slices){
 static void preview_stop(void){
  if(preview_source>=128)return;
  search_preview_stop();
- preview_source=128;preview_private=0;
+ preview_source=128;preview_private=0;tail_preview=0;
 }
 static void preview_refresh(void){
  /* Native timer/worker20bc9c0 clears BoolProperty298 when the private
   * instrument has no voices. Do not mistake queued/not-started for ended. */
  if(preview_source<128&&preview_private&&atomic_load(&preview_started)&&volume_service
     &&!__atomic_load_n((unsigned char*)volume_service+0x2e8,__ATOMIC_ACQUIRE)){
-  preview_source=128;preview_private=0;atomic_store(&preview_started,0);
+  preview_source=128;preview_private=0;tail_preview=0;atomic_store(&preview_started,0);
  }
 }
-static void preview_start(void){
- if((!batch_page&&!chop_export)||(batch_page&&!batch_count))return;
- preview_stop();if(preview_source<128)return;
- {
-  unsigned slice=chop_export?(batch_page?source[batch_row]:(unsigned)slice_focus):source[batch_row];
-  unsigned sound=chop_export?slice_sound:source[batch_row];
-  void*i=FN(0x286bbe0,void*(*)(void*,int))(batch_program,(int)sound);
+static int preview_region(void*i,unsigned slice,int is_chop,unsigned tail_ms){
   uintptr_t sample[2]={0};int ok=0;
   if(i&&FIELD(i,0x22e8,void*))step_layer_sample(i,0,sample,base+0x2803b90);
   if(sample[0]&&FIELD((void*)sample[0],0x130,void*)){
    void*d=FN(0x2941ff0,void*(*)(void*))((void*)sample[0]);
    uintptr_t begin=FIELD(d,0x60,uintptr_t),end=FIELD(d,0x68,uintptr_t);
-   if(!chop_export||(begin&&end>=begin&&(end-begin)%8==0&&end-begin<=128*8&&slice<(end-begin)/8)){
+   if(!is_chop||(begin&&end>=begin&&(end-begin)%8==0&&end-begin<=128*8&&slice<(end-begin)/8)){
     void*layer=FIELD(i,0x22e8,void*);
-    void*range=chop_export?FIELD((void*)begin,slice*8,void*):(char*)layer+0x740;
+    void*range=is_chop?FIELD((void*)begin,slice*8,void*):(char*)layer+0x740;
     int64_t first=range?FIELD(range,0x78,int64_t):-1,last=range?FIELD(range,0xd0,int64_t):-1;
     if(first>=0&&last>first&&last<=FN(0x2941f80,int(*)(void*))((void*)sample[0])){
+     if(tail_ms){
+      int rate=FN(0x2941f90,int(*)(void*))((void*)sample[0]);
+      if(rate<8000||rate>192000)goto release;
+      int64_t offset=((int64_t)rate*tail_ms+999)/1000;
+      if(last-first>offset)first=last-offset;
+     }
      volume_refresh();
      if(volume_ready){
       search_preview_stop();
@@ -1003,16 +1004,39 @@ static void preview_start(void){
        * queues its own ordinary sample playback. No current-track audition,
        * source mutation, project command or new PCM/file is involved. */
       FN(0x20be470,void(*)(void*,const uintptr_t*,unsigned))(volume_service,sample,4);
-      preview_source=slice;preview_private=1;ok=1;
-      fprintf(stderr,"BATCH PRIVATE_PREVIEW kind=%s source=%u start=%lld end=%lld\n",chop_export?"chop":"copy",slice,(long long)first,(long long)last);
+      preview_source=slice;preview_private=1;tail_preview=tail_ms!=0;ok=1;
+      fprintf(stderr,"%s PRIVATE_PREVIEW kind=%s source=%u start=%lld end=%lld offset_ms=%u\n",tail_ms?"TAIL":"BATCH",is_chop?"chop":tail_ms?"pad":"copy",slice,(long long)first,(long long)last,tail_ms);
      }
     }
    }
   }
+ release:
   if(sample[1])FN(0x123bca0,void(*)(void*))((void*)sample[1]);
-  if(!ok)snprintf(batch_message,sizeof(batch_message),"Sample preview not ready");
-  return;
- }
+  return ok;
+}
+static void preview_start(void){
+ if((!batch_page&&!chop_export)||(batch_page&&!batch_count))return;
+ preview_stop();
+ unsigned slice=chop_export?(batch_page?source[batch_row]:(unsigned)slice_focus):source[batch_row];
+ unsigned sound=chop_export?slice_sound:source[batch_row];
+ void*i=FN(0x286bbe0,void*(*)(void*,int))(batch_program,(int)sound);
+ if(!preview_region(i,slice,chop_export,0))snprintf(batch_message,sizeof(batch_message),"Sample preview not ready");
+}
+void workflow_tail_tick(int available){
+ if(tail_preview){if(available)preview_refresh();else preview_stop();}
+}
+void workflow_tail_preview(unsigned pad,int chop){
+ if(pad>=16)return;
+ void *things=note_native_context();
+ void *program=things?FIELD(things,0xb8,void*):NULL;
+ if(!program)return;
+ int bank=step_native_browser_bank(-1);
+ if(!chop&&(bank<0||bank>=8))return;
+ unsigned source=chop?pad:(unsigned)bank*16+pad;
+ void *instrument=chop?FIELD(things,0x668,void*):FN(0x286bbe0,void*(*)(void*,int))(program,(int)source);
+ preview_stop();
+ if(preview_region(instrument,source,chop,music_tail_ms((unsigned)music_mod_setting(MUSIC_SETTING_TAIL)))&&!chop)
+  FN(0x28f9d60,void(*)(void*,int))(things,(int)source);
 }
 static void arrange(void){
  batch_message[0]=0;
