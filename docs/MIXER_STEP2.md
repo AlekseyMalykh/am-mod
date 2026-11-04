@@ -3,9 +3,9 @@
 04.11.2026, `feature/mixer-song-stems`.
 Реализованы UI-owner controller, подробные FX/Assign pages и связка
 controller → actual live audio acknowledgement → archive owner.
-Вход и общая очередь готовы для явно привязанной сессии. До проверки на MPC
-остаются автоматическая привязка и снятие сессии живого проекта, приоритеты
-подсветки и полный цикл сохранения и загрузки XPJ.
+Candidate автоматически привязывает сессию к живому аудиовызову и снимает её
+после смены источника. До проверки на MPC остаются маска занятых звуков,
+native FX backend, приоритеты подсветки и полный цикл сохранения и загрузки XPJ.
 
 ## Управление
 
@@ -43,7 +43,7 @@ native Fader Settings на самом деле открывается на down 
 Начальный порог500ms — явная политика AM. Native raw Sample/Seq IDs связаны с
 controller mode action. `phone_native` пропускает события через общую очередь
 после явной привязки готовой сессии на UI потоке. Для входа с MPC требуется
-автоматическая привязка к живому проекту.
+проверка автоматической привязки на самом устройстве.
 
 ## Assign / Inspect и FX
 
@@ -84,9 +84,17 @@ confirmed snapshot; выбранный pending effect/route не выдаётс�
 ## Сессия и сохранение
 
 [`mixer_session.cc`](../sd-mod-session/src/mixer_session.cc) соединяет controller,
-`mixer_live` и `mixer_archive`. Создание происходит на native model/control owner
-с уже подтверждёнными engine/Program и optional native FX backend. Глобальной
-автоматической привязки по первому увиденному callback нет.
+`mixer_live` и `mixer_archive`. В candidate сессию создаёт `mixer_runtime`
+на UI owner по копии наблюдения из live callsite `18dc00c`. Снимок содержит
+opaque identities Engine/Program, частоту и ёмкость native буфера.
+Частота берётся из свойства Instrument base Program, которое использует
+штатный allocator. Поддержан граф с одним Program.
+
+Перед каждым блоком автоматическая привязка сверяется с текущим источником.
+Другие вызовы того же рендера, включая offline, выполняют свой штатный путь.
+Load/New сразу отзывает epoch. Archive scopes отмечают начало и завершение
+операции, включая выход через исключение. После завершения runtime ждёт свежего
+live наблюдения и готовит новую сессию.
 
 ```text
 UI edit -> complete copied desired model / expected revision
@@ -105,11 +113,15 @@ UI может объединять движения, пока предыдуща
 убирает readiness и закрывает controller, сохраняя штатный fallback движка.
 
 Закрытие controller не уничтожает session/FX и не останавливает audio meters.
-`owner_tick` и `ui_tick` обязаны продолжаться вне открытой вкладки. Native lifecycle
-bridge должен **до** замены/уничтожения Program отключить session, получить её
-из atomic retirement после audio callbacks, отпустить UI consumer и лишь затем
-destroy. Текущий session API требует этого от внешнего owner: он не продлевает
-native Program lifetime и не перехватывает сам native project destructor.
+`owner_tick` и `ui_tick` продолжаются на UI Timer во всех режимах.
+Runtime отвязывает UI, снимает audio attachment и ожидает возврата через atomic
+retirement, после чего освобождает DSP на UI owner. Native identities служат
+для сравнения. Доступ к объектам прошивки выполняется внутри их аудиовызова.
+Смена Program, частоты, ёмкости или числа Program отзывает текущую привязку.
+
+Automatic runtime сейчас создаёт встроенный EQ и mix/routing DSP. Передача
+native FX backend и получение маски занятых звуков для Assign ещё требуют
+подключения к владельцу нативных сервисов.
 
 Успешный edit попадает в существующий versioned archive payload, а не только
 в UI session. Confirmed model проверен через encode/decode; прежние реальные
@@ -138,10 +150,12 @@ MPC_RUNTIME_ROOT='/path/to/runtime' python3 build_mixer_core_candidate.py
   Native model/services/voice oscillator fixtures, реальный XPJ на SD не открыт.
 - Painter regression: 8 host/sanitizer/ARM updates/view runs; проверяются bounds,
   сохранение8 фейдеров, отдельные meters и новые context pages.
-- Candidate полностью линкуется с controller/session/catalog, проходит preload;
-  без native lifecycle/entry bridge session не создаётся и экран не активируется.
+- Candidate полностью линкуется с runtime/controller/session/catalog и проходит
+  preload. ARM-проверка выполняет автоматическую привязку, реальный PCM, смену
+  epoch при прежнем адресе Program, sample-rate replacement и retirement.
+  Для live caller используется envelope вокруг настоящего callsite.
 
-Оставшаяся работа второго пакета включает создание и снятие сессии живого
-проекта при Load/New/Mod Off, приоритеты LED, полный цикл сохранения и загрузки
-XPJ и аппаратную проверку экрана, фейдера, LED и нагрузки. Пока эти пункты открыты,
+Оставшаяся работа второго пакета включает native FX backend, маску занятых
+звуков и приоритеты LED, полный цикл сохранения и загрузки XPJ/Mod Off и
+аппаратную проверку экрана, фейдера, LED и нагрузки. Пока эти пункты открыты,
 нельзя называть второй пакет или пользовательский Mixer завершённым.

@@ -17,6 +17,7 @@ struct mixer_live {
     uint64_t submitted_revision; /* single control producer only */
     void*engine,*program;
     enum mixer_route_result block_result;
+    unsigned matched_program;
     _Atomic(struct live_update*) pending,retired;
 };
 static _Thread_local struct mixer_live*live_scope;
@@ -91,6 +92,7 @@ void mixer_live_program(const struct mixer_route_ops*ops,void*p,void*clock,unsig
 {
     struct mixer_live*s=live_scope;
     if(!s||s->program!=p){ops->render(p,clock,frames);return;}
+    s->matched_program=1;
     s->block_result=mixer_route_render(s->track,p,clock,frames);
 }
 static void*pointer(void*p,unsigned offset){void*v;memcpy(&v,(char*)p+offset,sizeof(v));return v;}
@@ -102,8 +104,13 @@ int mixer_live_render(struct mixer_live*s,void*engine,void*clock,unsigned frames
         struct mixer_live*previous=live_scope;live_scope=NULL;
         s->ops.engine(engine,clock,frames);live_scope=previous;return 0;
     }
+    s->matched_program=0;
     s->block_result=MIXER_ROUTE_PASSTHROUGH;live_scope=s;s->ops.engine(engine,clock,frames);live_scope=NULL;
     struct mixer_meter_input taps[MIXER_METER_BUSES]={0};
+    if (!s->matched_program) {
+        mixer_meters_push(s->meters,s->epoch,frames,taps);
+        return 0;
+    }
     if(s->block_result==MIXER_ROUTE_APPLIED)for(unsigned bus=0;bus<9;++bus){struct mixer_pcm_view v;
         if(mixer_route_view(s->track,bus,&v)&&v.frames==frames)taps[bus]=(struct mixer_meter_input){{v.channel[0],v.channel[1]},2,0};}
     void*out=s->ops.final_output(engine);int success=0;

@@ -46,6 +46,7 @@ static void live_fixture(void)
     program_list[0]=program;F(root_mixer,0x100,void*)=program_list;F(root_mixer,0x108,void*)=program_list+1;
     F(root_mixer,0x130,void*)=root_router;F(engine_owner,0x110,void*)=root_mixer;F(engine_owner,0x130,void*)=engine_owner;
     F(engine_owner,0x128,void*)=entry_clock;
+    F(program,0x78+0x638,void*)=rate_property;
 }
 static void run_live(void)
 {

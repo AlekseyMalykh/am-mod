@@ -35,6 +35,20 @@ int mixer_live_native_install(uintptr_t image);
 const struct mixer_live_ops*mixer_live_native_ops(void);
 int mixer_live_native_attach(struct mixer_live*);
 struct mixer_live*mixer_live_native_take_retired(void);
+/* A copied observation from the pinned live render callsite. Identities are
+ * opaque off audio. They must never be dereferenced by the UI/control owner. */
+struct mixer_native_binding {
+    uint64_t epoch;
+    void *engine, *program;
+    double rate;
+    unsigned capacity;
+};
+/*1=snapshot,0=unavailable,-1=busy. Busy preserves the previous UI binding. */
+int mixer_live_native_binding(struct mixer_native_binding*);
+/* Revoke immediately on Load/New. The current callback may complete, and
+ * take_retired still governs destruction. New observations use a new epoch. */
+void mixer_live_native_invalidate(void);
+int mixer_live_native_attach_binding(struct mixer_live*,const struct mixer_native_binding*);
 #ifdef __cplusplus
 }
 #endif

@@ -9,9 +9,9 @@ struct mixer_session;
 /* Native phone UI thread only. Pass NULL on the same thread before destroying
  * a bound session. The caller retains ownership and drives owner_tick. */
 int mixer_phone_bind_ui(struct mixer_session*);
-/* Create and owner_tick on the native model/control owner, with valid borrowed
- * engine/Program. Native object destruction must invalidate/retire this session
- * first. No UI/paint/native model pointers are read from the audio callback. */
+/* Create and owner_tick on one non-audio owner. Native engine/Program pointers
+ * serve as opaque identities. The automatic runtime uses the phone UI owner for
+ * its AM model and DSP preparation, with native reads confined to audio. */
 struct mixer_session*mixer_session_create(uint64_t epoch,uint64_t part,double rate,unsigned capacity,
     void*engine,void*program,const struct mixer_live_ops*,const struct fx_backend*);
 /* UI owner can retain this borrowed controller until session destruction. */

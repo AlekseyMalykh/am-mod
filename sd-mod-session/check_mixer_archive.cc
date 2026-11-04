@@ -80,6 +80,8 @@ void opaque(){
     puts("PASS unknown/corrupt/large/inline/embedded-NUL payloads preserved verbatim and Mixer edits blocked");
 }
 void errors(){
+    uint64_t source_generation = mixer_archive_generation();
+    assert(!mixer_archive_loading());
     snapshot(MIXER_ARCHIVE_OPAQUE);before=model;uint64_t revision;unsigned mode;
     assert(mixer_archive_snapshot(&model,&revision,&mode));
     Input invalid;std::string payload="future";invalid.append(payload);set<unsigned short>(invalid.members+24,22,0);
@@ -96,6 +98,7 @@ void errors(){
     try{save();}catch(const std::runtime_error&){threw=true;}save_error=false;assert(threw&&writes==count&&mixer_archive_saved_count()==serial);
     write_error=true;threw=false;try{save();}catch(const std::runtime_error&){threw=true;}write_error=false;assert(threw&&mixer_archive_saved_count()==serial);
     read(old);snapshot(MIXER_ARCHIVE_LEGACY);assert(original_loads);
+    assert(!mixer_archive_loading() && mixer_archive_generation() > source_generation);
     puts("PASS failed loads/saves and malformed archive structure preserve owner; exception scopes recover and no false save acknowledgment");
 }
 void concurrent(){

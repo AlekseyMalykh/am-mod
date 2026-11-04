@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <stdatomic.h>
+#include <math.h>
 #if ATOMIC_POINTER_LOCK_FREE != 2 || ATOMIC_INT_LOCK_FREE != 2
 #error Native Mixer attachment requires lock-free pointers/counters
 #endif
@@ -12,11 +13,70 @@ static struct mixer_live_ops ops;
 static _Atomic(struct mixer_live*) attached;
 static _Atomic(struct mixer_live*) retired;
 static _Atomic unsigned callbacks;
+static _Atomic uint64_t binding_epoch = 1, attached_epoch;
+static atomic_flag binding_lock = ATOMIC_FLAG_INIT;
+static struct mixer_native_binding binding, attached_binding;
+static int same_binding(const struct mixer_native_binding *a,const struct mixer_native_binding *b)
+{
+    return a->epoch == b->epoch && a->engine == b->engine && a->program == b->program &&
+        a->rate == b->rate && a->capacity == b->capacity;
+}
+static void *ptr(void*,unsigned);
+static struct mixer_native_binding observe(void *engine,unsigned frames)
+{
+    struct mixer_native_binding result = {0};
+    result.epoch = atomic_load_explicit(&binding_epoch,memory_order_acquire);
+    void *mixer = ptr(engine,0x110);
+    if (!mixer || !frames || frames > 8192) return result;
+    uintptr_t first = (uintptr_t)ptr(mixer,0x100);
+    uintptr_t end = (uintptr_t)ptr(mixer,0x108);
+    /* The Sample kit has one native Program. Other graphs stay unavailable
+     * until their complete multi-Program routing is supported. */
+    if (!first || end < first || end - first != sizeof(void*)) return result;
+    void *program;
+    memcpy(&program,(void*)first,sizeof(program));
+    if (!program) return result;
+    /* Program ctor28ce220 constructs its Instrument base at+78.
+     *277157c reads that base's sample-rate property at638, then passes it to
+     * the native buffer allocator. Read on the render owner while valid. */
+    void *property = ptr(program,0x78+0x638);
+    if (!property) return result;
+    float rate;
+    memcpy(&rate,(char*)property+0x50,sizeof(rate));
+    unsigned capacity;
+    memcpy(&capacity,(char*)property+0xa8,sizeof(capacity));
+    if (!isfinite(rate) || rate < 8000 || rate > 192000 ||
+        capacity < frames || capacity > 8192) return result;
+    result.engine = engine;
+    result.program = program;
+    result.rate = rate;
+    result.capacity = capacity;
+    return result;
+}
+static void publish_binding(const struct mixer_native_binding *next)
+{
+    if (atomic_flag_test_and_set_explicit(&binding_lock,memory_order_acquire)) return;
+    if (next->epoch == atomic_load_explicit(&binding_epoch,memory_order_acquire)) binding = *next;
+    atomic_flag_clear_explicit(&binding_lock,memory_order_release);
+}
 static void engine(void*p,void*c,unsigned n)
 {
     atomic_fetch_add_explicit(&callbacks,1,memory_order_seq_cst);
     struct mixer_live*s=atomic_load_explicit(&attached,memory_order_seq_cst);
+    uint64_t expected = atomic_load_explicit(&attached_epoch,memory_order_acquire);
+    uintptr_t caller = (uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0));
+    if (s && expected) {
+        struct mixer_native_binding current = observe(p,n);
+        if (caller != image + 0x18dc010 || !same_binding(&current,&attached_binding) ||
+            expected != atomic_load_explicit(&binding_epoch,memory_order_acquire)) s = NULL;
+    }
     if(s)mixer_live_render(s,p,c,n);else ops.engine(p,c,n);
+    /* Only the real live callsite may discover a session. Offline renderers
+     * call the same entry from18b556c/18b98bc and have independent lifetimes. */
+    if (caller == image + 0x18dc010) {
+        struct mixer_native_binding current = observe(p,n);
+        publish_binding(&current);
+    }
     atomic_fetch_sub_explicit(&callbacks,1,memory_order_seq_cst);
 }
 static void program(void*p,void*c,unsigned n){mixer_live_program(&ops.route,p,c,n);}
@@ -82,6 +142,7 @@ const struct mixer_live_ops*mixer_live_native_ops(void){return image?&ops:NULL;}
 int mixer_live_native_attach(struct mixer_live*s)
 {
     if(!image||atomic_load_explicit(&retired,memory_order_acquire))return 0;
+    if (s) atomic_store_explicit(&attached_epoch,0,memory_order_release);
     struct mixer_live*old=atomic_exchange_explicit(&attached,s,memory_order_seq_cst);
     if(old&&old!=s)atomic_store_explicit(&retired,old,memory_order_release);
     return 1;
@@ -90,4 +151,34 @@ struct mixer_live*mixer_live_native_take_retired(void)
 {
     if(atomic_load_explicit(&callbacks,memory_order_seq_cst))return NULL;
     return atomic_exchange_explicit(&retired,NULL,memory_order_acquire);
+}
+
+int mixer_live_native_binding(struct mixer_native_binding *out)
+{
+    if (!out) return 0;
+    if (atomic_flag_test_and_set_explicit(&binding_lock,memory_order_acquire)) return -1;
+    *out = binding;
+    atomic_flag_clear_explicit(&binding_lock,memory_order_release);
+    return out->engine && out->epoch == atomic_load_explicit(&binding_epoch,memory_order_acquire);
+}
+void mixer_live_native_invalidate(void)
+{
+    atomic_fetch_add_explicit(&binding_epoch,1,memory_order_acq_rel);
+}
+int mixer_live_native_attach_binding(struct mixer_live *session,const struct mixer_native_binding *source)
+{
+    if (!session || !source || !source->epoch || !source->engine || !source->program || !image ||
+        atomic_load_explicit(&retired,memory_order_acquire) ||
+        atomic_load_explicit(&attached,memory_order_acquire) ||
+        atomic_load_explicit(&callbacks,memory_order_seq_cst)) return 0;
+    if (atomic_flag_test_and_set_explicit(&binding_lock,memory_order_acquire)) return 0;
+    int valid = source->epoch == atomic_load_explicit(&binding_epoch,memory_order_acquire) &&
+        same_binding(source,&binding);
+    if (valid) {
+        attached_binding = *source;
+        atomic_store_explicit(&attached_epoch,source->epoch,memory_order_release);
+        atomic_store_explicit(&attached,session,memory_order_seq_cst);
+    }
+    atomic_flag_clear_explicit(&binding_lock,memory_order_release);
+    return valid;
 }

@@ -20,7 +20,18 @@ struct State {
 std::mutex mutex;
 std::shared_ptr<const State> current;
 uintptr_t image=0;
-std::atomic<uint64_t> saved{0};
+std::atomic<uint64_t> saved{0}, source_generation{1};
+std::atomic<unsigned> loading{0};
+struct SourceChange {
+    SourceChange() {
+        loading.fetch_add(1,std::memory_order_acq_rel);
+        source_generation.fetch_add(1,std::memory_order_acq_rel);
+    }
+    ~SourceChange() {
+        source_generation.fetch_add(1,std::memory_order_acq_rel);
+        loading.fetch_sub(1,std::memory_order_release);
+    }
+};
 template<class T> T field(const void*p,size_t offset){T result;std::memcpy(&result,static_cast<const char*>(p)+offset,sizeof(T));return result;}
 struct Bytes {const char *data;size_t size;};
 Bytes string_value(const void*value)
@@ -87,7 +98,12 @@ extern "C" void mixer_archive_init(uintptr_t base)
     if(image&&image!=base)throw std::runtime_error("Mixer archive image changed");
     image=base;if(!current){initial->revision=1;current=std::move(initial);}
 }
-extern "C" void mixer_archive_reset(){publish(std::make_shared<State>());}
+extern "C" uint64_t mixer_archive_generation(){return source_generation.load(std::memory_order_acquire);}
+extern "C" int mixer_archive_loading(){return loading.load(std::memory_order_acquire)!=0;}
+extern "C" void mixer_archive_reset(){
+    SourceChange changing;
+    publish(std::make_shared<State>());
+}
 extern "C" int mixer_archive_snapshot(mixer_project*out,uint64_t*revision,unsigned*mode)
 {
     if(!out||!revision||!mode)return 0;
@@ -106,6 +122,7 @@ extern "C" mixer_archive_edit mixer_archive_replace(const mixer_project*project,
 extern "C" uint64_t mixer_archive_saved_count(){return saved.load(std::memory_order_acquire);}
 extern "C" void mixer_archive_load(void*data,void*archive,void(*original)(void*,void*))
 {
+    SourceChange changing;
     original(data,archive);
     if(!transaction)return;
     /* Do not unwind through the existing C music_archive_read() scope: it
@@ -118,6 +135,7 @@ extern "C" void mixer_archive_load(void*data,void*archive,void(*original)(void*,
 }
 extern "C" int mixer_archive_read(void*data,void*json,int(*original)(void*,void*))
 {
+    SourceChange changing;
     /* Concurrent Read vs New/edit is serialized by the existing native
      * project queue. Do not retain a project mutex across native callbacks.
      * Nested reads are ambiguous: reject before they can change native data. */

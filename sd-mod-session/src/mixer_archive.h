@@ -11,6 +11,10 @@ enum mixer_archive_edit { MIXER_EDIT_OK, MIXER_EDIT_STALE, MIXER_EDIT_READONLY, 
  * revision is an edit ticket: Load/New/another successful edit invalidates it. */
 void mixer_archive_init(uintptr_t base);
 void mixer_archive_reset(void);
+/* Source identity changes for native Load/New, independently of mix edits.
+ * A read/load scope remains busy through exceptions and nested callbacks. */
+uint64_t mixer_archive_generation(void);
+int mixer_archive_loading(void);
 int mixer_archive_snapshot(struct mixer_project*,uint64_t *revision,unsigned *mode);
 enum mixer_archive_edit mixer_archive_replace(const struct mixer_project*,uint64_t revision);
 uint64_t mixer_archive_saved_count(void);

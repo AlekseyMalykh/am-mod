@@ -1,7 +1,7 @@
 """Link Mixer cores/archive hooks into an isolated full-preload candidate.
 
-The candidate links archive, audio and UI hooks. The normal startup path
-still requires a native session owner to bind the Mixer UI.
+The candidate discovers the live audio binding and prepares its AM session
+on the existing phone UI Timer. Device verification remains separate.
 Baseline build/runtime inputs use the existing
 compressor candidate workflow; Mixer outputs go only to build/mixer-candidate.
 """
@@ -30,8 +30,8 @@ runtime = Path(os.environ.get("MPC_RUNTIME_ROOT", str(R.parent))).resolve()
 out = R / "build/mixer-candidate"
 out.mkdir(parents=True, exist_ok=True)
 sha = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
-sources = ["src/mixer_model.c", "src/mixer_meters.c", "src/fx_chain.c", "src/fx_catalog.c", "src/mixer_archive.cc", "src/mixer_buses.c", "src/mixer_route_native.c", "src/mixer_live.c", "src/mixer_live_native.c", "src/mixer_view.c", "src/mixer_control.c", "src/mixer_session.cc", "src/mixer_input.c"]
-tracked = sources + ["src/mixer_model.h", "src/mixer_meters.h", "src/mixer_archive.h", "src/mixer_buses.h", "src/mixer_route_native.h", "src/mixer_live.h", "src/mixer_view.h", "src/mixer_control.h", "src/mixer_session.h", "src/mixer_input.h", "src/fx_chain.h", "src/phone_native.c", "check_mixer_phone_routes.c", "build_mixer_core_candidate.py"]
+sources = ["src/mixer_model.c", "src/mixer_meters.c", "src/fx_chain.c", "src/fx_catalog.c", "src/mixer_archive.cc", "src/mixer_buses.c", "src/mixer_route_native.c", "src/mixer_live.c", "src/mixer_live_native.c", "src/mixer_view.c", "src/mixer_control.c", "src/mixer_session.cc", "src/mixer_input.c", "src/mixer_runtime.cc"]
+tracked = sources + ["src/mixer_model.h", "src/mixer_meters.h", "src/mixer_archive.h", "src/mixer_buses.h", "src/mixer_route_native.h", "src/mixer_live.h", "src/mixer_view.h", "src/mixer_control.h", "src/mixer_session.h", "src/mixer_input.h", "src/mixer_runtime.h", "src/fx_chain.h", "src/phone_native.c", "check_mixer_phone_routes.c", "build_mixer_core_candidate.py"]
 before = {p: sha(R / p) for p in tracked}
 print("Building the existing full-preload baseline (log in build/mixer-candidate/baseline.log)", flush=True)
 with (out / "baseline.log").open("w") as log:
@@ -46,7 +46,7 @@ subprocess.run(["aarch64-linux-gnu-gcc", "-std=c11", "-O2", "-g", "-fPIC", "-Wal
     "-Ibuild", "-I" + str(runtime / "sd-mod-session/build"),
     "-DMPC_RESAMPLE_TRIAL=1", "-DMPC_STOCK_RESAMPLE=1", "-DMPC_EXPERIMENTAL_CHOP_EXPORT=1",
     "-DMPC_PAD_EQ=1", "-DMPC_FAST_RESAMPLE=1", "-DMPC_SEQUENCE_COLOURS=1", "-DMPC_POLY_RECORD=1",
-    "-DMPC_POWER_BUTTON=1", "-DMPC_CHORDS=1", "-DMPC_COMPRESSOR=1", "-DMPC_MIXER_ARCHIVE=1", "-DMPC_MIXER_LIVE=1",
+    "-DMPC_POWER_BUTTON=1", "-DMPC_CHORDS=1", "-DMPC_COMPRESSOR=1", "-DMPC_MIXER_ARCHIVE=1", "-DMPC_MIXER_LIVE=1", "-DMPC_MIXER_AUTOBIND=1",
     "-mbranch-protection=standard", "-c", "src/phone_native.c", "-o", str(phone)], cwd=R, check=True)
 objects.append(phone)
 for source in sources:
@@ -91,7 +91,8 @@ for source, digest in proof["sources_sha256"].items():
 report = dict(passed=True, branch=branch, full_preload_constructor=True,
               library_sha256=sha(library), sources_sha256={**proof["sources_sha256"], **before},
               linked_sources=list(dict.fromkeys(proof["linked_sources"] + sources)),
-              mixer_mode_enabled=False, native_taps_connected=False,
+              mixer_mode_enabled=True, native_taps_connected=False,
+              automatic_session_binding_enabled=True,
               native_mixer_hooks_installed=True, native_mixer_session_attached=False,
               mixer_phone_fifo_tested=True,
               native_archive_hooks_enabled=True, native_archive_device_roundtrip_tested=False, hardware_tested=False,

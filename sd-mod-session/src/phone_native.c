@@ -18,6 +18,9 @@
 #include "mixer_live.h"
 #include "mixer_input.h"
 #include "mixer_session.h"
+#ifdef MPC_MIXER_AUTOBIND
+#include "mixer_runtime.h"
+#endif
 #endif
 #include "music_ui.h"
 #ifdef MPC_PAD_EQ
@@ -294,6 +297,9 @@ static void mixer_project_changing(void)
 {
     atomic_store(&mixer_project_invalidated,1);
     atomic_store(&mixer_route,0);
+#ifdef MPC_MIXER_AUTOBIND
+    mixer_live_native_invalidate();
+#endif
 }
 static void mixer_fail_input(void)
 {
@@ -660,6 +666,9 @@ static void tick(void *unused)
     /* Publish the page/ownership resulting from a queued action before
      * allowing native input to bypass this batch. Nested ticks count too. */
     atomic_fetch_add(&ui_dispatching,1);
+#ifdef MPC_MIXER_AUTOBIND
+    mixer_runtime_ui_tick();
+#endif
     unsigned action_batch=process_events();
     if(!action_batch)atomic_fetch_sub(&ui_dispatching,1);
 #ifdef MPC_MIXER_LIVE
@@ -722,7 +731,9 @@ static void tick(void *unused)
 #ifdef MPC_POWER_BUTTON
             && !power_control_busy()
 #endif
-#ifdef MPC_MIXER_LIVE
+#ifdef MPC_MIXER_AUTOBIND
+            && 0
+#elif defined(MPC_MIXER_LIVE)
             && !mixer_ui_session
 #endif
             && timer_running) {

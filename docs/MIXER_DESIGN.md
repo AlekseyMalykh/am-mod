@@ -5,17 +5,16 @@
 Основа аудита исходников: `am-mod/main`, `160cee8` (r26s).
 Первый пакет: [audio hooks, block updates и C painter](MIXER_STEP1.md).
 Второй пакет в работе: [controller, FX pages и audio→archive ack](MIXER_STEP2.md).
-Experimental candidate устанавливает native hooks без активной сессии. Восемь
-Track, primary-output Master и updates проверены в ARM/QEMU; painter Overview
-и split pages реализован. Native UI/session owner и физическое управление ещё
-не подключены; Song/Stem Export и hardware validation остаются впереди.
-Макеты и painter traces не являются снимками работающего устройства.
+Experimental candidate автоматически создаёт сессию по снимку живого
+аудиовызова и подключает её к UI. Восемь Track, primary-output Master, updates,
+ввод и lifecycle проверены в ARM/QEMU. Для Assign и native FX остаются
+подключение маски занятых звуков, LED и backend эффектов. Впереди аппаратная
+проверка, Song Mode и стемы.
 
 Продолжение реализации: [native audit и ARM-проверки](MIXER_NATIVE_AUDIT.md),
-[Mixer data model V1 и codec](MIXER_DATA_MODEL.md). Модель существует как
-проверенный core; live routing и UI ещё не подключены.
-Добавлен [PCM metering core](MIXER_METERING.md) с bounded audio→UI snapshots;
-его входы ещё требуется связать с доказанными native bus taps.
+[Mixer data model V1 и codec](MIXER_DATA_MODEL.md).
+[PCM metering core](MIXER_METERING.md) получает данные Track и Master из
+подключённых точек аудиотракта.
 04.11 добавлен [экспериментальный archive bridge](MIXER_ARCHIVE.md) в Save/Load/New
 callbacks под отдельным build flag. Полный XPJ round-trip и аппаратный Save/Load
 ещё не подтверждены; обычная сборка этот флаг не включает.
