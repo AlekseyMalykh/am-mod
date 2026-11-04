@@ -16,6 +16,10 @@ callbacks под отдельным build flag. Полный XPJ round-trip и �
 ещё не подтверждены; обычная сборка этот флаг не включает.
 Также реализован [eight-bus PCM core](MIXER_BUSES.md): реальные Track/Direct/Master
 buffers и FX/mix/meters; native Pad adapter и UI ещё не подключены.
+Следующий этап: [scoped native adapter](MIXER_NATIVE_ADAPTER.md) проверяет настоящий
+отдельный Pad-buffer путь через новый граф в ARM/QEMU. Device hooks отсутствуют;
+shared/physical и другие неподдержанные пути сохраняют штатную обработку.
+Master tap после всех native стадий, live graph exchange и UI ещё не реализованы.
 
 Приоритет требований: Classic Console Layout → дополнение B1–B3 / Routing LEDs
 → исходное задание Mixer / Song / Stems. В частности, Pads 9–15 пока свободны,

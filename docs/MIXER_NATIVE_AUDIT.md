@@ -39,6 +39,16 @@ ELF 1.3.0.12: SHA-256
 adapter. Native-тест теперь передаёт результат настоящей `2769bf0` через Track 1
 и Master нового core, проверяя совпадение PCM и отсутствие Direct-дубликата.
 
+Далее реализован [scoped native adapter](MIXER_NATIVE_ADAPTER.md) с исполнением
+настоящего `286be30`, обычной ветки и одного `2803470` optimized merge. Проверены
+preflight всего блока, native route gain/channel mapping, idle-entry removal,
+отсутствие double sum, FX tails и восстановление native shadow при ошибке.
+`286bf44` — общая точка sum обеих исследованных отдельных Pad-buffer веток;
+`286bfa4` — flush перед первой Program stage. Shared/one-buffer путь может выйти
+из `286be30` ещё до Program stages и пока целиком остаётся native.
+Это проверка приватного ELF mapping с fixture DSP, не включённый device adapter.
+Окончательный Master tap после native Program/general mix по-прежнему не доказан.
+
 Перед установкой адаптера необходимо покрыть обычные/оптимизированные ветки,
 Pad Link, multi-output, preview/live input, sequenced notes, resample/offline,
 mute и tail, а также существующий Pad EQ hook. Захват после `2802f90` с обнулением

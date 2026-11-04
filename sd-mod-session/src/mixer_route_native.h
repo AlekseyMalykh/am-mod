@@ -1,0 +1,46 @@
+#ifndef AM_MIXER_ROUTE_NATIVE_H
+#define AM_MIXER_ROUTE_NATIVE_H
+#include "mixer_buses.h"
+#ifdef __cplusplus
+extern "C" {
+#endif
+/* Experimental, explicitly scoped adapter for the pinned 1.3.0.12
+ * DrumProgram separate-buffer renderer. This module installs NO hooks.
+ * Only an isolated harness currently connects the two call sites. */
+struct mixer_route_ops {
+    void *(*buffer)(void*,unsigned long);
+    unsigned long (*buffer_count)(void*);
+    void *(*resolve)(void*,const void*);
+    int (*sum)(void*,void*,void*,const void*,unsigned);
+    void (*stage)(void*,void*,unsigned,unsigned);
+    void (*render)(void*,void*,unsigned);
+};
+enum mixer_route_result { MIXER_ROUTE_APPLIED, MIXER_ROUTE_PASSTHROUGH,
+    MIXER_ROUTE_RECOVERED, MIXER_ROUTE_INVALID };
+struct mixer_route_native;
+/* Prepare/destroy off RT, with audio and readers stopped. Each instance and
+ * its graph have one audio owner. Frozen snapshot; no live reconfiguration. */
+struct mixer_route_native *mixer_route_prepare(const struct mixer_project*,
+    uint64_t part_id,double rate,unsigned capacity,const struct fx_backend*,
+    const struct mixer_route_ops*,enum mixer_bus_result*);
+void mixer_route_destroy(struct mixer_route_native*);
+/* Native object ownership/pointers must be valid for the entire callback.
+ * Unsupported/shared/physical-output blocks run entirely through native code.
+ * Failure after capture restores the native shadow sum and disables this
+ * adapter until it is destroyed/reprepared. No allocations, locks or IO. */
+enum mixer_route_result mixer_route_render(struct mixer_route_native*,
+    void *program,void *clock,unsigned frames);
+/* Only these specific call sites may use these dispatchers:
+ * 286bf44 -> sum; 286bfa4 -> stage1. All unrelated calls forward through ops.
+ * ops must remain stable; do not intercept the sum/stage function entries. */
+int mixer_route_sum(const struct mixer_route_ops*,void *instrument,void *source,
+    void *destination,const void *route,unsigned frames);
+void mixer_route_stage(const struct mixer_route_ops*,void *program_processor,
+    void *buffer,unsigned frames,unsigned stage);
+/* Same-owner diagnostic views only after APPLIED. The Master view is before
+ * native program FX/gain, NOT a final output tap; no UI meter is published. */
+int mixer_route_view(const struct mixer_route_native*,unsigned bus,struct mixer_pcm_view*);
+#ifdef __cplusplus
+}
+#endif
+#endif

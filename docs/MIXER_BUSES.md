@@ -106,6 +106,11 @@ PCM interoperability, не правильность ещё не подключё
 Builder включает core в отдельную experimental library, проверяя link/preload;
 он не включает audio routing mode и не создаёт SD/release package.
 
+04.11 добавлен [scoped native adapter](MIXER_NATIVE_ADAPTER.md): реальный native
+DrumProgram separate-buffer цикл и optimized two-buffer merge проверяются вместе
+с bus core в QEMU. Это следующий уровень доказательства после supplied-PCM теста;
+установленных device hooks и полного покрытия engine paths по-прежнему нет.
+
 ## Что необходимо для live adapter
 
 Следовать [native audit](MIXER_NATIVE_AUDIT.md): один обработанный Pad buffer должен
