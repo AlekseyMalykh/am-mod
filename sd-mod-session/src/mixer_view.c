@@ -39,6 +39,12 @@ static void level(char*out,size_t size,float db)
     if(db==0)db=0.f;
     if(!isfinite(db))snprintf(out,size,"OFF");else snprintf(out,size,"%+.1f",(double)db);
 }
+static void pan(char*out,size_t size,float position)
+{
+    int percent=(int)lroundf(position*100);
+    if(!percent)snprintf(out,size,"C");
+    else snprintf(out,size,"%c%d",percent<0?'L':'R',percent<0?-percent:percent);
+}
 static void short_name(char*out,const char*name,unsigned points)
 {
     unsigned n=0,used=0;
@@ -85,10 +91,11 @@ void mixer_view_channel_strip(const struct mixer_view_state*s,unsigned track,int
     rect(p,x+2,50,width-4,2,0xff000000u|c->colour);
     if(selected)border(p,x+1,53,width-2,144,colour(c));
     char label[48],name[MIXER_NAME_BYTES];
-    if(track==8)snprintf(label,sizeof(label),"MASTER");else snprintf(label,sizeof(label),"%s%u",primary?"*":"",track+1);
+    if(track==8)snprintf(label,sizeof(label),"MASTER");else snprintf(label,sizeof(label),"%s%c",primary?"*":"",'A'+track);
     text(p,label,x+2,54,width-4,12,compact?10:12,primary?AMBER:WHITE,1);
     short_name(name,c->name,compact?3:8);text(p,name,x+2,67,width-4,12,10,WHITE,1);
-    level(label,sizeof(label),m->level_db);text(p,label,x+2,82,width-4,14,compact?10:13,AMBER,1);
+    level(label,sizeof(label),m->level_db);text(p,label,x+2,80,width-4,11,10,AMBER,1);
+    pan(label,sizeof(label),m->pan);text(p,label,x+2,91,width-4,10,8,WHITE,1);
     int rail=x+(compact?12:24),thumb=mixer_view_gain_y(m->level_db);
     rect(p,rail,102,2,76,GREY);rect(p,rail-5,114,12,1,WHITE);
     text(p,"0",rail-10,108,8,10,8,GREY,1);
@@ -106,11 +113,11 @@ static void chrome(const struct mixer_view_state*s,const struct resample_painter
         text(p,tab[i],x,6,w,22,14,active?AMBER:WHITE,1);if(active)rect(p,x+4,28,w-8,2,AMBER);}
     char title[80],db[24];level(db,sizeof(db),s->project->master.mix.level_db);
     unsigned group=0;for(unsigned i=0;i<8;++i)if(s->selected&(1u<<i))++group;
-    if(group>1)snprintf(title,sizeof(title),"GROUP %u  T%u  M %s%s",group,s->primary+1,db,s->pending?" ...":"");
+    if(group>1)snprintf(title,sizeof(title),"GROUP %u  %c  M %s%s",group,'A'+s->primary,db,s->pending?" ...":"");
     else snprintf(title,sizeof(title),"%s  dB     M %s%s",s->master?"MASTER":"MIXER",db,s->pending?"  ...":"");
     text(p,title,4,33,312,15,11,WHITE,0);
     rect(p,0,198,320,42,BLACK);struct mixer_mix resolved[8];const struct mixer_mix*m=mix(s,s->master?8:s->primary,resolved);
-    snprintf(title,sizeof(title),"%+.0f%%",(double)m->pan*100);
+    pan(title,sizeof(title),m->pan);
     text(p,"Pan",4,200,98,12,11,AMBER,1);text(p,title,4,215,98,18,14,WHITE,1);
     text(p,"Send",110,200,98,12,11,GREY,1);text(p,"Disabled",110,215,98,18,12,GREY,1);
     text(p,"Select",217,200,99,12,11,AMBER,1);text(p,s->pickup?"PICKUP":s->master?"Master":"Track",217,215,99,18,14,WHITE,1);
@@ -130,7 +137,7 @@ void mixer_view_context(const struct mixer_view_state*s,const struct resample_pa
     rect(p,80,50,240,148,BLACK);rect(p,79,50,1,148,GREY);
     const struct mixer_channel*c=s->master?&s->project->master:s->project->track+s->primary;
     struct mixer_mix resolved[8];const struct mixer_mix*m=mix(s,s->master?8:s->primary,resolved);char value[40];
-    if(s->page==MIXER_MIX){snprintf(value,sizeof(value),"%+.0f%%",(double)m->pan*100);row(s,0,"Pan",value,0,p);
+    if(s->page==MIXER_MIX){pan(value,sizeof(value),m->pan);row(s,0,"Pan",value,0,p);
         row(s,1,"Send","Disabled",1,p);row(s,2,"Mute",s->master?"--":m->mute?"On":"Off",s->master,p);
         row(s,3,"Solo",s->master?"--":m->solo?"On":"Off",s->master,p);row(s,4,"FX Bypass",c->fx_bypass?"On":"Off",0,p);
     }else if(s->page==MIXER_FX){
@@ -147,7 +154,7 @@ void mixer_view_context(const struct mixer_view_state*s,const struct resample_pa
         row(s,0,s->page==MIXER_ASSIGN?"Assign sounds":"Inspect sounds","PAD FX",0,p);
         snprintf(value,sizeof(value),"%c%02u",'A'+s->sound/16,s->sound%16+1);row(s,1,"Sound",value,0,p);
         unsigned output=s->project->output[s->sound<128?s->sound:0];
-        if(output)snprintf(value,sizeof(value),"Track %u",output);else snprintf(value,sizeof(value),"Master");
+        if(output)snprintf(value,sizeof(value),"Track %c",'A'+output-1);else snprintf(value,sizeof(value),"Master");
         row(s,2,"Output",value,0,p);snprintf(value,sizeof(value),"%c",'A'+s->bank);row(s,3,"Bank",value,0,p);
         row(s,4,s->message&&*s->message?s->message:"LED routing",s->pending?"Pending":"",0,p);
         rect(p,0,198,320,42,BLACK);text(p,s->page==MIXER_INSPECT?"INSPECT: Read only":"Pads: Toggle Track output",4,201,312,15,12,AMBER,1);

@@ -81,7 +81,7 @@ Bound Master compressor PCM -> actual input/output telemetry
 
 ```text
 Pad -> existing individual processing -> project Pad Output
-  Track 1..8 -> Track FX -> Level/Pan -> Mute/Solo gate -> Track PCM tap --+
+  Track A..H -> Track FX -> Level/Pan -> Mute/Solo gate -> Track PCM tap --+
   Master    -> Master Direct PCM tap ----------------------------------+-> sum
   future sends -> return buses (explicit routing/export policy required)+
   sum -> Master FX -> Master Level -> final Master PCM tap -> output
@@ -92,7 +92,7 @@ Song Arrangement -> shared Playback Plan -> same routing/FX/buses
 
 Track meter показывает post-FX, post-Level/Pan, post-Mute/Solo PCM перед суммой.
 Master meter — final Master PCM после Master FX/Level перед output.
-Master Direct не является девятой пользовательской дорожкой и не содержит Track 1–8.
+Master Direct не является девятой пользовательской дорожкой и не содержит Track A–H.
 Meter tap не меняется при B1/B2/B3, bypass или открытии редактора.
 Pre-gate sidechain tap, если понадобится, существует отдельно и не подменяет meter.
 Нельзя использовать compressor input/output meter как final Master без проверки
@@ -100,7 +100,7 @@ Pre-gate sidechain tap, если понадобится, существует о
 сначала документировать и проверить адаптацию, затем подключать UI.
 
 Единственные сохраняемые данные проекта: восемь Track (Level, Pan, Mute/Solo,
-имя, цвет, FX и будущие Send), Master, общая таблица `Pad Output = Master / 1..8`
+имя, цвет, FX и будущие Send), Master, общая таблица `Pad Output = Master / A..H`
 для всех банков. В старом проекте все Outputs = Master, gain unity, новые FX
 неактивны; никакой обязательной конвертации. Pad Settings, B3 и PAD FX используют
 один объект и один путь изменения/сохранения, без параллельных таблиц UI.
@@ -119,12 +119,12 @@ Mix Scene принадлежит Song Part, а не Sequence или вкладк
 ## 3. Main Mixer Overview: восемь полосок без прокрутки
 
 Короткое Shift+Pad9 открывает **Overview**, даже если предыдущий сеанс завершился
-во вкладке или PAD/KNOB FX. Начальный выбор — последний валидный Track, иначе Track 1.
+во вкладке или PAD/KNOB FX. Начальный выбор — последний валидный Track, иначе Track A.
 Master выбирается Pad16; девятой колонки нет. При выбранном Master Overview
 сохраняет восемь Track strips, а заголовок явно показывает `MASTER` и его Level.
 B1/B2/B3 или KNOB FX затем показывают detail с Master Strip.
 
-![Overview: выбраны Track 3 и 5, основной Track 3](media/mixer/overview.png)
+![Overview: выбраны Track C и E, основной Track C](media/mixer/overview.png)
 
 Размер каждого макета — 320×240. Значения фейдеров и уровни meter в этих
 **статических иллюстрациях заданы вручную**, только для проверки компоновки.
@@ -136,8 +136,9 @@ Runtime не получает из них никаких данных. `*` от�
 | Верхние вкладки | (0,5,106,24), (106,5,107,24), (213,5,107,24) | B1 MIX, B2 FX, B3 ROUTE; в Overview ни одна не активна |
 | Заголовок | (4,32,312,16) | MIXER / primary или group / компактный Master Level; при наличии места отдельные L/R Master bars |
 | Восемь strips | (40×i,50,40,148), i=0…7 | Внутренние поля 2 px, вертикальный разделитель |
-| Номер / короткое имя | y=52 / y=66 | Номер с primary marker, имя по фактической ширине шрифта |
-| Сохранённый Level | y=81, height=14 | Одно десятичное, например `-12.0`; общая подпись `dB` в заголовке |
+| Буква / короткое имя | y=54 / y=67 | A–H с primary marker, имя по фактической ширине шрифта |
+| Сохранённый Level | y=80, height=11 | Одно десятичное, например `-12.0`; общая подпись `dB` в заголовке |
+| Панорама каждого трека | y=91, height=10 | `L100`…`L1`, `C`, `R1`…`R100`; отдельная от Level строка |
 | Fader и meter | y=102…177 | Fader слева; отдельные L/R meter справа (по 3 px, промежуток 1 px) |
 | Статусы | y=182…195 | Фиксированные места M, S, P; неактивные приглушены |
 | K footer | (0,198,320,42) | K1 Pan, K2 Send, K3 контекст; подписи текущих значений |
@@ -215,6 +216,18 @@ K1 **никогда не Volume**. Fader управляет Level во всех 
 недоступны до выбора одного Track. B2/B3 можно читать для primary без смены выбора.
 
 ## 5. Выбор и физический Fader
+
+Восемь независимых треков обозначаются **A–H**. Pads 1–8 мгновенно выбирают
+Track A–H в Overview и detail без смены вкладки; Pad16 выбирает Master.
+Назначение звуков свободное из любого банка: Bank A не привязан к Track A.
+На экране назначения всегда различать `Bank A` / `A01` и `Track A`.
+Внутренние output IDs 1–8 и format version не меняются. Имена по умолчанию
+`Track A`…`Track H`; сохранённые пользовательские имена сохраняются при Load.
+
+Pan индивидуален для каждого трека, работает в аудиотракте перед meter tap и
+сохраняется в проекте. K1 меняет Pan основного выбранного трека; все восемь
+значений видны над фейдерами в Overview, а в detail Pan остаётся на левом strip
+и доступен в MIX справа. Показаны подтверждённые значения, включая Mix Scene.
 
 - Pads 1–8: одиночное нажатие заменяет выбор; удержание Track Pad и добавление
   других образует группу. Первый удерживаемый становится primary; он не меняется

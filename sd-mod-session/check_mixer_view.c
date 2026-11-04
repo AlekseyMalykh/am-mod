@@ -21,7 +21,8 @@ int main(int argc,char**argv)
 {
     assert(argc==2);struct mixer_project project;mixer_defaults(&project);
     const char*names[]={"Kick","Snare","Hats","Bass","Keys","Vox","Perc","FX"};
-    for(unsigned i=0;i<8;++i){strcpy(project.track[i].name,names[i]);project.output[i]=(unsigned char)(i+1);project.track[i].mix.level_db=-(float)i*3;}
+    const float pans[]={-1,-.5f,0,.25f,.5f,.75f,1,-.25f};
+    for(unsigned i=0;i<8;++i){strcpy(project.track[i].name,names[i]);project.output[i]=(unsigned char)(i+1);project.track[i].mix.level_db=-(float)i*3;project.track[i].mix.pan=pans[i];}
     project.track[7].mix.level_db=-INFINITY;project.track[1].mix.mute=1;
     project.track[2].fx.count=1;assert(fx_catalog_stage(0,48000,project.track[2].fx.stage));
     struct mixer_meters*m=mixer_meters_create(48000);enum mixer_bus_result error;struct mixer_buses*b=mixer_buses_prepare(&project,0,48000,16,NULL,&error);assert(b&&m);

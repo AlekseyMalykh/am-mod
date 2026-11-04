@@ -18,6 +18,7 @@ COLOURS = ["#32c780", "#39c1d6", "#dc92ff", "#ffc247",
            "#69a5ff", "#e79c6c", "#dc769a", "#a6c855"]
 NAMES = ["Kick", "Snr", "Bass", "Hat", "Keys", "Vox", "Perc", "FX"]
 GAINS = [-3, -9, -6, 0, -12, -4, -8, -2]
+PANS = ["L100", "L50", "C", "R25", "R50", "R75", "R100", "L25"]
 PEAKS = [(-15, -16), (-24, -21), (-10, -13), (-60, -60),
          (-20, -18), (-60, -60), (-28, -30), (-1, -3)]
 
@@ -108,10 +109,11 @@ def overview():
         c.box(x+3, 50, 34, 2, COLOURS[i])
         if chosen:
             c.box(x+1, 49, 38, 148, COLOURS[i], outline=True)
-        c.text(f"{i+1:02d}" + ("*" if i == 2 else ""), x+3, 54, 34, 11,
+        c.text(chr(ord("A")+i) + ("*" if i == 2 else ""), x+3, 54, 34, 11,
                WHITE, True)
         c.text(name, x+3, 68, 34, 10, WHITE, True)
-        c.text(f"{gain:.1f}", x+3, 83, 34, 10, AMBER if chosen else WHITE, True)
+        c.text(f"{gain:.1f}", x+3, 80, 34, 10, AMBER if chosen else WHITE, True)
+        c.text(PANS[i], x+3, 92, 34, 8, WHITE, True)
         fader(c, x+4, 102, 177, gain, chosen)
         meters(c, x+29, 102, 177, peaks)
         for j, letter in enumerate("MSP"):
@@ -119,7 +121,7 @@ def overview():
             c.text(letter, x+5+j*11, 184, 10, 9,
                    (RED if letter == "P" else AMBER) if lit else DIM)
     c.box(0, 198, 320, 1, LINE)
-    footer(c, [("Pan T3", "C"), ("Send T3", "--"), ("Context", "--")])
+    footer(c, [("Pan C", "C"), ("Send C", "--"), ("Context", "--")])
     c.save("overview.png")
 
 
@@ -138,8 +140,9 @@ def detail_base(tab, master=False, title=""):
     c.box(0, 198, 320, 1, LINE)
     colour = AMBER if master else COLOURS[2]
     c.box(4, 34, 71, 2, colour)
-    c.text("MASTER" if master else "03 BASS", 4, 42, 71, 12, WHITE, True)
+    c.text("MASTER" if master else "C BASS", 4, 42, 71, 12, WHITE, True)
     c.text("-1.0 dB" if master else "-6.0 dB", 4, 62, 71, 12, AMBER, True)
+    c.text("C", 4, 78, 71, 8, WHITE, True)
     fader(c, 14, 92, 175, -1 if master else -6, True)
     meters(c, 53, 92, 175, (-4, -6) if master else PEAKS[2], width=5)
     for j, letter in enumerate("MSP" if not master else "P"):
@@ -176,12 +179,12 @@ def details():
     c.save("fx.png")
 
     c = detail_base(2, title="ROUTE  ALL BANKS")
-    row(c, 67, "A03 Bass", "T3", True)
-    row(c, 93, "B07 Sub", "T3")
-    row(c, 119, "C02 Layer", "T3")
-    c.text("3 sounds -> Track 3", 88, 156, 224, 11, GREY)
+    row(c, 67, "A03 Bass", "Track C", True)
+    row(c, 93, "B07 Sub", "Track C")
+    row(c, 119, "C02 Layer", "Track C")
+    c.text("3 sounds -> Track C", 88, 156, 224, 11, GREY)
     c.text("PAD FX: assign sounds", 88, 178, 224, 10, GREY)
-    footer(c, [("Bank", "All"), ("Sound", "A03"), ("Output", "Track 3")], split=True)
+    footer(c, [("Bank", "All"), ("Sound", "A03"), ("Output", "Track C")], split=True)
     c.save("route.png")
 
     c = detail_base(1, master=True, title="MASTER FX / EQ")

@@ -46,7 +46,7 @@ void mixer_defaults(struct mixer_project*p)
     if(!p)return;
     static const uint32_t colours[]={0x00c700,0x00c8ff,0x8830ff,0xffc247,0x2030ff,0xff6000,0xff20b0,0x98ff00};
     memset(p,0,sizeof(*p));
-    for(unsigned i=0;i<MIXER_TRACKS;++i){snprintf(p->track[i].name,MIXER_NAME_BYTES,"Track %u",i+1);p->track[i].colour=colours[i];}
+    for(unsigned i=0;i<MIXER_TRACKS;++i){snprintf(p->track[i].name,MIXER_NAME_BYTES,"Track %c",'A'+i);p->track[i].colour=colours[i];}
     memcpy(p->master.name,"Master",7);p->master.colour=0xffc247;
 }
 int mixer_project_valid(const struct mixer_project*p)

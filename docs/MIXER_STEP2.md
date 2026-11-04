@@ -10,6 +10,12 @@ round-trip и аппаратные проверки пока не подключ
 
 ## Управление
 
+Уточнение04.11: независимые треки обозначаются A–H, быстрый выбор — Pads1–8,
+Master — Pad16. Банки звуков A–H остаются независимыми: любой из128 sounds
+можно направить на любой Track. Старые output IDs1–8 и имена в сохранённых
+проектах не преобразуются. У каждого трека отдельный Pan; на всех восьми strips
+и слева в detail виден `L…` / `C` / `R…`. K1 изменяет Pan primary track.
+
 Код: [`mixer_control.c`](../sd-mod-session/src/mixer_control.c),
 [API](../sd-mod-session/src/mixer_control.h). Все операции выполняет UI owner;
 native input producer должен доставлять числовые события с ticket через очередь.
