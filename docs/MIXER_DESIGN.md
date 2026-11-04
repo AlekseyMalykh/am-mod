@@ -266,9 +266,12 @@ Mixer context -- Shift+KNOB FX ---> Advanced -- KNOB FX --> saved context
 Any Mixer page -- Sample/Seq/Song/other native mode --> Stock destination
 ```
 
-Короткий Shift+Pad9 распознаётся на Pad9 release, если long press не сработал;
-порог брать из существующего long-press механизма после проверки его обработчика,
-не вводить второй независимый таймер. Shift может быть отпущен раньше Pad9:
+Короткий Shift+Pad9 распознаётся на Pad9 release, если long press не сработал.
+[Проверка native input](MIXER_INPUT.md) выявила, что штатный Fader Settings
+открывается на down без отдельного long-press timer. Поэтому один общий gesture
+owner задерживает native pad down и различает short/long; начальный порог500ms
+является политикой AM Mod и требует аппаратной проверки. Второй параллельный
+таймер не вводится. Shift может быть отпущен раньше Pad9:
 принадлежность gesture фиксируется на down. Long срабатывает ровно один раз,
 не открывает Mixer перед Fader Settings и не вызывает Mixer на release.
 

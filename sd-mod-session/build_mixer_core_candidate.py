@@ -30,8 +30,8 @@ runtime = Path(os.environ.get("MPC_RUNTIME_ROOT", str(R.parent))).resolve()
 out = R / "build/mixer-candidate"
 out.mkdir(parents=True, exist_ok=True)
 sha = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
-sources = ["src/mixer_model.c", "src/mixer_meters.c", "src/fx_chain.c", "src/fx_catalog.c", "src/mixer_archive.cc", "src/mixer_buses.c", "src/mixer_route_native.c", "src/mixer_live.c", "src/mixer_live_native.c", "src/mixer_view.c", "src/mixer_control.c", "src/mixer_session.cc"]
-tracked = sources + ["src/mixer_model.h", "src/mixer_meters.h", "src/mixer_archive.h", "src/mixer_buses.h", "src/mixer_route_native.h", "src/mixer_live.h", "src/mixer_view.h", "src/mixer_control.h", "src/mixer_session.h", "src/fx_chain.h", "src/phone_native.c", "build_mixer_core_candidate.py"]
+sources = ["src/mixer_model.c", "src/mixer_meters.c", "src/fx_chain.c", "src/fx_catalog.c", "src/mixer_archive.cc", "src/mixer_buses.c", "src/mixer_route_native.c", "src/mixer_live.c", "src/mixer_live_native.c", "src/mixer_view.c", "src/mixer_control.c", "src/mixer_session.cc", "src/mixer_input.c"]
+tracked = sources + ["src/mixer_model.h", "src/mixer_meters.h", "src/mixer_archive.h", "src/mixer_buses.h", "src/mixer_route_native.h", "src/mixer_live.h", "src/mixer_view.h", "src/mixer_control.h", "src/mixer_session.h", "src/mixer_input.h", "src/fx_chain.h", "src/phone_native.c", "build_mixer_core_candidate.py"]
 before = {p: sha(R / p) for p in tracked}
 print("Building the existing full-preload baseline (log in build/mixer-candidate/baseline.log)", flush=True)
 with (out / "baseline.log").open("w") as log:

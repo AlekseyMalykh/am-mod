@@ -38,11 +38,12 @@ Controller не читает native objects, не запускает audio и н
   downs поглощаются даже после закрытия/смены ticket. Следующая полная пара вне
   Mixer возвращает `forward`; actual native parser этим controller test не подменён.
 
-Сам controller **не вводит long-press timer**. `open(audio_ready,modal_blocked)`
-является точкой входа для будущего подтверждённого native short-release decision.
-Вызов long Fader Settings не переназначен. Физический Shift+Pad9 ещё не открывает
-controller; это нужно завершить на существующем native gesture owner, а не по
-догадке о длительности. Sample/Seq codes также ещё не связаны с native mode action.
+Сам controller не содержит long-press timer. Отдельный проверенный
+[`mixer_input`](MIXER_INPUT.md) переводит raw кнопки и содержит единый entry owner;
+native Fader Settings на самом деле открывается на down без штатного long timer.
+Начальный порог500ms — явная политика AM. Native raw Sample/Seq IDs связаны с
+controller mode action в adapter, но adapter ещё не подключён к `phone_native`
+FIFO. Физический Shift+Pad9 пока не открывает controller на MPC.
 
 ## Assign / Inspect и FX
 
@@ -140,7 +141,7 @@ MPC_RUNTIME_ROOT='/path/to/runtime' python3 build_mixer_core_candidate.py
 - Candidate полностью линкуется с controller/session/catalog, проходит preload;
   без native lifecycle/entry bridge session не создаётся и экран не активируется.
 
-Оставшаяся работа второго пакета: подтверждённый Shift+Pad9 short/long handoff,
+Оставшаяся работа второго пакета: подключение проверенного Shift+Pad9 short/long handoff,
 проводка FIFO/tickets в `phone_native`, реальная native binding/retirement при
 Load/New/Mod Off, native UI Timer/repaint regions и LED arbitration, полный XPJ
 round-trip, аппаратная читаемость/Fader/LED/CPU/underruns. Пока эти пункты открыты,

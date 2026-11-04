@@ -4,6 +4,7 @@
 Политика интерфейса: [MIXER_DESIGN.md](MIXER_DESIGN.md).
 Это результаты локального анализа и ARM/QEMU, не аппаратная проверка Mixer.
 Продолжение04.11: [первый пакет audio/updates/painter](MIXER_STEP1.md).
+Дополнительно04.11: [реальный native input и проверка Fader down](MIXER_INPUT.md).
 Он добавляет установленный experimental hook layer и primary-output Master;
 нижняя таблица сохраняет границы исходного Phase0 аудита.
 ELF 1.3.0.12: SHA-256
