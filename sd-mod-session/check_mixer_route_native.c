@@ -6,7 +6,9 @@
 #undef main
 #include "src/mixer_route_native.h"
 #define F(p,o,T) (*(T*)((char*)(p)+(o)))
+#ifndef N
 #define N 16u
+#endif
 static unsigned in_audio;
 void *__real_malloc(size_t);
 void *__real_calloc(size_t,size_t);
@@ -243,6 +245,23 @@ static void tests(void)
     assert(F(program+0xc20,0x128,unsigned char)==1);mixer_route_destroy(a);
     puts("PASS empty eligible block runs graph/tail stage and native Program stages; silence clear flag preserved");
 
+    struct mixer_meters*meters=mixer_meters_create(48000);assert(meters);struct mixer_meter_snapshot snapshot;
+    a=prepare(0);assert(mixer_route_meters_push(a,meters,1)==-1);
+    for(unsigned block=0;block<6;++block){
+        fixture();assert(mixer_route_render(a,program,NULL,N)==MIXER_ROUTE_APPLIED);
+        assert(mixer_route_meters_push(a,meters,1)==(block<4?1:0));
+        assert(mixer_route_meters_push(a,meters,1)==-1);
+    }
+    assert(mixer_meters_take(meters,1,&snapshot)&&snapshot.frame_end==4*N&&snapshot.valid_mask==0x1ff);
+    fixture();assert(mixer_route_render(a,program,NULL,N)==MIXER_ROUTE_APPLIED);
+    assert(mixer_route_meters_push(a,meters,1)==1&&mixer_meters_take(meters,1,&snapshot));
+    assert(snapshot.frame_end==7*N&&snapshot.peak[0][0]==.125f);
+    fixture();poison=1;assert(mixer_route_render(a,program,NULL,N)==MIXER_ROUTE_RECOVERED);
+    assert(mixer_route_meters_push(a,meters,2)==1&&mixer_meters_take(meters,2,&snapshot));
+    assert(snapshot.frame_end==N&&snapshot.valid_mask==0&&snapshot.peak[0][0]==0);
+    mixer_meters_destroy(meters);mixer_route_destroy(a);
+    puts("PASS adapter meter bridge preserves block clock under queue backpressure, rejects retry and invalidates recovered audio in a new epoch");
+
     /* With both call sites absent, a mistaken scoped invocation must leave
      * the native render result intact rather than copying an empty shadow. */
     *(uint32_t*)(base+0x286bf44)=0x97fbf72b;*(uint32_t*)(base+0x286bfa4)=0x97fbf8db;
@@ -251,7 +270,10 @@ static void tests(void)
     expect_audio(.375f,-.1875f);mixer_route_destroy(a);
     puts("PASS uninstalled call sites leave an accidental scoped invocation entirely native");
 }
-int main(int argc,char**argv)
+#ifndef MIXER_ROUTE_PROOF_MAIN
+#define MIXER_ROUTE_PROOF_MAIN main
+#endif
+int MIXER_ROUTE_PROOF_MAIN(int argc,char**argv)
 {
     assert(argc==2);setbuf(stdout,NULL);struct sigaction sa={.sa_sigaction=fault,.sa_flags=SA_SIGINFO};
     sigaction(SIGSEGV,&sa,NULL);sigaction(SIGILL,&sa,NULL);sigaction(SIGABRT,&sa,NULL);

@@ -49,6 +49,18 @@ preflight всего блока, native route gain/channel mapping, idle-entry r
 Это проверка приватного ELF mapping с fixture DSP, не включённый device adapter.
 Окончательный Master tap после native Program/general mix по-прежнему не доказан.
 
+Дополнительный DSP suite уточняет buffer ownership: исследованный Instrument
+constructor `28100c0 -> 27714f0` создаёт2 buffers; RenderableProgram —1. Native
+`276b9a0` и reset `276a830` исполнены: dirty reset очищает оба PCM-канала, уже
+clear buffer пропускается. Штатный Pad destination0/subindex0 конструируется
+`2774a40` и следует через null resolver в default Program buffer; destination1
+возвращает отдельный router buffer, не allocated Program buffer.
+`286c3b0/286c2a0`, реальные Instrument/Program wrappers, установленный AM Pad EQ
+и native stereo gain теперь проверены вместе с graph. Генератор voice PCM и
+сервисы — fixtures; полное note/voice lifecycle покрытие остаётся открытым.
+Track/Direct native adapter telemetry публикуется через meter core, global Master
+остаётся unavailable: см. [контракт и четыре ARM-прогона](MIXER_NATIVE_ADAPTER.md).
+
 Перед установкой адаптера необходимо покрыть обычные/оптимизированные ветки,
 Pad Link, multi-output, preview/live input, sequenced notes, resample/offline,
 mute и tail, а также существующий Pad EQ hook. Захват после `2802f90` с обнулением

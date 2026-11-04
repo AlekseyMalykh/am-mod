@@ -9,7 +9,7 @@ struct route_source {void *instrument,*buffer;unsigned pad;};
 struct mixer_route_native {
     struct mixer_buses *buses;
     struct mixer_route_ops ops;
-    unsigned capacity,frames,count,captured,disabled,forwarding,flushed;
+    unsigned capacity,frames,count,captured,disabled,forwarding,flushed,meter_pushed;
     enum mixer_route_result result;
     void *program,*main;
     struct route_buffer shadow,scratch;
@@ -113,15 +113,17 @@ static void recover(struct mixer_route_native*a)
 }
 enum mixer_route_result mixer_route_render(struct mixer_route_native*a,void*program,void*clock,unsigned frames)
 {
-    if(!a||!program||!frames)return MIXER_ROUTE_INVALID;
+    if(!a)return MIXER_ROUTE_INVALID;
+    if(!program||!frames){if(scope!=a){a->result=MIXER_ROUTE_INVALID;a->frames=0;}return MIXER_ROUTE_INVALID;}
     if(scope){
         struct mixer_route_native *outer=scope;scope=NULL;
         a->ops.render(program,clock,frames);scope=outer;
+        if(a!=outer){a->result=MIXER_ROUTE_PASSTHROUGH;a->frames=frames;a->meter_pushed=0;}
         return MIXER_ROUTE_PASSTHROUGH;
     }
-    a->result=MIXER_ROUTE_PASSTHROUGH;
+    a->result=MIXER_ROUTE_PASSTHROUGH;a->frames=frames;a->meter_pushed=0;
     if(a->disabled||frames>a->capacity){a->ops.render(program,clock,frames);return a->result;}
-    a->program=program;a->frames=frames;a->captured=0;a->forwarding=0;a->flushed=0;
+    a->program=program;a->captured=0;a->forwarding=0;a->flushed=0;
     if(!eligible(a)){a->ops.render(program,clock,frames);return a->result;}
     if(mixer_buses_begin(a->buses,frames)!=MIXER_BUS_OK){a->disabled=1;a->ops.render(program,clock,frames);return a->result;}
     copy_buffer(a->shadow.native,a->main,frames);
@@ -186,5 +188,21 @@ void mixer_route_stage(const struct mixer_route_ops*ops,void*processor,void*buff
 }
 int mixer_route_view(const struct mixer_route_native*a,unsigned bus,struct mixer_pcm_view*out)
 {
-    return a&&a->result==MIXER_ROUTE_APPLIED&&mixer_buses_view(a->buses,bus,out);
+    return a&&scope!=a&&a->result==MIXER_ROUTE_APPLIED&&mixer_buses_view(a->buses,bus,out);
+}
+int mixer_route_meters_push(struct mixer_route_native*a,struct mixer_meters*m,uint64_t epoch)
+{
+    if(!a||!m||!epoch||!a->frames||a->meter_pushed||scope==a)return -1;
+    struct mixer_meter_input taps[MIXER_METER_BUSES]={0};
+    if(a->result==MIXER_ROUTE_APPLIED){
+        for(unsigned bus=0;bus<=MIXER_METER_DIRECT;++bus){
+            struct mixer_pcm_view view;
+            if(mixer_buses_view(a->buses,bus,&view)&&view.frames==a->frames){
+                taps[bus].channel[0]=view.channel[0];taps[bus].channel[1]=view.channel[1];taps[bus].channels=2;
+            }
+        }
+    }
+    int result=mixer_meters_push(m,epoch,a->frames,taps);
+    if(result>=0)a->meter_pushed=1;
+    return result;
 }

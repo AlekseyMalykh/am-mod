@@ -38,8 +38,15 @@ int mixer_route_sum(const struct mixer_route_ops*,void *instrument,void *source,
 void mixer_route_stage(const struct mixer_route_ops*,void *program_processor,
     void *buffer,unsigned frames,unsigned stage);
 /* Same-owner diagnostic views only after APPLIED. The Master view is before
- * native program FX/gain, NOT a final output tap; no UI meter is published. */
+ * native program FX/gain, NOT a final output tap. Use the explicit Track/Direct
+ * meter publication below; do not feed this diagnostic Master to the UI. */
 int mixer_route_view(const struct mixer_route_native*,unsigned bus,struct mixer_pcm_view*);
+/* Audio owner, once after each render and before the next one. Publishes real
+ * post-gate Track0..7/Direct PCM. Global Master is UNAVAILABLE: the core Master
+ * precedes native Program/general mixing and cannot represent final output.
+ * Passthrough/recovered blocks publish unavailable taps, never stale peaks.
+ * Same return convention as mixer_meters_push; duplicate block push is -1. */
+int mixer_route_meters_push(struct mixer_route_native*,struct mixer_meters*,uint64_t epoch);
 #ifdef __cplusplus
 }
 #endif

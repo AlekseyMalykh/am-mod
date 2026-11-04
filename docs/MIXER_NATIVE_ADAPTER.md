@@ -53,7 +53,50 @@ Shadow хранит точные backing bytes/flag, включая stale storag
 Штатные Pad processors остаются перед capture, active/idle list обрабатывает
 оригинальный цикл. Обычный и один оптимизированный two-buffer merge исполняются
 в тесте; внешние Pad/Program DSP services заменены детерминированными fixtures.
-Следовательно, это ещё не сквозной тест настоящего Pad EQ/native FX с живыми voices.
+Дополнительный DSP suite ниже исполняет также настоящий Pad EQ и Program gain;
+живые voices и непустые native insert chains пока не проверены.
+
+## Native buffers, Pad EQ и полный render entry
+
+Дополнительный [`check_mixer_route_dsp.c`](../sd-mod-session/check_mixer_route_dsp.c)
+уточняет прежнюю гипотезу о shared/one-buffer пути. Исследованный штатный
+Instrument constructor `28100c0` передаёт extra=1 базовому `27714f0`, тот прибавляет
+один и вызывает `276b9a0` с count=2. RenderableProgram передаёт extra=0 → count=1.
+RTTI этих constructors подтверждён как `Instrument` и `RenderableProgram`.
+Это разные владельцы буферов; нельзя называть Program с одним буфером обычным
+однобуферным Pad. Defensive отказ для Instrument с count<=1 остаётся: все возможные
+clone/lifecycle пути ещё не исследованы.
+
+Тест выполняет настоящий allocator `276b9a0`, getters/count и reset `276a830`.
+При dirty buffer reset физически очищает оба канала и ставит clear=1; при уже
+clear=1 пропускает очистку. Поэтому проверка zero backing storage в адаптере
+остаётся необходимой, а выставление clear вручную не заменяет native reset.
+Вне RT использован fixture listener-registration service; backing PCM и vector
+выделяются/освобождаются настоящим native кодом.
+Reset между блоками вызывает тестовый owner явно; реальный engine lifecycle
+и его порядок вызовов этим стендом ещё не подтверждены.
+
+Штатный Instrument route создаётся `2774a40`: destination=0, subindex=0,
+stereo unity. Его resolver даёт null, и `286be30` направляет PCM в Program buffer.
+В данном контексте это **штатный default/inherit path**, а не неизвестный маршрут.
+Destination1/index0 возвращает отдельный embedded router buffer; это не тот же
+объект, что allocated Program buffer. Адаптер не объявляет их тождественными.
+
+DSP suite исполняет `2803430 -> 2802f90` через настоящий установленный AM Pad EQ
+wrapper, затем native Program stages `276a310`, `276a520`, stereo gain `2769d60`
+и завершающий Program level/ramp. Insert chains пусты; генератор PCM и внешние
+сервисы — fixtures. Реальный Bell cut остаётся внутри назначенного Track,
+Track Level применяется к post-EQ PCM один раз, Program stereo gain — после
+core Master. Другие Track/Direct не получают EQ выбранного пэда.
+
+Проверяется и настоящий вход `286c3b0`: native clock начинается с13, блок2048
+frames проходит через33 участка длиной не более64 у каждого из трёх voice,
+настоящий `286c2a0` обходит active voice list, затем tail call `286c478 -> 286be30`
+в тесте направляется в scoped adapter. Подменён только oscillator body `221ee10`,
+который пишет тестовый PCM в реальные native Pad buffers. Проверены сохранность
+clock/voice list, unity output и выбранный Track Level. Это ещё не проверка note
+scheduling, native oscillator/envelopes, Pad Link, voice stealing или release/tails
+на устройстве. Test-only bridge не является production installer.
 
 ## Ошибки и владение
 
@@ -86,9 +129,17 @@ input уже содержит NaN, fallback сохраняет штатный р
 
 Track/Direct diagnostic views содержат настоящий post-gate PCM нового графа.
 Но его Master пока расположен **до** оставшихся native Program FX/gain и общего
-engine output mix. API поэтому не публикует meter snapshots и явно обозначает
-это ограничение. Нельзя подключить этот Master view к финальному Master meter
-или объявить его завершённым mixdown/stem tap.
+engine output mix. `mixer_route_meters_push()` после scoped render публикует
+настоящие post-gate Track0…7/Direct taps; Master имеет channels=0, то есть N/A.
+Нельзя подключить diagnostic core Master view к финальному Master meter или
+объявить его завершённым mixdown/stem tap.
+
+Один audio owner вызывает meter push ровно один раз на native block; повтор
+отклоняется, включая попытку повтора после queue-full. Неподдержанный/recovered
+блок публикует unavailable taps и сбрасывает прежние peaks; ошибочный вызов render
+не позволяет повторно опубликовать старый PCM. Во время scoped callback views и
+meter push недоступны. UI получает только существующий SPSC numeric snapshot.
+Передача проверена с реальными post-Pad-EQ bus buffers в полном native entry.
 
 Остаются открыты shared/one-buffer path, остальные ветки optimized processor,
 Pad Link, physical/multi-output, preview/live input, остальные Program renderers,
@@ -117,6 +168,14 @@ Normal и ARM UBSan проверяют точный SHA-256 ELF, исходни�
 - независимые Track FX tails в пустом блоке, clear silence и native stages после;
 - отсутствие linked malloc/calloc/realloc/free в scoped audio callbacks;
 - сохранность native результата при отсутствии обоих call-site hooks.
+
+Отдельные normal/UBSan DSP-прогоны дополнительно проверяют native allocation/reset,
+реальные Instrument/Program wrappers, существующий Pad EQ, native stereo gain,
+повторные reset/render и silence, полный render entry/64-frame voice walk,
+а также совпадение Track/Direct telemetry с фактическими bus peaks. Master всегда
+unavailable; duplicate/early meter push и публикация после invalid render запрещены.
+Queue-full/retry проверяются отдельно: frame clock учитывает каждый блок один
+раз, отложенные peaks сохраняются, новая epoch после recovery не содержит старых.
 
 Grouping Track может изменить порядок float additions относительно общего native
 sum; побитовая проверка этих fixtures не обещает побитового совпадения любых

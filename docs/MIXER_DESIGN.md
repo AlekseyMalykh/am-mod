@@ -20,6 +20,9 @@ buffers и FX/mix/meters; native Pad adapter и UI ещё не подключе�
 отдельный Pad-buffer путь через новый граф в ARM/QEMU. Device hooks отсутствуют;
 shared/physical и другие неподдержанные пути сохраняют штатную обработку.
 Master tap после всех native стадий, live graph exchange и UI ещё не реализованы.
+Для default Instrument path проверены native allocated buffers, existing Pad EQ,
+Program gain и полный 64-frame voice walk с fixture oscillators. Адаптер теперь
+публикует настоящие Track/Direct meter snapshots; global Master сохраняет N/A.
 
 Приоритет требований: Classic Console Layout → дополнение B1–B3 / Routing LEDs
 → исходное задание Mixer / Song / Stems. В частности, Pads 9–15 пока свободны,

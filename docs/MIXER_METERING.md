@@ -78,6 +78,15 @@ Load/новом epoch и показывать N/A, если счётчик frame
 Источник в этом стенде — синтетические samples через реальную native функцию;
 соответствие slot0 конкретной live-шине тест не заявляет.
 
+В [scoped native adapter](MIXER_NATIVE_ADAPTER.md) добавлен
+`mixer_route_meters_push()`: audio owner после render публикует actual post-gate
+Track0…7/Direct PCM через тот же SPSC ring. Global Master остаётся unavailable:
+core Master расположен до native Program/general mix. Normal/UBSan DSP suite
+исполняет native Instrument/Program processing и существующий Pad EQ, проверяя
+peaks против настоящих bus buffers. При fallback прежние peaks инвалидируются;
+повторная публикация одного блока и публикация внутри незавершённого callback
+отклоняются. Production hooks/экран устройства всё ещё не подключены.
+
 Отчёты лежат в ignored `build/mixer-meters/` и `build/mixer-native/`.
 
 ## Экспериментальная полная линковка
