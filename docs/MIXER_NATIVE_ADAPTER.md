@@ -1,5 +1,10 @@
 # Scoped native PCM adapter
 
+Текущий статус: этот документ описывает низкий scoped слой. Следующий
+[live слой первого пакета](MIXER_STEP1.md) уже добавляет pinned installer,
+primary-output Master, live update packets и atomic session retirement.
+Ограничения scoped слоя ниже не означают отсутствия этих новых компонентов.
+
 04.11.2026, только `feature/mixer-song-stems`.
 Код: [`mixer_route_native.c`](../sd-mod-session/src/mixer_route_native.c),
 [контракт API](../sd-mod-session/src/mixer_route_native.h).
@@ -7,8 +12,8 @@
 Реализован экспериментальный адаптер **одного подтверждённого separate-buffer
 пути DrumProgram** pinned 1.3.0.12. ARM-тест исполняет настоящий native цикл пэдов,
 resolver и summing с новым bus core. Подключение двух call sites существует
-только в приватном ELF mapping теста. В сборке устройства нет installer,
-автоматического входа в адаптер или действующего live Mixer.
+в приватном ELF mapping первого теста. Позднее добавлен installer entry hooks
+в отдельный experimental candidate; автоматической session/UI activation нет.
 
 ## Проверенная граница
 
@@ -116,7 +121,8 @@ input уже содержит NaN, fallback сохраняет штатный р
 Вызов с обоими отсутствующими call-site hooks сохраняет native результат и
 выключает адаптер. Частичная установка hooks не поддерживается: будущий installer
 обязан проверять и менять обе инструкции вне audio callback как одну согласованную
-операцию. Текущий production-код вообще не патчит ELF и не устанавливает hooks.
+операцию. Это правило относится к call-site harness. Новый live installer
+отдельно проверяет и устанавливает четыре entry hooks до запуска audio.
 
 Дополнительные PCM scratch+shadow занимают `4*capacity*sizeof(float)` = 4096 B при
 256 frames; вместе с bus core — 26624 B (26 KiB), без metadata и FX. Native sum
@@ -145,9 +151,9 @@ meter push недоступны. UI получает только существ
 Pad Link, physical/multi-output, preview/live input, остальные Program renderers,
 resample/offline, voices и смена программ. При неподдерживаемом блоке не применяются
 Track routing/Level/FX: это сохранение штатного звука, а не полная работа Mixer.
-Замороженный граф пока не меняется во время игры; нет block-boundary graph exchange,
-ramp/crossfade, live Scene switching или согласованного UI/audio acknowledgement.
-Все эти пункты нужны до включения Mixer, затем проверки CPU/underruns на MPC.
+Первый пакет теперь добавляет block updates, ramp/crossfade и revision ack;
+Song Scene boundary scheduling, native UI/audio acknowledgement и аппаратные
+CPU/underrun проверки по-прежнему впереди.
 
 ## Воспроизведение
 
@@ -183,5 +189,6 @@ sum; побитовая проверка этих fixtures не обещает �
 fixtures; полный app lifecycle, истинная полифония и устройство не исполняются.
 
 Результаты находятся только в ignored `build/mixer-route-native/`. Builder включает
-адаптер в отдельную experimental library и проверяет full link/preload, оставляя
-UI и audio routing выключенными. Штатный ELF, SD и release artifacts не меняются.
+адаптер и dormant live hooks в отдельную experimental library, проверяет full
+link/preload без привязанной session или native UI. Штатный ELF, SD и release
+artifacts не меняются.

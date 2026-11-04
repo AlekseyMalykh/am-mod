@@ -94,6 +94,20 @@ enum fx_result fx_exchange_publish(struct fx_exchange *e,struct fx_program *p)
     struct fx_program *expected=NULL;
     return atomic_compare_exchange_strong_explicit(&e->pending,&expected,p,memory_order_release,memory_order_relaxed)?FX_OK:FX_BUSY;
 }
+int fx_exchange_seed(struct fx_exchange*e,struct fx_program*p)
+{
+    if(!e||e->active||e->fading||e->fade_left||atomic_load(&e->pending)||atomic_load(&e->retired))return 0;
+    e->active=p;return 1;
+}
+int fx_exchange_ready_audio(const struct fx_exchange*e)
+{
+    return e&&!e->fade_left&&!atomic_load_explicit(&e->pending,memory_order_acquire)&&
+        !atomic_load_explicit(&e->retired,memory_order_acquire);
+}
+int fx_exchange_transitioning_audio(const struct fx_exchange*e)
+{
+    return e&&(e->fade_left||atomic_load_explicit(&e->pending,memory_order_acquire));
+}
 void fx_exchange_collect(struct fx_exchange *e)
 {
     if(e)fx_program_destroy(atomic_exchange_explicit(&e->retired,NULL,memory_order_acquire));

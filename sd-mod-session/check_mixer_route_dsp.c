@@ -266,7 +266,10 @@ static void entry_checks(void)
     puts("PASS actual DrumProgram render entry chunks2048 frames at unaligned native clock into33 voice calls per Pad, then real Pad EQ/routing/Program gain; unity and selected Track Level preserved");
     puts("PASS native adapter publishes actual independent Track/Direct PCM peaks, leaves global Master unavailable, rejects duplicate publications and invalidates unsupported blocks");
 }
-int main(int argc,char**argv)
+#ifndef MIXER_DSP_PROOF_MAIN
+#define MIXER_DSP_PROOF_MAIN main
+#endif
+int MIXER_DSP_PROOF_MAIN(int argc,char**argv)
 {
     assert(argc==2);setbuf(stdout,NULL);struct sigaction sa={.sa_sigaction=fault,.sa_flags=SA_SIGINFO};
     sigaction(SIGSEGV,&sa,NULL);sigaction(SIGILL,&sa,NULL);sigaction(SIGABRT,&sa,NULL);

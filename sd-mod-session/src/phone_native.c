@@ -14,6 +14,9 @@
 #ifdef MPC_MIXER_ARCHIVE
 #include "mixer_archive.h"
 #endif
+#ifdef MPC_MIXER_LIVE
+#include "mixer_live.h"
+#endif
 #include "music_ui.h"
 #ifdef MPC_PAD_EQ
 #include "filter_spectrum.h"
@@ -1680,6 +1683,9 @@ static void load(void)
     if (!filter_spectrum_install(base,music_ui_filter_spectrum_visible)) _exit(121);
     if (!pad_eq_native_install(base)) _exit(121);
     if (!pad_eq_history_install(base)) _exit(121);
+#endif
+#ifdef MPC_MIXER_LIVE
+    if (!mixer_live_native_install(base)) _exit(121);
 #endif
     for (unsigned i=0;i<H_COUNT;++i) FIELD(table,64+i*16+8,uintptr_t)=(uintptr_t)callbacks[i];
     if (mprotect(table,4096,PROT_READ|PROT_EXEC)) _exit(120);

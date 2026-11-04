@@ -25,10 +25,12 @@ suites = [
     ("routing", ["check_mixer_route_native.c", *core], "PASS scoped Mixer native adapter"),
     ("native-dsp", ["check_mixer_route_dsp.c", *core, "src/pad_eq.c", "src/pad_eq_native.c"],
      "PASS Mixer native allocated-buffer and Pad EQ integration"),
+    ("installed-live", ["check_mixer_live_native.c", *core, "src/pad_eq.c", "src/pad_eq_native.c", "src/mixer_live.c", "src/mixer_live_native.c"],
+     "PASS installed pinned live hooks"),
 ]
 tracked = list(dict.fromkeys(p for _, sources, _ in suites for p in sources)) + [
     "check_fx_native.c", "src/mixer_route_native.h", "src/mixer_buses.h", "src/mixer_model.h",
-    "src/mixer_meters.h", "src/pad_eq.h", "src/pad_eq_native.h", Path(__file__).name]
+    "src/mixer_meters.h", "src/pad_eq.h", "src/pad_eq_native.h", "src/mixer_live.h", "src/fx_chain.h", "src/fx_eq.h", Path(__file__).name]
 before = {p: digest(R / p) for p in tracked}
 checks = []
 for suite, sources, marker in suites:
@@ -52,6 +54,6 @@ assert before == {p: digest(R / p) for p in tracked}
 (out / "verification.json").write_text(json.dumps(dict(
     passed=True, checks=checks, firmware_sha256=expected, sources_sha256=before,
     hardware_tested=False, live_routing_installed=False, card_written=False,
-    native_track_taps_tested=True, final_master_tap_tested=False, voice_oscillators_fixture=True,
-    scope="Real DrumProgram entry/chunking/voice walk, native buffer allocation/reset, Instrument/Program processing, AM Pad EQ, optimized two-buffer merge, resolver and summing. Native object/service/voice oscillator fixtures; all call-site patches private to QEMU ELF mapping."
+    native_track_taps_tested=True, final_master_physical_pair_tested=True, voice_oscillators_fixture=True,
+    scope="Real installed entry hooks, engine2226fb0/downstream18c79f0, Program output sum, primary physical Master; DrumProgram entry/chunking/voice walk, native buffer allocation/reset, Instrument/Program processing, AM Pad EQ, optimized merge. Native object/service/voice oscillator/downstream insert fixtures; all code patches private to QEMU ELF mapping."
 ), indent=2) + "\n")

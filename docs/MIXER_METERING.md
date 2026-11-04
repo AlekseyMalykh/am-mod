@@ -85,7 +85,10 @@ core Master расположен до native Program/general mix. Normal/UBSan D
 исполняет native Instrument/Program processing и существующий Pad EQ, проверяя
 peaks против настоящих bus buffers. При fallback прежние peaks инвалидируются;
 повторная публикация одного блока и публикация внутри незавершённого callback
-отклоняются. Production hooks/экран устройства всё ещё не подключены.
+отклоняются. В следующем [live слое](MIXER_STEP1.md) добавлен отдельный реальный
+primary-output Master после исходного engine mix. Общий snapshot содержит
+Track/Direct и Master одной epoch/block boundary. Candidate hooks установлены,
+но session/native экран автоматически не активируются.
 
 Отчёты лежат в ignored `build/mixer-meters/` и `build/mixer-native/`.
 

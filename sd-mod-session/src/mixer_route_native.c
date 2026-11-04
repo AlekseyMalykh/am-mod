@@ -15,6 +15,8 @@ struct mixer_route_native {
     struct route_buffer shadow,scratch;
     float *pcm;
     struct route_source source[MIXER_PADS];
+    void(*before_block)(void*);
+    void*before_user;
 };
 static _Thread_local struct mixer_route_native *scope;
 /* memcpy avoids aliasing/alignment assumptions on the reverse-engineered ABI. */
@@ -125,6 +127,7 @@ enum mixer_route_result mixer_route_render(struct mixer_route_native*a,void*prog
     if(a->disabled||frames>a->capacity){a->ops.render(program,clock,frames);return a->result;}
     a->program=program;a->captured=0;a->forwarding=0;a->flushed=0;
     if(!eligible(a)){a->ops.render(program,clock,frames);return a->result;}
+    if(a->before_block)a->before_block(a->before_user);
     if(mixer_buses_begin(a->buses,frames)!=MIXER_BUS_OK){a->disabled=1;a->ops.render(program,clock,frames);return a->result;}
     copy_buffer(a->shadow.native,a->main,frames);
     scope=a;a->ops.render(program,clock,frames);scope=NULL;
@@ -206,3 +209,8 @@ int mixer_route_meters_push(struct mixer_route_native*a,struct mixer_meters*m,ui
     if(result>=0)a->meter_pushed=1;
     return result;
 }
+void mixer_route_before_block(struct mixer_route_native*a,void(*fn)(void*),void*user)
+{
+    if(a){a->before_block=fn;a->before_user=user;}
+}
+struct mixer_buses*mixer_route_buses(struct mixer_route_native*a){return a?a->buses:NULL;}

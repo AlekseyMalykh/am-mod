@@ -1,10 +1,14 @@
 # AM Mod — Mixer, Song Mode & Stems: Classic Console UI
 
-Статус: архитектурное задание, 03.11.2026. Ветка: `feature/mixer-song-stems`.
+Статус: архитектурное задание и поэтапная реализация, обновлено04.11.2026.
+Ветка: `feature/mixer-song-stems`.
 Основа аудита исходников: `am-mod/main`, `160cee8` (r26s).
-Mixer, восемь live-шин и Song Stem Export в этой ревизии не реализованы.
-Этот документ задаёт интерфейс и контракты интеграции; макеты не являются
-снимками работающего устройства или доказательством доступности PCM-шин.
+Первый пакет: [audio hooks, block updates и C painter](MIXER_STEP1.md).
+Experimental candidate устанавливает native hooks без активной сессии. Восемь
+Track, primary-output Master и updates проверены в ARM/QEMU; painter Overview
+и split pages реализован. Native UI/session owner и физическое управление ещё
+не подключены; Song/Stem Export и hardware validation остаются впереди.
+Макеты и painter traces не являются снимками работающего устройства.
 
 Продолжение реализации: [native audit и ARM-проверки](MIXER_NATIVE_AUDIT.md),
 [Mixer data model V1 и codec](MIXER_DATA_MODEL.md). Модель существует как
@@ -15,14 +19,14 @@ Mixer, восемь live-шин и Song Stem Export в этой ревизии �
 callbacks под отдельным build flag. Полный XPJ round-trip и аппаратный Save/Load
 ещё не подтверждены; обычная сборка этот флаг не включает.
 Также реализован [eight-bus PCM core](MIXER_BUSES.md): реальные Track/Direct/Master
-buffers и FX/mix/meters; native Pad adapter и UI ещё не подключены.
-Следующий этап: [scoped native adapter](MIXER_NATIVE_ADAPTER.md) проверяет настоящий
-отдельный Pad-buffer путь через новый граф в ARM/QEMU. Device hooks отсутствуют;
-shared/physical и другие неподдержанные пути сохраняют штатную обработку.
-Master tap после всех native стадий, live graph exchange и UI ещё не реализованы.
+buffers и FX/mix/meters. [Scoped native adapter](MIXER_NATIVE_ADAPTER.md) проверяет
+отдельный Pad-buffer путь через новый граф в ARM/QEMU; [live layer](MIXER_STEP1.md)
+добавляет installer, atomic session handoff и Master после engine mix.
+Shared/physical и другие неподдержанные Pad пути сохраняют штатную обработку.
 Для default Instrument path проверены native allocated buffers, existing Pad EQ,
 Program gain и полный 64-frame voice walk с fixture oscillators. Адаптер теперь
-публикует настоящие Track/Direct meter snapshots; global Master сохраняет N/A.
+публикует настоящие Track/Direct meter snapshots. Его промежуточный Master — N/A;
+live layer отдельно измеряет реальный physical pair0 после нижестоящего микса.
 
 Приоритет требований: Classic Console Layout → дополнение B1–B3 / Routing LEDs
 → исходное задание Mixer / Song / Stems. В частности, Pads 9–15 пока свободны,
@@ -365,8 +369,9 @@ callback, underruns и реальную частоту repaint измерить 
 
 ## 9. Acceptance и порядок проверки
 
-На этом этапе проверяются документ, ссылки и геометрия макетов. Runtime-критерии
-ниже — обязательные будущие проверки, пока **не выполнены**.
+Документ/макеты дополнены исполняемыми core/native/painter проверками первого
+пакета. Полные device-сценарии ниже по-прежнему обязательны и пока **не выполнены**;
+частичное QEMU-покрытие перечислено в [отчёте](MIXER_STEP1.md).
 
 | Сценарий | Ожидаемый результат / доказательство |
 |---|---|

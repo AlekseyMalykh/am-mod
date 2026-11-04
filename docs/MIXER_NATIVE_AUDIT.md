@@ -3,6 +3,9 @@
 03.11.2026; ветка `feature/mixer-song-stems`; исходная ревизия `160cee8`.
 Политика интерфейса: [MIXER_DESIGN.md](MIXER_DESIGN.md).
 Это результаты локального анализа и ARM/QEMU, не аппаратная проверка Mixer.
+Продолжение04.11: [первый пакет audio/updates/painter](MIXER_STEP1.md).
+Он добавляет установленный experimental hook layer и primary-output Master;
+нижняя таблица сохраняет границы исходного Phase0 аудита.
 ELF 1.3.0.12: SHA-256
 `b6584cba76e416e432ad202509099d34373dc2c3d6a8fb625f5678bf0193b508`.
 
@@ -48,6 +51,14 @@ preflight всего блока, native route gain/channel mapping, idle-entry r
 из `286be30` ещё до Program stages и пока целиком остаётся native.
 Это проверка приватного ELF mapping с fixture DSP, не включённый device adapter.
 Окончательный Master tap после native Program/general mix по-прежнему не доказан.
+
+Позднее в первом пакете исполнен `2226fb0 -> 18c79f0` с настоящими установленными
+entry hooks, native Program output sum `28a17f0` и primary destination2/index0.
+Новый Master расположен после возврата engine block, отдельно от scoped Program
+Master, и измеряет фактический PCM output pair0. Downstream insert/direct-route
+services в тесте — fixtures; электрический выход, hardware volume/monitor и
+прочие режимы/пары не объявляются покрытыми. Native session/UI binding пока
+не активируется автоматически. Полный контракт: [MIXER_STEP1.md](MIXER_STEP1.md).
 
 Дополнительный DSP suite уточняет buffer ownership: исследованный Instrument
 constructor `28100c0 -> 27714f0` создаёт2 buffers; RenderableProgram —1. Native

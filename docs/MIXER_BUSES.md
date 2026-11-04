@@ -6,8 +6,10 @@
 
 Реализованы настоящие отдельные PCM-буферы Track 1–8, Master Direct и final Master
 с обработкой FX, mix и metering. Источник передаёт в core обработанные samples;
-native Pad adapter ещё **не установлен**. Штатное приложение пока не использует
-новые шины при игре. Это audio core, а не готовый live Mixer или Stem Export.
+Scoped adapter и [live слой первого пакета](MIXER_STEP1.md) проверены в QEMU.
+Experimental candidate устанавливает dormant hooks, но не привязывает session;
+штатное приложение пока не использует новые шины при игре. Это ещё не доступный
+пользователю Mixer или Stem Export.
 
 ## Тракт и владение
 
@@ -119,8 +121,10 @@ DrumProgram separate-buffer цикл и optimized two-buffer merge провер�
 Нужно покрыть оптимизированные ветки, Pad Link, multi-output, preview, sequenced
 events и resample; сохранить voice/clear/idle ownership и индивидуальный Pad EQ.
 
-При смене routing/Level/Scene нужен block-boundary exchange с проверенным ramp
-и временем жизни graph/FX, чтобы исключить щелчки и потерю хвостов. Текущий core
-представляет фиксированный подготовленный граф: UI не должен уничтожать или
-заменять его во время audio callback. Включение live Mixer до реализации этого
-adapter и измерения CPU/underruns на устройстве остаётся запрещённым требованием.
+При смене routing/Level/Scene теперь доступны полные off-RT update packets,
+commit в begin(), 5ms ramps/crossfades и revision ack. Unchanged FX сохраняют
+history, заменённые FX выводятся после crossfade; полный tail старой цепи не обещан.
+UI не должен уничтожать/менять audio-owned graph напрямую. Control collect
+освобождает retired packets/FX; audio не вызывает allocator или ожидания.
+Подробности, проверки и ограничения — [первый пакет](MIXER_STEP1.md).
+Включение native UI и аппаратные CPU/underrun проверки остаются впереди.

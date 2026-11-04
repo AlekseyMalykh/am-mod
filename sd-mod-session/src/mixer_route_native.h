@@ -47,6 +47,12 @@ int mixer_route_view(const struct mixer_route_native*,unsigned bus,struct mixer_
  * Passthrough/recovered blocks publish unavailable taps, never stale peaks.
  * Same return convention as mixer_meters_push; duplicate block push is -1. */
 int mixer_route_meters_push(struct mixer_route_native*,struct mixer_meters*,uint64_t epoch);
+/* Off RT, before rendering: install an audio-only block-boundary callback.
+ * It runs after complete preflight and before graph begin, with no allocation. */
+void mixer_route_before_block(struct mixer_route_native*,void(*)(void*),void*);
+/* Borrowed graph handle only for control publish/collect/revision or audio
+ * readiness; lifetime is the adapter's, never destroy it separately. */
+struct mixer_buses *mixer_route_buses(struct mixer_route_native*);
 #ifdef __cplusplus
 }
 #endif

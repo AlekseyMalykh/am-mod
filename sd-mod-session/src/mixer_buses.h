@@ -8,6 +8,7 @@ extern "C" {
 enum mixer_bus_result { MIXER_BUS_OK, MIXER_BUS_INVALID, MIXER_BUS_RESOURCE,
     MIXER_BUS_FX_ERROR, MIXER_BUS_UNSUPPORTED, MIXER_BUS_STATE, MIXER_BUS_AUDIO_ERROR };
 struct mixer_buses;
+struct mixer_bus_update;
 struct mixer_pcm_view {const float *channel[2];unsigned frames;};
 /* Prepare immutable routing/mix/FX snapshot off RT. part_id chooses an
  * optional Scene. No native source, project, sequencer or UI is changed.
@@ -29,6 +30,20 @@ enum mixer_bus_result mixer_buses_finish(struct mixer_buses*,struct mixer_meters
  * 8 Master Direct (post Solo), 9 final Master. No unfinished/error output. */
 int mixer_buses_view(const struct mixer_buses*,unsigned bus,struct mixer_pcm_view*);
 size_t mixer_buses_pcm_bytes(const struct mixer_buses*);
+/* One control producer prepares complete updates off RT and publishes at most
+ * one pending update. Ownership transfers only on OK. Revisions increase;
+ * publish never changes audio immediately. No native/UI pointers in packets. */
+struct mixer_bus_update *mixer_buses_update_prepare(const struct mixer_project*,uint64_t part_id,
+    double rate,uint64_t revision,const struct fx_backend*,enum mixer_bus_result*);
+void mixer_buses_update_destroy(struct mixer_bus_update*);
+enum mixer_bus_result mixer_buses_publish(struct mixer_buses*,struct mixer_bus_update*);
+/* Control owner: frees retired packets/processors, never called from audio. */
+void mixer_buses_collect(struct mixer_buses*);
+uint64_t mixer_buses_applied_revision(const struct mixer_buses*);
+int mixer_buses_ready_audio(const struct mixer_buses*);
+/* Audio owner: an update starts only at begin(). Gains, pan, gates and source
+ * routing ramp for5ms; changed FX crossfade for5ms. Unchanged FX retain state.
+ * Applied revision advances only after a successful completed transition. */
 #ifdef __cplusplus
 }
 #endif

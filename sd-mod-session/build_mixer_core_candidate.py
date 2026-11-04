@@ -1,7 +1,7 @@
 """Link Mixer cores/archive hooks into an isolated full-preload candidate.
 
-No Mixer mode, native audio routing, package, release or physical card
-is enabled by this builder. Experimental archive hooks are enabled only here.
+Experimental archive and dormant live hooks are enabled only here. No session
+is attached, no native UI/controls or device package/release/card are activated.
 Baseline build/runtime inputs use the existing
 compressor candidate workflow; Mixer outputs go only to build/mixer-candidate.
 """
@@ -30,8 +30,8 @@ runtime = Path(os.environ.get("MPC_RUNTIME_ROOT", str(R.parent))).resolve()
 out = R / "build/mixer-candidate"
 out.mkdir(parents=True, exist_ok=True)
 sha = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
-sources = ["src/mixer_model.c", "src/mixer_meters.c", "src/fx_chain.c", "src/mixer_archive.cc", "src/mixer_buses.c", "src/mixer_route_native.c"]
-tracked = sources + ["src/mixer_model.h", "src/mixer_meters.h", "src/mixer_archive.h", "src/mixer_buses.h", "src/mixer_route_native.h", "src/phone_native.c", "build_mixer_core_candidate.py"]
+sources = ["src/mixer_model.c", "src/mixer_meters.c", "src/fx_chain.c", "src/mixer_archive.cc", "src/mixer_buses.c", "src/mixer_route_native.c", "src/mixer_live.c", "src/mixer_live_native.c", "src/mixer_view.c"]
+tracked = sources + ["src/mixer_model.h", "src/mixer_meters.h", "src/mixer_archive.h", "src/mixer_buses.h", "src/mixer_route_native.h", "src/mixer_live.h", "src/mixer_view.h", "src/fx_chain.h", "src/phone_native.c", "build_mixer_core_candidate.py"]
 before = {p: sha(R / p) for p in tracked}
 print("Building the existing full-preload baseline (log in build/mixer-candidate/baseline.log)", flush=True)
 with (out / "baseline.log").open("w") as log:
@@ -46,7 +46,7 @@ subprocess.run(["aarch64-linux-gnu-gcc", "-std=c11", "-O2", "-g", "-fPIC", "-Wal
     "-Ibuild", "-I" + str(runtime / "sd-mod-session/build"),
     "-DMPC_RESAMPLE_TRIAL=1", "-DMPC_STOCK_RESAMPLE=1", "-DMPC_EXPERIMENTAL_CHOP_EXPORT=1",
     "-DMPC_PAD_EQ=1", "-DMPC_FAST_RESAMPLE=1", "-DMPC_SEQUENCE_COLOURS=1", "-DMPC_POLY_RECORD=1",
-    "-DMPC_POWER_BUTTON=1", "-DMPC_CHORDS=1", "-DMPC_COMPRESSOR=1", "-DMPC_MIXER_ARCHIVE=1",
+    "-DMPC_POWER_BUTTON=1", "-DMPC_CHORDS=1", "-DMPC_COMPRESSOR=1", "-DMPC_MIXER_ARCHIVE=1", "-DMPC_MIXER_LIVE=1",
     "-mbranch-protection=standard", "-c", "src/phone_native.c", "-o", str(phone)], cwd=R, check=True)
 objects.append(phone)
 for source in sources:
@@ -79,7 +79,8 @@ report = dict(passed=True, branch=branch, full_preload_constructor=True,
               library_sha256=sha(library), sources_sha256={**proof["sources_sha256"], **before},
               linked_sources=list(dict.fromkeys(proof["linked_sources"] + sources)),
               mixer_mode_enabled=False, native_taps_connected=False,
+              native_mixer_hooks_installed=True, native_mixer_session_attached=False,
               native_archive_hooks_enabled=True, native_archive_device_roundtrip_tested=False, hardware_tested=False,
               card_written=False, release_packaged=False)
 (out / "compile-verification.json").write_text(json.dumps(report, indent=2) + "\n")
-print("PASS full library link and pinned preload constructor with experimental Mixer archive hooks; UI/audio routing disabled", flush=True)
+print("PASS full library link and pinned preload constructor with experimental Mixer archive/live hooks; session/controls inactive", flush=True)
