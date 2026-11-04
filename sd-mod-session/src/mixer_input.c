@@ -1,6 +1,6 @@
 #include "mixer_input.h"
 #include <string.h>
-int mixer_input_button(struct mixer_control*c,unsigned code,int down,uint64_t ticket)
+int mixer_input_action(unsigned code, enum mixer_action *mapped)
 {
     enum mixer_action action;
     switch(code){
@@ -14,7 +14,13 @@ int mixer_input_button(struct mixer_control*c,unsigned code,int down,uint64_t ti
     case 0x06:case 0x07:action=MIXER_NATIVE_MODE;break;
     default:return 0;
     }
-    return mixer_control_button(c,action,down,ticket);
+    if (mapped) *mapped = action;
+    return 1;
+}
+int mixer_input_button(struct mixer_control*c,unsigned code,int down,uint64_t ticket)
+{
+    enum mixer_action action;
+    return mixer_input_action(code, &action) && mixer_control_button(c, action, down, ticket);
 }
 void mixer_entry_init(struct mixer_entry*g,unsigned hold_ms)
 {

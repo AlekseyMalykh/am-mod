@@ -7,6 +7,7 @@ extern "C" {
 /* UI FIFO consumer only. Producers publish numeric edges/time/ticket. No native
  * object or callback pointer is retained here. Native button IDs are pinned to
  * 1.3.0.12; see check_mixer_input_native.c and docs/MIXER_INPUT.md. */
+int mixer_input_action(unsigned code, enum mixer_action *mapped);
 int mixer_input_button(struct mixer_control*,unsigned code,int down,uint64_t ticket);
 enum mixer_entry_action {
     MIXER_ENTRY_PASS,       /* original physical event */

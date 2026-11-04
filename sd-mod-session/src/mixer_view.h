@@ -10,7 +10,7 @@ enum mixer_page {MIXER_OVERVIEW,MIXER_MIX,MIXER_FX,MIXER_ROUTE,MIXER_KNOB_FX,MIX
 struct mixer_view_state {
     enum mixer_page page;
     unsigned selected,primary,master,cursor,scroll,bank,fx_slot;
-    uint64_t part_id,epoch,now_ms,meter_ms;
+    uint64_t part_id,epoch,now_ms,meter_ms,revision;
     const struct mixer_project*project;
     const struct mixer_meter_snapshot*meter;
     unsigned pending;

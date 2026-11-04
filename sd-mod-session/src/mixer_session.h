@@ -6,6 +6,9 @@
 extern "C" {
 #endif
 struct mixer_session;
+/* Native phone UI thread only. Pass NULL on the same thread before destroying
+ * a bound session. The caller retains ownership and drives owner_tick. */
+int mixer_phone_bind_ui(struct mixer_session*);
 /* Create and owner_tick on the native model/control owner, with valid borrowed
  * engine/Program. Native object destruction must invalidate/retire this session
  * first. No UI/paint/native model pointers are read from the audio callback. */

@@ -3,10 +3,9 @@
 04.11.2026, `feature/mixer-song-stems`.
 Реализованы UI-owner controller, подробные FX/Assign pages и связка
 controller → actual live audio acknowledgement → archive owner.
-**Второй пакет ещё не закрыт:** native entry gesture/dispatcher, автоматическое
-native session binding/lifecycle, реальные physical LED priorities, полный XPJ
-round-trip и аппаратные проверки пока не подключены/не выполнены.
-Ниже описывается исполняемый код и проверки, не доступный на MPC режим.
+Вход и общая очередь готовы для явно привязанной сессии. До проверки на MPC
+остаются автоматическая привязка и снятие сессии живого проекта, приоритеты
+подсветки и полный цикл сохранения и загрузки XPJ.
 
 ## Управление
 
@@ -42,8 +41,9 @@ Controller не читает native objects, не запускает audio и н
 [`mixer_input`](MIXER_INPUT.md) переводит raw кнопки и содержит единый entry owner;
 native Fader Settings на самом деле открывается на down без штатного long timer.
 Начальный порог500ms — явная политика AM. Native raw Sample/Seq IDs связаны с
-controller mode action в adapter, но adapter ещё не подключён к `phone_native`
-FIFO. Физический Shift+Pad9 пока не открывает controller на MPC.
+controller mode action. `phone_native` пропускает события через общую очередь
+после явной привязки готовой сессии на UI потоке. Для входа с MPC требуется
+автоматическая привязка к живому проекту.
 
 ## Assign / Inspect и FX
 
@@ -141,8 +141,7 @@ MPC_RUNTIME_ROOT='/path/to/runtime' python3 build_mixer_core_candidate.py
 - Candidate полностью линкуется с controller/session/catalog, проходит preload;
   без native lifecycle/entry bridge session не создаётся и экран не активируется.
 
-Оставшаяся работа второго пакета: подключение проверенного Shift+Pad9 short/long handoff,
-проводка FIFO/tickets в `phone_native`, реальная native binding/retirement при
-Load/New/Mod Off, native UI Timer/repaint regions и LED arbitration, полный XPJ
-round-trip, аппаратная читаемость/Fader/LED/CPU/underruns. Пока эти пункты открыты,
+Оставшаяся работа второго пакета включает создание и снятие сессии живого
+проекта при Load/New/Mod Off, приоритеты LED, полный цикл сохранения и загрузки
+XPJ и аппаратную проверку экрана, фейдера, LED и нагрузки. Пока эти пункты открыты,
 нельзя называть второй пакет или пользовательский Mixer завершённым.

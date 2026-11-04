@@ -255,7 +255,7 @@ void mixer_control_meter(struct mixer_control*c,const struct mixer_meter_snapsho
 void mixer_control_view(struct mixer_control*c,uint64_t now,struct mixer_view_state*out)
 {
     if(c&&out){*out=c->view;out->project=&c->model;out->meter=&c->meter;out->epoch=c->epoch;out->now_ms=now;
-        out->pending=c->submitted||c->dirty;out->fx_catalog=c->catalog;out->parameter_page=c->parameter_page;
+        out->revision=c->revision;out->pending=c->submitted||c->dirty;out->fx_catalog=c->catalog;out->parameter_page=c->parameter_page;
         out->message=c->message;out->pickup=!c->pickup;out->present[0]=c->present[0];out->present[1]=c->present[1];}
     if(c&&out)out->shifted=c->shift;
 }

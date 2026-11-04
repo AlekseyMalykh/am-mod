@@ -1,7 +1,7 @@
 """Link Mixer cores/archive hooks into an isolated full-preload candidate.
 
-Experimental archive and dormant live hooks are enabled only here. No session
-is attached, no native UI/controls or device package/release/card are activated.
+The candidate links archive, audio and UI hooks. The normal startup path
+still requires a native session owner to bind the Mixer UI.
 Baseline build/runtime inputs use the existing
 compressor candidate workflow; Mixer outputs go only to build/mixer-candidate.
 """
@@ -31,7 +31,7 @@ out = R / "build/mixer-candidate"
 out.mkdir(parents=True, exist_ok=True)
 sha = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
 sources = ["src/mixer_model.c", "src/mixer_meters.c", "src/fx_chain.c", "src/fx_catalog.c", "src/mixer_archive.cc", "src/mixer_buses.c", "src/mixer_route_native.c", "src/mixer_live.c", "src/mixer_live_native.c", "src/mixer_view.c", "src/mixer_control.c", "src/mixer_session.cc", "src/mixer_input.c"]
-tracked = sources + ["src/mixer_model.h", "src/mixer_meters.h", "src/mixer_archive.h", "src/mixer_buses.h", "src/mixer_route_native.h", "src/mixer_live.h", "src/mixer_view.h", "src/mixer_control.h", "src/mixer_session.h", "src/mixer_input.h", "src/fx_chain.h", "src/phone_native.c", "build_mixer_core_candidate.py"]
+tracked = sources + ["src/mixer_model.h", "src/mixer_meters.h", "src/mixer_archive.h", "src/mixer_buses.h", "src/mixer_route_native.h", "src/mixer_live.h", "src/mixer_view.h", "src/mixer_control.h", "src/mixer_session.h", "src/mixer_input.h", "src/fx_chain.h", "src/phone_native.c", "check_mixer_phone_routes.c", "build_mixer_core_candidate.py"]
 before = {p: sha(R / p) for p in tracked}
 print("Building the existing full-preload baseline (log in build/mixer-candidate/baseline.log)", flush=True)
 with (out / "baseline.log").open("w") as log:
@@ -72,6 +72,19 @@ result = subprocess.run(["qemu-aarch64", "-L", sysroot, str(bootstrap), str(stoc
 (out / "bootstrap.log").write_text(result.stdout + result.stderr)
 result.check_returncode()
 assert "PASS real full preload constructor" in result.stdout
+
+route_test = out / "check-phone-routes"
+route_sources = ["check_mixer_phone_routes.c", "src/phone_events.c", "src/mixer_input.c", "src/mixer_control.c",
+                 "src/mixer_model.c", "src/fx_catalog.c", "src/fx_chain.c", "src/fx_eq.c"]
+subprocess.run(["aarch64-linux-gnu-gcc", "-std=c11", "-O1", "-g", "-Wall", "-Wextra", "-Werror",
+                "-mbranch-protection=standard", "-ffunction-sections", "-fdata-sections", "-Wl,--gc-sections",
+                "-Ibuild", "-I" + str(runtime / "sd-mod-session/build"), *route_sources,
+                "-lm", "-pthread", "-o", str(route_test)], cwd=R, check=True)
+routes = subprocess.run(["qemu-aarch64", "-L", sysroot, str(route_test)], cwd=R, capture_output=True,
+                        text=True, timeout=30)
+(out / "phone-routes.log").write_text(routes.stdout + routes.stderr)
+routes.check_returncode()
+assert "PASS Mixer through production input hooks" in routes.stdout
 assert before == {p: sha(R / p) for p in tracked}
 for source, digest in proof["sources_sha256"].items():
     assert sha(R / source) == digest, source
@@ -80,7 +93,8 @@ report = dict(passed=True, branch=branch, full_preload_constructor=True,
               linked_sources=list(dict.fromkeys(proof["linked_sources"] + sources)),
               mixer_mode_enabled=False, native_taps_connected=False,
               native_mixer_hooks_installed=True, native_mixer_session_attached=False,
+              mixer_phone_fifo_tested=True,
               native_archive_hooks_enabled=True, native_archive_device_roundtrip_tested=False, hardware_tested=False,
               card_written=False, release_packaged=False)
 (out / "compile-verification.json").write_text(json.dumps(report, indent=2) + "\n")
-print("PASS full library link and pinned preload constructor with experimental Mixer archive/live hooks; session/controls inactive", flush=True)
+print("PASS full preload and Mixer FIFO routes with receiver fixtures", flush=True)

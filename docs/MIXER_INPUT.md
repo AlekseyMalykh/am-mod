@@ -66,7 +66,7 @@ Shift принадлежит gesture по состоянию на down. Отпу
 Повторный down не сбрасывает начало. При проверке времени используется elapsed,
 а не потенциально переполняющийся `start+timeout`.
 
-## Контракт подключения к phone_native — ещё требуется
+## Общая очередь ввода и экран Sample
 
 Все вызовы adapter/entry/controller выполняет один UI FIFO consumer. Producer
 передаёт timestamp, ticket и исходные inline events через существующую очередь;
@@ -84,9 +84,19 @@ FIFO обрабатывается до timer decision; short определяе�
 На cancellation сохраняется ownership позднего up. Вне Mixer и без подтверждённой
 готовой audio session весь путь должен оставаться stock.
 
-Эта проводка, lifecycle/session binding, repaint и LED arbitration **пока не
-выполнены**. Candidate линкует adapter, но не вызывает его из `phone_native` и
-не активирует Mixer. Физический вход на MPC ещё не готов.
+`phone_native` использует этот путь после явной привязки сессии через
+`mixer_phone_bind_ui`. Вход доступен с видимого экрана Sample при готовом
+аудиотракте. Успешное перехваченное нажатие резервирует место для отпускания
+в общей очереди. Load/New отзывает доступ старой сессии. Отпускания уже
+переданных штатных нажатий сохраняют своё назначение.
+
+Экран Sample рисует Mixer в существующем слое AM Mod. Тик индикаторов
+инвалидирует область меток и уровней. Смена страницы, параметров или
+подтверждённой ревизии запрашивает полную отрисовку.
+
+Candidate проверяет подключённые обработчики с сессией и приёмниками событий
+из стенда. Для работы на MPC ещё нужны автоматическое создание и снятие
+сессии живого проекта, подсветка пэдов и аппаратная проверка.
 
 ## Проверки
 
@@ -95,6 +105,7 @@ FIFO обрабатывается до timer decision; short определяе�
 ```sh
 python3 verify_mixer_input.py
 MPC_RUNTIME_ROOT='/path/to/runtime' python3 verify_mixer_input_native.py
+MPC_RUNTIME_ROOT='/path/to/runtime' python3 build_mixer_core_candidate.py
 ```
 
 4 controller/gesture runs: host, ASan+UBSan, AArch64, ARM UBSan. Проверены
