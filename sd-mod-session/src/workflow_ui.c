@@ -672,6 +672,16 @@ int workflow_owns(unsigned kind,unsigned code){
  if((routes&1u)&&(code==0x0d||code==0x23))return 1;
  return (routes&2u)&&(code==0x0e||code==0x0d||code==0x09);
 }
+/* Encoder input: press confirms the letter and opens the next position. In
+ * the middle of the query the new letter is a copy of the current one. */
+static void change_character(int delta);
+static void add_letter(void){
+ phone_native_boundary(&query);size_t pos=query.cursor;
+ if(pos>=query.length){if(!query.length)change_character(1);return;}
+ if(query.length>=query.limit)return;
+ if(pos+1<query.length){memmove(query.text+pos+2,query.text+pos+1,(query.length-pos-1)*sizeof(query.text[0]));query.text[pos+1]=query.text[pos];++query.length;}
+ query.cursor=pos+1;
+}
 static void change_character(int delta){
  static const char alphabet[]=" abcdefghijklmnopqrstuvwxyz0123456789_.-#ABCDEFGHIJKLMNOPQRSTUVWXYZ";
  phone_native_boundary(&query);size_t pos=query.cursor;if(pos>=query.limit)return;
@@ -752,6 +762,7 @@ int workflow_button(void*e,uint64_t ticket){
  if(project_confirm){if(code==0x0c){clear_project_confirm();repaint(files);}else if(code==0x0e)confirm_project();return 1;}
  if(code==0x0c)close_search();else if(code==0x0d){phone_commit(&query);results=!results;}
  else if(code==0x6f&&results){if(shift)locate_result();else choose_result();}
+ else if(code==0x6f&&!results&&!query.enabled)add_letter(); /* Encoder input: press adds a letter. */
  else if(code==0x0e||code==0x6f){if(results){if(sample_browser())preview_result();else choose_result();}else{phone_commit(&query);results=1;}}
  else if(code==0x23&&results){int bank=step_native_browser_bank(-1);if(bank>=0&&bank<8)step_native_browser_bank((bank+(shift?7:1))%8);}
  else if(code==0x36||code==0x37){if(results)selected=clamp(selected+(code==0x37?-1:1),0,match_count?(int)match_count-1:0);else if(query.enabled)change_character(code==0x37?-1:1);else phone_move(&query,code==0x36?1:-1);} /* Encoder input: turn = letter, +/- = cursor. */
@@ -845,7 +856,7 @@ static void search_paint(void*g){
    else if(!i&&!scanning&&!fault){colour(g,GREY);left_text(g,"No matches",14,y,298,18,13);}
   }
   if(match_count>3){snprintf(line,sizeof(line),"+%u more: B2 List",match_count-3);colour(g,GREY);left_text(g,line,14,162,298,16,11);}
-  colour(g,GREY);left_text(g,query.enabled?"Pads: type   Turn: cursor   Shift+16: delete":"Turn: letter   +/-: cursor   Erase: delete",8,181,304,15,11);
+  colour(g,GREY);left_text(g,query.enabled?"Pads: type   Turn: cursor   Shift+16: delete":"Turn: letter   Press: add   +/-: cursor   Erase: delete",8,181,304,15,11);
   search_panel(g,0,"Input",query.enabled?"Pads":"Encoder",query.enabled?1u:0u,2);
   search_panel(g,1,"Search in",wheres[search_where],(unsigned)search_where,WHERE_COUNT);
   if(sample_browser())volume_paint(g);else search_panel(g,2,"","",0,0);
