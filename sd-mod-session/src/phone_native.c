@@ -209,15 +209,15 @@ static void forward_buttons(void*event){
   if(down&&(code==0x31||code==0x09)){pthread_mutex_lock(&gesture_mutex);memcpy(gesture_down_events[code==0x31?0:1],event,16);pthread_mutex_unlock(&gesture_mutex);}
   atomic_store(&native_buttons_down[code],(unsigned char)down);
  }
- /* The native app handles buttons on its MIDI input (audio) thread. Queued
-  * buttons reach it from the UI thread instead; hold the render lock so its
-  * engine work (Stop flushing events and voices) never overlaps a render. */
+ /* The native app handles buttons on its MIDI input thread. Queued buttons
+  * reach it from the UI thread instead, which native code tolerates in the
+  * same way. Only Stop is serialised with the render: its release-all of
+  * Chords voices raced the audio thread (r24f). Holding the render lock
+  * across any other native command risks a deadlock when that command waits
+  * for the audio thread, e.g. Shift+REC Recall with the Resample input
+  * (r27q device hang). release_all() keeps its own bounded lock. */
 #ifdef MPC_CHORDS
- /* Recall queues recorder work; do not hold the mod render lock across
-  * this native command. The native Shift state is ordered by this FIFO,
-  * unlike the producer's latest requested modifier. */
- int recall=code==0x49&&atomic_load(&native_buttons_down[0x31]);
- int guard=on_ui()&&!recall;if(guard)voice_guard_lock();
+ int guard=on_ui()&&code==0x51;if(guard)voice_guard_lock();
 #endif
  ORIG(H_BUTTONS,void(*)(void*))(event);
 #ifdef MPC_CHORDS
