@@ -11,7 +11,8 @@ static void*current_context;
 static unsigned char muted_sample[0x80];
 static int test_program;
 static void *sample_lookup(void *program,int pad){assert(program==&test_program);return pad==18?muted_sample:NULL;}
-static int sequence_only,project_open,repeat_open;
+static int sequence_only,project_open,repeat_open,knob_open;
+static unsigned char knob_screen[0x300];
 static unsigned char project_screen[0x2000];
 static unsigned draws,repaints,primes;static char captions[8192];static unsigned current_pad=18;
 static unsigned char fx_screen[0x300],fx_header[0x240];
@@ -34,8 +35,8 @@ int project_exit_status(void){return 0;}
 const char*project_exit_message(void){return "";}
 void*workflow_project_services(void){return NULL;}
 void resample_ui_prime_eq(void){++primes;}
-static int shown(void*p){if(p==repeat_screen)return repeat_open;if(p>=(void*)repeat_screen&&p<(void*)(repeat_screen+sizeof(repeat_screen)))return ((char*)p-(char*)repeat_screen-0x1c0)%0x440==0;assert(p==screen||p==sequence_screen||p==project_screen);if(p==project_screen)return project_open;return p==sequence_screen?sequence_only:!sequence_only;}
-static int blocked(void*p){assert(p==screen||p==sequence_screen||p==project_screen||p==repeat_screen);return 0;}
+static int shown(void*p){if(p==knob_screen)return knob_open;if(p==repeat_screen)return repeat_open;if(p>=(void*)repeat_screen&&p<(void*)(repeat_screen+sizeof(repeat_screen)))return ((char*)p-(char*)repeat_screen-0x1c0)%0x440==0;assert(p==screen||p==sequence_screen||p==project_screen);if(p==project_screen)return project_open;return p==sequence_screen?sequence_only:!sequence_only;}
+static int blocked(void*p){assert(p==screen||p==sequence_screen||p==project_screen||p==repeat_screen||p==knob_screen);return 0;}
 static int enabled(void*p){assert(p==screen+0xe50||p==fx_header);return p!=fx_header||!header_disabled;}
 static void ui_repaint(void*p,uint64_t a,uint64_t b){assert((p==screen||p==sequence_screen||p==project_screen)&&!a&&!b);++repaints;}
 static void draw_colour(void*g,uint32_t c){assert(g==screen&&((c>>24)==255||c==0x605a4419||c==0x605b5b5b));draw_ink=c;if(c==0x605b5b5b||c==0xff5b5b5b)++muted_bars;}
@@ -119,6 +120,12 @@ int main(int argc,char**argv){
  memcpy((void*)(base+0x6d3b400),lighting_project_before,sizeof(lighting_project_before));
  memcpy((void*)(base+0x1643908),lighting_dispatch_before,4);memcpy((void*)(base+0x1644ff4),lighting_rows_before,4);
  assert(music_ui_install(noop_paint,noop_paint,noop_paint));
+ F(knob_screen,0,uintptr_t)=base+0x6e1e258;
+ void(*knob_paint)(void*,void*)=(void(*)(void*,void*))F((void*)base,0x6e1e258+0xd0,uintptr_t);
+ knob_open=1;knob_paint(knob_screen,screen);assert(music_ui_knob_fx_active());
+ knob_open=0;music_ui_tick();assert(!music_ui_knob_fx_active());
+ music_ui_requested(0x31,1);music_ui_tick();assert(!music_ui_knob_fx_active());music_ui_requested(0x31,0);
+
  assert(!memcmp((void*)(base+0x6d3b400),lighting_project_after,sizeof(lighting_project_after)));
  assert(F((void*)base,0x1644ff4,uint32_t)==0xd28000c1); /* six-row viewport retained */
  assert(F((void*)base,0x6d3ba84,uint32_t)==(0x52800009u|(0xb000u<<5)));
@@ -155,9 +162,17 @@ int main(int argc,char**argv){
  F(empty_clip,0x710,uint64_t)=0;assert(music_ui_sequence_presence(0)==(1u<<11));
  F(sequence_model,0x6f8,uint64_t)=0;assert(!music_ui_sequence_presence(0));F(sequence_model,0x6f8,uint64_t)=1;
  sequence_only=1;paint_sequence(sequence_screen,screen);assert(music_ui_sequence_visible()&&music_ui_active());music_ui_requested(0x31,1);knob(0x10,127);assert(music_sequence_colour(11)==7&&music_sequence_colour(12)==0);
+ music_ui_requested(0x31,0); /* Shift released while its K1 edit waits in FIFO. */
+ unsigned char queued_colour[16]={[8]=0x10,[9]=0};
+ assert(music_ui_control_at(queued_colour,1));assert(music_sequence_colour(11)==0);
+ queued_colour[9]=127;assert(!music_ui_control_at(queued_colour,0));assert(music_sequence_colour(11)==0);
+ music_ui_requested(0x31,1);knob(0x10,127);assert(music_sequence_colour(11)==7);
  F(sequence_model,0x480,int)=12;knob(0x10,11);assert(music_sequence_colour(12)==0&&music_sequence_colour(11)==7);
  captions[0]=0;paint_sequence(sequence_screen,screen);assert(strstr(captions,"Seq Colour")&&strstr(captions,"Default"));
  music_ui_requested(0x31,0);assert(!music_ui_owns(0x10));current_context=NULL;
+#ifdef SEQ_COLOUR_ONLY
+ puts("PASS Seq Colour: Shift+K1 edits selected sequence; queued edit survives Shift release; unshifted K1 is not claimed");return 0;
+#endif
  sequence_only=0;F(screen,0x7f0+0x218,int)=1;paint_ui();assert(key(0x0d,1)&&key(0x0d,0)&&music_ui_owns(0x10));
  F(project_screen,0,uintptr_t)=base+0x6e1f788;F(project_screen,0x100,void*)=controller;project_open=1;music_ui_project(project_screen,screen);
  assert(!music_ui_owns(0x10)&&!key(0x6f,1)); /* Native Project menu owns its encoder even above Lights. */

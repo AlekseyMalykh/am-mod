@@ -200,7 +200,7 @@ int chords_ui_button(void*event){
 }
 /* Knob FX (LED lit) takes K1-K3 for its own overlay. */
 extern unsigned phone_native_button_light(unsigned code);
-static int knob_fx(void){return phone_native_button_light(0x00)>=2;}
+static int knob_fx(void){return music_ui_knob_fx_active();}
 int chords_ui_owns(unsigned cc){return chords_active()&&!knob_fx()&&(cc==0x10||cc==0x11||cc==0x12||cc==0x64);}
 int chords_ui_control(void*event){
  unsigned cc=F(event,8,unsigned char),value=F(event,9,unsigned char);

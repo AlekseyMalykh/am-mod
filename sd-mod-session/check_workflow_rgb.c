@@ -4,6 +4,7 @@
 #include "src/phone_native.c"
 #include <assert.h>
 #include "check_palette_receiver.h"
+void*note_native_context(void){return NULL;}
 static int custom_palette;
 static uint64_t palette_epoch=1, test_colours[16];
 static unsigned calls, counts[16];static uint32_t sent[16];

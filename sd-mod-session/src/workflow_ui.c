@@ -598,9 +598,25 @@ static void autoload_tick(void){
  FN(0x14fc6a0,void(*)(void*,const void*,int))(s,&file,0);
  FN(0xf0a290,void(*)(uint64_t*))(&file);FN(0xf0a290,void(*)(uint64_t*))(&string);
 }
+/* A successful load changes the splash predicate, but does not necessarily
+ * invalidate Sample. Finish with one full UI repaint, even without pad input.
+ * A modal only suppresses the splash temporarily; it is not load completion. */
+static int startup_repaint_done;
+static void startup_repaint_tick(void){
+ if(!base||startup_repaint_done)return;
+#ifdef MPC_EARLY_STARTUP
+ if(startup_project_loading())return;
+#else
+ if(!autoload_done)return;
+#endif
+ if(FN(0x10f87a0,void*(*)(int))(0)||!note_native_sample_visible())return;
+ startup_repaint_done=1;
+ note_native_repaint_sample();
+}
 int workflow_tick(void){
  project_cleanup_tick();
  autoload_tick();
+ startup_repaint_tick();
 #ifdef MPC_PROJECT_RECOVERY
     project_recovery_tick(base,workflow_project_services());
 #endif
@@ -739,8 +755,9 @@ int workflow_button(void*e,uint64_t ticket){
   if(code==0x0e){if(down)atomic_store(&split_forwarded,1);FIELD(e,8,unsigned char)=0x0d;return 0;}
  }
  if(batch_leaving||batch_job||(batch||(visible(copy_root)&&FIELD(e,8,unsigned char)==0x0d)))return batch_button(e);
+ /* Copy Sequence has no sound-pad palette owner, but shares bank navigation. */
  if(FIELD(e,8,unsigned char)==0x23&&FIELD(e,9,unsigned char)&&shift&&
-    visible(copy_root)&&atomic_load(&native_colours)==2){
+    visible(copy_root)){
   int bank=step_native_browser_bank(-1);
   if(bank>=0&&bank<8){
    if(!atomic_exchange(&copy_bank_held,1))step_native_browser_bank((bank+7)%8);

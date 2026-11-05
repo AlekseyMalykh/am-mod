@@ -49,6 +49,12 @@ static void*producer(void*unused)
 int main(void)
 {
     barriers();contexts();
+    /* A producer Shift change must not merge two different edit gestures. */
+    struct phone_event before=movement(0x10,0),after=before;
+    assert(phone_events_push(&before));before.native[9]=32;assert(phone_events_push(&before));
+    after.native[9]=64;after.down=1;assert(phone_events_push(&after));
+    assert(phone_events_pending()==3);expect(PHONE_CONTROLLER,0x10,0);expect(PHONE_CONTROLLER,0x10,32);
+    struct phone_event shifted;assert(phone_events_pop(&shifted)&&shifted.down==1&&shifted.native[9]==64);
     /* Interleaved sweeps keep each final position AND final focus order. */
     struct phone_event a=movement(0x10,33),b=movement(0x11,56);
     assert(phone_events_push(&a)&&phone_events_push(&b));a.native[9]=0;a.when_ms=900;assert(phone_events_push(&a));

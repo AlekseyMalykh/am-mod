@@ -10,6 +10,10 @@
 static int sample_visible=1,seq_visible,bank,levels_on,steps_on,events_visible,inside_rgb,compressor_visible;
 static unsigned transport,queries,calls,levels_type,levels_origin;static int native_workflow;
 static int browser_selected=-1;
+static unsigned char source_things[0x700];static int source_program,source_instrument,source_index=37;
+void*note_native_context(void){assert(!inside_rgb);return source_things;}
+static int source_lookup(void*p,void*i){assert(p==&source_program&&i==&source_instrument);return source_index;}
+
 static int seq_selected=-1;static unsigned seq_present=0xffff;
 static int64_t seq_tick;static uint64_t seq_serial;
 static int steps_lighting;
@@ -147,7 +151,9 @@ int main(void){
  assert(music_mod_restore_recommended(3));browser_selected=-1;
  puts("PASS real RGB sender/timer: configurable white cursors for occupied/empty library pads and native Copy source selection; ordinary targets unchanged");
  steps_lighting=0;native_workflow=0;sample_visible=1;levels_on=1;send_step_lights();assert(sent[0]==0xff0000);levels_on=0;
- levels_on=1;levels_type=8;levels_origin=1;assert(music_set_pad_colour(1,13));send_step_lights();
+ levels_on=1;levels_type=8;levels_origin=1;assert(music_set_pad_colour(1,2)&&music_set_pad_colour(37,13));
+ FIELD(source_things,0xb8,void*)=&source_program;FIELD(source_things,0x668,void*)=&source_instrument;
+ stub(0x286bc20,source_lookup);__builtin___clear_cache((char*)base,(char*)base+0x7500000);send_step_lights();
  atomic_store(&pad_colour_cursor_white,1);atomic_store(&pad_colour_chop_phase,0);native_rgb(0,0xff7700);assert(sent[0]==PAD_SELECT);
  atomic_store(&pad_colour_cursor_white,0);atomic_store(&pad_colour_chop_phase,650);native_rgb(0,0xff7700);assert(sent[0]==music_identity_rgb(13));
  native_rgb(2,0x000080);assert(sent[2]==music_identity_rgb(13));native_rgb(3,0);assert(sent[3]==0);

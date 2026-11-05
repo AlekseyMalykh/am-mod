@@ -194,6 +194,13 @@ static unsigned tail_mode(void){
  music_lighting_levels_state(&enabled,&mode,&origin);
  return enabled?(mode==8?2u:0u):1u;
 }
+static void forward_controller(void*event){
+#ifdef MPC_CHORDS
+ takeover_native_forward(event,ORIG(H_CONTROLLER,void(*)(void*)));
+#else
+ ORIG(H_CONTROLLER,void(*)(void*))(event);
+#endif
+}
 static void forward_buttons(void*event){
  unsigned code=FIELD(event,8,unsigned char),down=FIELD(event,9,unsigned char)!=0;
  if((code==0x51||code==0x52)&&down)workflow_button(event,0);
@@ -206,7 +213,11 @@ static void forward_buttons(void*event){
   * buttons reach it from the UI thread instead; hold the render lock so its
   * engine work (Stop flushing events and voices) never overlaps a render. */
 #ifdef MPC_CHORDS
- int guard=on_ui();if(guard)voice_guard_lock();
+ /* Recall queues recorder work; do not hold the mod render lock across
+  * this native command. The native Shift state is ordered by this FIFO,
+  * unlike the producer's latest requested modifier. */
+ int recall=code==0x49&&atomic_load(&native_buttons_down[0x31]);
+ int guard=on_ui()&&!recall;if(guard)voice_guard_lock();
 #endif
  ORIG(H_BUTTONS,void(*)(void*))(event);
 #ifdef MPC_CHORDS
@@ -955,7 +966,7 @@ static void controller_ui(void *event,uint64_t route)
 #endif
     if (on_ui() && step_native_owns(cc) && step_native_control(event,route)) return;
     if (on_ui() && (music_ui_control(event) || note_native_control(event))) return;
-    ORIG(H_CONTROLLER,void(*)(void*))(event);
+    forward_controller(event);
     if (cc == 0x64 && on_ui() && editor && visible()) after_native(1);
 }
 
@@ -1034,6 +1045,7 @@ static int queue_native(void *native,unsigned kind)
 {
     struct phone_event e = {0};
     e.kind = kind; e.generation = atomic_load(&generation); e.when_ms = now_ms();
+    if(kind==PHONE_CONTROLLER)e.down=atomic_load(&native_shift_requested);
     e.step_ticket=step_native_ticket();e.workflow_ticket=workflow_ticket();
     memcpy(e.native,native,sizeof(e.native));
     /* Ownership is numeric producer state. If a queued root-note movement
@@ -1071,12 +1083,12 @@ static int queue_native(void *native,unsigned kind)
 static int forward_main_volume(void*event)
 {
     if(FIELD(event,8,unsigned char)!=0x13)return 0;
-    ORIG(H_CONTROLLER,void(*)(void*))(event);return 1;
+    forward_controller(event);return 1;
 }
 static int forward_knob_fx(void *event){
  unsigned cc=FIELD(event,8,unsigned char);
- if(cc<0x10||cc>0x12||phone_native_button_light(0x00)<2)return 0;
- ORIG(H_CONTROLLER,void(*)(void*))(event);return 1;
+ if(cc<0x10||cc>0x12||!music_ui_knob_fx_active())return 0;
+ forward_controller(event);return 1;
 }
 static void controller(void *event)
 {
@@ -1124,7 +1136,7 @@ static void controller(void *event)
         ;
     if(native_cc>=0x10&&native_cc<=0x12&&!custom_owned&&
        !phone_events_pending()&&!atomic_load(&ui_dispatching)){
-        ORIG(H_CONTROLLER,void(*)(void*))(event);return;
+        forward_controller(event);return;
     }
     if (custom_owned || atomic_load(&ui_dispatching) || atomic_load(&naming_active) || note_native_active() || music_ui_active() || step_native_active() || workflow_active() || resample_running() || phone_events_pending()
 #ifdef MPC_COMPRESSOR
@@ -1137,7 +1149,7 @@ static void controller(void *event)
             atomic_store(&requested_pads,value>=64 && !atomic_load(&input_fault));
         if (queue_native(event,PHONE_CONTROLLER)) return;
     }
-    ORIG(H_CONTROLLER,void(*)(void*))(event);
+    forward_controller(event);
 }
 
 static void buttons(void *event)
@@ -1349,7 +1361,7 @@ static unsigned process_events(void)
             if (e.pad) {
                 /* Never replay a claimed metadata edit as native audio pitch. */
 #ifdef MPC_REAR_ROUTING
-                if(e.pad&128u){if(!rear_ui_control(e.native))ORIG(H_CONTROLLER,void(*)(void*))(e.native);}
+                if(e.pad&128u){if(!rear_ui_control(e.native))forward_controller(e.native);}
                 else
 #endif
 #ifdef MPC_COMPRESSOR
@@ -1361,19 +1373,19 @@ static unsigned process_events(void)
                 else
 #endif
 #ifdef MPC_RESAMPLE_TRIAL
-                if(e.pad&16u){if(!resample_ui_control(e.native,e.workflow_ticket))ORIG(H_CONTROLLER,void(*)(void*))(e.native);}
+                if(e.pad&16u){if(!resample_ui_control(e.native,e.workflow_ticket))forward_controller(e.native);}
                 else
 #endif
-                if (e.pad&8u){if(!workflow_control(e.native,e.workflow_ticket))ORIG(H_CONTROLLER,void(*)(void*))(e.native);}
+                if (e.pad&8u){if(!workflow_control(e.native,e.workflow_ticket))forward_controller(e.native);}
                 else if (e.pad&4u) step_native_control(e.native,e.step_ticket);
-                else if (e.pad&2u) music_ui_control(e.native);
+                else if (e.pad&2u) music_ui_control_at(e.native,e.down);
                 else note_native_control(e.native);
             } else if (current || note_native_active() || music_ui_active() || step_native_active()
 #ifdef MPC_COMPRESSOR
                        ||compressor_ui_owns(PHONE_CONTROLLER,FIELD(e.native,8,unsigned char))
 #endif
                        ) controller_ui(e.native,e.step_ticket);
-            else ORIG(H_CONTROLLER,void(*)(void*))(e.native);
+            else forward_controller(e.native);
         } else if (e.kind == PHONE_BUTTON) {
             if (current && !(seen&2)) { seen|=2; note("FIFO_BUTTON_ON_UI"); }
 #ifdef MPC_REAR_ROUTING
@@ -1573,6 +1585,7 @@ static _Atomic unsigned pad_colour_sample_layout,pad_colour_native_workflow,pad_
 static _Atomic int pad_colour_native_occupied=-1;
 static _Atomic int pad_colour_native_selected=-1;
 static _Atomic uint64_t pad_colour_chop_phase,pad_colour_target_phase;
+static _Atomic int pad_colour_chop_source=-1;
 static _Atomic int pad_colour_bank;
 /* Sample pad layout: the user's Pad Colour (Mix, K2) keeps the
  * native brightness of each pad (dim loaded, bright playing) and replaces
@@ -1605,8 +1618,9 @@ static int pad_colour_light(unsigned pad,uint64_t *out){
     if(enabled&&mode==8){
         unsigned raw=(unsigned)atomic_load(&original_lights[pad]);
         unsigned top=(raw>>16)&255;if(((raw>>8)&255)>top)top=(raw>>8)&255;if((raw&255)>top)top=raw&255;
-        unsigned source=(unsigned)bank*16+origin;
-        uint32_t hue=music_identity_rgb((unsigned)music_pad_colour(source));
+        int source=atomic_load(&pad_colour_chop_source);
+        if(source<0||source>=128)return 0;
+        uint32_t hue=music_identity_rgb((unsigned)music_pad_colour((unsigned)source));
         *out=raw==0xff7700?pad_focus_light(hue,PAD_BRIGHT_CONTENT,atomic_load(&pad_colour_chop_phase)):pad_light(top?hue:0,top?PAD_BRIGHT_CONTENT:0);
         return 1;
     }
@@ -1696,8 +1710,14 @@ static void send_step_lights(void)
     static int last_chop=-1,last_source=-1;static uint64_t chop_since;
     unsigned on=0,mode=0,origin=0;music_lighting_levels_state(&on,&mode,&origin);
     int focus=-1,source=-1;
-    if(on&&mode==8&&!native_workflow){int bank=atomic_load(&pad_colour_bank);source=bank*16+(int)origin;
+    if(on&&mode==8&&!native_workflow){int bank=atomic_load(&pad_colour_bank);
+        /* origin is a 16-Levels reference position, not the source sound.
+         * Resolve the actual retained instrument before publishing to RGB. */
+        void *things=note_native_context(),*program=things?FIELD(things,0xb8,void*):NULL;
+        void *instrument=things?FIELD(things,0x668,void*):NULL;
+        if(program&&instrument){int index=FN(0x286bc20,int(*)(void*,void*))(program,instrument);if(index>=0&&index<128)source=index;}
         for(unsigned i=0;i<16;++i)if((unsigned)atomic_load(&original_lights[i])==0xff7700){focus=bank*16+(int)i;break;}}
+    atomic_store(&pad_colour_chop_source,source);
     if(focus!=last_chop||source!=last_source){last_chop=focus;last_source=source;chop_since=selection_phase;}
     atomic_store(&pad_colour_chop_phase,selection_phase-chop_since);
     atomic_store(&pad_colour_sample_layout,native_workflow||step_native_sound_layout()||

@@ -5,6 +5,7 @@ int music_ui_exit_saving(void);
 void music_ui_init(uintptr_t base);
 void music_ui_requested(unsigned code,unsigned down);
 int music_ui_sequence_visible(void);
+int music_ui_knob_fx_active(void); /* UI-published actual overlay visibility, not Shift LED cues. */
 int music_ui_chords_available(void);
 /* Last native Note Repeat rate seen, as a Chords rate index, or -1. */
 int music_ui_repeat_rate(void);
@@ -26,6 +27,8 @@ int music_ui_active(void);
 int music_ui_owns(unsigned cc);
 int music_ui_button_owns(unsigned code);
 int music_ui_control(void *event);
+/* FIFO consumer: Shift as captured when this controller event arrived. */
+int music_ui_control_at(void *event,unsigned event_shift);
 int music_ui_reset_knob(unsigned column,unsigned shifted);
 int music_ui_button(void *event);
 #endif

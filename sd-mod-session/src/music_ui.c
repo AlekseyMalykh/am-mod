@@ -14,6 +14,7 @@
 #include "project_exit.h"
 #ifdef MPC_CHORDS
 #include "chords_ui.h"
+#include "takeover_native.h"
 #endif
 #ifdef MPC_POWER_BUTTON
 #include "power_control.h"
@@ -23,7 +24,11 @@
 #include "pad_eq_native.h"
 #include "resample_ui.h"
 static int eq_page;
-static void eq_close(void){if(eq_page)pad_eq_native_report();eq_page=0;}
+static void eq_close(void){if(eq_page){pad_eq_native_report();
+#ifdef MPC_CHORDS
+ takeover_native_context_changed();
+#endif
+ }eq_page=0;}
 static void eq_paint(void*,unsigned);
 static int choice(unsigned,int,int,int,int);
 #endif
@@ -56,6 +61,9 @@ enum { MOD_ABOUT_TAB=4, MOD_TAB_COUNT=5 };
 static char exit_error[160];
 int music_ui_exit_saving(void){return atomic_load(&exit_blocked)!=0;}
 static void*seq_screen;
+static void *knob_fx_root;
+static _Atomic unsigned knob_fx_visible;
+int music_ui_knob_fx_active(void){return atomic_load(&knob_fx_visible)!=0;}
 static void sequence_paint(void*,void*);
 static unsigned painted_headers[TAB_SCREEN_COUNT];
 static void knob_underlay(void*,void*);
@@ -64,6 +72,9 @@ static int choice(unsigned,int,int,int,int);
 #define OVERLAY_AMBER 0xffffb000u
 #define FIELD(p,off,type) (*(type *)((char *)(p)+(off)))
 #define FN(off,type) ((type)(base+(off)))
+static void knob_fx_destroy(void*p){if(knob_fx_root==p){knob_fx_root=NULL;atomic_store(&knob_fx_visible,0);}FN(0x1627040,void(*)(void*))(p);}
+static void knob_fx_delete(void*p){if(knob_fx_root==p){knob_fx_root=NULL;atomic_store(&knob_fx_visible,0);}FN(0x1628750,void(*)(void*))(p);}
+
 static void sequence_destroy(void*p){if(seq_screen==p){seq_screen=NULL;atomic_store(&seq_active,0);}FN(0x169a0f0,void(*)(void*))(p);}
 static void sequence_delete(void*p){if(seq_screen==p){seq_screen=NULL;atomic_store(&seq_active,0);}FN(0x169a6d0,void(*)(void*))(p);}
 static void repeat_destroy(void*p){if(repeat_root==p){repeat_root=NULL;atomic_store(&repeat_visible,0);}FN(0x1639740,void(*)(void*))(p);}
@@ -93,13 +104,13 @@ int music_ui_button_owns(unsigned code)
  * Both tables are in the pinned ELF's GNU_RELRO mapping. */
 int music_ui_install(void (*sp)(void*,void*),void (*pp)(void*,void*),void (*tp)(void*,void*))
 {
-    uintptr_t *slots[11]={(uintptr_t*)(base+SAMPLE_VPTR+0xd8),
+    uintptr_t *slots[13]={(uintptr_t*)(base+SAMPLE_VPTR+0xd8),
         (uintptr_t*)(base+PROJECT_VPTR+0xd8),(uintptr_t*)(base+0x706e940+0xd8),
         (uintptr_t*)(base+0x6e1e258+0xd0),(uintptr_t*)(base+0x6e1f060+0xd0),
         (uintptr_t*)(base+0x6e23e38+0xd8),(uintptr_t*)(base+0x6e23e38),(uintptr_t*)(base+0x6e23e38+8),
-        (uintptr_t*)(base+0x6e1f060+0xd8),(uintptr_t*)(base+0x6e1f060),(uintptr_t*)(base+0x6e1f060+8)};
-    uintptr_t callbacks[11]={(uintptr_t)sp,(uintptr_t)pp,(uintptr_t)tp,(uintptr_t)knob_underlay,(uintptr_t)knob_underlay,(uintptr_t)sequence_paint,(uintptr_t)sequence_destroy,(uintptr_t)sequence_delete,(uintptr_t)repeat_paint,(uintptr_t)repeat_destroy,(uintptr_t)repeat_delete};
-    for (unsigned i=0;i<11;++i) if (*slots[i]!=base+(i==6?0x169a0f0:i==7?0x169a6d0:i==9?0x1639740:i==10?0x1639df0:0x10e2e10)) return 0;
+        (uintptr_t*)(base+0x6e1f060+0xd8),(uintptr_t*)(base+0x6e1f060),(uintptr_t*)(base+0x6e1f060+8),(uintptr_t*)(base+0x6e1e258),(uintptr_t*)(base+0x6e1e258+8)};
+    uintptr_t callbacks[13]={(uintptr_t)sp,(uintptr_t)pp,(uintptr_t)tp,(uintptr_t)knob_underlay,(uintptr_t)knob_underlay,(uintptr_t)sequence_paint,(uintptr_t)sequence_destroy,(uintptr_t)sequence_delete,(uintptr_t)repeat_paint,(uintptr_t)repeat_destroy,(uintptr_t)repeat_delete,(uintptr_t)knob_fx_destroy,(uintptr_t)knob_fx_delete};
+    for (unsigned i=0;i<13;++i) if (*slots[i]!=base+(i==6?0x169a0f0:i==7?0x169a6d0:i==9?0x1639740:i==10?0x1639df0:i==11?0x1627040:i==12?0x1628750:0x10e2e10)) return 0;
     /* Frozen r16d footer code: only the Knob FX background MOV W9,#c247.
      * Constructor runs before native main/audio. Never change live code. */
     uint32_t*amber=(uint32_t*)(base+0x6d3ba84);
@@ -109,8 +120,8 @@ int music_ui_install(void (*sp)(void*,void*),void (*pp)(void*,void*),void (*tp)(
        memcmp((void*)(base+0x1644ff4),lighting_rows_before,4))return 0;
     long ps=sysconf(_SC_PAGESIZE);
     if (ps!=4096) return 0;
-    void *pages[11]; unsigned writable=0;
-    for (unsigned i=0;i<11;++i) {
+    void *pages[13]; unsigned writable=0;
+    for (unsigned i=0;i<13;++i) {
         pages[i]=(void*)((uintptr_t)slots[i]&~(uintptr_t)4095);
         if (mprotect(pages[i],4096,PROT_READ|PROT_WRITE)) {
             for (unsigned j=0;j<writable;++j) if (mprotect(pages[j],4096,PROT_READ)) _exit(121);
@@ -122,15 +133,15 @@ int music_ui_install(void (*sp)(void*,void*),void (*pp)(void*,void*),void (*tp)(
     unsigned code_writable=0;
     for(unsigned i=0;i<2;++i){if(mprotect(code_pages[i],4096,PROT_READ|PROT_WRITE)){
         for(unsigned j=0;j<code_writable;++j)if(mprotect(code_pages[j],4096,PROT_READ|PROT_EXEC))_exit(121);
-        for(unsigned j=0;j<11;++j)if(mprotect(pages[j],4096,PROT_READ))_exit(121);
+        for(unsigned j=0;j<13;++j)if(mprotect(pages[j],4096,PROT_READ))_exit(121);
         return 0;}++code_writable;}
     *amber=0x52800009u|(0xb000u<<5);
     memcpy((void*)(base+0x6d3b400),lighting_project_after,sizeof(lighting_project_after));
     memcpy((void*)(base+0x1643908),lighting_dispatch_after,4);
     for(unsigned i=0;i<2;++i){__builtin___clear_cache((char*)code_pages[i],(char*)code_pages[i]+4096);
         if(mprotect(code_pages[i],4096,PROT_READ|PROT_EXEC))_exit(121);}
-    for (unsigned i=0;i<11;++i) *slots[i]=callbacks[i];
-    for (unsigned i=0;i<11;++i) if (mprotect(pages[i],4096,PROT_READ)) _exit(121);
+    for (unsigned i=0;i<13;++i) *slots[i]=callbacks[i];
+    for (unsigned i=0;i<13;++i) if (mprotect(pages[i],4096,PROT_READ)) _exit(121);
     return 1;
 }
 static int visible(void *p)
@@ -184,6 +195,7 @@ void music_ui_request_project(void *p)
 { atomic_store(&request,(uintptr_t)p); }
 int music_ui_tick(void)
 {
+    atomic_store(&knob_fx_visible,visible(knob_fx_root));
     if(atomic_exchange(&dead_repeat,0))repeat_root=NULL;
     atomic_store(&repeat_visible,repeat_root&&visible(repeat_root));
     if (atomic_exchange(&dead_sample,0)) { sample=0; lights=0; last_index=-2;
@@ -267,6 +279,8 @@ static void rect(void *g,int x,int y,int w,int h)
 static void knob_underlay(void*p,void*g){
     uintptr_t type=FIELD(p,0,uintptr_t);
     if(type!=base+0x6e1e258)return;
+    knob_fx_root=p;atomic_store(&knob_fx_visible,visible(p));
+    if(!atomic_load(&knob_fx_visible))return;
     /* This overlay's stock paint is empty. Cover the complete footer before
      * children paint, including gaps and the parent screen's focus bracket. */
     colour(g,OVERLAY_AMBER);rect(g,0,198,320,42);
@@ -736,9 +750,11 @@ static int choice(unsigned value,int current,int lo,int hi,int relative)
     return n<lo ? lo : n>hi ? hi : n;
 }
 int music_ui_control(void *event)
+{ return music_ui_control_at(event,atomic_load(&global_shift)); }
+int music_ui_control_at(void *event,unsigned event_shift)
 {
     music_ui_tick();
-    if(music_pad_lighting_mode()&&atomic_load(&seq_active)&&atomic_load(&global_shift)&&FIELD(event,8,unsigned char)==0x10){
+    if(music_pad_lighting_mode()&&atomic_load(&seq_active)&&event_shift&&FIELD(event,8,unsigned char)==0x10){
         int index=sequence_index();if(index>=0)music_set_sequence_colour((unsigned)index,music_colour_choice(FIELD(event,9,unsigned char)*MUSIC_IDENTITY_CHOICES/128u));
         repaint(seq_screen);return 1;
     }

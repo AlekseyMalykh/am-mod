@@ -12,6 +12,7 @@ static int same_knob_context(const struct phone_event *a,const struct phone_even
 {
     return absolute_knob(a) && a->generation == b->generation && a->pad == b->pad &&
         a->step_ticket == b->step_ticket && a->workflow_ticket == b->workflow_ticket &&
+        a->down == b->down &&
         !memcmp(a->native,b->native,8) && !memcmp(a->native+10,b->native+10,6);
 }
 /* Scaled/Pickup need the initial physical position and direction changes.

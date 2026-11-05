@@ -80,7 +80,7 @@ static void pan_name(char *s,unsigned ch){int p=(int)rear_setting(ch,REAR_PAN)-5
 static void paint(void *p,void *g){
     unsigned kind=FIELD(p,0,uintptr_t)==image+0x6e22970?1:0;
     rear_ui_wake();roots[kind]=p;atomic_store(&dead[kind],0);
-    if(!visible(p)||music_ui_repeat_active()||phone_native_button_light(0x00)>=2)return;
+    if(!visible(p)||music_ui_repeat_active()||music_ui_knob_fx_active())return;
     if(!atomic_load(&open_panel)){
         if(rear_native_source()!=1)return;
         rect(g,107,0,105,35,0xff000000u);
@@ -179,10 +179,10 @@ int rear_ui_tick(void){
 }
 
 int rear_ui_owns(unsigned kind,unsigned code){
-    if(kind==1)return atomic_load(&open_panel)&&atomic_load(&visible_roots)&&code!=0x13&&!music_ui_repeat_active()&&phone_native_button_light(0x00)<2;
+    if(kind==1)return atomic_load(&open_panel)&&atomic_load(&visible_roots)&&code!=0x13&&!music_ui_repeat_active()&&!music_ui_knob_fx_active();
     if(kind!=2)return 0;
     if(code<112&&held[code])return 1;
-    if(music_ui_repeat_active()||phone_native_button_light(0x00)>=2)return 0;
+    if(music_ui_repeat_active()||music_ui_knob_fx_active())return 0;
     if(!atomic_load(&visible_roots))return 0;
     unsigned panel=atomic_load(&open_panel);
     if(code==0x0d||code==0x6c)return panel||(rear_native_source()==1&&((atomic_load(&visible_roots)&2)||music_ui_shift_active()));
@@ -220,7 +220,7 @@ int rear_ui_control(void *event){
     else if(cc==0x11||cc==0x12){rear_set_setting(cc-0x11,music_ui_shift_active()?REAR_LEVEL:REAR_PAN,adjusted(value,100));rear_set_setting(0,REAR_ENABLED,1);}
     repaint();return 1;
 }
-int rear_ui_pad_owns(void){return !music_ui_repeat_active()&&phone_native_button_light(0x00)<2&&atomic_load(&open_panel);}
+int rear_ui_pad_owns(void){return !music_ui_repeat_active()&&!music_ui_knob_fx_active()&&atomic_load(&open_panel);}
 
 void rear_ui_pad(unsigned pad,int down){
     if(!down||pad>=16||!atomic_load(&open_panel)||!panel_on_record||confirm||rear_native_busy())return;

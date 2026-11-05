@@ -5,6 +5,11 @@
 #include <stdlib.h>
 #include <sys/mman.h>
 static unsigned char sample[0x8000],controller[0x2300];
+static unsigned char things[0x1300],program[8],instrument[0x2300],layer[0x800],sample_data[0xb0];
+int music_ui_chords_available(void){return 1;}
+int music_lighting_levels_state(unsigned*on,unsigned*mode,unsigned*origin){*on=*mode=*origin=0;return 1;}
+static void *get_instrument(void*p,int pad){assert(p==program&&pad==0);return instrument;}
+void step_layer_sample(void*p,unsigned slot,uintptr_t*out,uintptr_t fn){assert(p==instrument&&!slot&&fn==base+0x2803b90);out[0]=(uintptr_t)sample_data;out[1]=0;}
 static unsigned paints,texts;static uint32_t ink;static int hidden;
 static int visible(void*p){return !hidden&&p==sample;}
 static int blocked(void*p){(void)p;return 0;}
@@ -25,10 +30,12 @@ static int button(unsigned code,unsigned down){unsigned char e[16]={0};e[8]=(uns
 static void shift(int on){controller[0x22a0]=(unsigned char)on;note_native_button_requested(0x31,(unsigned)on);button(0x31,(unsigned)on);note_native_tick();}
 int main(void){
  void*image=mmap(NULL,0x7500000,7,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);assert(image!=MAP_FAILED);base=(uintptr_t)image;
- stub(0x112fd50,visible);stub(0x112f6b0,blocked);stub(0x11234b0,semi);stub(0x1149880,repaint_receiver);
+ stub(0x286bbe0,get_instrument);stub(0x112fd50,visible);stub(0x112f6b0,blocked);stub(0x11234b0,semi);stub(0x1149880,repaint_receiver);
  stub(0xf535c0,string_make);stub(0xf0a290,string_end);stub(0x102d5e0,colour_receiver);stub(0x102e000,rect_receiver);
  stub(0x1082810,font_make);stub(0x102dca0,font_use);stub(0x1070d60,font_end);stub(0x10817b0,text_receiver);
  __builtin___clear_cache(image,(char*)image+0x7500000);
+ FIELD(sample,0x148,void*)=things;FIELD(things,0xb8,void*)=program;
+ FIELD(instrument,0x22e8,void*)=layer;FIELD(sample_data,0xa8,const char*)="fixture.wav";
  FIELD(sample,0,uintptr_t)=base+SAMPLE_VPTR;FIELD(sample,0x108,void*)=controller;
  FIELD(sample,SEMI_OFFSET,uintptr_t)=base+SLIDER_VPTR;FIELD(sample,MIX_VOLUME_OFFSET,uintptr_t)=base+SLIDER_VPTR;
  FIELD(sample,0x190+0x21c,int)=2;FIELD(sample,0x190+0x218,int)=1;
@@ -43,6 +50,15 @@ int main(void){
  *focus=volume;assert(button(0x6f,1)&&focused_trim&&!*focus);assert(button(0x6f,0));
  assert(!button(0x6f,1)&&!focused_trim&&*focus==volume);assert(!button(0x6f,0));
  *focus=pan;assert(!button(0x6f,1)); /* original handler advances Pan */
+ /* Moving physical K2 must enter the same cycle from every prior focus.
+  * On its next click the native handler must advance Volume -> Pan. */
+ uintptr_t previous[]={0,volume,pan,pan+0x350};
+ for(unsigned i=0;i<4;++i){
+  *focus=previous[i];assert(cc(0x11,32)&&focused_trim&&!*focus);
+  assert(!button(0x6f,1)&&!focused_trim&&*focus==volume);
+  assert(!button(0x6f,0));
+ }
+
  *focus=volume;assert(button(0x6f,1));shift(1);assert(!focused_trim&&*focus==volume);assert(button(0x6f,0));shift(0);
  *focus=volume;assert(button(0x6f,1));hidden=1;note_native_tick();assert(!focused_trim&&*focus==volume);assert(button(0x6f,0));hidden=0;
  note_native_tick();assert(cc(0x11,32));*focus=pan;note_native_tick();assert(!focused_trim&&*focus==pan);

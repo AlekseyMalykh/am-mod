@@ -296,8 +296,14 @@ int note_native_button(void *event)
     if (!root || FIELD(root,0,uintptr_t)!=base+SAMPLE_VPTR) return 0;
     if(code==0x31 && down && atomic_load(&focused_trim)) { give_back_knob_focus(); trim_repaint(); }
     if(code!=0x6f || !down || !trim_showing() || shifted()) return 0;
-    if(atomic_load(&focused_trim)){give_back_knob_focus();trim_repaint();return 0;}
     void *volume=trim_slider();
+    if(atomic_load(&focused_trim)){
+        give_back_knob_focus();
+        /* Physical K2 can enter Colour from Pan, Kit Volume or no focus.
+         * Resume before Pan, not from whichever native control preceded K2. */
+        if(volume)FIELD((void*)(base+0x723cde0),0,uintptr_t)=(uintptr_t)volume+0x1d8;
+        trim_repaint();return 0;
+    }
     if(volume && FIELD((void*)(base+0x723cde0),0,uintptr_t)==(uintptr_t)volume+0x1d8){
         take_knob_focus();colour_push_owned=1;trim_repaint();return 1;
     }

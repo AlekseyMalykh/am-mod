@@ -8,11 +8,13 @@
 #include <assert.h>
 static unsigned calls,last[3],faults;
 int music_ui_active(void){return 1;}
+static int test_knob_fx_open,test_music_owns;
+int music_ui_knob_fx_active(void){return test_knob_fx_open;}
 int note_native_active(void){return 0;}
 int step_native_active(void){return 0;}
 int workflow_active(void){return 0;}
 int note_native_owns(unsigned c){(void)c;return 0;}
-int music_ui_owns(unsigned c){(void)c;return 0;}
+int music_ui_owns(unsigned c){return test_music_owns&&c==0x10;}
 int step_native_owns(unsigned c){(void)c;return 0;}
 int workflow_owns(unsigned k,unsigned c){(void)k;(void)c;return 0;}
 uint64_t step_native_ticket(void){return 19;}

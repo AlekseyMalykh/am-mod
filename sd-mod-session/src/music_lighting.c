@@ -12,7 +12,7 @@
 static uintptr_t base;
 static pthread_mutex_t mutex=PTHREAD_MUTEX_INITIALIZER;
 #define MAX_LAYERS 8
-static struct { void *layer; uint64_t previous,created; } layers[MAX_LAYERS];
+static struct { void *layer; uint64_t previous,created,native_state,generation; } layers[MAX_LAYERS];
 static uint64_t created;
 static unsigned records;
 #define FIELD(p,off,type) (*(type *)((char *)(p)+(off)))
@@ -22,7 +22,7 @@ void music_lighting_created(void *p)
 {
     pthread_mutex_lock(&mutex);
     for (unsigned i=0;i<MAX_LAYERS;++i) if (!layers[i].layer || layers[i].layer==p) {
-        layers[i].layer=p; layers[i].previous=UINT64_MAX; layers[i].created=++created; break;
+        layers[i].layer=p; layers[i].previous=UINT64_MAX; layers[i].native_state=UINT64_MAX; layers[i].generation=UINT64_MAX; layers[i].created=++created; break;
     }
     pthread_mutex_unlock(&mutex);
 }
@@ -61,16 +61,23 @@ void music_lighting_destroyed(void *p)
 void music_lighting_tick(void)
 {
     uint64_t current=music_published()^((uint64_t)!!music_pad_lighting_mode()<<63)^music_mod_settings_snapshot();
+    uint64_t generation=music_generation();
     for (unsigned i=0;i<MAX_LAYERS;++i) {
         pthread_mutex_lock(&mutex);
         void *p=layers[i].layer;
-        if (!p || current==layers[i].previous || FIELD(p,0,uintptr_t)!=base+0x6e10a60) {
+        if (!p || FIELD(p,0,uintptr_t)!=base+0x6e10a60) {
             pthread_mutex_unlock(&mutex); continue;
         }
         void *properties=FIELD(p,0xe8,void*);
-        if (!properties || !(__atomic_load_n((unsigned char*)properties+0x2f8,__ATOMIC_ACQUIRE)&1)
-            || __atomic_load_n((int*)((char*)properties+0x88),__ATOMIC_ACQUIRE)!=1) {
-            pthread_mutex_unlock(&mutex); continue;
+        if(!properties){pthread_mutex_unlock(&mutex);continue;}
+        unsigned enabled=__atomic_load_n((unsigned char*)properties+0x2f8,__ATOMIC_ACQUIRE)&1;
+        int mode=__atomic_load_n((int*)((char*)properties+0x88),__ATOMIC_ACQUIRE);
+        int origin=__atomic_load_n((int*)((char*)properties+0x228),__ATOMIC_ACQUIRE);
+        uint64_t state=enabled|((uint64_t)(unsigned)(mode+1)<<1)|((uint64_t)(unsigned)(origin+1)<<33);
+        /* A Chop/16 Levels transition needs native RefreshAll, not a resend
+         * of original_lights cached under the previous lighting layer. */
+        if(state==layers[i].native_state&&(!enabled||(mode!=1&&mode!=8)||(current==layers[i].previous&&generation==layers[i].generation))){
+            pthread_mutex_unlock(&mutex);continue;
         }
         void *queue_owner=FIELD(p,0x40,void*);
         if (!queue_owner) { pthread_mutex_unlock(&mutex); continue; }
@@ -82,7 +89,7 @@ void music_lighting_tick(void)
         _Static_assert(sizeof(action)==32,"Pinned native function payload");
         unsigned *references=(unsigned*)((char*)p+0x48);
         __atomic_fetch_add(references,1,__ATOMIC_ACQUIRE);
-        layers[i].previous=current;
+        layers[i].previous=current;layers[i].native_state=state;layers[i].generation=generation;
         /* The native reference now protects the object. Do not hold our
          * registry mutex while acquiring a native queue mutex. */
         pthread_mutex_unlock(&mutex);
@@ -93,7 +100,7 @@ void music_lighting_tick(void)
         FN(0xf40e90,void(*)(void*))(queue_mutex);
         if (!accepted) {
             pthread_mutex_lock(&mutex);
-            if (layers[i].layer==p) layers[i].previous=UINT64_MAX;
+            if (layers[i].layer==p){layers[i].previous=UINT64_MAX;layers[i].native_state=UINT64_MAX;}
             pthread_mutex_unlock(&mutex);
             __atomic_fetch_sub(references,1,__ATOMIC_RELEASE);
         }
