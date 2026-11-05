@@ -46,7 +46,7 @@ extern "C" int project_exit_status(void){return state.load(std::memory_order_acq
 extern "C" const char *project_exit_message(void){return message;}
 extern "C" const char *project_exit_path(void){return destination;}
 static void *management(void *services){
-    if(!services)throw std::runtime_error("Project services unavailable");
+    if(!services)throw std::runtime_error("Project not ready: try again");
     void *lock=static_cast<char*>(services)+0x38;
     if(FN(0xb51828,int(*)(void*))(lock))throw std::runtime_error("Project service lock failed");
     uintptr_t key=base+0x6e0d598;
@@ -57,12 +57,12 @@ static void *management(void *services){
     }catch(...){FN(0xb51808,void(*)(void*))(lock);throw;}
     FN(0xb51808,void(*)(void*))(lock);
     if(!result||F(result,0,uintptr_t)!=base+0x6d8cc00)
-        throw std::runtime_error("Native project saver unavailable");
+        throw std::runtime_error("Cannot save now: try again");
     return result;
 }
 static std::string projects_root(){
     int fd=open(PROJECT_EXIT_METADATA_PATH,O_RDONLY|O_CLOEXEC|O_NOFOLLOW);
-    if(fd<0)throw std::runtime_error("SD save location unavailable");
+    if(fd<0)throw std::runtime_error("SD card not ready: check the card");
     char path[1024];ssize_t n=read(fd,path,sizeof(path)-1);close(fd);
     if(n<=0)throw std::runtime_error("SD save location unreadable");
     while(n>0&&(path[n-1]=='\n'||path[n-1]=='\r'))--n;

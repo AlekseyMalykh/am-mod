@@ -5,7 +5,7 @@ from early_drm_startup import transform
 R=Path(__file__).resolve().parent;O=R/'build/early-drm';O.mkdir(exist_ok=True)
 sources=['src/early_drm_splash.c','src/early_drm_startup.sh','src/am_mod_splash.inc','check_early_drm.c','early_drm_startup.py','verify_early_drm.py']
 sha=lambda b:hashlib.sha256(b).hexdigest();before={n:sha((R/n).read_bytes()) for n in sources}
-sources+=['src/mod_build.h','src/splash_branding.h','src/branding_font.h']
+sources+=['src/mod_build.h','src/splash_branding.h','src/branding_font_aa.h']
 before={n:sha((R/n).read_bytes()) for n in sources}
 for name,flags in [('normal',[]),('ubsan',['-fsanitize=undefined','-static-libubsan','-fno-sanitize-recover=all'])]:
  exe=O/name;subprocess.run(['aarch64-linux-gnu-gcc','-O1','-g','-Wall','-Wextra','-Werror',*flags,'check_early_drm.c','-o',str(exe)],cwd=R,check=True)

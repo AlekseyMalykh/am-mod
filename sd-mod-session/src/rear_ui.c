@@ -26,15 +26,33 @@ static _Atomic unsigned held[112];
 static _Atomic unsigned bank_lights;
 extern void rear_ui_wake(void);
 extern unsigned phone_native_button_light(unsigned code);
-static const char *const modes[]={"Stereo (native)","Record Rear L","Record Rear R","Record L + R"};
+static const char *const modes[]={"Stereo","Rear L","Rear R","L + R"};
 static int visible(void *p){return p&&FN(0x112fd50,int(*)(void*))(p)&&!FN(0x112f6b0,int(*)(void*))(p);}
 static void repaint(void){for(unsigned i=0;i<2;++i)if(roots[i]&&!atomic_load(&dead[i]))FN(0x1149880,void(*)(void*,uint64_t,uint64_t))(roots[i],0,FIELD(roots[i],0x28,uint64_t));}
 static void rect(void *g,int x,int y,int w,int h,uint32_t colour){FN(0x102d5e0,void(*)(void*,uint32_t))(g,colour);FN(0x102e000,void(*)(void*,int,int,int,int))(g,x,y,w,h);}
-static void text(void *g,const char *value,int x,int y,int w,int h,float height,uint32_t colour){
+static void text_aligned(void *g,const char *value,int x,int y,int w,int h,float height,uint32_t colour,int align){
     uint64_t s=0,font=0;FN(0xf535c0,void(*)(void*,const char*))(&s,value);FN(0x1082810,void(*)(void*,int,float))(&font,0,height);
     FN(0x102dca0,void(*)(void*,const void*))(g,&font);FN(0x102d5e0,void(*)(void*,uint32_t))(g,colour);
-    FN(0x10817b0,void(*)(void*,const void*,int,int,int,int,int,int,float))(g,&s,x,y,w,h,0x24,1,.7f);
+    FN(0x10817b0,void(*)(void*,const void*,int,int,int,int,int,int,float))(g,&s,x,y,w,h,align,1,.7f);
     FN(0x1070d60,void(*)(void*))(&font);FN(0xf0a290,void(*)(void*))(&s);
+}
+static void text(void *g,const char *value,int x,int y,int w,int h,float height,uint32_t colour){text_aligned(g,value,x,y,w,h,height,colour,0x24);}
+static void left(void *g,const char *value,int x,int y,int w,int h,float height,uint32_t colour){text_aligned(g,value,x,y,w,h,height,colour,0x21);}
+static void right(void *g,const char *value,int x,int y,int w,int h,float height,uint32_t colour){text_aligned(g,value,x,y,w,h,height,colour,0x22);}
+#define REAR_WHITE 0xffffffffu
+#define REAR_GREY 0xff8a8a8au
+#define REAR_AMBER 0xffffc247u
+#define REAR_RED 0xffff4040u
+/* Stock K panel: label, value, thin value bar and the S square for Shift. */
+static void panel(void *g,unsigned i,const char *label,const char *value,int badge,int shift,unsigned position,unsigned count){
+    int x=i==2?213:(int)i*106,w=i==2?107:106;
+    rect(g,x,198,w,42,0xff000000u);
+    text(g,label,x+4,200,badge?w-24:w-8,13,12,REAR_WHITE);text(g,value,x+4,214,w-8,19,16,REAR_WHITE);
+    if(badge){/* Native badge (values_ui.S): 10x12 frame with S, red while Shift is held. */
+        int bx=(int)i*106+94;uint32_t c=shift?0xffff4747u:REAR_WHITE;
+        rect(g,bx,200,10,1,c);rect(g,bx,211,10,1,c);rect(g,bx,200,1,12,c);rect(g,bx+9,200,1,12,c);text(g,"S",bx+1,201,8,10,10,c);}
+    if(count>1){rect(g,x+6,235,w-12,2,0xff3b3b3bu);int span=w-12,seg=span/(int)count;if(seg<4)seg=4;
+        int at=(int)position*(span-seg)/((int)count-1);rect(g,x+6+at,235,seg,2,REAR_WHITE);}
 }
 static void pad_name(char *s,unsigned pad){snprintf(s,8,"%c%02u",'A'+pad/16,pad%16+1);}
 static unsigned mask(void){unsigned mode=rear_setting(0,REAR_MODE);return mode==REAR_DUAL?3:mode==REAR_LEFT?1:mode==REAR_RIGHT?2:0;}
@@ -54,11 +72,11 @@ static void start_recording(void){
 static void meter(void *g,unsigned ch,int y){
     float levels[2];rear_audio_meters(levels);
     float level=levels[ch]>0?20.f*log10f(levels[ch]):-60.f;
-    int width=(int)((level+60.f)*142.f/60.f);if(width<0)width=0;if(width>142)width=142;
-    int x=ch?169:9;
-    rect(g,x,y,142,5,0xff242424u);if(width)rect(g,x,y,width,5,level>=-.1f?0xffff3030u:0xff10df40u);
+    int width=(int)((level+60.f)*144.f/60.f);if(width<0)width=0;if(width>144)width=144;
+    int x=ch?168:8;
+    rect(g,x,y,144,4,0xff242424u);if(width)rect(g,x,y,width,4,level>=-.1f?REAR_RED:0xff1fd8a0u);
 }
-static void pan_name(char *s,unsigned ch){int p=(int)rear_setting(ch,REAR_PAN)-50;if(!p)snprintf(s,24,"Center");else snprintf(s,24,"%c %d",p<0?'L':'R',p<0?-p:p);}
+static void pan_name(char *s,unsigned ch){int p=(int)rear_setting(ch,REAR_PAN)-50;if(!p)snprintf(s,24,"C");else snprintf(s,24,"%c%d",p<0?'L':'R',p<0?-p:p);}
 static void paint(void *p,void *g){
     unsigned kind=FIELD(p,0,uintptr_t)==image+0x6e22970?1:0;
     rear_ui_wake();roots[kind]=p;atomic_store(&dead[kind],0);
@@ -73,34 +91,55 @@ static void paint(void *p,void *g){
     if(kind!=panel_on_record)return;
     rect(g,0,0,320,240,0xff000000u);
     if(confirm){
-        text(g,"Cancel",0,5,106,23,14,0xffffffffu);text(g,"Replace",214,5,106,23,14,0xffff4040u);
-        text(g,"Replace occupied pads?",4,58,312,28,20,0xffff4040u);
+        /* Stock confirmation: framed box, B1 Cancel and a red destructive B3. */
+        text(g,"Cancel",0,5,106,23,14,REAR_WHITE);text(g,"Replace",214,5,106,23,14,REAR_RED);
+        rect(g,6,51,308,145,REAR_WHITE);rect(g,7,52,306,143,0xff000000u);
+        left(g,"Replace pads",24,66,272,26,19,REAR_WHITE);rect(g,24,100,272,1,REAR_WHITE);
         char s[80],l[8],r[8];pad_name(l,rear_setting(0,REAR_TARGET));pad_name(r,rear_setting(1,REAR_TARGET));
-        snprintf(s,sizeof(s),"%s%s%s",overwrite&1?l:"",overwrite==3?" and ":"",overwrite&2?r:"");text(g,s,4,108,312,24,19,0xffffffffu);
-        text(g,"B1 / STOP cancels, B3 records",4,165,312,22,14,0xffffffffu);return;
+        snprintf(s,sizeof(s),"%s%s%s",overwrite&1?l:"",overwrite==3?" and ":"",overwrite&2?r:"");
+        left(g,s,24,112,272,24,19,REAR_AMBER);
+        left(g,overwrite==3?"Both pads will be overwritten.":"The pad will be overwritten.",24,144,272,20,13,REAR_WHITE);
+        return;
     }
-    text(g,waiting_right?"Cancel":"Back",0,5,106,23,14,0xffffffffu);
+    unsigned busy=rear_native_busy(),selected=kind?mask():0,shift=music_ui_shift_active()!=0;
+    text(g,waiting_right?"Cancel":"Back",0,5,106,23,14,REAR_WHITE);
     for(unsigned ch=0;ch<2;++ch){
-        char label[32];snprintf(label,sizeof(label),"Mon %c: %s",'L'+(ch?6:0),rear_setting(ch,REAR_MONITOR)?"On":"Off");
-        text(g,label,ch?214:107,5,ch?106:105,23,13,rear_setting(ch,REAR_MONITOR)?0xff10df40u:0xff888888u);
+        unsigned on=rear_setting(ch,REAR_MONITOR);int x=ch?214:107,w=ch?106:105;
+        text(g,ch?"Mon R":"Mon L",x,5,w,23,14,on?REAR_WHITE:REAR_GREY);
+        if(on)rect(g,x+w/2-18,29,36,2,REAR_AMBER);
     }
-    text(g,"Rear Routing",4,36,312,25,18,0xffffb000u);
-    text(g,kind?modes[rear_setting(0,REAR_MODE)]:"Monitor settings",4,66,312,24,18,0xffffffffu);
+    left(g,"Rear Routing",8,34,180,22,15,REAR_AMBER);
+    right(g,kind?"Record":"Monitor",190,34,122,22,12,REAR_GREY);
     for(unsigned ch=0;ch<2;++ch){
-        char s[40],pan[24];pan_name(pan,ch);int x=ch?164:4;
-        snprintf(s,sizeof(s),"Rear %c  /  %s",ch?'R':'L',rear_setting(ch,REAR_MONITOR)?"Monitor On":"Monitor Off");text(g,s,x,102,152,20,12,0xffffffffu);
-        snprintf(s,sizeof(s),"Pan: %s",pan);text(g,s,x,126,152,20,14,0xffffffffu);
-        snprintf(s,sizeof(s),"Level: %u %%",rear_setting(ch,REAR_LEVEL));text(g,s,x,149,152,19,12,0xffbbbbbb);
-        meter(g,ch,175);
+        char s[40],pan[24];int x=ch?168:8;pan_name(pan,ch);
+        left(g,ch?"Rear R":"Rear L",x,60,144,20,15,REAR_WHITE);
+        if(kind){
+            unsigned used=(selected>>ch)&1u,target=rear_setting(ch,REAR_TARGET);char pad[8];pad_name(pad,target);
+            if(!used)right(g,"not recorded",x,60,144,20,11,REAR_GREY);
+            else if((atomic_load(&selected_mask)>>ch)&1u){snprintf(s,sizeof(s),"to %s",pad);right(g,s,x,60,144,20,13,REAR_AMBER);}
+            else right(g,"choose pad",x,60,144,20,11,REAR_GREY);
+        }
+        meter(g,ch,84);
+        snprintf(s,sizeof(s),"Pan %s",pan);left(g,s,x,94,64,18,12,REAR_GREY);
+        snprintf(s,sizeof(s),"Level %u%%",rear_setting(ch,REAR_LEVEL));right(g,s,x+64,94,80,18,12,REAR_GREY);
     }
-    char status[96];unsigned state=rear_record_state();
-    if(rear_native_busy())snprintf(status,sizeof(status),"%s  %.1f s / STOP",state==REAR_RECORDING?"Recording":state==REAR_WAITING?"Waiting":"Saving",(double)rear_record_frames()/44100.);
-    else if(waiting_right)snprintf(status,sizeof(status),"Choose pad for R / B1 or STOP cancels");
+    rect(g,8,120,304,1,0xff3b3b3bu);
+    char status[96];unsigned state=rear_record_state();uint32_t ink=REAR_WHITE;
+    if(busy){snprintf(status,sizeof(status),"%s  %.1f s",state==REAR_RECORDING?"Recording":state==REAR_WAITING?"Waiting for input":"Saving",(double)rear_record_frames()/44100.);ink=state==REAR_RECORDING?REAR_RED:REAR_WHITE;}
+    else if(waiting_right)snprintf(status,sizeof(status),"Now press the pad for R");
     else if(rear_native_status())snprintf(status,sizeof(status),"%s",rear_native_message());
-    else snprintf(status,sizeof(status),"%s",!kind?"Monitoring / Sample Record to record":mask()==3?"Press pad for L, then pad for R":"Press a pad to record");
-    text(g,status,4,187,312,20,12,0xffffffffu);
-    text(g,kind?"K1 Mode   K2 Pan L   K3 Pan R":"K2 Pan L   K3 Pan R",4,211,312,15,11,0xffffffffu);
-    text(g,"Shift + K2/K3: monitor level L/R",4,226,312,13,10,0xffbbbbbb);
+    else snprintf(status,sizeof(status),"%s",!kind?"Sample Record > B2 to record":selected==3?"Press the pad for L":"Press a pad to record");
+    text(g,status,8,130,304,26,17,ink);
+    const char *hint=busy?"STOP: finish recording":waiting_right?"B1 or STOP: cancel":kind?"Pad Bank + pads 1-8: bank":"B2 / B3: monitor on or off";
+    text(g,hint,8,160,304,18,12,REAR_GREY);
+    char value[24];
+    if(kind)panel(g,0,"Record",modes[rear_setting(0,REAR_MODE)],0,0,rear_setting(0,REAR_MODE)?rear_setting(0,REAR_MODE)-1:0,3);
+    else panel(g,0,"","",0,0,0,0);
+    for(unsigned ch=0;ch<2;++ch){
+        char label[16];snprintf(label,sizeof(label),shift?"Level %c":"Pan %c",ch?'R':'L');
+        if(shift){snprintf(value,sizeof(value),"%u %%",rear_setting(ch,REAR_LEVEL));panel(g,1+ch,label,value,1,1,rear_setting(ch,REAR_LEVEL),101);}
+        else{pan_name(value,ch);panel(g,1+ch,label,value,1,0,rear_setting(ch,REAR_PAN),101);}
+    }
 }
 static void destroy(void *p){unsigned i=FIELD(p,0,uintptr_t)==image+0x6e22970;atomic_store(&dead[i],1);FN(i?0x1682430:0x16248e0,void(*)(void*))(p);}
 static void deleting(void *p){unsigned i=FIELD(p,0,uintptr_t)==image+0x6e22970;atomic_store(&dead[i],1);FN(i?0x1682d70:0x1624d50,void(*)(void*))(p);}

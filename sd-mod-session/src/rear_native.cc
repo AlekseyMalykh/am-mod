@@ -234,7 +234,7 @@ int owner_tick(void *p) {
         for (unsigned ch = 0; ch < 2; ++ch) {
             if (!selected_channel(s->mode,ch)) continue;
             void *instrument = native<void *(*)(void *,int)>(0x286bbe0)(s->program,(int)s->targets[ch]);
-            if (!instrument || FIELD(instrument,0x2310,void *) != s->program) throw "Destination unavailable";
+            if (!instrument || FIELD(instrument,0x2310,void *) != s->program) throw "Target pad not available";
             bool used = false;
             for (unsigned layer = 0; layer < 8; ++layer) {
                 uintptr_t sample[2]{}; pad_source_layer_sample(instrument,(int)layer,sample,image+0x2803b90);
@@ -410,7 +410,7 @@ extern "C" unsigned rear_native_bank_occupied(unsigned bank) {
 }
 extern "C" unsigned rear_native_status() { auto *s = session.load(); return s ? s->status.load() : 0; }
 extern "C" const char *rear_native_message() {
-    static thread_local char text[128]; auto *s = session.load(); if (!s) return "Rear input services unavailable";
+    static thread_local char text[128]; auto *s = session.load(); if (!s) return "Rear input not ready: reselect Rear";
     std::lock_guard<std::mutex> lock(s->message_mutex); std::memcpy(text,s->message,sizeof(text)); return text;
 }
 extern "C" void rear_native_clear() { auto *s = session.load(); if (!s || s->busy.load()) return; rear_record_release(1); message(s,0,""); }

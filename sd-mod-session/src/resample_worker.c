@@ -127,7 +127,7 @@ static void command(struct resample_worker*w,const struct resample_command*c){
             const char*message=error==PAD_RENDER_LIMIT?"Sample exceeds PCM budget":
                 error==PAD_RENDER_FX_ERROR?"Cannot initialize FX":"Cannot allocate render buffers";
             if(error==PAD_RENDER_FX_ERROR&&(!w->backend.fx.create||!w->backend.fx.destroy||!w->backend.fx.process))
-                for(unsigned i=0;i<c->spec.fx.count;++i)if(c->spec.fx.stage[i].kind==FX_STAGE_NATIVE){message="Native FX unavailable";break;}
+                for(unsigned i=0;i<c->spec.fx.count;++i)if(c->spec.fx.stage[i].kind==FX_STAGE_NATIVE){message="Effect not available here";break;}
             fail(w,message);return;
         }
         /* The job now owns the reader; keep numeric metadata for replies. */

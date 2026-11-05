@@ -22,9 +22,9 @@ struct resample_context {
 };
 enum CaptureError { CAP_NONE,CAP_STOPPED,CAP_RESOURCE,CAP_SERVICES,CAP_MODEL,CAP_INSTRUMENT,CAP_PAD,
     CAP_EMPTY,CAP_SAMPLE_SERVICES,CAP_POOL_MEMBER,CAP_NAME,CAP_OTHER_PAD,CAP_CHANGED,CAP_EXCEPTION };
-static const char*const capture_errors[]={"Sample context unavailable","Sample context stopped","Capture allocation failed",
-    "Project services unavailable","Project library unavailable","Selected pad unavailable","Selected pad not in program",
-    "Selected pad is empty","Sample services unavailable","Sample absent from project pool","Sample name unavailable",
+static const char*const capture_errors[]={"Select a sample pad and retry","Sample context stopped","Capture allocation failed",
+    "Project not ready: try again","Project library not found","Select a pad first","Selected pad not in program",
+    "Selected pad is empty","Sample not ready: try again","Sample absent from project pool","Sample name not readable",
     "Pad table does not match project","Project changed while opening","Capture failed unexpectedly"};
 extern "C" const char*resample_context_error(resample_context*c){
     unsigned error=c?c->capture_error.load(std::memory_order_acquire):(unsigned)CAP_STOPPED;

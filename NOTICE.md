@@ -1,6 +1,6 @@
 # Notice / Правовая информация
 
-**English.** AM Mod is an unofficial community project. It is not affiliated
+**English.** Am MOD is an unofficial community project. It is not affiliated
 with, endorsed by or supported by inMusic Brands, Inc. or Akai Professional. Akai
 Professional and MPC are trademarks of inMusic Brands, Inc.; they are used here only to
 name the device the mod runs on.
@@ -17,7 +17,7 @@ name the device the mod runs on.
 - Screenshots and GIFs show the stock app with the mod running, for documentation.
 - Use at your own risk; see the warranty disclaimer in [LICENSE](LICENSE).
 
-**Русский.** AM Mod — неофициальный проект сообщества. Он не связан с
+**Русский.** Am MOD — неофициальный проект сообщества. Он не связан с
 inMusic Brands, Inc. и Akai Professional, не одобрен и не поддерживается ими. Akai
 Professional и MPC — товарные знаки inMusic Brands, Inc.; здесь они используются только
 для указания устройства, на котором работает мод.

@@ -2,7 +2,7 @@
 from pathlib import Path
 import hashlib,json,subprocess
 R=Path(__file__).resolve().parent;O=R/'build/early-drm'
-sources=['check_branding.c','src/mod_build.h','src/branding_font.h','src/splash_branding.h','src/am_mod_splash.inc']
+sources=['check_branding.c','src/mod_build.h','src/branding_font_aa.h','src/splash_branding.h','src/am_mod_splash.inc']
 sha=lambda b:hashlib.sha256(b).hexdigest();before={n:sha((R/n).read_bytes()) for n in sources}
 for name,flags in [('normal',[]),('ubsan',['-fsanitize=undefined','-static-libubsan','-fno-sanitize-recover=all'])]:
  exe=O/('branding-'+name)

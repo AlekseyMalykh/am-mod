@@ -77,7 +77,7 @@ int resample_flow_button(struct resample_flow*f,unsigned code,int down){
     f->held[k]=1;
     if(f->page==RS_CHOOSE){
         if(k==0)f->page=RS_CLOSED;
-        else if(k==1){if(send(f,RS_ACT_SEQUENCE,0,0))f->page=RS_CLOSED;else message(f,"Sequence unavailable");}
+        else if(k==1){if(send(f,RS_ACT_SEQUENCE,0,0))f->page=RS_CLOSED;else message(f,"Select a sequence first");}
         else if(f->has_sample)prepare(f);else message(f,"Selected pad is empty");
     }else if(f->page==RS_SAMPLE){
         if(k==0)cancel_to(f,0);else if(k==1)f->page=RS_FX;else render(f);
@@ -94,7 +94,7 @@ int resample_flow_button(struct resample_flow*f,unsigned code,int down){
         }
         else if(k==1&&f->fx_slot<f->spec.fx.count){
             f->spec.fx.stage[f->fx_slot].bypass^=1u;++f->spec.revision;
-        }else if(k==2&&!send(f,f->fx_slot<f->spec.fx.count?RS_ACT_EDIT_FX:RS_ACT_CHOOSE_FX,0,f->token))message(f,"FX editor unavailable");
+        }else if(k==2&&!send(f,f->fx_slot<f->spec.fx.count?RS_ACT_EDIT_FX:RS_ACT_CHOOSE_FX,0,f->token))message(f,"FX editor not ready: try again");
     }else if(f->page==RS_READY){
         if(k==0)cancel_to(f,1);
         else if(k==1){

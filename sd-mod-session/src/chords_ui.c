@@ -258,7 +258,7 @@ int chords_ui_paint(void*root,void*g){
  if(!c.valid||release_warning){
   void*t=note_native_context(),*instrument=t?F(t,0x668,void*):NULL;
   const char *warning=release_warning?"Release root pads before exit":
-   !instrument?"Sample context unavailable":F(instrument,0x1690,int)!=0?
+   !instrument?"Select a sample pad and retry":F(instrument,0x1690,int)!=0?
    (poly_pending?"Switching to Poly...":"Could not enable Poly"):"Set Orig Note: Tune + Shift K1";
   colour(g,0xffff4040);text(g,warning,6,64,308,15,12);
  }else{

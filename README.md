@@ -1,25 +1,16 @@
-# AM Mod
+# Am MOD
 
 **Unofficial SD card mod for the Akai MPC Sample**
 
 **English** · [Русский](README.ru.md)
 
-[Feedback and help](docs/FEEDBACK.md) · [Known issues](docs/KNOWN_ISSUES.md) · [Discussions](https://github.com/AlekseyMalykh/am-mod/discussions)
+[**Download r27p**](https://github.com/AlekseyMalykh/am-mod/releases/tag/r27p) (latest) · [Feedback and help](docs/FEEDBACK.md) · [Known issues](docs/KNOWN_ISSUES.md) · [Discussions](https://github.com/AlekseyMalykh/am-mod/discussions)
 
-[**Latest release r27p**](https://github.com/AlekseyMalykh/am-mod/releases/tag/r27p) · [Previous release r26s](https://github.com/AlekseyMalykh/am-mod/releases/tag/r26s)
-
-OptoCat/Warm, the K fix, workflow pad colours, Seq pulses, Sound cursor and EQ
-side indicators. **FAT32 is experimental**; exFAT is supported.
-[Release notes](docs/RELEASE_NOTES-r27p.md) · [Remaining reports](docs/KNOWN_ISSUES.md).
-The author confirmed the K fix on an MPC; automated coverage and remaining
-physical checks are stated in the release notes.
-
-AM Mod is a community mod for the Akai MPC Sample (firmware **1.3.0.12**) that starts from the SD card.
-It adds a step sequencer on the pads, a chord mode, typing names with the pads, scale
-lighting, search across folders, batch copy, a per-pad EQ, resampling and more, on top of
-the stock app. Nothing is flashed: the mod runs a patched copy of the stock app in RAM.
-r27p saves a recovery copy on normal shutdown; older r26s still includes
-**Project → Mod Off**.
+Am MOD is a community mod for the Akai MPC Sample (firmware **1.3.0.12**) that starts from
+the SD card. On top of the stock app it adds a step sequencer on the pads, a chord mode,
+typing names with the pads, scale lighting, search across folders, batch copy, a per-pad
+EQ, resampling, recording from the rear inputs and more. Nothing is flashed: the mod runs
+a patched copy of the stock app in RAM, and the stock app starts as usual without the card.
 
 <p align="center"><img src="docs/media/chords.gif" alt="Chords mode: pads play chords in the project key" width="760"></p>
 <p align="center"><sub>Recorded in the <a href="https://github.com/orrpunk-art/virtual-mpc-sample">Virtual MPC Sample</a> emulator running the stock firmware with the mod; the pads on the right show the colours the app sends.</sub></p>
@@ -29,39 +20,25 @@ r27p saves a recovery copy on normal shutdown; older r26s still includes
 > release packages**: the mod patches the copy of the app already on your MPC Sample.
 > Use at your own risk. See [NOTICE](NOTICE.md).
 
-## r27p release
+## What's new in r27p
 
 **Back up samples and projects before updating.**
 
-- **Rear recording and monitoring.** Sample Record → B2 Routing: K1 chooses Record Rear L / Record Rear R / Record L + R. Press a pad to record mono. For L + R, choose the L pad, then a different R pad; recording starts simultaneously after the second choice. B1 or STOP cancels the first choice; occupied pads require confirmation. STOP finishes recording. Hold Pad Bank and use pads 1–8 for banks. Standard stereo recording on one pad remains in the normal Sample Record window; Routing is offered only for the Rear source.
-- **Monitor without recording.** Input Config → Shift+B2 Routing: B2/B3 toggle L/R monitoring, K2/K3 set pan, Shift+K2/K3 set monitor level. The same controls work in recording Routing. Input Config pad presses never start recording. Monitor gain/pan do not change the dry mono recordings. Settings are saved with the project.
-- **Knob FX priority.** Physical K1–K3 control Knob FX while it is open, including over custom screens. Routing resumes afterwards. Note Repeat keeps its controls.
-- **Scale and Orig Note.** Setting Orig Note selects Scale. Tune lighting resolves the current sample from the project model, including when a different pad is selected in Compressor and across banks A–H.
-- **Menu clicks.** A fast encoder click after leaving Mod Settings is passed to the current native menu. Hidden Sample controls no longer take Project controls.
-- **Copy and EQ.** Hold Erase after entering Copy with Shift+Erase; Shift+Pad Bank switches banks backwards. Returning from Seq to Sample retains the EQ page.
+- **Rear recording and monitoring.** Sample Record → B2 Routing: K1 chooses Rear L, Rear R or L + R. Press a pad to record mono; for L + R press the L pad, then a different R pad, and both start together. B1 or STOP cancels the first choice; occupied pads ask for confirmation; STOP finishes. Hold Pad Bank and use pads 1–8 for banks. Stereo recording on one pad stays in the normal Sample Record window.
+- **Monitor without recording.** Input Config → Shift+B2 Routing: B2/B3 switch L/R monitoring, K2/K3 set pan, Shift+K2/K3 set the monitor level. Monitor settings do not change the dry recordings and are saved with the project.
+- **Knob FX priority.** K1–K3 control Knob FX while it is open, also over mod screens. Note Repeat keeps its controls.
+- **Scale and Orig Note.** Setting Orig Note selects Scale; Tune lighting follows the current sample in every bank.
+- **Menus, Copy and EQ.** A fast encoder press after Mod Settings reaches the current menu; Erase can be held after Shift+Erase → Copy; Shift+Pad Bank goes back a bank; Seq → Sample keeps the EQ page.
 
-- **Preview from end.** Hold **STOP** and press a pad in Sample or Chop to hear the end of the trimmed sample or slice. In **Project → Mod Settings → B3 → Sample → Preview from end**, choose 100–4000 ms. The default is 1000 ms. The setting is saved with the project and in card defaults.
-- **Steps.** K1 sets the sequence length in bars, K2 sets the grid, and Shift+K1 is free. Use **SOUND + pad** to choose the sound and **PAD BANK** to switch banks. Available empty steps are dim, steps with events are brighter, and pads beyond the end stay dark. Mute shows audible steps in green, muted steps in red and mixed steps alternating.
-- **Sample lighting.** A playing loop flashes in its assigned colour after you select another pad. Pressing SHIFT alone keeps the pad brightness. While using Mute, audible and muted pads are green and red. Muted pads have a grey waveform and spectrum, with filter/EQ curves and envelopes still visible.
-- **Palette.** Eight assignable colours plus Default for samples and sequences. Six separate system colours remain swappable in Mod Settings.
-- **Copy Pad and recovery.** Temporary audio uses a dedicated SD workspace to avoid false “Insufficient space on drive” errors with large samples. A successful named Save is recorded for project recovery.
+Also included from r27n: **Preview from end** (hold STOP and tap a pad), Steps length and grid on K1/K2, loop and mute lighting, eight assignable colours, and a dedicated SD workspace for Copy Pad.
 
-Select r27p with Installer 1.0.3 or use Latest release. Back up samples and projects before updating.
+[All r27p changes](docs/RELEASE_NOTES-r27p.md) · [Mod Settings](docs/MOD_SETTINGS.md) · [Testing status](docs/KNOWN_ISSUES.md) · [Roadmap and ideas](docs/IDEAS.md)
 
-[Changes in r27p](docs/RELEASE_NOTES-r27p.md) · [Mod Settings](docs/MOD_SETTINGS.md) · [Changes in r27f](docs/RELEASE_NOTES-r27f.md) · [Testing status](docs/KNOWN_ISSUES.md).
-
-Synth, stem export, mixer/effect routing and an independent RGB editor remain
-requests, not features in this package. Thanks to Leusha, mxt1iga and all testers.
-
-Synth, stem export, and mixer/effect routing remain [future requests](docs/IDEAS.md).
-
-Ideas C01/C02: live held-chord/arp changes and force-based expression are [future requests](docs/IDEAS.md), not implemented in r27p. New-hit velocity already passes through; continuous pressure still needs investigation.
-Plan M01: audit MIDI In/Out, channels/clock, external Chords/arp operation, velocity and Note On/Off. Details are in the same roadmap; verification is pending.
+Thanks to Leusha, mxt1iga and all testers.
 
 ## Features
 
-Latest release r27p, 5 November 2026; r26s remains available as an older version. **Confirmed** means checked on a real MPC Sample;
-**trial** means the specified automated checks passed; hardware coverage is pending as noted.
+**Confirmed**: checked on a real MPC Sample. **Trial**: automated and emulator checks passed; a hardware check is still pending.
 
 | Feature | Where | Status |
 |---|---|---|
@@ -78,10 +55,13 @@ Latest release r27p, 5 November 2026; r26s remains available as an older version
 | **Power key** asks, saves a separate copy of the project to SD, powers off | power key | confirmed |
 | **Per-pad EQ**: one band, 6 types + Bypass, ±18 dB, live spectrum behind the curve | Sample → B3 Filter → Filter Env → **EQ** | confirmed |
 | **Stereo → Mono** (left or right channel to a new pad) | Sample → Shift+B3 | trial |
-| **Chords**: 8 scale degrees, 6/7/maj7/9, Maj/Min/Dim/Aug/Sus4, octave, inversion, latch, arpeggiator, chord repeat with Note Repeat; recorded as normal Tune events | 16 Levels Tune → Chop | trial (r24v) |
-| **OptoCat/Warm**: optical-style compression, Gain −6…+6 dB, Shift Attack/Release/Knee; paw follows red GR, shared Bypass | Shift+Pad5 → B2 Type; B1 Warm | implemented; XPJ device retest pending |
-| **AM Mod sequence pads**: Default + eight colours; selected pulses once per bar at Stop, playing once per beat, queued twice per beat; visible background and stable brightness of other pads | Seq → Shift+K1 (AM Mod) | trial (r26q) |
+| **Chords**: 8 scale degrees, 6/7/maj7/9, Maj/Min/Dim/Aug/Sus4, octave, inversion, latch, arpeggiator, chord repeat with Note Repeat; recorded as normal Tune events | 16 Levels Tune → Chop | trial |
+| **OptoCat/Warm**: optical-style compression, Gain −6…+6 dB, Shift Attack/Release/Knee; paw follows red GR, shared Bypass | Shift+Pad5 → B2 Type; B1 Warm | trial |
+| **Am MOD sequence pads**: Default + eight colours; selected pulses once per bar at Stop, playing once per beat, queued twice per beat; visible background and stable brightness of other pads | Seq → Shift+K1 (Am MOD) | trial |
 | **Batch Extract** chops to separate samples | Chop → Shift+B2 | confirmed |
+| **Rear recording**: Rear L, Rear R or L + R to pads; monitoring with pan and level | Sample Record → B2 Routing; Input Config → Shift+B2 | trial |
+| **Preview from end** of a sample or slice | hold STOP + pad in Sample / Chop | trial |
+| **Mod Settings**: pad lighting, waveform tint, system colours, cursor pulse | Project → Mod Settings | trial |
 
 Every feature with its controls and status: [docs/FEATURES.md](docs/FEATURES.md). Build history: [CHANGELOG.md](CHANGELOG.md).
 
@@ -109,10 +89,10 @@ Every feature with its controls and status: [docs/FEATURES.md](docs/FEATURES.md)
 ## Install
 
 > [!IMPORTANT]
-> **Before installing or updating AM Mod, I recommend backing up all projects and samples from the SD card to your computer or another drive.** The installer's backup of `autorun/` does not include your projects or samples.
+> **Before installing or updating Am MOD, I recommend backing up all projects and samples from the SD card to your computer or another drive.** The installer's backup of `autorun/` does not include your projects or samples.
 
 > [!IMPORTANT]
-> **FAT32 / MS-DOS (FAT32) is available experimentally starting with r26e; exFAT remains supported.** FAT32 requires a package **r26e or newer** (use r27p for the current prerelease) and installer **1.0.2+**, or a manual copy of that package's complete `autorun/`. FAT32 has been checked in test images and the emulator; physical MPC testing is still pending. The published r26d and earlier packages require exFAT; updating only the installer does not add FAT32 support to an old package.
+> **FAT32 / MS-DOS (FAT32) is available experimentally starting with r26e; exFAT remains supported.** FAT32 requires a package **r26e or newer** (r27p is current) and installer **1.0.2+**, or a manual copy of that package's complete `autorun/`. FAT32 has been checked in test images and the emulator; physical MPC testing is still pending. The published r26d and earlier packages require exFAT; updating only the installer does not add FAT32 support to an old package.
 >
 > **Use a card volume name such as `MPC` or `MPCSAMPLE`.** Only ASCII letters, digits, `.`, `_` and `-` are supported; spaces and Cyrillic letters in the card name prevent startup. This restriction applies to the card name, not your sample/project names.
 >
@@ -147,20 +127,19 @@ never touches `MPC-Sample/` (your projects and samples).
 ## Use
 
 1. Insert the card and power on the MPC, or insert it into a running MPC. The mod starts
-   by itself (since r22 there is no extra question). Preparation time depends on the card and project. If a start
+   by itself. Preparation time depends on the card and project. If a start
    ever hangs at 0 %, power on without the card, wait for the normal screen, then insert it.
 
-   > **r27p shows Am MOD while preparing the app**, with the version and repository
-   > address. Public r26s has a dark transition instead. Do not power off or remove
+   > **r27p shows the Am MOD splash while preparing the app**, with the version and
+   > repository address. Do not power off or remove
    > the card during preparation. The splash has no artificial minimum display time.
 
 2. The mod checks the stock app and its own files before it starts; on any mismatch the
    stock app keeps running.
 3. Work as usual. Save projects and samples to **External** (the SD card): in the mod,
    Internal storage is temporary and is lost when the mod stops.
-4. In r27p, save to External and use the power key. Remove the card only
-   after shutdown. Start without the mod card to use stock. Public r26s still includes
-   Project → Mod Off.
+4. Save to External and use the power key to switch off. Remove the card only
+   after shutdown. Start without the mod card to use the stock app.
 
 The power key also works in the mod: it asks, saves a project copy to the card and powers
 off. Do not pull the card while the mod is starting, saving or shutting down.
@@ -184,12 +163,12 @@ Requirements: Linux or WSL, Python 3, AArch64 GCC/binutils and your **own** loca
 the stock firmware 1.3.0.12; the expected SHA-256 of the app is
 `b6584cba76e416e432ad202509099d34373dc2c3d6a8fb625f5678bf0193b508`. The firmware image,
 updater, extracted partitions and rootfs are not part of this repository; paths to the
-rootfs in older checks (`/home/user/mpc-rootfs-user-20260808`) need adjusting.
+rootfs used by the checks (`/home/user/mpc-rootfs-user-20260808` in the scripts) need adjusting.
 
 Order: get the local inputs with the expected hashes → build `sd-clone-trial` (the loader)
 → build the value patches in `sd-k-value-peek` → build the current `sd-mod-session`
-revision. The current application entry is `sd-mod-session/build_chords_candidate.py`;
-`verify_*.py` run scoped checks. These research scripts depend on frozen earlier
+revision. `sd-mod-session/build_chords_candidate.py` compiles the app library
+(`phone-input.so`); `verify_*.py` run scoped checks. These research scripts depend on frozen earlier
 build outputs, verified preceding packages and your local firmware/rootfs; they
 are not a standalone fresh-checkout build. r27p was assembled with `package_palette_recovery.py` over a verified earlier package.
 `refresh_release_docs.py` can refresh documentation

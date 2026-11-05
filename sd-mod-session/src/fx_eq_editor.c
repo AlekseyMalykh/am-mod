@@ -84,7 +84,7 @@ void fx_eq_editor_paint(struct fx_eq_editor*e,const struct resample_painter*p){
             text(p,s,8,65+(int)row*23,304,23,16,i==e->selected?AMBER:WHITE,0);
         }
         if(!e->config.count)text(p,"No points. B2 adds a point.",8,100,304,25,17,WHITE,0);
-        text(p,e->message[0]?e->message:"Encoder: select   Click: graph",8,208,304,24,14,GREY,0);return;
+        text(p,e->message[0]?e->message:"Turn: select   Press: graph",8,208,304,24,14,GREY,0);return;
     }
     for(int db=-18;db<=18;db+=9){int y=y_at(db);p->rect(p->user,GX,y,GW+1,1,db?0xff222222u:0xff666666u);snprintf(s,sizeof(s),"%+d",db);text(p,s,0,y-6,30,12,10,GREY,1);}
     const unsigned ticks[]={100,1000,10000};

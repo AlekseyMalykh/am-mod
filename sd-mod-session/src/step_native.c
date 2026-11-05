@@ -797,7 +797,7 @@ static void audition_picker(unsigned pad){
     void*t=controller?FIELD(controller,0x248,void*):NULL;
     int result=workflow_event_preview(t?FIELD(t,0xb8,void*):NULL,&e,pad,(unsigned)picker_mode);
     if(result==1){picker_audition_active=1;picker_audition_pad=pad;picker_preview_wait=1;picker_probe("AUDIO_WAIT",pad);}
-    else say(result==2?"Preview blocked: recording":"Preview input unavailable");
+    else say(result==2?"Preview blocked: recording":"Preview not ready: try again");
 }
 void step_native_pad_release(unsigned pad,uint64_t t){
     if(on_ui()&&current(t)&&(t&T_PICKER)&&picker_audition_active&&pad==picker_audition_pad){picker_preview_wait=1;picker_probe("AUDIO_WAIT",pad);workflow_event_preview_stop(0);picker_audition_active=0;}
@@ -1788,7 +1788,7 @@ void step_native_paint(void *p,void *g)
                 if(i==menu_index) outline(g,10,49+i*32,300,29);
                 text(g,s,14,51+i*32,292,25,16);
             }
-            colour(g,GREY);text(g,"Encoder: choose  |  Do It / press: run",4,199,312,20,12);
+            colour(g,GREY);text(g,"Turn: choose   Do It or Press: run",4,199,312,20,12);
         }
     }
 }

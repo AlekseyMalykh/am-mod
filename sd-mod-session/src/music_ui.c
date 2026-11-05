@@ -559,8 +559,10 @@ void music_ui_sample(void *p,void *g)
     char name[MUSIC_NAME_BYTES],value[48]; struct music_sample s;
     int ok=settings(name,&s),shift=shifted(p,0);
     if (!ok) { memset(&s,0,sizeof(s)); s.root=-1; s.tonic=-1; s.scale=-1; }
-    const char *modes[]={"Monochrome","Piano","Scale"};
-    const char *roles[]={"Tonic","Scale","Other","Original"};
+    const char *modes[MUSIC_LAYOUT_CHOICES]={"Monochrome","Piano","Scale","Degrees"};
+    static const char *const scale_roles[]={"Tonic","Scale","Other","Original"};
+    static const char *const degree_roles[]={"I Tonic","IV / V","Key notes","Original"};
+    const char *const *roles=s.mode==MUSIC_DEGREES?degree_roles:scale_roles;
     if (shift) {
         snprintf(value,sizeof(value),"%+d",s.transpose); cell(g,0,"Transpose16",value,1,1,ok,s.transpose+24,49);
         int c=role==3?s.original_colour:s.colour[role];
@@ -571,7 +573,7 @@ void music_ui_sample(void *p,void *g)
         music_get_key(&project_tonic,&project_scale);
         snprintf(tonic_text,sizeof(tonic_text),s.tonic<0 ? "%s (P)" : "%s",music_note_names[s.tonic<0 ? project_tonic : s.tonic]);
         snprintf(scale_text,sizeof(scale_text),s.scale<0 ? "%s (P)" : "%s",music_scale_names[s.scale<0 ? project_scale : s.scale]);
-        cell(g,0,"Lights",modes[music_mode_ui_index(s.mode)],0,1,ok,music_mode_ui_index(s.mode),3);
+        cell(g,0,"Layout",modes[music_mode_ui_index(s.mode)],0,1,ok,music_mode_ui_index(s.mode),MUSIC_LAYOUT_CHOICES);
         cell(g,1,"Tonic",tonic_text,0,1,ok,s.tonic+1,13);
         cell(g,2,"Scale",scale_text,0,1,ok,s.scale+1,9);
     }
@@ -591,55 +593,77 @@ static void mod_change(unsigned value,int relative){
  lighting_save_error=!(mod_tab==2?music_set_service_colour(mod_row,next):music_set_mod_setting(field,next));
  repaint(project);
 }
+static void text_aligned(void *g,const char *s,int x,int y,int w,int h,float height,int align)
+{
+    uint64_t string=0,font=0;
+    FN(0xf535c0,void(*)(uint64_t*,const char*))(&string,s);
+    FN(0x1082810,void(*)(uint64_t*,int,float))(&font,0,height);
+    FN(0x102dca0,void(*)(void*,const uint64_t*))(g,&font);
+    FN(0x10817b0,void(*)(void*,const uint64_t*,int,int,int,int,int,int,float))
+        (g,&string,x,y,w,h,align,1,0.70f);
+    FN(0x1070d60,void(*)(uint64_t*))(&font);
+    FN(0xf0a290,void(*)(uint64_t*))(&string);
+}
+/* Mod Settings uses the stock list style of Project / Input Config: label on
+ * the left, value on the right, grey fill on the selected row. */
 static void mod_settings_paint(void*g){
- static const char*const tabs[]={"Pads","Sample","System Colours","Selected Pad","About"};
+ static const char*const tabs[]={"Pads","Sample","Colours","Cursor","About"};
+ static const char*const titles[]={"Pad lighting","Sample","System colours","Selected pad","About"};
  static const char*const sample_labels[]={"Waveform tint","Spectrum tint","Preview from end"};
  static const char*const services[]={"Cursor / selection","Free target","Occupied target","Original value","Play position","Muted"};
  static const char*const speeds[]={"Steady","Slow","Normal","Fast"};
  colour(g,0xff000000);rect(g,0,0,320,240);colour(g,0xffffffff);
  if(mod_reset_confirm){
-  text(g,"Cancel",0,6,106,23,14);text(g,"Restore",214,6,106,23,14);
-  colour(g,0xffffc247);text(g,"Restore recommended?",6,68,308,25,19);
-  colour(g,0xffffffff);text(g,tabs[mod_tab],6,101,308,24,17);
-  text(g,mod_tab==2?"Reset the whole colour palette":"Reset this section only",6,140,308,20,13);
-  colour(g,0xffa0a0a0);text(g,"B1: cancel   B3: restore",6,201,308,22,14);
+  /* Stock confirmation box: B1 Cancel, B3 confirms. */
+  text(g,"Cancel",0,6,106,23,14);colour(g,0xff3aa0ffu);text(g,"Restore",214,6,106,23,14);
+  colour(g,0xffffffff);rect(g,6,51,308,145);colour(g,0xff000000);rect(g,7,52,306,143);
+  colour(g,0xffffffff);text_aligned(g,"Restore recommended",24,66,272,26,18,0x21);rect(g,24,100,272,1);
+  colour(g,0xffffc247);text_aligned(g,titles[mod_tab],24,112,272,24,18,0x21);
+  colour(g,0xffffffff);text_aligned(g,mod_tab==2?"The whole palette is reset.":"Only this section is reset.",24,144,272,20,13,0x21);
   return;
  }
- text(g,"Back",0,6,106,23,14);text(g,"< Prev",107,6,106,23,14);text(g,"Next >",214,6,106,23,14);
- char heading[48];snprintf(heading,sizeof(heading),"Mod Settings  %u / %u",mod_tab+1,MOD_TAB_COUNT);
- colour(g,0xffa0a0a0);text(g,heading,8,36,304,17,12);
- colour(g,0xffffffff);text(g,tabs[mod_tab],8,54,304,24,19);
+ char prev[24],next[24];
+ snprintf(prev,sizeof(prev),"< %s",tabs[(mod_tab+MOD_TAB_COUNT-1)%MOD_TAB_COUNT]);snprintf(next,sizeof(next),"%s >",tabs[(mod_tab+1)%MOD_TAB_COUNT]);
+ text(g,"Back",0,6,106,23,14);text(g,prev,107,6,106,23,14);text(g,next,214,6,106,23,14);
+ colour(g,0xffffc247);text_aligned(g,titles[mod_tab],12,34,220,22,16,0x21);
+ for(unsigned t=0;t<MOD_TAB_COUNT;++t){colour(g,t==mod_tab?0xffffc247:0xff4a4a4a);rect(g,252+(int)t*12,43,t==mod_tab?9:6,3);}
  if(mod_tab==MOD_ABOUT_TAB){
-  text(g,"Am MOD",8,91,304,31,26);
-  colour(g,0xffffc247);text(g,"Version " AM_MOD_VERSION,8,130,304,25,17);
-  colour(g,0xffa0a0a0);text(g,"Source / updates",8,169,304,18,12);
-  colour(g,0xffffffff);text(g,AM_MOD_REPO_URL,5,193,310,23,12);
+  colour(g,0xffffffff);text(g,"Am MOD",8,78,304,34,28);
+  colour(g,0xffffc247);text(g,"Version " AM_MOD_VERSION,8,116,304,25,17);
+  colour(g,0xffa0a0a0);text(g,"Source and updates",8,158,304,18,12);
+  colour(g,0xffffffff);text(g,AM_MOD_REPO_URL,5,178,310,23,12);
   return;
  }
- unsigned first=mod_row<4?0:mod_row-3;
- for(unsigned i=first;i<=mod_rows()&&i<first+4;++i){
+ unsigned first=mod_row<5?0:mod_row-4;
+ char value_text[24]="";const char*k1_label="",*k1_value="";
+ for(unsigned i=first;i<=mod_rows()&&i<first+5;++i){
+  int y=62+22*(int)(i-first),current=i==mod_row;
+  if(current){colour(g,0xff2c2c2c);rect(g,6,y,308,21);if(mod_edit){colour(g,0xffffc247);rect(g,6,y,3,21);}}
   if(i==mod_rows()){
-   int y=82+23*(int)(i-first);
-   colour(g,i==mod_row?0xffffc247:0xffa0a0a0);
-   if(i==mod_row)rect(g,5,y,2,21);
-   text(g,"Restore recommended",12,y,300,21,13);continue;
+   colour(g,current?0xffffffff:0xffa0a0a0);text_aligned(g,"Restore recommended",14,y,220,21,13,0x21);
+   colour(g,0xffa0a0a0);text_aligned(g,"Press",240,y,66,21,12,0x22);
+   if(current){k1_label="Restore";k1_value="Press";}
+   continue;
   }
   const char*label=mod_tab==0?"Pad lighting":mod_tab==1?sample_labels[i]:mod_tab==2?services[i]:"Cursor pulse";
   unsigned field=mod_field(i);
   unsigned value=mod_tab==2?music_service_colour(i):(unsigned)music_mod_setting(field);
   char duration[16];
   if(field==MUSIC_SETTING_TAIL)snprintf(duration,sizeof(duration),"%u ms",music_tail_ms(value));
-  const char*name=mod_tab==0?(value?"AM Mod":"Standard"):field==MUSIC_SETTING_TAIL?duration:mod_tab==1?(value?"Pad colour":"Original"):mod_tab==2?music_palette_name(value):speeds[value];
-  int y=82+23*(int)(i-first);
-  if(i==mod_row){colour(g,mod_edit?0xffffc247:0xffffffff);rect(g,5,y,2,21);}
-  colour(g,i==mod_row?0xffffc247:0xffffffff);text(g,label,12,y,181,21,13);text(g,name,196,y,116,21,13);
+  const char*name=mod_tab==0?(value?"Am MOD":"Standard"):field==MUSIC_SETTING_TAIL?duration:mod_tab==1?(value?"Pad colour":"Original"):mod_tab==2?music_palette_name(value):speeds[value];
+  colour(g,0xffffffff);text_aligned(g,label,14,y,190,21,13,0x21);
+  colour(g,current&&mod_edit?0xffffc247:0xffffffff);text_aligned(g,name,196,y,110,21,13,0x22);
+  if(current){k1_label=label;snprintf(value_text,sizeof(value_text),"%s",name);k1_value=value_text;}
  }
  colour(g,0xffa0a0a0);
- text(g,mod_tab==2?"Colours swap; eight user colours remain":mod_tab==1?"Hold STOP and tap a pad to hear its end":mod_tab==3?"Sequence pulses still follow tempo":"Standard keeps Piano / Scale layouts",4,174,312,14,11);
+ text_aligned(g,mod_tab==2?"Choosing a used colour swaps the two":mod_tab==1?"Hold STOP and tap a pad to hear its end":mod_tab==3?"Sequence pulses still follow tempo":"Standard keeps Piano, Scale and Degrees",12,172,300,13,11,0x21);
  colour(g,lighting_save_error?0xffff4040:0xffa0a0a0);
- text(g,lighting_save_error?"Could not save settings": "Saved with project; edits set card defaults",4,188,312,14,11);
- colour(g,0xffffffff);text(g,mod_edit?"Turn: change value":"Turn: select row",6,204,308,16,14);
- colour(g,0xffffc247);text(g,mod_row==mod_rows()?"Click: review reset":mod_edit?"Click: finish":"Click: edit",6,220,308,14,10);
+ text_aligned(g,lighting_save_error?"Could not save settings":"Saved in the project and as card default",12,185,300,13,11,0x21);
+ /* K1 changes the selected row directly; the encoder selects and edits. */
+ colour(g,0xff000000);rect(g,0,198,320,42);
+ colour(g,mod_edit?0xffffc247:0xffffffff);text(g,k1_label,4,200,98,12,12);text(g,k1_value,4,214,98,19,16);
+ colour(g,0xffa0a0a0);
+ text_aligned(g,mod_row==mod_rows()?"Press: review":mod_edit?"Turn: change   Press: done":"Turn: row   Press: edit",116,206,196,20,13,0x21);
 }
 void music_ui_project(void *p,void *g)
 {
@@ -737,7 +761,7 @@ int music_ui_control(void *event)
             field=role==3?MUSIC_ORIGINAL_COLOUR:MUSIC_COLOUR0+role; current=role==3?s.original_colour:s.colour[role]; hi=11;
         }
     } else {
-        if (focus==0) { field=MUSIC_MODE; current=music_mode_ui_index(s.mode); hi=2; }
+        if (focus==0) { field=MUSIC_MODE; current=music_mode_ui_index(s.mode); hi=MUSIC_LAYOUT_CHOICES-1; }
         else if (focus==1) { field=MUSIC_LOCAL_TONIC; current=s.tonic; lo=-1; hi=11; }
         else { field=MUSIC_LOCAL_SCALE; current=s.scale; lo=-1; hi=7; }
     }

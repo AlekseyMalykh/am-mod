@@ -1,4 +1,4 @@
-# AM Mod features
+# Am MOD features
 
 **English** · [Русский](FEATURES.ru.md)
 
@@ -23,7 +23,7 @@ Remaining hardware scenarios are tracked separately.
 - **Project → Mod Settings** replaces Pad Lighting: B2/B3 tabs, encoder
   row/value, B1 back. **Restore recommended** is last in each editable section.
   Project has six rows; **Mod Off is removed**.
-- Standard / AM Mod; independent waveform/spectrum pad tint; service/user
+- Standard / Am MOD; independent waveform/spectrum pad tint; service/user
   colour swaps retaining five user slots; Steady / Slow / Normal / Fast cursor.
 - **XPJ stores display and compressor settings**, including the palette,
   tint, pulse, Type and OptoCat/Warm controls. Native Duck controls and Bypass
@@ -99,7 +99,7 @@ proposals; the implemented subset is described here.
 
 **Project → Mod Settings:** lighting, waveform/spectrum tint, service colours and cursor timing. B2/B3 switch tabs; Restore recommended is last and requires B3 confirmation. Settings are stored in XPJ; menu edits also set SD defaults. Standard keeps Piano/Scale and Transpose16. Mod Off is removed; normal-power recovery saving remains. Colours and timing below describe recommended defaults, configurable in the menu.
 
-| AM Mod state | Indication |
+| Am MOD state | Indication |
 |---|---|
 | Sound/sequence identity | Default + Blue, Violet, Magenta, Orange, Pink; legacy IDs retained, reserved hues mapped for display |
 | Current Sample/Chop pad or Steps Sound picker | Configurable cursor; Normal400ms white /400ms identity. Empty selected Sample pads turn off between flashes |
@@ -111,13 +111,13 @@ proposals; the implemented subset is described here.
 | Erase / overwrite | Red system cue; operation confirmation retained |
 | Mute / muted recorded event | Dim grey / grey event flash, audio stays muted |
 | Steps | Sound hue (Default blue), white cursor, cyan playhead, grey Mute; Standard uses blue, white, green playhead, red Mute |
-| Seq in AM Mod | Selected once per bar at Stop, playing once per beat, queued twice per beat; background and other occupied pads stay visible |
+| Seq in Am MOD | Selected once per bar at Stop, playing once per beat, queued twice per beat; background and other occupied pads stay visible |
 
 System colours cannot be selected as new Pad Colour/Seq Colour assignments.
 Musical Lights/Chords roles and the typing keyboard use separate palettes.
 Dedicated new Loop/Song status markers remain proposals.
 
-In AM Mod, set **Sample → B1 Mix → K2 Pad Colour without Shift**.
+In Am MOD, set **Sample → B1 Mix → K2 Pad Colour without Shift**.
 Encoder presses cycle Volume → Pad Colour → Pan. **K1 remains Volume**,
 **Shift+K2 remains Kit Volume**. Standard removes the extra Pad Colour control.
 
@@ -151,8 +151,9 @@ Works in Save Project / Save Sample and in search. **K1** switches Encoder / Pad
 | Project **Key / Scale**: K1 tonic, K2 scale (Major, Natural Minor, Dorian, Phrygian, Lydian, Mixolydian, Locrian, Chromatic) | Project → Key / Scale | confirmed |
 | **Lights**: pad colours for 16 Levels Tune by note | Sample → B2: Tune → Play → **Lights** | partly confirmed |
 
-Lights: K1 is the mode, K2 the tonic, K3 the scale; with Shift, K1 is Transpose16, K2 the colour group, K3 its colour.
-- Modes: **Monochrome** (stock colours), **Piano** (white and black keys), **Scale** (tonic / in scale / out of scale). Older Tonic/Degrees values load as Scale.
+Lights: K1 is the **Layout**, K2 the tonic, K3 the scale; with Shift, K1 is Transpose16, K2 the colour group, K3 its colour.
+- Layouts: **Monochrome** (stock colours), **Piano** (white and black keys), **Scale** (tonic / in scale / out of scale, every pad lit) and **Degrees** (r27q candidate: only notes of the key are lit; I uses the Tonic colour, the main degrees IV and V the second colour group, other key notes the third group, dimmer; notes outside the key are off). In Chromatic, IV and V are the perfect fourth and fifth. Older Tonic values load as Scale; projects saved with Degrees open as Scale in r27p and earlier.
+- In Degrees, the Shift colour groups are named **I Tonic**, **IV / V**, **Key notes** and **Original**; in Scale they are Tonic, Scale, Other and Original.
 - Tonic and scale either follow the project (shown as **(P)**) or are set per sound. 12 colours including Off; the sample's original pitch has its own colour.
 - **Transpose16 −24…+24** shifts the 16 Levels Tune layout without changing normal pad playback.
 - Colours follow Orig Note, Semi Tune, pad number and Transpose16. Without an Orig Note the stock colours are used.
@@ -162,11 +163,11 @@ Lights: K1 is the mode, K2 the tonic, K3 the scale; with Shift, K1 is Transpose1
 
 1. Select a sound; set **Sample → Tune → Shift+K1 → Orig Note**.
 2. Set **Project → Key / Scale** if needed.
-3. Press Sample **B2: Tune → Play → Lights**. K1 chooses Piano/Scale,
+3. Press Sample **B2: Tune → Play → Lights**. K1 (Layout) chooses Piano, Scale or Degrees,
    K2 the tonic, K3 the scale. `(P)` means the project setting is inherited.
 4. Enable **16 Levels**; choose **Tune** via **Shift+16 Levels → Type**.
 5. On Lights, **Shift+K1 → Transpose16** shifts the layout. Lights work in
-   Standard and AM Mod. Monochrome or no Orig Note leaves native colours.
+   Standard and Am MOD. Monochrome or no Orig Note leaves native colours.
 
 Checked against the code; a complete physical-button walkthrough is still pending.
 
@@ -248,7 +249,7 @@ When the selected event has a C or L mark, the Chop or 16 Levels button lights u
 | Feature | Status |
 |---|---|
 | **Sequence colour**: Shift+K1 in Seq; saved with the project | confirmed (r23) |
-| AM Mod: **Default + five colours** — Blue, Violet, Magenta, Orange, Pink; Standard uses native colours and disables Seq Colour | trial (r26u–x) |
+| Am MOD: **Default + five colours** — Blue, Violet, Magenta, Orange, Pink; Standard uses native colours and disables Seq Colour | trial (r26u–x) |
 | Seq pulses follow native tempo and meter: selected once per bar at Stop, playing once per beat, queued twice per beat until handoff. Assigned hues and background glow remain; other occupied pads keep the same brightness on Play. Empty slots are dark unless selected or queued | trial (r26q) |
 | While recording is armed or running, the Seq screen stays and the pads keep the stock Sample layout | trial (r24o) |
 | During playback the sounding pad blinks in Sample, notes in 16 Levels, slices in Chop | trial |
@@ -256,13 +257,15 @@ When the selected event has a C or L mark, the Chop or 16 Levels button lights u
 
 ## 11. Browser, search and preview
 
-**Search:** Sample Select / Open Project → **Shift+B3 Search**. Type the query with pads, the encoder and +/−. B2 switches between query and results, B1 closes. **Status:** search in the current folder confirmed, the rest trial.
+**Search:** Sample Select / Open Project → **Shift+B3 Search**. **Status:** search in the current folder confirmed, the rest trial; the r27q candidate redesign below still needs a device check.
 
-- Scope: **Folder / Subfolders / Library** and storage (Current / Internal / SD Card), on K3 or Shift+K3.
-- Case-insensitive. Samples: WAV, AIF/AIFF, MP3, FLAC, OGG. Projects: XPJ. Up to 4096 matches.
-- Samples: a pad silently picks the target, **encoder click loads** the sample and stays in the results. **B3 Preview** turns on preview while scrolling. **Shift+click** opens the file's folder with the file selected. Pads follow §2: selected empty targets green, occupied targets red; unselected empty pads off, other occupied pads dimmed in their own hue.
-- Projects: a click asks for confirmation (B3 Open / B1 Cancel).
-- **K3 Preview Vol 0–100 %**: preview level relative to Main Volume, shown only on an audio file.
+- **Query page:** type with the pads (or the encoder with K1 = Encoder). The first three matches appear live under the query with the count in the top right, so the list is often not needed. **Shift+Erase** clears the query; Erase deletes one character. The previous query is restored when Search is opened again in the same session.
+- **K1** Input (Pads / Encoder), **K2** cursor, **K3** storage (Current / Internal / SD Card). The whole user library of the chosen storage is searched, including subfolders.
+- **B2 List / B3 Find** open the list; in the list **B2 Query** returns to typing, **B1** closes Search.
+- **List:** five rows; the selected row is highlighted and its folder is shown below. Case-insensitive. Samples: WAV, AIF/AIFF, MP3, FLAC, OGG. Projects: XPJ. Up to 4096 matches.
+- Samples: tap a pad to choose the target (**Load to**), **press the encoder to load** and stay in the list. **B3 Preview** previews while scrolling. **Shift+press** opens the file's folder with the file selected. Pads follow §2: selected empty targets green, occupied targets red; unselected empty pads off, other occupied pads dimmed in their own hue.
+- Projects: a press asks for confirmation (B3 Open / B1 Cancel).
+- **K3 Volume 0–100 %**: preview level relative to Main Volume, shown on an audio file.
 - **Erase** on an audio file in `Samples/User` runs the stock Delete with its stock confirmation.
 - In **Open Project**, physical **Erase** deletes the selected XPJ with its
   companion `_[ProjectData]` after confirmation. For a project folder or a loose
@@ -283,7 +286,7 @@ When the selected event has a C or L mark, the Chop or 16 Levels button lights u
 
 ## 13. Batch Extract
 
-**Enter:** normal Chop with a waveform and slices → hold Shift → **B2 Batch**. Shift+B1 is the stock Extract, Shift+B3 Split. **Status:** confirmed on the device (r15c: three samples with the correct frame counts).
+**Enter:** normal Chop with a waveform and slices → hold Shift → **B2 Batch**. Shift+B1 is the stock Extract, Shift+B3 Split. Stock Merge (Shift+B3) is replaced: **Erase + pad** removes that slice and merges it with the previous one, the same result as Merge. **Status:** confirmed on the device (r15c: three samples with the correct frame counts).
 
 - Pick 1–16 chops; a **C001 → B01** table with the same target rules as Batch Copy.
 - Creates separate trimmed samples `Chop-A01-001`… and assigns them to the targets. One Undo; on error everything is rolled back.
@@ -333,9 +336,9 @@ While the selected pad sounds, its **spectrum** (4096-point FFT, 20 Hz–20 kHz)
 - An emulator run does not replace a hardware test: timing, audio, battery and USB audio differ.
 - A fast arpeggio on a slow card can bring up the stock *Disk too slow* message.
 
-Defaults AM Mod / Normal; saved card/project settings take priority. One editing cursor does not restrict simultaneous sample playback. Complete changes since r26s: [r27f](RELEASE_NOTES-r27f.md).
+Defaults Am MOD / Normal; saved card/project settings take priority. One editing cursor does not restrict simultaneous sample playback. Complete changes since r26s: [r27f](RELEASE_NOTES-r27f.md).
 
-Defaults AM Mod / Normal; saved card/project settings take priority. One editing cursor does not restrict simultaneous sample playback. Complete changes since r26s: [r27f](RELEASE_NOTES-r27f.md).
+Defaults Am MOD / Normal; saved card/project settings take priority. One editing cursor does not restrict simultaneous sample playback. Complete changes since r26s: [r27f](RELEASE_NOTES-r27f.md).
 
 ## Rear recording and monitoring
 

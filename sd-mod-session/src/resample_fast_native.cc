@@ -383,7 +383,7 @@ void*relay_page(uintptr_t base){
 }
 extern "C" const char*resample_fast_native_error(){
     if(job_state.load(std::memory_order_acquire)!=3)return "Private sample render did not finish";
-    switch(failure.load(std::memory_order_acquire)){case 0:return nullptr;case 1:return "Cannot prepare private sample sequence";case 2:return "Invalid audio in sample render";case 3:return "Effect tail did not decay within render budget";case 5:return "Insufficient space for sample render";case 6:return "Sample render output is unavailable";case 8:return "Rendered sample file is unavailable";case 9:return "Cannot finalize rendered sample file";case 10:return "Sample render is silent; destination unchanged";default:return "Sample sequence did not finish";}
+    switch(failure.load(std::memory_order_acquire)){case 0:return nullptr;case 1:return "Cannot prepare private sample sequence";case 2:return "Invalid audio in sample render";case 3:return "Effect tail did not decay within render budget";case 5:return "Insufficient space for sample render";case 6:return "Render output missing: try again";case 8:return "Render file missing: try again";case 9:return "Cannot finalize rendered sample file";case 10:return "Sample render is silent; destination unchanged";default:return "Sample sequence did not finish";}
 }
 extern "C" int resample_fast_native_arm(void*services,unsigned source,const char*path){
     if(!services||source>=128||!path||path[0]!='/'||strnlen(path,4096)>=4096)return 0;

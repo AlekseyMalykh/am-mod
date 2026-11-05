@@ -34,14 +34,14 @@ int CONTEXT_PROOF_MAIN(int argc,char**argv){
  for(int invalid=-1;invalid<=128;invalid+=129){FIELD(captured_things,0x5f8,int)=invalid;
   assert(!resample_context_capture(tracking,&config,&selected)&&!strcmp(resample_context_error(tracking),"Selected pad not in program")&&!config.commit.user);}
  FIELD(captured_things,0x5f8,int)=64;
- real_pads[64]=NULL;assert(!resample_context_capture(tracking,&config,&selected)&&!strcmp(resample_context_error(tracking),"Selected pad unavailable"));real_pads[64]=source_instrument;
- FIELD(source_instrument,0x2310,void*)=NULL;assert(!resample_context_capture(tracking,&config,&selected)&&!strcmp(resample_context_error(tracking),"Selected pad unavailable"));FIELD(source_instrument,0x2310,void*)=real_program;
+ real_pads[64]=NULL;assert(!resample_context_capture(tracking,&config,&selected)&&!strcmp(resample_context_error(tracking),"Select a pad first"));real_pads[64]=source_instrument;
+ FIELD(source_instrument,0x2310,void*)=NULL;assert(!resample_context_capture(tracking,&config,&selected)&&!strcmp(resample_context_error(tracking),"Select a pad first"));FIELD(source_instrument,0x2310,void*)=real_program;
  real_pads[0]=source_instrument;assert(!resample_context_capture(tracking,&config,&selected)&&!strcmp(resample_context_error(tracking),"Selected pad not in program"));real_pads[0]=NULL;
  FIELD(source_layers[0],0x4a8,uintptr_t)=0;FIELD(source_layers[0],0x4b0,uintptr_t)=0;
  assert(!resample_context_capture(tracking,&config,&selected)&&!strcmp(resample_context_error(tracking),"Selected pad is empty")&&!selected.sample[0]&&!config.commit.user);
  FIELD(source_layers[0],0x4a8,uintptr_t)=original[0];FIELD(source_layers[0],0x4b0,uintptr_t)=original[1];
  void*storage=FIELD((void*)original[0],0x160,void*);FIELD((void*)original[0],0x160,void*)=NULL;
- assert(!resample_context_capture(tracking,&config,&selected)&&!strcmp(resample_context_error(tracking),"Sample services unavailable"));
+ assert(!resample_context_capture(tracking,&config,&selected)&&!strcmp(resample_context_error(tracking),"Sample not ready: try again"));
  FIELD((void*)original[0],0x160,void*)=storage;
  assert(pad_sample_pool_remove(base,real_pool,original));
  assert(!resample_context_capture(tracking,&config,&selected)&&!strcmp(resample_context_error(tracking),"Sample absent from project pool"));

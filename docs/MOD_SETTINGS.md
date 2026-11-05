@@ -2,17 +2,20 @@
 
 Available in public prerelease r27n; stable remains r26s.
 
-**Project → Mod Settings** replaces Pad Lighting. **B2/B3** cycle tabs,
-**B1** returns. Turn the encoder to select a row, click to edit, turn to
-change its value, then click to finish. K1 can also change the selected value.
-Lists scroll with the cursor.
+**Project → Mod Settings** replaces Pad Lighting. **B2/B3** cycle tabs and are
+labelled with the neighbouring tabs (`< Pads`, `Colours >`); **B1** returns. Dots
+next to the title show the current tab. The window uses the stock Project /
+Input Config list style: label on the left, value on the right, grey fill on the
+selected row. Turn the encoder to select a row, press to edit (the value turns
+amber), turn to change it, press again to finish. K1 changes the selected value
+directly; the K1 panel shows the selected setting.
 
 | Tab | Controls | Recommended defaults |
 | --- | --- | --- |
-| Pads | Standard / AM Mod | AM Mod |
+| Pads | Standard / Am MOD | Am MOD |
 | Sample | Independent waveform/spectrum pad-colour tint; Preview from end | Original / Original; 1000 ms |
-| System Colours | Cursor, free/occupied target, original value, play position, muted | White, Green, Red, Amber, Cyan, Grey |
-| Selected Pad | Steady / Slow / Normal / Fast | Normal: 800 ms cycle |
+| Colours (System colours) | Cursor, free/occupied target, original value, play position, muted | White, Green, Red, Amber, Cyan, Grey |
+| Cursor (Selected pad) | Steady / Slow / Normal / Fast | Normal: 800 ms cycle |
 | About (5/5) | Version and repository URL; read-only | No settings or reset |
 
 **Restore recommended is the last row in each of the four settings tabs.**
@@ -32,7 +35,7 @@ sequence assigned to that slot.
 **Sample → Preview from end** selects how far before the trim or slice end playback starts when holding **STOP** and pressing a pad in Sample or Chop. It defaults to 1000 ms and is saved in the project and card defaults.
 
 Standard disables Pad Colour/Seq Colour without deleting assignments and keeps
-16 Levels Piano/Scale layouts. Optional waveform/spectrum tint applies in AM Mod.
+16 Levels Piano/Scale/Degrees layouts. Optional waveform/spectrum tint applies in Am MOD.
 Filter/Filter Env still show spectrum without waveform; native response curves,
 envelopes and side strips remain intact. **Selected Pad → Cursor pulse** also
 controls Copy/Batch/Chop/Mono/Render source selection and the library load pad.
@@ -75,4 +78,4 @@ adds exclusive TOGGLE mode. Browser Delete uses physical **ERASE**.
 
 Updated 320×240 splash preview: smaller version and repository text near the bottom edge.
 
-Initial defaults are AM Mod and Normal (400ms white /400ms pause). Empty selected Sample pads are fully off during the pause; occupied pads reveal their assigned colour. Saved card/project preferences take priority.
+Initial defaults are Am MOD and Normal (400ms white /400ms pause). Empty selected Sample pads are fully off during the pause; occupied pads reveal their assigned colour. Saved card/project preferences take priority.

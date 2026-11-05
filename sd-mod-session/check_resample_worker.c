@@ -76,7 +76,7 @@ int main(void){
  assert(resample_worker_destroy(worker));
  setup(1);sample();struct fx_chain_config unavailable={.count=1,.stage={{.kind=FX_STAGE_NATIVE,.native_id=1}}};
  assert(resample_flow_set_fx(&flow,&unavailable));unsigned closed_before=env.closes,applied_before=env.applies;
- button(2);until(RS_ERROR);assert(!strcmp(flow.message,"Native FX unavailable")&&env.closes==closed_before&&env.applies==applied_before);
+ button(2);until(RS_ERROR);assert(!strcmp(flow.message,"Effect not available here")&&env.closes==closed_before&&env.applies==applied_before);
  button(0);until(RS_CLOSED);assert(env.opens==env.closes&&resample_worker_destroy(worker));
  puts("PASS unavailable native FX is reported separately from render memory; source retained until Cancel, no Apply or leak");
  puts("PASS UI controller -> copied bounded worker queue -> native-source interface -> real bounded PCM/EQ renderer; capture/render progress, compare/apply acknowledgements, cancellation midway, failed Original restore retains borrowed result, bank target, no implicit model write, velocity unsupported fails closed,16-command overflow and full reader cleanup; native mix/Undo callbacks are adapters");

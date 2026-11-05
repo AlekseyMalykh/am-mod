@@ -95,9 +95,12 @@ void music_publish(const struct music_sample *sample,int semitones);
 uint64_t music_light_snapshot(const struct music_sample *sample,int semitones);
 uint64_t music_published(void);
 int music_transposition(void);
-/* UI order differs from stable project enum IDs: Scale is last. */
+/* UI order differs from stable project enum IDs: Monochrome, Piano, Scale, Degrees. */
 int music_mode_ui_index(int mode);
 int music_mode_from_ui_index(int index);
+#define MUSIC_LAYOUT_CHOICES 4
+/* 0 = I, 1 = IV or V, 2 = other scale degree, -1 = outside the scale. */
+int music_degree_role(unsigned mask,int degree);
 uint64_t music_pad_light(uint64_t snapshot,unsigned pad,int original_pad,int *replace);
 /* Recorded Tune modifiers already contain transposition. */
 uint64_t music_pitch_light(uint64_t snapshot,int semitones,int *replace);

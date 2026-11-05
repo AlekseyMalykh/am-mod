@@ -22,7 +22,7 @@ struct resample_runtime {
     bool sequence_requested=false;
     unsigned fx_request=0,fx_slot=0;
     unsigned focus=0;
-    const char *error="Sample context unavailable";
+    const char *error="Select a sample pad and retry";
 };
 static void stop_queue(void*p){resample_queue_stop(static_cast<resample_queue*>(p));}
 static int run(void*p){
@@ -68,7 +68,7 @@ extern "C" resample_runtime *resample_runtime_create(uintptr_t base,void*copy,re
 extern "C" int resample_runtime_open(resample_runtime*r){
     if(!r||!resample_runtime_closed(r))return 0;
     r->close_requested.store(false,std::memory_order_release);r->panel_bound=false;r->applied=false;
-    r->sequence_requested=false;r->fx_request=0;r->error="Sample context unavailable";
+    r->sequence_requested=false;r->fx_request=0;r->error="Select a sample pad and retry";
     r->status.store(1,std::memory_order_release);resample_queue_wake(r->queue);return 1;
 }
 extern "C" void resample_runtime_tick(resample_runtime*r){

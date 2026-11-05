@@ -211,7 +211,7 @@ extern "C" void resample_ui_draw(const resample_painter*p){
     if(!eq_editor&&!error&&!remove_confirm&&runtime){resample_runtime_paint(runtime,p);return;}
     p->rect(p->user,0,5,320,235,0xff000000u);
     p->text(p->user,error?"Cancel":"Back",0,7,106,24,15,0xffff4040u,1);
-    if(error){p->text(p->user,"Sample context unavailable",8,100,304,25,18,0xffff4040u,0);return;}
+    if(error){p->text(p->user,"Select a sample pad and retry",8,100,304,25,18,0xffff4040u,0);return;}
     if(remove_confirm){p->text(p->user,"Remove",212,7,106,24,15,0xffff4040u,1);p->text(p->user,"Remove selected effect?",8,95,304,30,20,0xffffffffu,0);p->text(p->user,fx_catalog_stage_name(&fx.stage[slot]),8,132,304,26,20,0xffffc247u,0);return;}
     if(eq_editor==1){fx_eq_editor_paint(&eq,p);return;}
     if(eq_editor==2){

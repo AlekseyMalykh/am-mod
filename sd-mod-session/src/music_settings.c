@@ -414,7 +414,10 @@ uint64_t music_light_snapshot(const struct music_sample *p,int semitones)
     for(unsigned i=0;i<3;++i)if(p->colour[i]<0||p->colour[i]>11)return 0;
     if (p->tonic>=0) tonic=p->tonic;
     if (p->scale>=0) scale=p->scale;
-    int mode=p->mode==MUSIC_TONIC||p->mode==MUSIC_DEGREES?MUSIC_SCALE:p->mode;
+    /* Tonic was dropped in r25f and lights as Scale. ID 4 is reused by the
+     * r27q Degrees layout: key notes only, with I and IV/V marked. Older mod
+     * builds still decode it and light it as Scale. */
+    int mode=p->mode==MUSIC_TONIC?MUSIC_SCALE:p->mode;
     uint64_t v=(uint64_t)(p->root+1) | ((uint64_t)(mode&3)<<4) | ((uint64_t)(p->transpose+24)<<6)
         | ((uint64_t)(semitones+96)<<12) | ((uint64_t)tonic<<20) | ((uint64_t)scale<<24);
     for (unsigned i=0;i<3;++i) v|=(uint64_t)p->colour[i]<<(28+i*4);
@@ -425,10 +428,21 @@ uint64_t music_light_snapshot(const struct music_sample *p,int semitones)
 void music_publish(const struct music_sample *p,int semitones)
 { atomic_store(&published,music_light_snapshot(p,semitones)); }
 uint64_t music_published(void) { return atomic_load(&published); }
-/* The Lights page offers Monochrome, Piano and Scale. Tonic and Degrees were
- * dropped in r25f; projects that chose them light as Scale. */
-int music_mode_ui_index(int mode){return mode==MUSIC_MONO?0:mode==MUSIC_PIANO?1:2;}
-int music_mode_from_ui_index(int index){return index<=0?MUSIC_MONO:index==1?MUSIC_PIANO:MUSIC_SCALE;}
+/* Layout choices: Monochrome, Piano, Scale and Degrees. Tonic was dropped
+ * in r25f and shows as Scale. */
+int music_mode_ui_index(int mode){return mode==MUSIC_MONO?0:mode==MUSIC_PIANO?1:mode==MUSIC_DEGREES?3:2;}
+int music_mode_from_ui_index(int index){return index<=0?MUSIC_MONO:index==1?MUSIC_PIANO:index==2?MUSIC_SCALE:MUSIC_DEGREES;}
+/* Scale degree ordinal (0 = I) of a pitch class relative to the tonic, or -1
+ * outside the scale. Chromatic has no ordinal degrees: use the perfect fourth
+ * and fifth so IV/V still mark the same pitches as in Major. */
+int music_degree_role(unsigned mask,int degree)
+{
+    if(degree<0||degree>11||!(mask&(1u<<degree)))return -1;
+    if(degree==0)return 0;
+    if(mask==0xfffu)return degree==5||degree==7?1:2;
+    unsigned ordinal=0;for(int i=0;i<degree;++i)ordinal+=(mask>>i)&1u;
+    return ordinal==3||ordinal==4?1:2;
+}
 int music_transposition(void) { uint64_t v=music_published(); return v ? (int)((v>>6)&63)-24 : 0; }
 uint64_t music_pitch_light(uint64_t v,int semitones,int *replace)
 {
@@ -446,16 +460,16 @@ uint64_t music_pitch_light(uint64_t v,int semitones,int *replace)
     } else {
         int degree=(note-(int)((v>>20)&15)+12)%12;
         unsigned mask=scale_masks[(v>>24)&7];
-        int role=degree==0 ? 0 : mode>=MUSIC_SCALE && (mask&(1u<<degree)) ? 1 : 2;
-        colour=music_colours[(v>>(28+role*4))&15];
-        brightness=role==0 ? 0.60f : role==1 ? 0.28f : 0.08f;
-        if(mode==MUSIC_DEGREES&&(mask&(1u<<degree))){
-            static const unsigned palette[11]={0,1,2,3,6,7,8,5,9,4,10};
-            unsigned ordinal=0;for(int i=0;i<degree;++i)ordinal+=(mask>>i)&1u;
-            unsigned original=(v>>41)&15,available=original<11?10:11;
-            ordinal%=available;
-            for(unsigned i=0;i<11;++i)if(palette[i]!=original){if(!ordinal--){colour=music_colours[palette[i]];break;}}
-            brightness=.45f;
+        if(mode==MUSIC_DEGREES){
+            /* Key notes only. Colour slots: I = Tonic, IV/V = second slot,
+             * other key notes = third slot (dim). Notes outside the key are off. */
+            int role=music_degree_role(mask,degree);
+            if(role<0){colour=0;brightness=0.f;}
+            else{colour=music_colours[(v>>(28+role*4))&15];brightness=role==0?0.60f:role==1?0.50f:0.30f;}
+        } else {
+            int role=degree==0 ? 0 : (mask&(1u<<degree)) ? 1 : 2;
+            colour=music_colours[(v>>(28+role*4))&15];
+            brightness=role==0 ? 0.60f : role==1 ? 0.28f : 0.08f;
         }
     }
     /* Mark the reference pitch, not every octave of its pitch class. */

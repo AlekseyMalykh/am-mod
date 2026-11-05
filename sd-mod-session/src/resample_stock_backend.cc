@@ -65,14 +65,14 @@ static int run_tick(void*user){
     if(command==1||command==4){
         b->things=F(b->copy,0x78,void*);b->project=F(b->copy,0xc8,void*);
         b->program=b->things?F(b->things,0xb8,void*):nullptr;b->sequence=b->things?F(b->things,0x1c8,void*):nullptr;
-        if(!b->program||!model(b)){if(command==1)publish(b,RSB_ERROR,0,"Sample model unavailable");return 0;}
+        if(!b->program||!model(b)){if(command==1)publish(b,RSB_ERROR,0,"Sample not ready: try again");return 0;}
 #ifdef MPC_PAD_EQ
         pad_eq_native_program(b->program);
 #endif
         if(command==4)return 0;
         b->mode=mode_find(b);
         if(!b->mode){std::fprintf(stderr,"RESAMPLE CONTEXT_ERROR stage=mode\n");publish(b,RSB_ERROR,0,"Native resample mode unavailable");return 0;}
-        if(!resample_stock_install(b->base)){publish(b,RSB_ERROR,0,"Native resample adapter unavailable");return 0;}
+        if(!resample_stock_install(b->base)){publish(b,RSB_ERROR,0,"Resample not ready: stop and retry");return 0;}
         unsigned source=F(b->things,0x5f8,unsigned);if(source>=128){publish(b,RSB_ERROR,0,"Select a source pad");return 0;}
         resample_stock_snapshot s{};s.epoch=b->epoch.load();s.source=source;s.has_sequence=b->sequence!=nullptr;
         s.has_sample=sample_at(b,source,s.sample)!=0;

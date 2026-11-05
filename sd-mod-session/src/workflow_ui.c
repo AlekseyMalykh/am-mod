@@ -151,7 +151,8 @@ static void release_files(void){browser_tree_close();tree_scan=0;for(unsigned i=
 static void clear_project_confirm(void){project_confirm=0;if(project_candidate){FN(0xf0a290,void(*)(uint64_t*))(&project_candidate);project_candidate=0;}}
 static void clear_locate(void){locating=0;delete_after_locate=0;if(locate_file)FN(0xf0a290,void(*)(uint64_t*))(&locate_file);if(locate_parent)FN(0xf0a290,void(*)(uint64_t*))(&locate_parent);locate_file=locate_parent=0;}
 static void browser_say(const char*s){snprintf(browser_message,sizeof(browser_message),"%s",s);browser_message_until=now_ms()+2500;repaint(files);}
-static void close_search(void){search_preview_stop();search_preview_on=0;search=results=scanning=0;clear_project_confirm();release_files();atomic_store(&custom,0);atomic_fetch_add(&epoch,1);atomic_fetch_add(&palette_generation,1);repaint(files);}
+static char last_query[PHONE_MAX_CHARS*4+1];
+static void close_search(void){if(search){phone_utf8(&query,last_query,sizeof(last_query));}search_preview_stop();search_preview_on=0;search=results=scanning=0;clear_project_confirm();release_files();atomic_store(&custom,0);atomic_fetch_add(&epoch,1);atomic_fetch_add(&palette_generation,1);repaint(files);}
 static int sample_browser(void){return files&&FIELD(files,0x1388,int)==FILE_SAMPLES;}
 void workflow_registry_bind(void*s){
  if(!s||atomic_load(&ui_services)==(uintptr_t)s)return;
@@ -371,7 +372,7 @@ static void scan_start(void){
  release_files();scanning=0;fault=0;scan_row=scan_count=overflow=library_root_found=0;void*m=FIELD(files,0xff0+0x188,void*);
  phone_utf8(&query,scan_query,sizeof(scan_query));
  if(!m){fault=1;return;}void*b=FIELD(m,0x30,void*);if(!b){fault=1;return;}
- if(!storage_search_root(search_root,sizeof(search_root))){fault=1;browser_say("Selected storage unavailable");return;}
+ if(!storage_search_root(search_root,sizeof(search_root))){fault=1;browser_say("This storage is not available");return;}
  if(search_scope||search_storage){
   if(search_storage)library_root_found=1;
   else if(search_scope==2){const char*section=sample_browser()?"/Samples":"/Projects";char*last=NULL;for(char*p=search_root;(p=strstr(p,section));++p)if(p[strlen(section)]=='/'||!p[strlen(section)])last=p;if(last){last[strlen(section)]=0;library_root_found=1;}}
@@ -400,7 +401,7 @@ static void start_search(void){search_preview_stop();search_preview_on=0;search=
  /* Factory /content/Projects contains kit-style project presets. Search the
   * verified SD user Projects by default when starting a query there. */
  if(!sample_browser()&&!strncmp(search_origin,"/content",8)&&!search_storage)search_storage=2;
- phone_init(&query,64);phone_enable(&query,1);memset(feedback,0,sizeof(feedback));scan_start();atomic_store(&custom,1);atomic_fetch_add(&epoch,1);atomic_fetch_add(&palette_generation,1);repaint(files);}
+ phone_init(&query,64);phone_enable(&query,1);if(last_query[0])phone_sync(&query,last_query,strlen(last_query));/* Reopen with the previous query; Shift+Erase clears it. */memset(feedback,0,sizeof(feedback));scan_start();atomic_store(&custom,1);atomic_fetch_add(&epoch,1);atomic_fetch_add(&palette_generation,1);repaint(files);}
 static void scan_tick(void){
  if(tree_scan){
   for(unsigned budget=16;scanning&&budget--;){char path[1024];int r=browser_tree_next(path,sizeof(path),16);if(r<0){overflow|=browser_tree_limited();scanning=0;fprintf(stderr,"SEARCH END files=%u limited=%d errno=%d root=%s\n",entry_count,overflow,browser_tree_error(),search_root);break;}if(!r)break;
@@ -706,7 +707,7 @@ int workflow_button(void*e,uint64_t ticket){
    void*t=FN(0x286bbe0,void*(*)(void*,int))(mono_program,(int)mono_target);
    int occupied_now=t&&FN(0x2804760,int(*)(void*))(t);
    if(occupied_now&&mono_confirm!=(int)channel){mono_confirm=(int)channel;snprintf(mono_error,sizeof(mono_error),"Replace %c%02u? Press %s again",'A'+mono_target/16,mono_target%16+1,channel?"Right":"Left");}
-   else if(current_program()!=mono_program||!batch_mono_begin(base,(void*)atomic_load(&copy_context),(void*)atomic_load(&copy_services),mono_source,mono_target,channel))snprintf(mono_error,sizeof(mono_error),"Mono operation unavailable; Cancel and retry");
+   else if(current_program()!=mono_program||!batch_mono_begin(base,(void*)atomic_load(&copy_context),(void*)atomic_load(&copy_services),mono_source,mono_target,channel))snprintf(mono_error,sizeof(mono_error),"Mono not ready: Cancel and retry");
    else{mono_job=1;mono_progress=(struct batch_copy_progress){BATCH_JOB_PREPARE,0,1};mono_error[0]=0;}
   }
   mono_palette();repaint(mono_root);return 1;
@@ -743,7 +744,7 @@ int workflow_button(void*e,uint64_t ticket){
  else if(code==0x0e||code==0x6f){if(results){if(sample_browser())preview_result();else choose_result();}else{phone_commit(&query);results=1;}}
  else if(code==0x23&&results){int bank=step_native_browser_bank(-1);if(bank>=0&&bank<8)step_native_browser_bank((bank+(shift?7:1))%8);}
  else if(code==0x36||code==0x37){if(results)selected=clamp(selected+(code==0x37?-1:1),0,match_count?(int)match_count-1:0);else change_character(code==0x37?-1:1);}
- else if(code==0x09){phone_pad(&query,16,1,now_ms());phone_pad(&query,16,0,now_ms());}
+ else if(code==0x09){if(shift)phone_sync(&query,"",0);else{phone_pad(&query,16,1,now_ms());phone_pad(&query,16,0,now_ms());}}
  filter();search_preview_update();publish_palette();repaint(files);return 1;
 }
 void workflow_pad(unsigned pad,int down,uint64_t when,uint64_t ticket){if(ticket==workflow_ticket()&&mono){if(down&&!mono_job&&pad<16){mono_target=mono_bank*16+pad;mono_confirm=-1;mono_error[0]=0;mono_palette();repaint(mono_root);}return;}if(ticket==workflow_ticket()&&batch){batch_pad(pad,down);return;}if(ticket!=workflow_ticket()||!visible(files)||!search||project_confirm||pad>=16)return;if(results){if(down&&sample_browser()){int bank=step_native_browser_bank(-1);if(bank>=0&&bank<8){result_pad=(unsigned)bank*16+pad;result_pad_ready=1;search_preview_update();publish_palette();repaint(files);}}return;}if(!query.enabled)return;phone_pad(&query,pad+1,down,when);if(down)feedback[pad]=now_ms()+100;filter();publish_palette();repaint(files);}
@@ -798,6 +799,65 @@ static void storage_paint(void*p,void*g){
  }
  FN(0xf0a290,void(*)(uint64_t*))(&directory);
 }
+static void query_view(char*out,size_t size);
+/* Stock-style K panel: small label, large value, thin position bar. */
+static void search_panel(void*g,int i,const char*label,const char*value,unsigned position,unsigned count){
+ int x=i==2?213:i*106,w=i==2?107:106;
+ colour(g,0xff000000);rect(g,x,198,w,42);colour(g,WHITE);
+ text(g,label,x,201,w,13,12);text(g,value,x,215,w,19,17);
+ if(count>1){colour(g,0xff3b3b3b);rect(g,x+7,235,w-14,2);unsigned span=(unsigned)(w-14);
+  unsigned left=position*span/count,width=span/count<6?6:span/count;if(left+width>span)left=span-width;
+  colour(g,WHITE);rect(g,x+7+(int)left,235,(int)width,2);}
+}
+static void search_status(char*out,size_t size){
+ if(fault)snprintf(out,size,"Cannot read this storage");
+ else if(scanning)snprintf(out,size,"Searching... %u files",entry_count);
+ else if(overflow)snprintf(out,size,"Limit reached: refine the name");
+ else snprintf(out,size,"%u found",match_count);
+}
+static void search_paint(void*g){
+ char line[96],status[64];
+ const char*scope=search_storage==1?"Internal user library":search_storage==2?"SD user library":search_scope==0?"This folder":search_scope==1||!library_root_found?"Folder + subfolders":"Whole library";
+ colour(g,0xff000000);rect(g,0,5,320,235);colour(g,WHITE);
+ text(g,"Cancel",0,6,106,23,14);text(g,results?"Query":"List",107,6,106,23,14);
+ text(g,results?(sample_browser()?(search_preview_on?"Preview On":"Preview Off"):"Open"):"Find",214,6,106,23,14);
+ search_status(status,sizeof(status));
+ if(!results){
+  colour(g,WHITE);left_text(g,sample_browser()?"Find samples":"Find projects",8,33,200,20,15);
+  colour(g,fault?RED:GREY);right_text(g,status,150,33,162,20,12);
+  colour(g,GREY);left_text(g,scope,8,52,304,16,12);
+  colour(g,0xff5a5a5a);rect(g,8,70,304,32);colour(g,0xff141414);rect(g,9,71,302,30);
+  query_view(line,sizeof(line));colour(g,AMBER);left_text(g,line,14,71,294,30,21);
+  for(unsigned i=0;i<3;++i){int y=108+(int)i*18;
+   if(i<match_count){ui_caption(line,sizeof(line),filename(&entries[matches[i]]),34);colour(g,i?GREY:WHITE);left_text(g,line,14,y,298,18,13);}
+   else if(!i&&!scanning&&!fault){colour(g,GREY);left_text(g,"No matches",14,y,298,18,13);}
+  }
+  if(match_count>3){snprintf(line,sizeof(line),"+%u more: B2 List",match_count-3);colour(g,GREY);left_text(g,line,14,162,298,16,11);}
+  colour(g,GREY);left_text(g,query.enabled?"Pads: type   Turn: cursor   Shift+Erase: clear":"Turn: letter   Shift+Erase: clear",8,181,304,15,11);
+  search_panel(g,0,"Input",query.enabled?"Pads":"Encoder",query.enabled?1u:0u,2);
+  snprintf(line,sizeof(line),"%u / %u",(unsigned)query.cursor+1,(unsigned)query.length+1);search_panel(g,1,"Cursor",line,(unsigned)query.cursor,(unsigned)query.length+1);
+  search_panel(g,2,"Storage",search_storage==1?"Internal":search_storage==2?"SD Card":"Current",(unsigned)search_storage,3);
+  return;
+ }
+ ui_caption(line,sizeof(line),*query_text?query_text:"All files",20);colour(g,AMBER);left_text(g,line,8,33,200,20,15);
+ colour(g,fault?RED:GREY);right_text(g,status,150,33,162,20,12);
+ unsigned rows=5,first=(unsigned)selected<rows?0:(unsigned)selected-rows+1;
+ if(!match_count){colour(g,WHITE);left_text(g,scanning?"Searching...":"No matches",14,74,298,24,16);}
+ for(unsigned i=first;i<match_count&&i<first+rows;++i){int y=56+(int)(i-first)*21;int current=i==(unsigned)selected;
+  if(current){colour(g,0xff2c2c2c);rect(g,6,y,308,20);colour(g,AMBER);rect(g,6,y,3,20);}
+  ui_caption(line,sizeof(line),filename(&entries[matches[i]]),30);colour(g,WHITE);left_text(g,line,14,y,296,20,14);
+ }
+ if(match_count&&search_scope){const char*full=(char*)(uintptr_t)entries[matches[selected]].file;size_t rootlen=strlen(search_root);const char*relative=!strncmp(full,search_root,rootlen)&&full[rootlen]=='/'?full+rootlen+1:full;
+  const char*slash=strrchr(relative,'/');char parent[512];size_t n=slash?(size_t)(slash-relative):0;if(n>=sizeof(parent))n=sizeof(parent)-1;memcpy(parent,relative,n);parent[n]=0;
+  char where[560];snprintf(where,sizeof(where),"in %s",n?parent:scope);
+  ui_caption(line,sizeof(line),where,40);colour(g,GREY);left_text(g,line,8,163,304,16,12);
+ }
+ colour(g,GREY);left_text(g,sample_browser()?"Press: load   Shift+Press: open folder":"Press: open   Shift+Press: open folder",8,181,304,15,11);
+ if(sample_browser()){if(result_pad_ready)snprintf(line,sizeof(line),"%c%02u",'A'+result_pad/16,result_pad%16+1);else strcpy(line,"Tap a pad");search_panel(g,0,"Load to",line,0,0);}
+ else search_panel(g,0,"","",0,0);
+ snprintf(line,sizeof(line),"%u / %u",match_count?(unsigned)selected+1:0,match_count);search_panel(g,1,"Result",line,(unsigned)selected,match_count);
+ if(selected_audio&&(!shift||results))volume_paint(g);else search_panel(g,2,"","",0,0);
+}
 static void query_view(char*out,size_t size){
  phone_view(&query,20,out,size);
 }
@@ -811,40 +871,9 @@ void workflow_files_paint(void*p,void*g){
   text(g,"B3: delete  |  B1: cancel",8,196,304,20,12);return;}
  if(!search){storage_paint(p,g);if(shift){colour(g,0xff000000);rect(g,107,6,213,25);colour(g,WHITE);text(g,"Search",214,6,106,23,14);}else if(selected_audio)volume_paint(g);if(browser_message[0]&&now_ms()<browser_message_until){colour(g,0xff000000);rect(g,0,181,320,15);colour(g,AMBER);text(g,browser_message,0,181,320,15,10);}return;}
  if(project_confirm){colour(g,0xff000000);rect(g,0,5,320,235);colour(g,WHITE);text(g,"Cancel",0,6,106,23,14);text(g,"Open",214,6,106,23,14);colour(g,AMBER);text(g,"Open project?",8,64,304,24,19);struct file_result candidate={project_candidate,1,{0}};text(g,filename(&candidate),8,98,304,38,15);colour(g,WHITE);text(g,"Unsaved changes may be lost.",8,150,304,20,13);text(g,"B3: confirm  |  B1: cancel",8,180,304,20,12);return;}
- colour(g,0xff000000);rect(g,0,5,320,235);colour(g,WHITE);
- text(g,"Cancel",0,6,106,23,15);text(g,results?"Query":"Results",107,6,106,23,15);text(g,results?(sample_browser()?(search_preview_on?"Preview On":"Preview Off"):"Open"):"Find",214,6,106,23,14);
- char line[96];const char*scope=search_storage==1?"Internal user library":search_storage==2?"SD user library":search_scope==0?"This folder":search_scope==1||!library_root_found?"Folder + subfolders":"Whole library";
- if(!results){
-  colour(g,WHITE);left_text(g,sample_browser()?"FIND SAMPLES":"FIND PROJECTS",8,38,304,22,17);
-  colour(g,GREY);left_text(g,scope,8,65,304,19,14);
-  query_view(line,sizeof(line));colour(g,AMBER);left_text(g,line,8,98,304,33,24);
-  colour(g,0xff373737);rect(g,8,135,304,2);
-  snprintf(line,sizeof(line),"%u match%s",match_count,match_count==1?"":"es");colour(g,fault?RED:WHITE);left_text(g,fault?"Cannot read folder":line,8,146,304,24,18);
-  colour(g,GREY);left_text(g,scanning?"Searching...":query.enabled?"Pads: type   Encoder: cursor":"Encoder: type",8,181,304,15,12);
- }else{
-  ui_caption(line,sizeof(line),*query_text?query_text:"Results",19);colour(g,AMBER);left_text(g,line,8,37,222,25,19);
-  colour(g,WHITE);right_text(g,sample_browser()?"SAMPLES":"PROJECTS",232,39,80,21,13);
-  colour(g,fault?RED:GREY);left_text(g,fault?"Cannot read folder":scanning?"Searching...":overflow?"Search limit reached":scope,8,65,304,16,13);
-  unsigned first=(unsigned)selected/3*3;
-  for(unsigned i=first;i<match_count&&i<first+3;++i){int y=85+(int)(i-first)*26;int current=i==(unsigned)selected;
-   if(current){colour(g,AMBER);rect(g,8,y,2,24);}
-   ui_caption(line,sizeof(line),filename(&entries[matches[i]]),26);colour(g,current?AMBER:WHITE);left_text(g,line,16,y,296,24,18);
-  }
-  if(!match_count){colour(g,WHITE);left_text(g,"No matches",8,98,304,27,20);}
-  if(match_count&&search_scope){const char*full=(char*)(uintptr_t)entries[matches[selected]].file;size_t rootlen=strlen(search_root);const char*relative=!strncmp(full,search_root,rootlen)&&full[rootlen]=='/'?full+rootlen+1:full;
-   const char*slash=strrchr(relative,'/');char parent[512];size_t n=slash?(size_t)(slash-relative):0;if(n>=sizeof(parent))n=sizeof(parent)-1;memcpy(parent,relative,n);parent[n]=0;
-   ui_caption(line,sizeof(line),n?parent:"This folder",38);colour(g,GREY);left_text(g,line,8,165,304,15,12);
-  }
-  colour(g,GREY);left_text(g,sample_browser()?"Click: load   S+click: folder":"Click: open   S+click: folder",8,182,304,14,12);
- }
- colour(g,WHITE);
- if(!results){text(g,"Input",0,201,106,13,12);text(g,query.enabled?"Pads":"Encoder",0,216,106,20,18);}
- else if(sample_browser()){text(g,"Load to",0,201,106,13,12);if(result_pad_ready)snprintf(line,sizeof(line),"%c%02u",'A'+result_pad/16,result_pad%16+1);else strcpy(line,"Pick pad");text(g,line,0,216,106,20,18);}
- text(g,results?"Result":"Cursor",107,201,106,13,12);snprintf(line,sizeof(line),"%u / %u",results?(match_count?(unsigned)selected+1:0):(unsigned)query.cursor+1,results?match_count:(unsigned)query.length+1);text(g,line,107,216,106,20,18);
- if(results&&selected_audio&&(!shift||results))volume_paint(g);
- else if(!results){text(g,"Storage",214,201,106,13,12);text(g,search_storage==1?"Internal":search_storage==2?"SD Card":"Current",214,216,106,20,16);}
-
+ search_paint(g);
 }
+
 /* Copy workflow is deliberately separate from file loading. */
 void workflow_copy_paint(void*p,void*g){
  if(atomic_exchange(&dead_copy,0)){copy_root=NULL;batch_close();}
@@ -1182,7 +1211,7 @@ static void batch_paint(void*g){
   colour(g,WHITE);if(chop_export)snprintf(line,sizeof(line),"%c%02u  |  Chop %d",'A'+slice_sound/16,slice_sound%16+1,slice_focus+1);else snprintf(line,sizeof(line),"Bank %c",'A'+batch_bank);left_text(g,line,8,112,304,24,18);
   colour(g,0xff373737);rect(g,8,143,304,1);colour(g,GREY);
   left_text(g,"White: selected source",8,151,304,18,13);
-  ui_caption(line,sizeof(line),batch_message[0]?batch_message:chop_export?"Click: play/stop   Enc: choose":"Unlit: free   Pads: select",38);colour(g,batch_message[0]?RED:GREY);left_text(g,line,8,177,304,18,13);
+  ui_caption(line,sizeof(line),batch_message[0]?batch_message:chop_export?"Press: play/stop   Turn: choose":"Unlit: free   Pads: select",38);colour(g,batch_message[0]?RED:GREY);left_text(g,line,8,177,304,18,13);
  }else{
   colour(g,GREY);left_text(g,chop_export?"CHOP":"SOURCE",8,63,80,15,12);left_text(g,"TARGET",119,63,84,15,12);left_text(g,"ASSIGN",230,63,82,15,12);
   unsigned first=(unsigned)batch_row/3*3;
@@ -1198,7 +1227,7 @@ static void batch_paint(void*g){
   else if(batch_confirm){review(&replace);if(replace)snprintf(line,sizeof(line),"Overwrite %u pads? B3 confirms",replace);else snprintf(line,sizeof(line),"%s %u pads? B3 confirms",chop_export?"Extract":"Copy",batch_count);colour(g,RED);}
   else snprintf(line,sizeof(line),"Row %d/%u   View bank %c",batch_row+1,batch_count,'A'+batch_bank);
   left_text(g,line,8,168,304,16,13);
-  const char*hint=batch_message[0]&&!batch_confirm?batch_message:"Click: play/stop   +/-: row";ui_caption(line,sizeof(line),hint,38);colour(g,missing?RED:GREY);left_text(g,line,8,184,304,13,12);
+  const char*hint=batch_message[0]&&!batch_confirm?batch_message:"Press: play/stop   +/-: row";ui_caption(line,sizeof(line),hint,38);colour(g,missing?RED:GREY);left_text(g,line,8,184,304,13,12);
  }
  colour(g,WHITE);text(g,chop_export&&!batch_page?"Page":shift&&batch_page?"Row bank":batch_page?"Auto bank":"Bank",0,201,106,13,12);
  if(chop_export&&!batch_page)snprintf(line,sizeof(line),"%d / %d",slice_page+1,(slice_count+15)/16);else snprintf(line,sizeof(line),"%c",'A'+(batch_page&&!shift?batch_auto_bank:batch_bank));text(g,line,0,216,106,20,18);

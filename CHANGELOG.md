@@ -1,5 +1,15 @@
 # Changelog
 
+## r27q — candidate, unpublished
+
+- **Degrees layout** for 16 Levels Tune lights: key notes only, I and IV/V marked; K1 on the Lights page is now called Layout.
+- **Search:** live top matches, match count, Shift+Erase clears, the last query is restored, five-row list with folder line.
+- **Rear Routing, Mod Settings and confirmations** redrawn in the stock list/panel/frame style.
+- **Splash:** original “Am” with “MOD” at the same height; anti-aliased version and repository text.
+- Clearer error messages and Turn / Press hints.
+
+[English notes](docs/RELEASE_NOTES-r27q.md) · [Русский](docs/RELEASE_NOTES-r27q.ru.md).
+
 ## r27p — release
 
 - **Rear recording and monitoring.** Sample Record → B2 Routing: K1 chooses Record Rear L / Record Rear R / Record L + R. Press a pad to record mono. For L + R, choose the L pad, then a different R pad; recording starts simultaneously after the second choice. B1 or STOP cancels the first choice; occupied pads require confirmation. STOP finishes recording. Hold Pad Bank and use pads 1–8 for banks. Standard stereo recording on one pad remains in the normal Sample Record window; Routing is offered only for the Rear source.
