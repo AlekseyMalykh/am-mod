@@ -57,7 +57,8 @@ git='git'
 if subprocess.run(['git','-C',str(ROOT),'push','origin','HEAD:main']).returncode:
     git='git.exe';run([git,'-C',win(ROOT,git),'push','origin','HEAD:main'])
 if not subprocess.run(['git','-C',str(ROOT),'rev-parse','-q','--verify','refs/tags/'+TAG],capture_output=True).returncode==0:
-    run(['git','-C',ROOT,'tag','-a',TAG,'-m',TITLE,head])
+    who=[out(['git','-C',ROOT,'log','-1','--format=%an']),out(['git','-C',ROOT,'log','-1','--format=%ae'])]
+    run(['git','-C',ROOT,'-c','user.name='+who[0],'-c','user.email='+who[1],'tag','-a',TAG,'-m',TITLE,head])
 run([git,'-C',win(ROOT,git),'push','origin',TAG])
 # 5. Release.
 gh=tool('gh')
