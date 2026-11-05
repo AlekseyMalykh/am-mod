@@ -39,4 +39,7 @@ sys.path.insert(0,str(R.parent/'installer'))
 from mpc_mod_installer import Package
 package=Package.from_file(out);assert package.revision=='r27q'
 (O/'SHA256SUMS').write_text(sha(out.read_bytes())+'  am-mod-r27q.zip\n')
+copy=R.parent.parent.parent/'am-mod-r27q.zip'
+copy.write_bytes(out.read_bytes())
 print('r27q package:',out,sha(out.read_bytes()))
+print('copy for the installer:',copy)

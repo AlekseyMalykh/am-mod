@@ -723,14 +723,12 @@ static void sixteen_process(void *properties,int pad,void *event)
 {
     if(batch_event_preview_override(properties,event))return;
     ORIG(H_SIXTEEN_PROCESS,void(*)(void*,int,void*))(properties,pad,event);
-    int transpose=music_transposition();
-    int original_pad=FIELD(properties,0x228,int);
-    if (transpose && FIELD(properties,0x88,int)==1 && original_pad>=0 && original_pad<16) {
-        /* Match native signed remainder for sentinel/negative pad indices.
-         * DSP reads one atomic snapshot: no allocation, file I/O or mutex. */
-        int pitch=(pad%16)-original_pad+transpose;
+    int original_pad=FIELD(properties,0x228,int),pitch=0;
+    /* Transpose16 and the Degrees layout replace native's chromatic pitch.
+     * DSP reads one atomic snapshot: no allocation, file I/O or mutex. */
+    if (FIELD(properties,0x88,int)==1 && pad>=0 &&
+        music_layout_pad_pitch(music_published(),(unsigned)(pad%16),original_pad,&pitch))
         FN(0x27e4400,void(*)(void*,int,int,int))((char*)event+0x14,0,0,pitch);
-    }
 }
 static void music_save(void *p,void *a)
 { music_archive_save(p,a,ORIG(H_MUSIC_SAVE,void(*)(void*,void*))); }

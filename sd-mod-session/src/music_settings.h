@@ -104,6 +104,12 @@ int music_mode_from_ui_index(int index);
 /* 0 = I, 1 = IV, 3 = V, 2 = other scale degree, -1 = outside the scale. */
 int music_degree_role(unsigned mask,int degree);
 uint64_t music_pad_light(uint64_t snapshot,unsigned pad,int original_pad,int *replace);
+/* Pad layout of 16 Levels Tune. Degrees maps pads to consecutive key notes;
+ * Transpose16 then moves by scale degrees. Returns 1 and the semitone offset
+ * when native's chromatic pad pitch must be replaced. */
+#define MUSIC_LAYOUT_MAX_PITCH 39
+int music_layout_pad_pitch(uint64_t snapshot,unsigned pad,int original_pad,int *pitch);
+int music_layout_semitones(uint64_t snapshot,int index);
 /* Recorded Tune modifiers already contain transposition. */
 uint64_t music_pitch_light(uint64_t snapshot,int semitones,int *replace);
 #ifdef __cplusplus

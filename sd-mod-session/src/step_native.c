@@ -737,11 +737,18 @@ void step_native_playback_context(void *things,int transpose,int sample_visible)
                 }
                 else if(mode<10 && musical(&e) && !event_muted(&e) && pad==selected && (parameter<0 || (FIELD(&e,0x14,uint16_t)&(1u<<parameter)))) {
                     if(mode==1){int v=(int)lround(level_value(&e,1));if(v>=-120&&v<=120)playback_pitch_until[v+120]=now+120;}
+                    uint64_t layout=music_published();
+                    if(mode==1&&!picker&&((layout>>4)&3)==(MUSIC_DEGREES&3)&&((layout>>40)&1)==(MUSIC_DEGREES>>2)){
+                        /* Degrees: pads are key notes; flash the pad that plays this pitch. */
+                        int v=(int)lround(level_value(&e,1));
+                        for(int i=0;i<16;++i){int p=0;if(music_layout_pad_pitch(layout,(unsigned)i,atomic_load(&native_levels_origin),&p)&&p==v){playback_until[i]=now+120;break;}}
+                    } else {
                     int key=level_nearest(&e,mode,first);
                     struct step_event candidate;level_candidate(&e,&candidate,mode,key,first);
                     /* A pitch/slice outside this displayed page has no key. */
                     if ((mode!=1 && mode!=8) || fabs(level_value(&candidate,mode)-level_value(&e,mode))<.01)
                         playback_until[key]=now+120;
+                    }
                 }
                 node=FN(0xb51738,void*(*)(void*))(node);
             }

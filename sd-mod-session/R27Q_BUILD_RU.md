@@ -27,7 +27,7 @@ python3 verify_steps.py && python3 verify_r17a.py                      # check_m
 
 ## Что смотреть на MPC
 
-1. Sample → Tune → Play → Lights: K1 Layout → Degrees; Shift+K2/K3 — группы I Tonic / IV / V / Key notes / Original; изменить цвет V, сохранить, открыть заново.
+1. Sample → Tune → Play → Lights: K1 Layout → Degrees; пэды 16 Levels Tune играют только ноты лада (C Major: C D E F G A B C…), Transpose16 сдвигает на ступени; Shift+K2/K3 — группы I Tonic / IV / V / Key notes / Original; изменить цвет V, сохранить, открыть заново.
 2. Sample Select → Shift+B3: живые совпадения, Shift+Erase, повторное открытие с прежним запросом, список из 5 строк.
 3. Sample Record → B2 Routing и Input Config → Shift+B2: новое окно, Shift меняет панели K2/K3 на Level.
 4. Project → Mod Settings: список, подписи соседних вкладок, Restore recommended и рамка подтверждения.

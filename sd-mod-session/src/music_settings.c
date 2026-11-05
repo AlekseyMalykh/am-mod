@@ -470,12 +470,13 @@ uint64_t music_pitch_light(uint64_t v,int semitones,int *replace)
         int degree=(note-(int)((v>>20)&15)+12)%12;
         unsigned mask=scale_masks[(v>>24)&7];
         if(mode==MUSIC_DEGREES){
-            /* Key notes only: I = Tonic colour, IV = second colour, V = its own
-             * colour, other key notes = third colour (dim). Outside the key: off.
-             * The reference pitch keeps the Original colour below. */
+            /* Key notes: I = Tonic colour, IV = second colour, V = its own
+             * colour, other degrees = third colour (dimmer). The Degrees pad
+             * layout only produces key notes; recorded out-of-key pitches are
+             * off. The original pitch is marked only when it is a key note. */
             int role=music_degree_role(mask,degree);
             if(role<0){colour=0;brightness=0.f;}
-            else{colour=music_colours[role==3?(v>>45)&15:(v>>(28+role*4))&15];brightness=role==0?0.60f:role==2?0.30f:0.50f;}
+            else{colour=music_colours[role==3?(v>>45)&15:(v>>(28+role*4))&15];brightness=role==2?0.32f:0.60f;}
         } else {
             int role=degree==0 ? 0 : (mask&(1u<<degree)) ? 1 : 2;
             colour=music_colours[(v>>(28+role*4))&15];
@@ -487,8 +488,37 @@ uint64_t music_pitch_light(uint64_t v,int semitones,int *replace)
     uint32_t bits; memcpy(&bits,&brightness,sizeof(bits)); *replace=1;
     return colour|((uint64_t)bits<<32);
 }
+/* Degrees layout: consecutive pads play consecutive notes of the key. Index 0
+ * is the sample's sounding note if it belongs to the key, otherwise the next
+ * key note above it. Other layouts stay chromatic (index = semitones). */
+static int in_key(unsigned mask,int tonic,int pitch_class){return (mask>>((((pitch_class-tonic)%12)+12)%12))&1u;}
+int music_layout_semitones(uint64_t v,int index)
+{
+    int root=(int)(v&15)-1,mode=(int)((v>>4)&3)|((int)((v>>40)&1)<<2);
+    if(!v||root<0||mode!=MUSIC_DEGREES||index<-200||index>200)return index;
+    int base=(root+(int)((v>>12)&255)-96)%12;if(base<0)base+=12;
+    int tonic=(int)((v>>20)&15);unsigned mask=scale_masks[(v>>24)&7];
+    int s=0;while(!in_key(mask,tonic,base+s))++s;
+    for(int k=0;k<index;++k)do ++s;while(!in_key(mask,tonic,base+s));
+    for(int k=0;k>index;--k)do --s;while(!in_key(mask,tonic,base+s));
+    return s;
+}
+int music_layout_pad_pitch(uint64_t v,unsigned pad,int original_pad,int *pitch)
+{
+    if(!v||original_pad<0||original_pad>15)return 0;
+    int mode=(int)((v>>4)&3)|((int)((v>>40)&1)<<2),transpose=(int)((v>>6)&63)-24;
+    int index=(int)(pad%16)-original_pad+transpose;
+    if(mode==MUSIC_DEGREES&&(int)(v&15)>0){
+        int s=music_layout_semitones(v,index);
+        *pitch=s<-MUSIC_LAYOUT_MAX_PITCH?-MUSIC_LAYOUT_MAX_PITCH:s>MUSIC_LAYOUT_MAX_PITCH?MUSIC_LAYOUT_MAX_PITCH:s;return 1;
+    }
+    if(!transpose)return 0;
+    *pitch=index;return 1;
+}
 uint64_t music_pad_light(uint64_t v,unsigned pad,int original_pad,int *replace)
 {
     if(original_pad<0||original_pad>15){*replace=0;return 0;}
-    return music_pitch_light(v,(int)(pad&15)-original_pad+(int)((v>>6)&63)-24,replace);
+    int pitch=(int)(pad&15)-original_pad+(int)((v>>6)&63)-24;
+    music_layout_pad_pitch(v,pad&15,original_pad,&pitch);
+    return music_pitch_light(v,pitch,replace);
 }
