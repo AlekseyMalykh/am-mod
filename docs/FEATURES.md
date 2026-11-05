@@ -260,10 +260,10 @@ When the selected event has a C or L mark, the Chop or 16 Levels button lights u
 **Search:** Sample Select / Open Project → **Shift+B3 Search**. **Status:** search in the current folder confirmed, the rest trial; the r27q candidate redesign below still needs a device check.
 
 - **Query page:** type with the pads (or the encoder with K1 = Encoder). The first three matches appear live under the query with the count in the top right, so the list is often not needed. **Shift+Erase** clears the query; Erase deletes one character. The previous query is restored when Search is opened again in the same session.
-- **K1** Input (Pads / Encoder), **K2** cursor, **K3** storage (Current / Internal / SD Card). The whole user library of the chosen storage is searched, including subfolders.
+- **K1** Input (Pads / Encoder), **K2 Search in**: **Folder** (the open folder only), **Library** (the whole library the open folder belongs to, default), **SD Card** (the card's MPC-Sample library), **All** (Library + SD card). The choice is kept until restart. **K3** preview volume. The cursor moves with the encoder; pad 16 deletes, Shift+pad 16 deletes forward.
 - **B2 List / B3 Find** open the list; in the list **B2 Query** returns to typing, **B1** closes Search.
 - **List:** five rows; the selected row is highlighted and its folder is shown below. Case-insensitive. Samples: WAV, AIF/AIFF, MP3, FLAC, OGG. Projects: XPJ. Up to 4096 matches.
-- Samples: tap a pad to choose the target (**Load to**), **press the encoder to load** and stay in the list. **B3 Preview** previews while scrolling. **Shift+press** opens the file's folder with the file selected. Pads follow §2: selected empty targets green, occupied targets red; unselected empty pads off, other occupied pads dimmed in their own hue.
+- Samples: tap a pad to choose the target (**Load to**), **press the encoder to load** and stay in the list. **B3 Preview** previews while scrolling; it is on by default. **Shift+press** opens the file's folder with the file selected. Pads follow §2: selected empty targets green, occupied targets red; unselected empty pads off, other occupied pads dimmed in their own hue.
 - Projects: a press asks for confirmation (B3 Open / B1 Cancel).
 - **K3 Volume 0–100 %**: preview level relative to Main Volume, shown on an audio file.
 - **Erase** on an audio file in `Samples/User` runs the stock Delete with its stock confirmation.
