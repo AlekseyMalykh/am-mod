@@ -122,6 +122,18 @@ static int put(struct phone_input *s, uint32_t c,int replace)
     return 1;
 }
 
+/* Delete the character before the cursor, or the one at the cursor when
+ * forward is set (Shift+pad 16, and Erase in encoder mode). */
+int phone_delete(struct phone_input *s, int forward)
+{
+    phone_commit(s);
+    if (forward ? s->cursor >= s->length : !s->cursor) return 0;
+    if (!forward) --s->cursor;
+    memmove(s->text + s->cursor, s->text + s->cursor + 1,
+            (s->length - s->cursor - 1) * sizeof(s->text[0]));
+    --s->length;
+    return 1;
+}
 int phone_pad(struct phone_input *s, unsigned pad, int down, uint64_t now_ms)
 {
     static const char *const letters[17] = {
@@ -153,13 +165,7 @@ int phone_pad(struct phone_input *s, unsigned pad, int down, uint64_t now_ms)
         return 1;
     }
     if (pad == 16) {
-        phone_commit(s);
-        if ((s->shift&&s->cursor<s->length)||(!s->shift&&s->cursor)) {
-            if (!s->shift) --s->cursor;
-            memmove(s->text + s->cursor, s->text + s->cursor + 1,
-                    (s->length - s->cursor - 1) * sizeof(s->text[0]));
-            --s->length;
-        }
+        phone_delete(s, s->shift);
         return 1;
     }
     const char *group = letters[pad];

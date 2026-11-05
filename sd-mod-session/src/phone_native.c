@@ -969,6 +969,15 @@ static void buttons_ui(void *event,uint64_t route)
     if(!naming&&on_ui()&&rear_ui_button(event))return;
 #endif
     unsigned code=FIELD(event,8,unsigned char),down=FIELD(event,9,unsigned char)!=0;
+    if(naming&&code==0x09){
+        /* Erase deletes in both input modes: before the cursor with pads, the
+         * selected character with the encoder. Both edges are consumed. */
+        if(down&&(state.enabled||read_native())){
+            ++internal;phone_delete(&state,!state.enabled&&state.cursor<state.length);--internal;
+            write_native();repaint();
+        }
+        return;
+    }
     if(naming&&state.enabled&&(code==0x36||code==0x37)){
         /* Pads input has one insertion cursor. Native +/- edit their own
          * character-picker cache; mixing that cache with pad/encoder moves

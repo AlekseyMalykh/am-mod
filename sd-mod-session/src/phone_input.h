@@ -29,5 +29,6 @@ void phone_move(struct phone_input *s,int delta);
 void phone_enable(struct phone_input *s, int enabled);
 int phone_tick(struct phone_input *s, uint64_t now_ms);
 int phone_pad(struct phone_input *s, unsigned pad, int down, uint64_t now_ms);
+int phone_delete(struct phone_input *s, int forward);
 uint64_t phone_light(const struct phone_input *s, unsigned pad);
 #endif
