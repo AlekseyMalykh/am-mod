@@ -762,7 +762,7 @@ int workflow_button(void*e,uint64_t ticket){
  if(project_confirm){if(code==0x0c){clear_project_confirm();repaint(files);}else if(code==0x0e)confirm_project();return 1;}
  if(code==0x0c)close_search();else if(code==0x0d){phone_commit(&query);results=!results;}
  else if(code==0x6f&&results){if(shift)locate_result();else choose_result();}
- else if(code==0x6f&&!results&&!query.enabled)add_letter(); /* Encoder input: press adds a letter. */
+ else if(code==0x6f&&!results){if(query.enabled)phone_commit(&query);else add_letter();} /* Press enters a letter; B2/B3 open the list. */
  else if(code==0x0e||code==0x6f){if(results){if(sample_browser())preview_result();else choose_result();}else{phone_commit(&query);results=1;}}
  else if(code==0x23&&results){int bank=step_native_browser_bank(-1);if(bank>=0&&bank<8)step_native_browser_bank((bank+(shift?7:1))%8);}
  else if(code==0x36||code==0x37){if(results)selected=clamp(selected+(code==0x37?-1:1),0,match_count?(int)match_count-1:0);else if(query.enabled)change_character(code==0x37?-1:1);else phone_move(&query,code==0x36?1:-1);} /* Encoder input: turn = letter, +/- = cursor. */
@@ -856,7 +856,7 @@ static void search_paint(void*g){
    else if(!i&&!scanning&&!fault){colour(g,GREY);left_text(g,"No matches",14,y,298,18,13);}
   }
   if(match_count>3){snprintf(line,sizeof(line),"+%u more: B2 List",match_count-3);colour(g,GREY);left_text(g,line,14,162,298,16,11);}
-  colour(g,GREY);left_text(g,query.enabled?"Pads: type   Turn: cursor   Shift+16: delete":"Turn: letter   Press: add   +/-: cursor   Erase: delete",8,181,304,15,11);
+  colour(g,GREY);left_text(g,query.enabled?"Pads: type   Press: enter   Turn: cursor":"Turn: letter   Press: add   +/-: cursor   Erase: delete",8,181,304,15,11);
   search_panel(g,0,"Input",query.enabled?"Pads":"Encoder",query.enabled?1u:0u,2);
   search_panel(g,1,"Search in",wheres[search_where],(unsigned)search_where,WHERE_COUNT);
   if(sample_browser())volume_paint(g);else search_panel(g,2,"","",0,0);

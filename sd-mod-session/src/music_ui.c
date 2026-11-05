@@ -335,19 +335,19 @@ static void repeat_paint(void*p,void*g){
     colour(g,0xff805800);rect(g,106,6,1,29);rect(g,213,6,1,29);
 }
 /* Shift colour groups on the Lights page. Scale: Tonic, Scale, Other, Original.
- * Degrees: I, IV, V, other key notes, Original. */
+ * Degrees: I, key notes, IV, V, Original. */
 static unsigned role_count(const struct music_sample *s){return s->mode==MUSIC_DEGREES?5u:4u;}
 static int role_field(const struct music_sample *s,int r){
     static const int scale[]={MUSIC_COLOUR0,MUSIC_COLOUR1,MUSIC_COLOUR2,MUSIC_ORIGINAL_COLOUR};
-    static const int degrees[]={MUSIC_COLOUR0,MUSIC_COLOUR1,MUSIC_FIFTH_COLOUR,MUSIC_COLOUR2,MUSIC_ORIGINAL_COLOUR};
+    static const int degrees[]={MUSIC_COLOUR0,MUSIC_COLOUR1,MUSIC_FOURTH_COLOUR,MUSIC_FIFTH_COLOUR,MUSIC_ORIGINAL_COLOUR};
     unsigned n=role_count(s);if(r<0)r=0;if((unsigned)r>=n)r=(int)n-1;
     return s->mode==MUSIC_DEGREES?degrees[r]:scale[r];
 }
 static int role_value(const struct music_sample *s,int field){
-    return field==MUSIC_ORIGINAL_COLOUR?s->original_colour:field==MUSIC_FIFTH_COLOUR?s->fifth_colour:s->colour[field-MUSIC_COLOUR0];
+    return field==MUSIC_ORIGINAL_COLOUR?s->original_colour:field==MUSIC_FIFTH_COLOUR?s->fifth_colour:field==MUSIC_FOURTH_COLOUR?s->fourth_colour:s->colour[field-MUSIC_COLOUR0];
 }
 static int role_default(int field){
-    return field==MUSIC_COLOUR0?0:field==MUSIC_COLOUR1?1:field==MUSIC_COLOUR2?10:field==MUSIC_FIFTH_COLOUR?MUSIC_DEFAULT_FIFTH_COLOUR:4;
+    return field==MUSIC_COLOUR0?MUSIC_DEFAULT_TONIC_COLOUR:field==MUSIC_COLOUR1?1:field==MUSIC_COLOUR2?10:field==MUSIC_FIFTH_COLOUR?MUSIC_DEFAULT_FIFTH_COLOUR:field==MUSIC_FOURTH_COLOUR?MUSIC_DEFAULT_FOURTH_COLOUR:4;
 }
 static void cell(void *g,int i,const char *name,const char *value,int shift,int badge,int enabled,int selected,int options)
 {
@@ -576,7 +576,7 @@ void music_ui_sample(void *p,void *g)
     if (!ok) { memset(&s,0,sizeof(s)); s.root=-1; s.tonic=-1; s.scale=-1; }
     const char *modes[MUSIC_LAYOUT_CHOICES]={"Monochrome","Piano","Scale","Degrees"};
     static const char *const scale_roles[]={"Tonic","Scale","Other","Original"};
-    static const char *const degree_roles[]={"I Tonic","IV","V","Key notes","Original"};
+    static const char *const degree_roles[]={"I Tonic","Key notes","IV","V","Original"};
     const char *const *roles=s.mode==MUSIC_DEGREES?degree_roles:scale_roles;
     int shown_role=role<(int)role_count(&s)?role:(int)role_count(&s)-1;
     if (shift) {

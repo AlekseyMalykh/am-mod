@@ -22,14 +22,15 @@ int main(void){
  {struct music_sample scale=s;scale.mode=MUSIC_SCALE;struct music_sample tonic=s;tonic.mode=MUSIC_TONIC;
   assert(music_light_snapshot(&s,0)!=music_light_snapshot(&scale,0)&&music_light_snapshot(&tonic,0)==music_light_snapshot(&scale,0));
   /* C Major, reference C on pad 0: Scale keeps every pad lit. */
-  assert(light(&scale,1,0)==music_colours[10]&&light(&scale,2,0)==music_colours[1]&&light(&scale,12,0)==music_colours[0]);}
+  assert(light(&scale,1,0)==music_colours[10]&&light(&scale,2,0)==music_colours[1]&&light(&scale,12,0)==music_colours[MUSIC_DEFAULT_TONIC_COLOUR]&&music_colours[MUSIC_DEFAULT_TONIC_COLOUR]==music_colours[5]);}
  /* Degrees pad layout: consecutive pads are consecutive key notes. C Major, original C on pad 0. */
  {static const int major[16]={0,2,4,5,7,9,11,12,14,16,17,19,21,23,24,26};
   music_publish(&s,0);uint64_t v=music_published();
   for(unsigned pad=0;pad<16;++pad){int pitch=99;assert(music_layout_pad_pitch(v,pad,0,&pitch)&&pitch==major[pad]);}
   int pitch=0;assert(music_layout_pad_pitch(v,0,4,&pitch)&&pitch==-7); /* four degrees below C: F */
   assert(music_layout_semitones(v,-1)==-1&&music_layout_semitones(v,-7)==-12);
-  assert(light(&s,0,0)==music_colours[4]&&light(&s,1,0)==music_colours[10]&&light(&s,3,0)==music_colours[1]&&light(&s,4,0)==music_colours[MUSIC_DEFAULT_FIFTH_COLOUR]&&light(&s,7,0)==music_colours[0]&&light(&s,6,0)==music_colours[10]);
+  assert(light(&s,0,0)==music_colours[4]&&light(&s,1,0)==music_colours[1]&&light(&s,3,0)==music_colours[MUSIC_DEFAULT_FOURTH_COLOUR]&&light(&s,4,0)==music_colours[MUSIC_DEFAULT_FIFTH_COLOUR]&&light(&s,7,0)==music_colours[MUSIC_DEFAULT_TONIC_COLOUR]&&light(&s,6,0)==music_colours[1]);
+  assert(MUSIC_DEFAULT_FOURTH_COLOUR!=MUSIC_DEFAULT_FIFTH_COLOUR&&MUSIC_DEFAULT_FOURTH_COLOUR!=1&&MUSIC_DEFAULT_FIFTH_COLOUR!=1&&MUSIC_DEFAULT_FOURTH_COLOUR!=5&&MUSIC_DEFAULT_FIFTH_COLOUR!=5);
   for(unsigned pad=0;pad<16;++pad){int r=0;assert((uint32_t)music_pad_light(v,pad,0,&r)!=0&&r);} /* every pad is a lit key note */
   /* Recorded out-of-key pitch (Steps editor) stays off; C# is not in C Major. */
   int r=0;assert(music_pitch_light(v,1,&r)==0&&r);}
@@ -41,7 +42,7 @@ int main(void){
   for(unsigned pad=0;pad<16;++pad){int r=0;assert((uint32_t)music_pad_light(v,pad,0,&r)!=music_colours[4]);}}
  /* A minor local key, original C: C is III, D IV, E V, A I. */
  {struct music_sample minor=s;minor.scale=1;minor.tonic=9;
-  assert(light(&minor,0,0)==music_colours[4]&&light(&minor,1,0)==music_colours[1]&&light(&minor,2,0)==music_colours[MUSIC_DEFAULT_FIFTH_COLOUR]&&light(&minor,5,0)==music_colours[0]);}
+  assert(light(&minor,0,0)==music_colours[4]&&light(&minor,1,0)==music_colours[MUSIC_DEFAULT_FOURTH_COLOUR]&&light(&minor,2,0)==music_colours[MUSIC_DEFAULT_FIFTH_COLOUR]&&light(&minor,5,0)==music_colours[MUSIC_DEFAULT_TONIC_COLOUR]);}
  /* Chromatic pads elsewhere: Scale without Transpose16 keeps the native pitch. */
  {struct music_sample scale=s;scale.mode=MUSIC_SCALE;music_publish(&scale,0);int pitch=0;assert(!music_layout_pad_pitch(music_published(),3,0,&pitch));
   scale.transpose=5;music_publish(&scale,0);assert(music_layout_pad_pitch(music_published(),3,1,&pitch)&&pitch==7);}
@@ -80,12 +81,13 @@ int main(void){
  music_reset();assert(music_set_sample("Keys",MUSIC_ROOT,0)&&music_set_sample("Keys",MUSIC_MODE,MUSIC_DEGREES));
  music_snapshot(&p);n=music_encode(&p,text,sizeof(text));assert(n>0&&!memcmp(text,"MPCS15",6));
  assert(!music_set_sample("Keys",MUSIC_FIFTH_COLOUR,12)&&music_set_sample("Keys",MUSIC_FIFTH_COLOUR,6));
- music_get_sample("Keys",&s);assert(s.fifth_colour==6&&light(&s,4,0)==music_colours[6]&&light(&s,3,0)==music_colours[1]&&light(&s,7,0)==music_colours[0]&&light(&s,0,0)==music_colours[4]);
+ music_get_sample("Keys",&s);assert(s.fifth_colour==6&&light(&s,4,0)==music_colours[6]&&light(&s,3,0)==music_colours[MUSIC_DEFAULT_FOURTH_COLOUR]&&light(&s,7,0)==music_colours[MUSIC_DEFAULT_TONIC_COLOUR]&&light(&s,0,0)==music_colours[4]);
+ assert(music_set_sample("Keys",MUSIC_FOURTH_COLOUR,9));music_get_sample("Keys",&s);assert(light(&s,3,0)==music_colours[9]&&light(&s,4,0)==music_colours[6]);
  {struct music_sample scale=s;scale.mode=MUSIC_SCALE;assert(light(&scale,7,0)==music_colours[1]);} /* Scale ignores the V slot. */
- music_snapshot(&p);n=music_encode(&p,text,sizeof(text));assert(n>0&&!memcmp(text,"MPCS18",6)&&music_decode(text,(size_t)n,&q));
- assert(q.count==1&&q.samples[0].fifth_colour==6&&q.samples[0].original_colour==4&&q.samples[0].mode==MUSIC_DEGREES);
+ music_snapshot(&p);n=music_encode(&p,text,sizeof(text));assert(n>0&&!memcmp(text,"MPCS19",6)&&music_decode(text,(size_t)n,&q));
+ assert(q.count==1&&q.samples[0].fifth_colour==6&&q.samples[0].fourth_colour==9&&q.samples[0].original_colour==4&&q.samples[0].mode==MUSIC_DEGREES);
  assert(!music_decode(text,(size_t)n-1,&q));
- {static char bad[MUSIC_PAYLOAD_BYTES];memcpy(bad,text,(size_t)n);char*f=strstr(bad," 4 6\n");assert(f);f[3]='9';f[4]='9';assert(!music_decode(bad,(size_t)n,&q));}
+ {static char bad[MUSIC_PAYLOAD_BYTES];memcpy(bad,text,(size_t)n);char*f=strstr(bad," 4 6 9\n");assert(f);f[3]='9';f[4]='9';assert(!music_decode(bad,(size_t)n,&q));}
  music_reset();for(unsigned i=0;i<MUSIC_MAX_SAMPLES;++i){char name[32];snprintf(name,sizeof(name),"sample%u",i);assert(music_set_sample(name,MUSIC_MODE,MUSIC_DEGREES));}
  assert(!music_set_sample("overflow",MUSIC_ROOT,0));music_snapshot(&p);n=music_encode(&p,text,sizeof(text));assert(n>0&&music_decode(text,(size_t)n,&q)&&q.count==MUSIC_MAX_SAMPLES);
  puts("PASS music Lights (Monochrome/Piano/Scale/Degrees) and128 sequence colours: twelve-colour roundtrip, legacy five-colour IDs retained, invalid/truncated rejection, MPCS12/14/15 migration, full-capacity persistence");

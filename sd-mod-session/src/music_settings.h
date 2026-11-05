@@ -9,10 +9,12 @@ extern "C" {
 #define MUSIC_NAME_BYTES 513
 #define MUSIC_PAYLOAD_BYTES (MUSIC_MAX_SAMPLES*1100+4096)
 enum { MUSIC_MONO, MUSIC_PIANO, MUSIC_TONIC, MUSIC_SCALE, MUSIC_DEGREES };
-enum { MUSIC_ROOT, MUSIC_MODE, MUSIC_TRANSPOSE, MUSIC_COLOUR0, MUSIC_COLOUR1, MUSIC_COLOUR2, MUSIC_LOCAL_TONIC, MUSIC_LOCAL_SCALE, MUSIC_ORIGINAL_COLOUR, MUSIC_FIFTH_COLOUR };
-/* Lights colour defaults: Tonic Green, Scale/IV Cyan, Other/Key notes Grey, V Yellow, Original Magenta. */
+enum { MUSIC_ROOT, MUSIC_MODE, MUSIC_TRANSPOSE, MUSIC_COLOUR0, MUSIC_COLOUR1, MUSIC_COLOUR2, MUSIC_LOCAL_TONIC, MUSIC_LOCAL_SCALE, MUSIC_ORIGINAL_COLOUR, MUSIC_FIFTH_COLOUR, MUSIC_FOURTH_COLOUR };
+/* Lights colour defaults: Tonic Red, Scale/key notes Cyan, Other Grey, IV Violet, V Yellow, Original Magenta. */
+#define MUSIC_DEFAULT_TONIC_COLOUR 5
+#define MUSIC_DEFAULT_FOURTH_COLOUR 3
 #define MUSIC_DEFAULT_FIFTH_COLOUR 8
-struct music_sample { char name[MUSIC_NAME_BYTES]; int root,mode,transpose,colour[3],tonic,scale,original_colour,fifth_colour; };
+struct music_sample { char name[MUSIC_NAME_BYTES]; int root,mode,transpose,colour[3],tonic,scale,original_colour,fifth_colour,fourth_colour; };
 struct music_project { int tonic,scale; unsigned count; struct music_sample samples[MUSIC_MAX_SAMPLES]; uint64_t pad_eq[128]; unsigned char sequence_colours[128]; unsigned char pad_colours[128]; };
 #define MUSIC_SEQUENCE_COLOURS 14
 extern const char *const music_sequence_colour_names[MUSIC_SEQUENCE_COLOURS];
