@@ -9,8 +9,10 @@ extern "C" {
 #define MUSIC_NAME_BYTES 513
 #define MUSIC_PAYLOAD_BYTES (MUSIC_MAX_SAMPLES*1100+4096)
 enum { MUSIC_MONO, MUSIC_PIANO, MUSIC_TONIC, MUSIC_SCALE, MUSIC_DEGREES };
-enum { MUSIC_ROOT, MUSIC_MODE, MUSIC_TRANSPOSE, MUSIC_COLOUR0, MUSIC_COLOUR1, MUSIC_COLOUR2, MUSIC_LOCAL_TONIC, MUSIC_LOCAL_SCALE, MUSIC_ORIGINAL_COLOUR };
-struct music_sample { char name[MUSIC_NAME_BYTES]; int root,mode,transpose,colour[3],tonic,scale,original_colour; };
+enum { MUSIC_ROOT, MUSIC_MODE, MUSIC_TRANSPOSE, MUSIC_COLOUR0, MUSIC_COLOUR1, MUSIC_COLOUR2, MUSIC_LOCAL_TONIC, MUSIC_LOCAL_SCALE, MUSIC_ORIGINAL_COLOUR, MUSIC_FIFTH_COLOUR };
+/* Lights colour defaults: Tonic Green, Scale/IV Cyan, Other/Key notes Grey, V Yellow, Original Magenta. */
+#define MUSIC_DEFAULT_FIFTH_COLOUR 8
+struct music_sample { char name[MUSIC_NAME_BYTES]; int root,mode,transpose,colour[3],tonic,scale,original_colour,fifth_colour; };
 struct music_project { int tonic,scale; unsigned count; struct music_sample samples[MUSIC_MAX_SAMPLES]; uint64_t pad_eq[128]; unsigned char sequence_colours[128]; unsigned char pad_colours[128]; };
 #define MUSIC_SEQUENCE_COLOURS 14
 extern const char *const music_sequence_colour_names[MUSIC_SEQUENCE_COLOURS];
@@ -99,7 +101,7 @@ int music_transposition(void);
 int music_mode_ui_index(int mode);
 int music_mode_from_ui_index(int index);
 #define MUSIC_LAYOUT_CHOICES 4
-/* 0 = I, 1 = IV or V, 2 = other scale degree, -1 = outside the scale. */
+/* 0 = I, 1 = IV, 3 = V, 2 = other scale degree, -1 = outside the scale. */
 int music_degree_role(unsigned mask,int degree);
 uint64_t music_pad_light(uint64_t snapshot,unsigned pad,int original_pad,int *replace);
 /* Recorded Tune modifiers already contain transposition. */

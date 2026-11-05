@@ -334,6 +334,21 @@ static void repeat_paint(void*p,void*g){
     }
     colour(g,0xff805800);rect(g,106,6,1,29);rect(g,213,6,1,29);
 }
+/* Shift colour groups on the Lights page. Scale: Tonic, Scale, Other, Original.
+ * Degrees: I, IV, V, other key notes, Original. */
+static unsigned role_count(const struct music_sample *s){return s->mode==MUSIC_DEGREES?5u:4u;}
+static int role_field(const struct music_sample *s,int r){
+    static const int scale[]={MUSIC_COLOUR0,MUSIC_COLOUR1,MUSIC_COLOUR2,MUSIC_ORIGINAL_COLOUR};
+    static const int degrees[]={MUSIC_COLOUR0,MUSIC_COLOUR1,MUSIC_FIFTH_COLOUR,MUSIC_COLOUR2,MUSIC_ORIGINAL_COLOUR};
+    unsigned n=role_count(s);if(r<0)r=0;if((unsigned)r>=n)r=(int)n-1;
+    return s->mode==MUSIC_DEGREES?degrees[r]:scale[r];
+}
+static int role_value(const struct music_sample *s,int field){
+    return field==MUSIC_ORIGINAL_COLOUR?s->original_colour:field==MUSIC_FIFTH_COLOUR?s->fifth_colour:s->colour[field-MUSIC_COLOUR0];
+}
+static int role_default(int field){
+    return field==MUSIC_COLOUR0?0:field==MUSIC_COLOUR1?1:field==MUSIC_COLOUR2?10:field==MUSIC_FIFTH_COLOUR?MUSIC_DEFAULT_FIFTH_COLOUR:4;
+}
 static void cell(void *g,int i,const char *name,const char *value,int shift,int badge,int enabled,int selected,int options)
 {
     int x=i==2 ? 213 : i*106,w=i==2 ? 107 : 106;
@@ -561,12 +576,13 @@ void music_ui_sample(void *p,void *g)
     if (!ok) { memset(&s,0,sizeof(s)); s.root=-1; s.tonic=-1; s.scale=-1; }
     const char *modes[MUSIC_LAYOUT_CHOICES]={"Monochrome","Piano","Scale","Degrees"};
     static const char *const scale_roles[]={"Tonic","Scale","Other","Original"};
-    static const char *const degree_roles[]={"I Tonic","IV / V","Key notes","Original"};
+    static const char *const degree_roles[]={"I Tonic","IV","V","Key notes","Original"};
     const char *const *roles=s.mode==MUSIC_DEGREES?degree_roles:scale_roles;
+    int shown_role=role<(int)role_count(&s)?role:(int)role_count(&s)-1;
     if (shift) {
         snprintf(value,sizeof(value),"%+d",s.transpose); cell(g,0,"Transpose16",value,1,1,ok,s.transpose+24,49);
-        int c=role==3?s.original_colour:s.colour[role];
-        cell(g,1,"Role",roles[role],1,1,ok && s.mode!=MUSIC_MONO,role,4);
+        int c=role_value(&s,role_field(&s,shown_role));
+        cell(g,1,"Role",roles[shown_role],1,1,ok && s.mode!=MUSIC_MONO,shown_role,(int)role_count(&s));
         cell(g,2,"Colour",music_colour_names[c],1,1,ok && s.mode!=MUSIC_MONO,c,12);
     } else {
         int project_tonic,project_scale;char tonic_text[32],scale_text[64];
@@ -757,8 +773,9 @@ int music_ui_control(void *event)
         if (focus==0) { field=MUSIC_TRANSPOSE; current=s.transpose; lo=-24; hi=24; }
         else {
             if (s.mode==MUSIC_MONO) return 1;
-            if (focus==1) { role=choice(v,role,0,3,rel); repaint(sample); return 1; }
-            field=role==3?MUSIC_ORIGINAL_COLOUR:MUSIC_COLOUR0+role; current=role==3?s.original_colour:s.colour[role]; hi=11;
+            int last=(int)role_count(&s)-1;if(role>last)role=last;
+            if (focus==1) { role=choice(v,role,0,last,rel); repaint(sample); return 1; }
+            field=role_field(&s,role); current=role_value(&s,field); hi=11;
         }
     } else {
         if (focus==0) { field=MUSIC_MODE; current=music_mode_ui_index(s.mode); hi=MUSIC_LAYOUT_CHOICES-1; }
@@ -792,7 +809,7 @@ int music_ui_reset_knob(unsigned column,unsigned shift){
  if(lights){
   char name[MUSIC_NAME_BYTES];struct music_sample s;if(!settings(name,&s))return 1;
   int field,value;
-  if(shift){if(column==0){field=MUSIC_TRANSPOSE;value=0;}else if(column==1){role=0;repaint(sample);return 1;}else{static const int colours[]={0,1,10,4};field=role==3?MUSIC_ORIGINAL_COLOUR:MUSIC_COLOUR0+role;value=colours[role];}}
+  if(shift){if(column==0){field=MUSIC_TRANSPOSE;value=0;}else if(column==1){role=0;repaint(sample);return 1;}else{field=role_field(&s,role);value=role_default(field);}}
   else{field=column==0?MUSIC_MODE:column==1?MUSIC_LOCAL_TONIC:MUSIC_LOCAL_SCALE;value=column==0?MUSIC_MONO:-1;}
   music_set_sample(name,field,value);note_native_tick();repaint(sample);return 1;
  }

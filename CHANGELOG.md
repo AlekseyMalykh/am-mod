@@ -2,7 +2,7 @@
 
 ## r27q — candidate, unpublished
 
-- **Degrees layout** for 16 Levels Tune lights: key notes only, I and IV/V marked; K1 on the Lights page is now called Layout.
+- **Degrees layout** for 16 Levels Tune lights: key notes only; original note, I, IV and V in separate colours (V stored as MPCS18 when changed); K1 on the Lights page is now called Layout.
 - **Search:** live top matches, match count, Shift+Erase clears, the last query is restored, five-row list with folder line.
 - **Rear Routing, Mod Settings and confirmations** redrawn in the stock list/panel/frame style.
 - **Splash:** original “Am” with “MOD” at the same height; anti-aliased version and repository text.

@@ -10,5 +10,5 @@ int main(void){
  cell(0,0,"Layout","Degrees",0,1,1,3,MUSIC_LAYOUT_CHOICES);cell(0,1,"Tonic","C (P)",0,1,1,1,13);cell(0,2,"Scale","Major (P)",0,1,1,1,9);
  PREVIEW_END();
  focus=1;PREVIEW_BEGIN("settings-8-lights-roles.ops");colour(0,0xff000000);rect(0,0,0,320,198);
- cell(0,0,"Transpose16","+0",1,1,1,24,49);cell(0,1,"Role","IV / V",1,1,1,1,4);cell(0,2,"Colour","Cyan",1,1,1,1,12);PREVIEW_END();
+ cell(0,0,"Transpose16","+0",1,1,1,24,49);cell(0,1,"Role","V",1,1,1,2,5);cell(0,2,"Colour","Yellow",1,1,1,8,12);PREVIEW_END();
  return 0;}
