@@ -1,6 +1,6 @@
 # Changelog
 
-## r27q — candidate, unpublished
+## r27q — release
 
 - **Degrees layout** for 16 Levels Tune: pads play consecutive key notes; tonic Red, key notes Cyan, IV Violet, V Yellow by default (IV/V stored as MPCS19 when changed); K1 on the Lights page is now called Layout.
 - **Search:** live top matches, match count, Shift+Erase clears, the last query is restored, five-row list with folder line.

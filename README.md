@@ -4,7 +4,7 @@
 
 **English** · [Русский](README.ru.md)
 
-[**Download r27p**](https://github.com/AlekseyMalykh/am-mod/releases/tag/r27p) (latest) · [Feedback and help](docs/FEEDBACK.md) · [Known issues](docs/KNOWN_ISSUES.md) · [Discussions](https://github.com/AlekseyMalykh/am-mod/discussions)
+[**Download r27q**](https://github.com/AlekseyMalykh/am-mod/releases/tag/r27q) (latest) · [Feedback and help](docs/FEEDBACK.md) · [Known issues](docs/KNOWN_ISSUES.md) · [Discussions](https://github.com/AlekseyMalykh/am-mod/discussions)
 
 Am MOD is a community mod for the Akai MPC Sample (firmware **1.3.0.12**) that starts from
 the SD card. On top of the stock app it adds a step sequencer on the pads, a chord mode,
@@ -20,19 +20,20 @@ a patched copy of the stock app in RAM, and the stock app starts as usual withou
 > release packages**: the mod patches the copy of the app already on your MPC Sample.
 > Use at your own risk. See [NOTICE](NOTICE.md).
 
-## What's new in r27p
+## What's new in r27q
 
 **Back up samples and projects before updating.**
 
-- **Rear recording and monitoring.** Sample Record → B2 Routing: K1 chooses Rear L, Rear R or L + R. Press a pad to record mono; for L + R press the L pad, then a different R pad, and both start together. B1 or STOP cancels the first choice; occupied pads ask for confirmation; STOP finishes. Hold Pad Bank and use pads 1–8 for banks. Stereo recording on one pad stays in the normal Sample Record window.
-- **Monitor without recording.** Input Config → Shift+B2 Routing: B2/B3 switch L/R monitoring, K2/K3 set pan, Shift+K2/K3 set the monitor level. Monitor settings do not change the dry recordings and are saved with the project.
-- **Knob FX priority.** K1–K3 control Knob FX while it is open, also over mod screens. Note Repeat keeps its controls.
-- **Scale and Orig Note.** Setting Orig Note selects Scale; Tune lighting follows the current sample in every bank.
-- **Menus, Copy and EQ.** A fast encoder press after Mod Settings reaches the current menu; Erase can be held after Shift+Erase → Copy; Shift+Pad Bank goes back a bank; Seq → Sample keeps the EQ page.
+- **Degrees layout.** Sample → Tune → Play → Lights → K1 **Layout: Degrees**. The 16 pads of 16 Levels Tune play only notes of the key, one degree per pad (C Major: C D E F G A B C…); Transpose16 moves by degrees. The tonic, IV and V have their own colours. New defaults in Scale and Degrees: tonic Red, key notes Cyan, IV Violet, V Yellow.
+- **Search.** K2 **Search in**: Folder, Library, SD Card or All. The first matches appear under the query, preview is on by default, K3 sets its volume. The encoder press enters a letter; with Encoder input, +/− move the cursor and Erase deletes. Shift+Erase clears; the last query is remembered.
+- **Erase in the name window** deletes in both input modes.
+- **Rear Routing and Mod Settings** look like stock lists and panels; confirmations use the stock frame.
+- **Splash** with “MOD” at the height of “Am” and smooth version text.
+- Clearer messages instead of technical “… unavailable” errors.
 
-Also included from r27n: **Preview from end** (hold STOP and tap a pad), Steps length and grid on K1/K2, loop and mute lighting, eight assignable colours, and a dedicated SD workspace for Copy Pad.
+r27q includes everything from r27p (Rear recording and monitoring, Knob FX priority) and r27n (Preview from end, Steps length and grid, eight colours).
 
-[All r27p changes](docs/RELEASE_NOTES-r27p.md) · [Mod Settings](docs/MOD_SETTINGS.md) · [Testing status](docs/KNOWN_ISSUES.md) · [Roadmap and ideas](docs/IDEAS.md)
+[All r27q changes](docs/RELEASE_NOTES-r27q.md) · [Mod Settings](docs/MOD_SETTINGS.md) · [Testing status](docs/KNOWN_ISSUES.md) · [Roadmap and ideas](docs/IDEAS.md)
 
 Thanks to Leusha, mxt1iga and all testers.
 
@@ -46,6 +47,7 @@ Thanks to Leusha, mxt1iga and all testers.
 | **Type names with the pads** (phone keypad: ABC on pad 14, DEF on 15…, delete on 16) | Save Project / Save Sample, Search | confirmed |
 | **Orig Note** of a sample, project **Key / Scale** | Sample → Tune → Shift+K1; Project → Key/Scale | confirmed |
 | **Scale lighting** for 16 Levels Tune: Monochrome / Piano / Scale colours, Transpose16 | Sample → Tune/Play/**Lights** | partly confirmed |
+| **Degrees**: 16 Levels pads play only key notes, tonic/IV/V colours | Lights → K1 Layout | trial |
 | **Steps**: 16-step sequencer on the physical pads, grid 1/4…1/64 and triplets, velocity, mute steps, copy/paste | Shift+SEQ → B2 Steps | confirmed |
 | **Events editor** with Chop / 16 Levels choice and audition, event move on the grid | Step Edit / Steps | confirmed |
 | **Poly**: chords recorded and edited as separate notes | Seq | confirmed |
@@ -92,7 +94,7 @@ Every feature with its controls and status: [docs/FEATURES.md](docs/FEATURES.md)
 > **Before installing or updating Am MOD, I recommend backing up all projects and samples from the SD card to your computer or another drive.** The installer's backup of `autorun/` does not include your projects or samples.
 
 > [!IMPORTANT]
-> **FAT32 / MS-DOS (FAT32) is available experimentally starting with r26e; exFAT remains supported.** FAT32 requires a package **r26e or newer** (r27p is current) and installer **1.0.2+**, or a manual copy of that package's complete `autorun/`. FAT32 has been checked in test images and the emulator; physical MPC testing is still pending. The published r26d and earlier packages require exFAT; updating only the installer does not add FAT32 support to an old package.
+> **FAT32 / MS-DOS (FAT32) is available experimentally starting with r26e; exFAT remains supported.** FAT32 requires a package **r26e or newer** (r27q is current) and installer **1.0.2+**, or a manual copy of that package's complete `autorun/`. FAT32 has been checked in test images and the emulator; physical MPC testing is still pending. The published r26d and earlier packages require exFAT; updating only the installer does not add FAT32 support to an old package.
 >
 > **Use a card volume name such as `MPC` or `MPCSAMPLE`.** Only ASCII letters, digits, `.`, `_` and `-` are supported; spaces and Cyrillic letters in the card name prevent startup. This restriction applies to the card name, not your sample/project names.
 >
@@ -112,7 +114,7 @@ refuses to start on any other version) and a compatible SD card with a supported
 ```bash
 python3 installer/mpc_mod_installer.py                 # window
 python3 installer/mpc_mod_installer.py cards           # list cards
-python3 installer/mpc_mod_installer.py install am-mod-r27p.zip --card E:
+python3 installer/mpc_mod_installer.py install am-mod-r27q.zip --card E:
 python3 installer/mpc_mod_installer.py install --latest --card /Volumes/MPC
 python3 installer/mpc_mod_installer.py remove --card E:
 ```
@@ -130,7 +132,7 @@ never touches `MPC-Sample/` (your projects and samples).
    by itself. Preparation time depends on the card and project. If a start
    ever hangs at 0 %, power on without the card, wait for the normal screen, then insert it.
 
-   > **r27p shows the Am MOD splash while preparing the app**, with the version and
+   > **The mod shows the Am MOD splash while preparing the app**, with the version and
    > repository address. Do not power off or remove
    > the card during preparation. The splash has no artificial minimum display time.
 
@@ -151,7 +153,7 @@ firmware in QEMU with the whole device in your browser, and runs SD autorun pack
 way the MPC does. The GIFs above were recorded there:
 
 ```bash
-python3 lab.py autorun am-mod-r27p.zip --no-reboot --yes
+python3 lab.py autorun am-mod-r27q.zip --no-reboot --yes
 ```
 
 Emulator runs are useful for development, but they are not a hardware test: timing, audio
@@ -170,7 +172,7 @@ Order: get the local inputs with the expected hashes → build `sd-clone-trial` 
 revision. `sd-mod-session/build_chords_candidate.py` compiles the app library
 (`phone-input.so`); `verify_*.py` run scoped checks. These research scripts depend on frozen earlier
 build outputs, verified preceding packages and your local firmware/rootfs; they
-are not a standalone fresh-checkout build. r27p was assembled with `package_palette_recovery.py` over a verified earlier package.
+are not a standalone fresh-checkout build. r27q was assembled with `package_r27q.py` over the verified r27p package.
 `refresh_release_docs.py` can refresh documentation
 from an explicit verified base ZIP while asserting unchanged autorun bytes. ARM/QEMU checks (`verify_*.py`, `check_*.c`) use clearly marked
 adapters and do not replace a hardware run.

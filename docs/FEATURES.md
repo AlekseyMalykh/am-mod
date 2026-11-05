@@ -143,7 +143,7 @@ Works in Save Project / Save Sample and in search. **K1** switches Encoder / Pad
 - Colours: letters white, digits green, symbols amber, case violet, delete red.
 - Latin letters only.
 
-**r27q candidate:** in the name window (Save Project / Save Sample) **Erase** deletes in both input modes: before the cursor with pads, the selected letter with the encoder.
+**r27q:** in the name window (Save Project / Save Sample) **Erase** deletes in both input modes: before the cursor with pads, the selected letter with the encoder.
 
 ## 4. Orig Note, key and Lights
 
@@ -154,7 +154,7 @@ Works in Save Project / Save Sample and in search. **K1** switches Encoder / Pad
 | **Lights**: pad colours for 16 Levels Tune by note | Sample → B2: Tune → Play → **Lights** | partly confirmed |
 
 Lights: K1 is the **Layout**, K2 the tonic, K3 the scale; with Shift, K1 is Transpose16, K2 the colour group, K3 its colour.
-- Layouts: **Monochrome** (stock colours), **Piano** (white and black keys), **Scale** (tonic / in scale / out of scale, every pad lit) and **Degrees** (r27q candidate: the 16 pads play **only notes of the key**, one scale degree per pad. Pad by pad you go up the scale: with C Major and Orig Note C on the original pad you get C D E F G A B C D…; Transpose16 then shifts by scale degrees. If the original note is not in the key, the layout starts from the next key note above it and the original note is not shown. All pads are lit; the tonic I, IV and V are highlighted, each in its own colour, other degrees are dimmer). Default colours for new sounds: tonic Red, key notes Cyan (also in Scale), IV Violet, V Yellow, original note Magenta, out of key (Scale) Grey. In Chromatic, IV and V are the perfect fourth and fifth; in Lydian and Locrian they follow the scale (#4, b5). Older Tonic values load as Scale; projects saved with Degrees open as Scale in r27p and earlier.
+- Layouts: **Monochrome** (stock colours), **Piano** (white and black keys), **Scale** (tonic / in scale / out of scale, every pad lit) and **Degrees** (r27q: the 16 pads play **only notes of the key**, one scale degree per pad. Pad by pad you go up the scale: with C Major and Orig Note C on the original pad you get C D E F G A B C D…; Transpose16 then shifts by scale degrees. If the original note is not in the key, the layout starts from the next key note above it and the original note is not shown. All pads are lit; the tonic I, IV and V are highlighted, each in its own colour, other degrees are dimmer). Default colours for new sounds: tonic Red, key notes Cyan (also in Scale), IV Violet, V Yellow, original note Magenta, out of key (Scale) Grey. In Chromatic, IV and V are the perfect fourth and fifth; in Lydian and Locrian they follow the scale (#4, b5). Older Tonic values load as Scale; projects saved with Degrees open as Scale in r27p and earlier.
 - In Degrees, the Shift colour groups are **I Tonic**, **Key notes**, **IV**, **V** and **Original**; in Scale they are Tonic, Scale, Other and Original (Tonic and Scale/Key notes are shared). A changed IV or V colour is saved in project format MPCS19; r27p and earlier cannot read the mod settings of such a project. With default IV/V colours the project stays readable by older builds.
 - Tonic and scale either follow the project (shown as **(P)**) or are set per sound. 12 colours including Off; the sample's original pitch has its own colour.
 - **Transpose16 −24…+24** shifts the 16 Levels Tune layout without changing normal pad playback.
@@ -259,7 +259,7 @@ When the selected event has a C or L mark, the Chop or 16 Levels button lights u
 
 ## 11. Browser, search and preview
 
-**Search:** Sample Select / Open Project → **Shift+B3 Search**. **Status:** search in the current folder confirmed, the rest trial; the r27q candidate redesign below still needs a device check.
+**Search:** Sample Select / Open Project → **Shift+B3 Search**. **Status:** search in the current folder confirmed, the rest trial; the r27q window and controls still need a wider device check.
 
 - **Query page:** type with the pads (or the encoder with K1 = Encoder). The first three matches appear live under the query with the count in the top right, so the list is often not needed. **Shift+Erase** clears the query; Erase deletes one character. The previous query is restored when Search is opened again in the same session.
 - **K1** Input (Pads / Encoder), **K2 Search in**: **Folder** (the open folder only), **Library** (the whole library the open folder belongs to, default), **SD Card** (the card's MPC-Sample library), **All** (Library + SD card). The choice is kept until restart. **K3** preview volume. With Pads input the encoder moves the cursor; pad 16 deletes, Shift+pad 16 deletes forward. Pressing the encoder enters the letter: with Pads it confirms the multi-tap letter, with Encoder input it adds the next letter. B2 List / B3 Find open the results. With Encoder input, turning changes the letter, +/− move the cursor. **Erase** deletes in both modes (the selected letter with the encoder); Shift+Erase clears the query.

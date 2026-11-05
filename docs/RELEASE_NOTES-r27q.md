@@ -1,7 +1,5 @@
 # Am MOD r27q — Degrees, search and window polish
 
-> Candidate, not published. Sources pass a host build (gcc, `-Werror`) and host tests; the ARM build, VM run and MPC check are still pending.
-
 MPC Sample **1.3.0.12**. Changes since r27p; includes all its features and fixes.
 
 - **Degrees layout.** Sample → Tune → Play → Lights: K1 is now called **Layout** and offers Monochrome, Piano, Scale and **Degrees**. In Degrees the 16 pads play only notes of the key, one degree per pad (C Major: C D E F G A B C…); Transpose16 shifts by degrees. All pads are lit: the sample's original note (when it is in the key), the tonic I, and degrees IV and V each have their own colour; other key notes are dimmer. New defaults in Scale and Degrees: tonic Red, key notes Cyan, IV Violet, V Yellow, original note Magenta. Colours change with Shift+K2/K3 (groups I Tonic, Key notes, IV, V, Original). A project saved with Degrees opens as Scale in r27p and earlier; a changed IV or V colour saves the project as MPCS19, which r27p and earlier cannot read.
@@ -12,5 +10,9 @@ MPC Sample **1.3.0.12**. Changes since r27p; includes all its features and fixes
 - **Messages.** Technical “… unavailable” errors are replaced by short hints on what to do. Encoder hints read Turn / Press everywhere.
 
 **Unchanged:** Merge in Chop is not restored — Erase + pad gives the same result.
+
+**Tested:** the ARM build passes the full preload check over all 51 native hooks and the DRM splash checks; host tests cover Degrees for all eight scales, colour persistence (MPCS19), text deletion and the splash text. Earlier r27q builds were tried on an MPC by the author; Degrees colours, search controls and the new windows still need wider hardware testing.
+
+**Install:** back up projects and samples. Copy the complete `autorun/` folder from `am-mod-r27q.zip` to the card root, or select the ZIP (or *Latest release*) in Installer 1.0.3.
 
 [Known issues](KNOWN_ISSUES.md) · [r27p changes](RELEASE_NOTES-r27p.md)

@@ -1,7 +1,7 @@
 # Known issues, testing status and requests
 
-Updated **5 November 2026**. Latest release **r27p**; r26s remains available as an older version.
-[Full changes](RELEASE_NOTES-r27p.md) ·
+Updated **5 November 2026**. Latest release **r27q**; r27p and r26s remain available as older versions.
+[Full changes](RELEASE_NOTES-r27q.md) ·
 [Settings](MOD_SETTINGS.md) · [Original Leusha list, Russian](TESTER_FEEDBACK_LEUSHA.ru.md).
 
 Implemented means the change and stated coverage exist, not that the entire
@@ -10,6 +10,9 @@ power-off, External saves and stock startup without the mod card.
 
 | ID | Status | Implementation / next check |
 | --- | --- | --- |
+| Q01 | Added in r27q; device check pending | Degrees layout: pads play key notes, I/IV/V colours, Transpose16 by degrees, MPCS19 colours. Check every scale, an original note outside the key, Steps playback flashes and Save/Load. |
+| Q02 | Changed in r27q; device check pending | Search: Folder/Library/SD Card/All, live matches, preview on, encoder press enters a letter, Erase in Encoder input (also in the Save name window). |
+| Q03 | Changed in r27q; device check pending | Rear Routing, Mod Settings and confirmations redrawn in the stock style; anti-aliased splash text. |
 | N19 | Fixed in r27p; author accepted build | Knob FX owns K1–K3 over custom pages; FIFO boundary handles rapid FX entry. ARM64 routing checks pass. |
 | N20 | Fixed in r27p; VM and ARM64 selection coverage | Compressor Tune Scale follows the actual selected sample, not hidden Sample labels. Orig Note selects Scale; all 128 indexes covered. |
 | N21 | Fixed in r27p | First encoder click after leaving Mod Settings is forwarded; hidden Sample controls yield to Project. Ten rapid transitions passed in the preceding VM candidate; ARM64 regression test retained. |
