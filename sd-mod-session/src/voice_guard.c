@@ -13,6 +13,9 @@
  * waits at most 250 ms and otherwise runs unguarded as before, so a native
  * lock order we cannot see can never deadlock the device. */
 #include "voice_guard.h"
+#ifdef MPC_REAR_ROUTING
+#include "rear_native.h"
+#endif
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdio.h>
@@ -26,7 +29,11 @@ static pthread_mutex_t render_lock;
 static _Atomic unsigned guard_stats[3];
 static void *audio_render(void *engine,void *a,void *b){
     pthread_mutex_lock(&render_lock);
+#ifdef MPC_REAR_ROUTING
+    void *r=rear_native_process(engine,a,b,(rear_render_fn)(image+0x18d7630));
+#else
     void *r=((void*(*)(void*,void*,void*))(image+0x18d7630))(engine,a,b);
+#endif
     pthread_mutex_unlock(&render_lock);
     return r;
 }

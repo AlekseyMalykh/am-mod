@@ -207,7 +207,7 @@ int music_ui_tick(void)
     atomic_store(&seq_active,!pv&&visible(seq_screen)&&!music_ui_repeat_active());
     if (!sv) lights=0;
 #ifdef MPC_PAD_EQ
-    if(!sv||FIELD(sample,0xe50+0x218,int)!=1)eq_close();
+    if(sv&&FIELD(sample,0xe50+0x218,int)!=1)eq_close();
     /* Repaint-driven watching expires during silence. Keep capture alive
      * while a spectrum page is actually visible, and stop it on leaving. */
     unsigned spectrum_pad;

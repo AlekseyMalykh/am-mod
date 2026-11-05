@@ -1,6 +1,8 @@
 #define _GNU_SOURCE
 #include "note_native.h"
 #include "music_settings.h"
+#include "music_ui.h"
+#include "music_lighting.h"
 #include <math.h>
 #include <stdatomic.h>
 #include <stdio.h>
@@ -17,6 +19,7 @@ static _Atomic unsigned trim_active,focused_trim;
 static unsigned colour_push_owned;
 static void give_back_knob_focus(void);
 static int original_note = -1, previous_shift = -1, selection_valid;
+static int selected_tuning;
 static char selected_pad[16], selected_sample[513];
 static unsigned log_count;
 static uint64_t selection_generation;
@@ -25,7 +28,7 @@ static uint64_t selection_generation;
 #define SAMPLE_VPTR 0x6e212a0
 #define SLIDER_VPTR 0x706e5d0
 #define SEMI_OFFSET 0x60b8
-extern void note_label_string(void *label,uint64_t *out,uintptr_t function);
+extern void step_layer_sample(void*,unsigned,uintptr_t*,uintptr_t);
 static const char *notes[12]={"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
 
 static void log_note(const char *s)
@@ -68,7 +71,7 @@ static void forget(void)
 static int showing(void)
 {
     if (atomic_exchange(&destroyed,0)) forget();
-    if (atomic_load(&repeat_held) || !root || !slider || FIELD(root,0,uintptr_t)!=base+SAMPLE_VPTR
+    if (!music_ui_chords_available() || atomic_load(&repeat_held) || !root || !slider || FIELD(root,0,uintptr_t)!=base+SAMPLE_VPTR
         || FIELD(slider,0,uintptr_t)!=base+SLIDER_VPTR) return 0;
     return FN(0x112fd50,int(*)(void*))(slider)
         && !FN(0x112f6b0,int(*)(void*))(slider);
@@ -90,7 +93,9 @@ static void *trim_slider(void){ return volume_slider_here(); }
  * Sample screen itself is showing. */
 static int trim_showing(void)
 {
-    if (!music_pad_lighting_mode() || !root || FIELD(root,0,uintptr_t)!=base+SAMPLE_VPTR || atomic_load(&repeat_held)) return 0;
+    /* Project is an overlay: native Sample children can still be showing
+     * underneath it. Its encoder press belongs to the top-level menu. */
+    if (!music_ui_chords_available() || !music_pad_lighting_mode() || !root || FIELD(root,0,uintptr_t)!=base+SAMPLE_VPTR || atomic_load(&repeat_held)) return 0;
     void *b1=(char*)root+0x190;
     return FIELD(b1,0x21c,int)==2 && FIELD(b1,0x218,int)==1
         && FN(0x112fd50,int(*)(void*))(root) && !FN(0x112f6b0,int(*)(void*))(root);
@@ -108,29 +113,47 @@ static int shifted(void)
                                          __ATOMIC_ACQUIRE)!=0;
 }
 
-static int label(void *p,char *out,size_t size)
+static void *selection_instrument(unsigned *pad)
 {
-    uint64_t text=0;
-    note_label_string(p,&text,base+0x11bae00);
-    const char *s=(const char*)(uintptr_t)text;
-    size_t n=s ? strnlen(s,size) : size;
-    int ok=n<size;
-    if (ok) memcpy(out,s,n+1);
-    FN(0xf0a290,void(*)(uint64_t*))(&text);
-    return ok;
+    void *things=note_native_context();
+    void *program=things?FIELD(things,0xb8,void*):NULL;
+    if(!program)return NULL;
+    unsigned enabled,mode,origin;
+    music_lighting_levels_state(&enabled,&mode,&origin);
+    int index=(int)FIELD(things,0x5f8,unsigned);
+    void *instrument;
+    if(enabled){
+        instrument=FIELD(things,0x668,void*);
+        index=instrument?FN(0x286bc20,int(*)(void*,void*))(program,instrument):-1;
+    }else instrument=index>=0&&index<128?FN(0x286bbe0,void*(*)(void*,int))(program,index):NULL;
+    if(index<0||index>=128)return NULL;
+    *pad=(unsigned)index;
+    return instrument;
 }
 
 static int selection(void)
 {
-    char pad[16]={0}, sample[513]={0};
-    if (!label((char*)root+0x1290,pad,sizeof(pad))
-        || !label((char*)root+0x1438,sample,sizeof(sample))) {
-        original_note=-1; selection_valid=0; return 0;
+    char pad[16]={0}, sample[513]={0};unsigned index=128;
+    void *instrument=selection_instrument(&index);
+    selected_tuning=0;
+    if(index<128)snprintf(pad,sizeof(pad),"%c%02u",'A'+index/16,index%16+1);
+    /* Hidden Sample labels/sliders do not follow pad changes in Compressor.
+     * Resolve the same instrument/layer as the native 16 Levels processor. */
+    if(instrument&&FIELD(instrument,0x22e8,void*)){
+        uintptr_t value[2]={0};
+        step_layer_sample(instrument,0,value,base+0x2803b90);
+        if(value[0]){
+            const char *name=FIELD((void*)value[0],0xa8,const char*);
+            size_t n=name?strnlen(name,sizeof(sample)):0;
+            if(n&&n<sizeof(sample)){
+                memcpy(sample,name,n+1);
+                void *layer=FIELD(instrument,0x22e8,void*);
+                selected_tuning=FIELD(instrument,0xb98,int8_t)+FIELD(layer,0x60,int8_t);
+            }
+        }
+        if(value[1])FN(0x123bca0,void(*)(void*))((void*)value[1]);
     }
-    int number=(pad[1]>='0' && pad[1]<='9' && pad[2]>='0' && pad[2]<='9')
-        ? (pad[1]-'0')*10+pad[2]-'0' : 0;
-    int ok=pad[0]>='A' && pad[0]<='D' && strlen(pad)==3
-        && number>=1 && number<=16 && sample[0] && strcmp(sample,"Sample Name");
+    int ok=index<128&&sample[0];
     uint64_t generation=music_generation();
     if (strcmp(pad,selected_pad) || strcmp(sample,selected_sample) || selection_generation!=generation) {
         struct music_sample settings={0};
@@ -167,11 +190,10 @@ int note_native_current(char *name,size_t size)
 
 int note_native_pad_index(unsigned*out){
     if(atomic_exchange(&destroyed,0))forget();
-    char pad[16]={0};if(!out||!root||FIELD(root,0,uintptr_t)!=base+SAMPLE_VPTR||!label((char*)root+0x1290,pad,sizeof(pad)))return 0;
-    if(strlen(pad)!=3||pad[0]<'A'||pad[0]>'H'||pad[1]<'0'||pad[1]>'1'||pad[2]<'0'||pad[2]>'9')return 0;
-    unsigned number=(unsigned)(pad[1]-'0')*10+(unsigned)(pad[2]-'0');if(number<1||number>16)return 0;
-    *out=(unsigned)(pad[0]-'A')*16+number-1;
-    return *out<128;
+    if(!out)return 0;
+    unsigned pad=128;selection_instrument(&pad);
+    if(pad>=128)return 0;
+    *out=pad;return 1;
 }
 void *note_native_context(void)
 {
@@ -237,8 +259,8 @@ int note_native_tick(void)
     if (selection_valid) {
         struct music_sample settings;
         music_get_sample(selected_sample,&settings);
-        double semi=FN(0x11234b0,double(*)(void*))(slider);
-        if (isfinite(semi) && semi>= -96 && semi<=96) music_publish(&settings,(int)lround(semi));
+        int semi=selected_tuning;
+        if (semi>= -96 && semi<=96) music_publish(&settings,semi);
         else music_publish(NULL,0);
     } else music_publish(NULL,0);
     if (shift!=previous_shift || original_note!=before || was_valid!=selection_valid) {

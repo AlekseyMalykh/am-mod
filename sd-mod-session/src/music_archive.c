@@ -1,6 +1,11 @@
 #define _GNU_SOURCE
 #include "music_archive.h"
 #include "music_settings.h"
+#ifdef MPC_REAR_ROUTING
+#include "rear_audio.h"
+static _Thread_local uint64_t *loading_rear;
+static _Thread_local int *loading_rear_valid;
+#endif
 #ifdef MPC_COMPRESSOR
 #include "compressor.h"
 #endif
@@ -102,6 +107,14 @@ void music_archive_load(void *data,void *archive,void (*original)(void*,void*))
         const char*settings=optional_named_payload(archive,settings_extension,128);
         if(settings&&!settings_decode(settings,loading_settings))report("INVALID_SETTINGS_IGNORED");
     }
+#ifdef MPC_REAR_ROUTING
+    if(loading_rear){
+        const char *text=optional_named_payload(archive,"mpcSampleModRearV1",64);
+        uint64_t value=0;int valid=text&&strlen(text)==18&&!memcmp(text,"AMR1 ",5)&&text[17]=='\n';
+        if(valid)for(unsigned i=5;i<17;++i){unsigned c=(unsigned char)text[i];if(c>='0'&&c<='9')c-='0';else if(c>='a'&&c<='f')c=c-'a'+10;else{valid=0;break;}value=(value<<4)|c;}
+        if(valid&&rear_settings_valid(value)){*loading_rear=value;*loading_rear_valid=1;}
+    }
+#endif
 #ifdef MPC_PROJECT_RECOVERY
     const char *recovery=optional_named_payload(archive,"mpcSampleModRecoveryV1",PROJECT_RECOVERY_BYTES);
     if(loading_recovery&&recovery)memcpy(loading_recovery,recovery,strlen(recovery)+1);
@@ -119,6 +132,11 @@ void music_archive_load(void *data,void *archive,void (*original)(void*,void*))
 
 int music_archive_read(void *data,void *json,int (*original)(void*,void*))
 {
+#ifdef MPC_REAR_ROUTING
+    uint64_t rear=0,*previous_rear=loading_rear;
+    int rear_valid=0,*previous_rear_valid=loading_rear_valid;
+    loading_rear=&rear;loading_rear_valid=&rear_valid;
+#endif
     struct music_project *previous=loading;
     int previous_seen=loading_seen;
     struct settings_snapshot pending_settings={0,0,0},*previous_settings=loading_settings;
@@ -130,6 +148,9 @@ int music_archive_read(void *data,void *json,int (*original)(void*,void*))
     loading=pending; loading_seen=0;
     int success=original(data,json);
     if (success) {
+#ifdef MPC_REAR_ROUTING
+        if(rear_valid)rear_settings_restore(rear);else rear_settings_reset();
+#endif
         if (pending && loading_seen) music_replace(pending);
         else music_reset();
         if(pending_settings.valid)music_mod_settings_restore(pending_settings.display);
@@ -143,6 +164,9 @@ int music_archive_read(void *data,void *json,int (*original)(void*,void*))
 #endif
     }
     loading=previous; loading_seen=previous_seen; free(pending);
+#ifdef MPC_REAR_ROUTING
+    loading_rear=previous_rear;loading_rear_valid=previous_rear_valid;
+#endif
     loading_settings=previous_settings;
 #ifdef MPC_PROJECT_RECOVERY
     loading_recovery=previous_recovery;
@@ -177,6 +201,9 @@ void music_archive_save(void *data,void *archive,void (*original)(void*,void*))
     }
     music_snapshot(snapshot);
     uint64_t display_settings=music_mod_settings_snapshot(),compressor_settings=0;
+#ifdef MPC_REAR_ROUTING
+    uint64_t rear_settings=rear_settings_snapshot();
+#endif
 #ifdef MPC_COMPRESSOR
     compressor_settings=compressor_project_snapshot();
 #endif
@@ -201,6 +228,13 @@ void music_archive_save(void *data,void *archive,void (*original)(void*,void*))
         struct {const char*data;size_t size,capacity,unused;} value={settings,36,36,0};
         FN(0x1d27d90,void(*)(void*,const char*,const void*))(archive,settings_extension,&value);
     }
+#ifdef MPC_REAR_ROUTING
+    char rear_text[20];int rear_size=snprintf(rear_text,sizeof(rear_text),"AMR1 %012llx\n",(unsigned long long)rear_settings);
+    if(rear_size==18){
+        struct {const char*data;size_t size,capacity,unused;} value={rear_text,18,18,0};
+        FN(0x1d27d90,void(*)(void*,const char*,const void*))(archive,"mpcSampleModRearV1",&value);
+    }
+#endif
 #ifdef MPC_PROJECT_RECOVERY
     const char *recovery=project_recovery_copy_payload();
     if(recovery){

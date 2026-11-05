@@ -6,6 +6,10 @@
 #endif
 #include "phone_hooks.h"
 #include "sample_load_trace.h"
+#ifdef MPC_REAR_ROUTING
+#include "rear_native.h"
+static _Atomic unsigned consumed_rear;
+#endif
 #ifdef MPC_LOOP_FEEDBACK
 #include "sample_playing.h"
 #endif
@@ -166,7 +170,11 @@ static unsigned char gesture_down_events[2][16];
 #ifdef MPC_POWER_BUTTON
 static unsigned char power_stop_template[16];
 static unsigned power_stop_ready;
-int power_control_operation_busy(void){return workflow_jobs_busy()||resample_ui_shutdown_busy();}
+int power_control_operation_busy(void){return workflow_jobs_busy()||resample_ui_shutdown_busy()
+#ifdef MPC_REAR_ROUTING
+||rear_native_busy()
+#endif
+;}
 #endif
 static int on_ui(void);
 static unsigned tail_mode(void){
@@ -242,6 +250,13 @@ static void workflow_buttons(void*event,uint64_t ticket){
   note(code==0x09?"WORKFLOW_PAIRED_ERASE_RELEASE":"WORKFLOW_PAIRED_NATIVE_RELEASE");
   forward_buttons(event);
  }
+}
+static void music_buttons(void *event){
+ /* A menu may close earlier in this FIFO batch. Its producer-side claim
+  * is only a hint: if the UI owner declines, preserve the native click. */
+ unsigned code=FIELD(event,8,unsigned char),down=FIELD(event,9,unsigned char)!=0;
+ if(!music_ui_button(event)||(!down&&code<112&&atomic_load(&native_buttons_down[code])))
+  forward_buttons(event);
 }
 
 static int on_ui(void) { return ui_known && pthread_equal(ui_thread, pthread_self()); }
@@ -413,6 +428,9 @@ static void tick(void *unused)
     int music_running=music_ui_tick();
     int step_running=step_native_tick();
     int workflow_running=workflow_tick();
+#ifdef MPC_REAR_ROUTING
+    int rear_running=rear_ui_tick();
+#endif
 #ifdef MPC_COMPRESSOR
     int compressor_running=compressor_ui_tick();
 #endif
@@ -455,6 +473,9 @@ static void tick(void *unused)
         if (!note_running && !music_running && !step_running && !workflow_running && !resample_active && !step_native_active() && !phone_events_pending()
 #ifdef MPC_COMPRESSOR
             && !compressor_running
+#endif
+#ifdef MPC_REAR_ROUTING
+            && !rear_running
 #endif
 #ifdef MPC_POWER_BUTTON
             && !power_control_busy()
@@ -588,6 +609,7 @@ static void music_project_paint(void *p,void *g)
 #endif
     start_timer();
 }
+void rear_ui_wake(void){if(!ui_known){ui_thread=pthread_self();ui_known=1;}if(on_ui())start_timer();}
 static void music_tab_paint(void *p,void *g)
 {
     if (!ui_known) { ui_thread=pthread_self(); ui_known=1; }
@@ -638,11 +660,17 @@ static void private_preview_worker(void*payload){
 }
 static void copy_dtor(void*p){workflow_destroyed(p);ORIG(H_COPY_DTOR,void(*)(void*))(p);}
 static void copy_context_ctor(void*p,void*a,void*b,void*c){ORIG(H_COPY_CONTEXT_CTOR,void(*)(void*,void*,void*,void*))(p,a,b,c);workflow_copy_context(p,a);
+#ifdef MPC_REAR_ROUTING
+    rear_native_bind(p,a);
+#endif
 #ifdef MPC_RESAMPLE_TRIAL
     resample_ui_bind(p);
 #endif
 }
 static void copy_context_dtor(void*p){
+#ifdef MPC_REAR_ROUTING
+    rear_native_dead(p);
+#endif
 #ifdef MPC_RESAMPLE_TRIAL
     resample_ui_context_dead(p);
 #endif
@@ -708,12 +736,18 @@ static void music_save(void *p,void *a)
 { music_archive_save(p,a,ORIG(H_MUSIC_SAVE,void(*)(void*,void*))); }
 static void music_load(void *p,void *a)
 {
+#ifdef MPC_REAR_ROUTING
+    rear_native_project_changed();
+#endif
 #ifdef MPC_RESAMPLE_TRIAL
     resample_ui_project_changing();
 #endif
     music_archive_load(p,a,ORIG(H_MUSIC_LOAD,void(*)(void*,void*))); }
 static int music_read(void *p,void *j)
 {
+#ifdef MPC_REAR_ROUTING
+    rear_native_project_changed();
+#endif
 #ifdef MPC_RESAMPLE_TRIAL
     resample_ui_project_changing();
 #endif
@@ -726,6 +760,9 @@ static void music_key(void *p,void *a,const void *pair)
 static void new_project(void *p,int *choice)
 {
     int confirmed=choice && *choice==1;
+#ifdef MPC_REAR_ROUTING
+    if(confirmed){rear_native_project_changed();rear_settings_reset();}
+#endif
 #ifdef MPC_RESAMPLE_TRIAL
     if(confirmed)resample_ui_project_changing();
 #endif
@@ -909,6 +946,9 @@ static void controller_ui(void *event,uint64_t route)
         }
         if (cc == 0x64) before_native(editor);
     }
+#ifdef MPC_REAR_ROUTING
+    if(on_ui()&&rear_ui_control(event))return;
+#endif
 #ifdef MPC_COMPRESSOR
     if(on_ui()&&compressor_ui_owns(PHONE_CONTROLLER,cc)&&compressor_ui_control(event,compressor_ui_ticket()))return;
 #endif
@@ -927,6 +967,9 @@ static void buttons_ui(void *event,uint64_t route)
     if(on_ui()&&project_recovery_save_button(base,screen,event))return;
 #endif
     int naming=on_ui()&&editor&&visible();
+#ifdef MPC_REAR_ROUTING
+    if(!naming&&on_ui()&&rear_ui_button(event))return;
+#endif
     unsigned code=FIELD(event,8,unsigned char),down=FIELD(event,9,unsigned char)!=0;
     if(naming&&state.enabled&&(code==0x36||code==0x37)){
         /* Pads input has one insertion cursor. Native +/- edit their own
@@ -969,6 +1012,9 @@ static void buttons_ui(void *event,uint64_t route)
 
 static void queue_failed(void)
 {
+#ifdef MPC_REAR_ROUTING
+    rear_ui_fault();
+#endif
 #ifdef MPC_RESAMPLE_TRIAL
     resample_ui_fault();
 #endif
@@ -1006,6 +1052,9 @@ static int queue_native(void *native,unsigned kind)
 #ifdef MPC_COMPRESSOR
     if(!naming&&compressor_ui_owns(kind,FIELD(native,8,unsigned char))){e.pad=64u;e.workflow_ticket=compressor_ui_ticket();}
 #endif
+#ifdef MPC_REAR_ROUTING
+    if(!naming&&rear_ui_owns(kind,FIELD(native,8,unsigned char)))e.pad=128u;
+#endif
     if (phone_events_push(&e)) return 1;
     queue_failed();
     if (e.pad) return 1;
@@ -1016,6 +1065,11 @@ static int forward_main_volume(void*event)
 {
     if(FIELD(event,8,unsigned char)!=0x13)return 0;
     ORIG(H_CONTROLLER,void(*)(void*))(event);return 1;
+}
+static int forward_knob_fx(void *event){
+ unsigned cc=FIELD(event,8,unsigned char);
+ if(cc<0x10||cc>0x12||phone_native_button_light(0x00)<2)return 0;
+ ORIG(H_CONTROLLER,void(*)(void*))(event);return 1;
 }
 static void controller(void *event)
 {
@@ -1030,6 +1084,7 @@ static void controller(void *event)
     /* Physical Main Volume is global, including custom search/Batch views.
      * Never queue it behind modal ownership or discard it on a new ticket. */
     if(forward_main_volume(event))return;
+    if(!phone_events_pending()&&!atomic_load(&ui_dispatching)&&forward_knob_fx(event))return;
 #ifdef MPC_KNOB_RESET
     if(!atomic_load(&naming_active)&&knob_reset_claim(FIELD(event,8,unsigned char))){
         struct phone_event e={0};e.kind=PHONE_KNOB_RESET;e.when_ms=now_ms();
@@ -1050,6 +1105,9 @@ static void controller(void *event)
     int custom_owned=atomic_load(&naming_active)||resample_running()||
         note_native_owns(native_cc)||music_ui_owns(native_cc)||
         step_native_owns(native_cc)||workflow_owns(PHONE_CONTROLLER,native_cc)
+#ifdef MPC_REAR_ROUTING
+        ||rear_ui_owns(PHONE_CONTROLLER,native_cc)
+#endif
 #ifdef MPC_CHORDS
         ||chords_ui_owns(native_cc)
 #endif
@@ -1119,6 +1177,9 @@ static void buttons(void *event)
 #ifdef MPC_COMPRESSOR
         ||compressor_ui_owns(PHONE_BUTTON,native_code)
 #endif
+#ifdef MPC_REAR_ROUTING
+        ||rear_ui_owns(PHONE_BUTTON,native_code)
+#endif
         )
         && queue_native(event,PHONE_BUTTON)) return;
     forward_buttons(event);
@@ -1155,6 +1216,14 @@ static void pad_event(void *event)
 #endif
 #ifdef MPC_CHORDS
     if((down||up)&&chords_parameter(pad,down))return;
+#endif
+#ifdef MPC_REAR_ROUTING
+    if((atomic_load(&consumed_rear)&bit)||(!atomic_load(&naming_active)&&rear_ui_pad_owns())){
+        if(down)atomic_fetch_or(&consumed_rear,bit);
+        if(down||up){struct phone_event e={0};e.kind=PHONE_REAR_PAD;e.pad=pad;e.down=(unsigned)down;e.up=(unsigned)up;if(!phone_events_push(&e))queue_failed();}
+        if(up)atomic_fetch_and(&consumed_rear,~bit);
+        return;
+    }
 #endif
     if(music_ui_exit_saving())return;
 #ifdef MPC_RESAMPLE_TRIAL
@@ -1237,6 +1306,12 @@ static unsigned process_events(void)
         }
 #ifdef MPC_KNOB_RESET
         if(e.kind==PHONE_BANK_PAD){
+#ifdef MPC_REAR_ROUTING
+            if(rear_ui_pad_owns()){
+                if(e.down&&e.pad<8&&!rear_native_busy())step_native_browser_bank((int)e.pad);
+                continue;
+            }
+#endif
             _Alignas(8) unsigned char native[40];memcpy(native,e.native,16);memcpy(native+16,e.midi,24);
             ORIG(H_PAD,void(*)(void*))(native);continue;
         }
@@ -1262,9 +1337,14 @@ static unsigned process_events(void)
         int current = !atomic_load(&editor_destroyed) && editor &&
             e.generation == atomic_load(&generation) && visible();
         if (e.kind == PHONE_CONTROLLER) {
+            if(forward_knob_fx(e.native))continue;
             if (current && !(seen&1)) { seen|=1; note("FIFO_CONTROLLER_ON_UI"); }
             if (e.pad) {
                 /* Never replay a claimed metadata edit as native audio pitch. */
+#ifdef MPC_REAR_ROUTING
+                if(e.pad&128u){if(!rear_ui_control(e.native))ORIG(H_CONTROLLER,void(*)(void*))(e.native);}
+                else
+#endif
 #ifdef MPC_COMPRESSOR
                 if(e.pad&64u)compressor_ui_control(e.native,e.workflow_ticket);
                 else
@@ -1289,6 +1369,10 @@ static unsigned process_events(void)
             else ORIG(H_CONTROLLER,void(*)(void*))(e.native);
         } else if (e.kind == PHONE_BUTTON) {
             if (current && !(seen&2)) { seen|=2; note("FIFO_BUTTON_ON_UI"); }
+#ifdef MPC_REAR_ROUTING
+            if(e.pad&128u){if(!rear_ui_button(e.native))forward_buttons(e.native);}
+            else
+#endif
 #ifdef MPC_COMPRESSOR
             if(e.pad&64u)compressor_ui_button(e.native,e.workflow_ticket);
             else
@@ -1312,14 +1396,20 @@ static unsigned process_events(void)
                 if (step_native_button_at(e.native,e.step_ticket,e.when_ms)==2)
                     forward_buttons(e.native);
             }
-            else if (e.pad&2u) music_ui_button(e.native);
+            else if (e.pad&2u) music_buttons(e.native);
             else if (current || note_native_active() || music_ui_active() || step_native_active()
 #ifdef MPC_COMPRESSOR
                     ||compressor_ui_owns(PHONE_BUTTON,FIELD(e.native,8,unsigned char))
 #endif
                     ) buttons_ui(e.native,e.step_ticket);
             else forward_buttons(e.native);
+            /* Let native FX visibility/LED listeners finish before the next
+             * queued K movement chooses between FX and an underlying page. */
+            if(FIELD(e.native,8,unsigned char)==0x00&&FIELD(e.native,9,unsigned char))break;
         }
+#ifdef MPC_REAR_ROUTING
+        else if(e.kind==PHONE_REAR_PAD){rear_ui_pad(e.pad,(int)e.down);}
+#endif
 #ifdef MPC_RESAMPLE_TRIAL
         else if(e.kind==PHONE_RESAMPLE_PAD){
             resample_pad_ui(&e);
@@ -1537,6 +1627,12 @@ static void rgb(void *s,uint32_t colour,unsigned pad)
         if((knob_reset_ticket()&2)&&atomic_load(&native_buttons_down[0x23])){ORIG(H_RGB,void(*)(void*,uint32_t,unsigned))(s,colour,pad);return;}
 #endif
         uint64_t workflow_colour;
+#ifdef MPC_REAR_ROUTING
+        if(rear_ui_light(pad,&workflow_colour)){
+            uint32_t packed=FN(0x23b00c0,uint32_t(*)(const uint64_t*))(&workflow_colour);
+            ORIG(H_RGB,void(*)(void*,uint32_t,unsigned))(s,packed,pad);return;
+        }
+#endif
 #ifdef MPC_STOCK_RESAMPLE
         if(resample_ui_light(pad,&workflow_colour)){
             uint32_t packed=FN(0x23b00c0,uint32_t(*)(const uint64_t*))(&workflow_colour);
@@ -1643,12 +1739,18 @@ static void send_step_lights(void)
                    |(compressor_ui_active()?256u:0u)
 #endif
                    |(atomic_load(&native_mute_mode)?512u:0u)|(music_pad_lighting_mode()?1024u:0u)
+#ifdef MPC_REAR_ROUTING
+                   |(rear_ui_pad_owns()?2048u:0u)
+#endif
                    ;
         if(m!=last_mode){last_mode=m;resync=6;}
     }
     for(unsigned i=0;i<16;++i) {
         uint64_t light;unsigned bit=1u<<i;
         if (
+#ifdef MPC_REAR_ROUTING
+            rear_ui_light(i,&light) ||
+#endif
 #ifdef MPC_STOCK_RESAMPLE
             resample_ui_light(i,&light) ||
 #endif
@@ -1792,6 +1894,9 @@ static void load(void)
     }
     if (mprotect(table,4096,PROT_READ|PROT_WRITE)) { note("BRIDGE_NOT_WRITABLE"); return; }
     if (!music_ui_install(music_sample_paint,music_project_paint,music_tab_paint)) _exit(121);
+#ifdef MPC_REAR_ROUTING
+    if(!rear_native_install(base)||!rear_ui_install(base))_exit(121);
+#endif
     if (!step_native_install(step_paint)) _exit(121);
     if (!workflow_install(workflow_files,workflow_copy)) _exit(121);
 #ifdef MPC_LOOP_FEEDBACK

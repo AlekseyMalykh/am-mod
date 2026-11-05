@@ -6,11 +6,11 @@
 
 [Feedback and help](docs/FEEDBACK.md) · [Known issues](docs/KNOWN_ISSUES.md) · [Discussions](https://github.com/AlekseyMalykh/am-mod/discussions)
 
-[**Prerelease r27n**](https://github.com/AlekseyMalykh/am-mod/releases/tag/r27n) · [Stable r26s](https://github.com/AlekseyMalykh/am-mod/releases/tag/r26s)
+[**Latest release r27p**](https://github.com/AlekseyMalykh/am-mod/releases/tag/r27p) · [Previous release r26s](https://github.com/AlekseyMalykh/am-mod/releases/tag/r26s)
 
 OptoCat/Warm, the K fix, workflow pad colours, Seq pulses, Sound cursor and EQ
 side indicators. **FAT32 is experimental**; exFAT is supported.
-[Release notes](docs/RELEASE_NOTES-r27n.md) · [Remaining reports](docs/KNOWN_ISSUES.md).
+[Release notes](docs/RELEASE_NOTES-r27p.md) · [Remaining reports](docs/KNOWN_ISSUES.md).
 The author confirmed the K fix on an MPC; automated coverage and remaining
 physical checks are stated in the release notes.
 
@@ -18,7 +18,7 @@ AM Mod is a community mod for the Akai MPC Sample (firmware **1.3.0.12**) that s
 It adds a step sequencer on the pads, a chord mode, typing names with the pads, scale
 lighting, search across folders, batch copy, a per-pad EQ, resampling and more, on top of
 the stock app. Nothing is flashed: the mod runs a patched copy of the stock app in RAM.
-r27n saves a recovery copy on normal shutdown; stable r26s still includes
+r27p saves a recovery copy on normal shutdown; older r26s still includes
 **Project → Mod Off**.
 
 <p align="center"><img src="docs/media/chords.gif" alt="Chords mode: pads play chords in the project key" width="760"></p>
@@ -29,9 +29,16 @@ r27n saves a recovery copy on normal shutdown; stable r26s still includes
 > release packages**: the mod patches the copy of the app already on your MPC Sample.
 > Use at your own risk. See [NOTICE](NOTICE.md).
 
-## r27n prerelease
+## r27p release
 
 **Back up samples and projects before updating.**
+
+- **Rear recording and monitoring.** Sample Record → B2 Routing: K1 chooses Record Rear L / Record Rear R / Record L + R. Press a pad to record mono. For L + R, choose the L pad, then a different R pad; recording starts simultaneously after the second choice. B1 or STOP cancels the first choice; occupied pads require confirmation. STOP finishes recording. Hold Pad Bank and use pads 1–8 for banks. Standard stereo recording on one pad remains in the normal Sample Record window; Routing is offered only for the Rear source.
+- **Monitor without recording.** Input Config → Shift+B2 Routing: B2/B3 toggle L/R monitoring, K2/K3 set pan, Shift+K2/K3 set monitor level. The same controls work in recording Routing. Input Config pad presses never start recording. Monitor gain/pan do not change the dry mono recordings. Settings are saved with the project.
+- **Knob FX priority.** Physical K1–K3 control Knob FX while it is open, including over custom screens. Routing resumes afterwards. Note Repeat keeps its controls.
+- **Scale and Orig Note.** Setting Orig Note selects Scale. Tune lighting resolves the current sample from the project model, including when a different pad is selected in Compressor and across banks A–H.
+- **Menu clicks.** A fast encoder click after leaving Mod Settings is passed to the current native menu. Hidden Sample controls no longer take Project controls.
+- **Copy and EQ.** Hold Erase after entering Copy with Shift+Erase; Shift+Pad Bank switches banks backwards. Returning from Seq to Sample retains the EQ page.
 
 - **Preview from end.** Hold **STOP** and press a pad in Sample or Chop to hear the end of the trimmed sample or slice. In **Project → Mod Settings → B3 → Sample → Preview from end**, choose 100–4000 ms. The default is 1000 ms. The setting is saved with the project and in card defaults.
 - **Steps.** K1 sets the sequence length in bars, K2 sets the grid, and Shift+K1 is free. Use **SOUND + pad** to choose the sound and **PAD BANK** to switch banks. Available empty steps are dim, steps with events are brighter, and pads beyond the end stay dark. Mute shows audible steps in green, muted steps in red and mixed steps alternating.
@@ -39,21 +46,21 @@ r27n saves a recovery copy on normal shutdown; stable r26s still includes
 - **Palette.** Eight assignable colours plus Default for samples and sequences. Six separate system colours remain swappable in Mod Settings.
 - **Copy Pad and recovery.** Temporary audio uses a dedicated SD workspace to avoid false “Insufficient space on drive” errors with large samples. A successful named Save is recorded for project recovery.
 
-STOP + pad and the Steps changes are confirmed on MPC. Select the downloaded r27n ZIP in Installer 1.0.3 for the prerelease. Latest selects the stable release.
+Select r27p with Installer 1.0.3 or use Latest release. Back up samples and projects before updating.
 
-[Changes in r27n](docs/RELEASE_NOTES-r27n.md) · [Mod Settings](docs/MOD_SETTINGS.md) · [Changes in r27f](docs/RELEASE_NOTES-r27f.md) · [Testing status](docs/KNOWN_ISSUES.md).
+[Changes in r27p](docs/RELEASE_NOTES-r27p.md) · [Mod Settings](docs/MOD_SETTINGS.md) · [Changes in r27f](docs/RELEASE_NOTES-r27f.md) · [Testing status](docs/KNOWN_ISSUES.md).
 
 Synth, stem export, mixer/effect routing and an independent RGB editor remain
 requests, not features in this package. Thanks to Leusha, mxt1iga and all testers.
 
 Synth, stem export, and mixer/effect routing remain [future requests](docs/IDEAS.md).
 
-Ideas C01/C02: live held-chord/arp changes and force-based expression are [future requests](docs/IDEAS.md), not implemented in r27n. New-hit velocity already passes through; continuous pressure still needs investigation.
+Ideas C01/C02: live held-chord/arp changes and force-based expression are [future requests](docs/IDEAS.md), not implemented in r27p. New-hit velocity already passes through; continuous pressure still needs investigation.
 Plan M01: audit MIDI In/Out, channels/clock, external Chords/arp operation, velocity and Note On/Off. Details are in the same roadmap; verification is pending.
 
 ## Features
 
-Public prerelease r27n, 4 November 2026; stable is r26s. **Confirmed** means checked on a real MPC Sample;
+Latest release r27p, 5 November 2026; r26s remains available as an older version. **Confirmed** means checked on a real MPC Sample;
 **trial** means the specified automated checks passed; hardware coverage is pending as noted.
 
 | Feature | Where | Status |
@@ -105,7 +112,7 @@ Every feature with its controls and status: [docs/FEATURES.md](docs/FEATURES.md)
 > **Before installing or updating AM Mod, I recommend backing up all projects and samples from the SD card to your computer or another drive.** The installer's backup of `autorun/` does not include your projects or samples.
 
 > [!IMPORTANT]
-> **FAT32 / MS-DOS (FAT32) is available experimentally starting with r26e; exFAT remains supported.** FAT32 requires a package **r26e or newer** (use r27n for the current prerelease) and installer **1.0.2+**, or a manual copy of that package's complete `autorun/`. FAT32 has been checked in test images and the emulator; physical MPC testing is still pending. The published r26d and earlier packages require exFAT; updating only the installer does not add FAT32 support to an old package.
+> **FAT32 / MS-DOS (FAT32) is available experimentally starting with r26e; exFAT remains supported.** FAT32 requires a package **r26e or newer** (use r27p for the current prerelease) and installer **1.0.2+**, or a manual copy of that package's complete `autorun/`. FAT32 has been checked in test images and the emulator; physical MPC testing is still pending. The published r26d and earlier packages require exFAT; updating only the installer does not add FAT32 support to an old package.
 >
 > **Use a card volume name such as `MPC` or `MPCSAMPLE`.** Only ASCII letters, digits, `.`, `_` and `-` are supported; spaces and Cyrillic letters in the card name prevent startup. This restriction applies to the card name, not your sample/project names.
 >
@@ -125,7 +132,7 @@ refuses to start on any other version) and a compatible SD card with a supported
 ```bash
 python3 installer/mpc_mod_installer.py                 # window
 python3 installer/mpc_mod_installer.py cards           # list cards
-python3 installer/mpc_mod_installer.py install am-mod-r27n.zip --card E:
+python3 installer/mpc_mod_installer.py install am-mod-r27p.zip --card E:
 python3 installer/mpc_mod_installer.py install --latest --card /Volumes/MPC
 python3 installer/mpc_mod_installer.py remove --card E:
 ```
@@ -143,7 +150,7 @@ never touches `MPC-Sample/` (your projects and samples).
    by itself (since r22 there is no extra question). Preparation time depends on the card and project. If a start
    ever hangs at 0 %, power on without the card, wait for the normal screen, then insert it.
 
-   > **r27n shows Am MOD while preparing the app**, with the version and repository
+   > **r27p shows Am MOD while preparing the app**, with the version and repository
    > address. Public r26s has a dark transition instead. Do not power off or remove
    > the card during preparation. The splash has no artificial minimum display time.
 
@@ -151,7 +158,7 @@ never touches `MPC-Sample/` (your projects and samples).
    stock app keeps running.
 3. Work as usual. Save projects and samples to **External** (the SD card): in the mod,
    Internal storage is temporary and is lost when the mod stops.
-4. In r27n, save to External and use the power key. Remove the card only
+4. In r27p, save to External and use the power key. Remove the card only
    after shutdown. Start without the mod card to use stock. Public r26s still includes
    Project → Mod Off.
 
@@ -165,7 +172,7 @@ firmware in QEMU with the whole device in your browser, and runs SD autorun pack
 way the MPC does. The GIFs above were recorded there:
 
 ```bash
-python3 lab.py autorun am-mod-r27n.zip --no-reboot --yes
+python3 lab.py autorun am-mod-r27p.zip --no-reboot --yes
 ```
 
 Emulator runs are useful for development, but they are not a hardware test: timing, audio
@@ -184,7 +191,7 @@ Order: get the local inputs with the expected hashes → build `sd-clone-trial` 
 revision. The current application entry is `sd-mod-session/build_chords_candidate.py`;
 `verify_*.py` run scoped checks. These research scripts depend on frozen earlier
 build outputs, verified preceding packages and your local firmware/rootfs; they
-are not a standalone fresh-checkout build. r27n was assembled with `package_palette_recovery.py` over a verified earlier package.
+are not a standalone fresh-checkout build. r27p was assembled with `package_palette_recovery.py` over a verified earlier package.
 `refresh_release_docs.py` can refresh documentation
 from an explicit verified base ZIP while asserting unchanged autorun bytes. ARM/QEMU checks (`verify_*.py`, `check_*.c`) use clearly marked
 adapters and do not replace a hardware run.

@@ -8,7 +8,9 @@ int main(void){
  assert(MUSIC_SCALE==3&&MUSIC_DEGREES==4&&music_mode_ui_index(MUSIC_MONO)==0&&music_mode_ui_index(MUSIC_PIANO)==1&&music_mode_ui_index(MUSIC_SCALE)==2);
  /* r25f: Tonic and Degrees are no longer offered; stored values show and light as Scale. */
  assert(music_mode_ui_index(MUSIC_TONIC)==2&&music_mode_ui_index(MUSIC_DEGREES)==2&&music_mode_from_ui_index(2)==MUSIC_SCALE&&music_mode_from_ui_index(1)==MUSIC_PIANO&&music_mode_from_ui_index(0)==MUSIC_MONO);
- assert(music_set_sample("Bass",MUSIC_ROOT,0)&&music_set_sample("Bass",MUSIC_MODE,MUSIC_DEGREES));music_get_sample("Bass",&s);
+ assert(music_set_sample("Bass",MUSIC_ROOT,0)&&music_get_sample("Bass",&s));
+ assert(s.root==0&&s.mode==MUSIC_SCALE);
+ assert(music_set_sample("Bass",MUSIC_MODE,MUSIC_DEGREES));music_get_sample("Bass",&s);
  for(int t=-24;t<=24;++t){s.transpose=t;music_publish(&s,0);assert(music_transposition()==t);}
  s.transpose=0;assert(light(&s,0,0)==music_colours[4]);
  {struct music_sample scale=s;scale.mode=MUSIC_SCALE;struct music_sample tonic=s;tonic.mode=MUSIC_TONIC;

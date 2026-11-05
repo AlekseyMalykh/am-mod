@@ -81,7 +81,7 @@ static void batch_palette(void);
 static void batch_job_tick(void);
 static void batch_job_paint(void*);
 static _Atomic(uintptr_t) files_id,copy_id;
-static _Atomic unsigned dead_files,dead_copy,active,custom,button_routes,native_colours;
+static _Atomic unsigned dead_files,dead_copy,active,custom,button_routes,native_colours,copy_bank_held;
 static _Atomic int native_selected=-1;
 static _Atomic uint64_t epoch=1;
 static struct phone_input query;
@@ -179,7 +179,7 @@ void workflow_master_volume_bind(void*p,void*c){
  for(unsigned i=0;i<master_binding_count;++i)if(master_bindings[i].control==c){master_bindings[i].parameter=p;return;}
  if(master_binding_count<8){master_bindings[master_binding_count].parameter=p;master_bindings[master_binding_count++].control=c;}
 }
-static float master_gain(void){
+float workflow_main_output_gain(void){
  /* AC50 has raw, mapped and focused control surfaces. The native master
   * binds the RAW surface (149d100), not FileSelect's focused surface. */
  void*s=ui_service(base+0x6e08e40);void*c=s?FN(0x149d100,void*(*)(void*))(s):NULL;if(!c)return -1.f;
@@ -204,7 +204,7 @@ static void volume_bind(void*s){
 static void volume_refresh(void){
  if(!volume_service&&files)volume_bind(FIELD(files,0x120,void*));
  if(!volume_service){void*browsing=ui_service(base+0x6e0d438);if(browsing)volume_bind(browsing);}
- float gain=master_gain();
+ float gain=workflow_main_output_gain();
  void*p=volume_service?FIELD(volume_service,0x358,void*):NULL;
  void*i=p?FN(0x286bbe0,void*(*)(void*,int))(p,0x14):NULL;
  unsigned curve=i?FIELD(i,0x908,unsigned):~0u;
@@ -246,9 +246,9 @@ void workflow_preview_played(void*payload){
 int workflow_preview_prepare(void*s,int mode){
  if(mode!=FILE_SAMPLES)return 1;
  volume_bind(s);volume_refresh();
- if(!volume_ready){void*p=volume_service?FIELD(volume_service,0x358,void*):NULL;void*i=p?FN(0x286bbe0,void*(*)(void*,int))(p,0x14):NULL;fprintf(stderr,"PREVIEW BLOCKED volume=%d master_ready=%d instrument=%d curve=%u\n",!!volume_service,master_gain()>=0.f,!!i,i?FIELD(i,0x908,unsigned):~0u);browser_say("Preview not ready; sound blocked");return 0;}
+ if(!volume_ready){void*p=volume_service?FIELD(volume_service,0x358,void*):NULL;void*i=p?FN(0x286bbe0,void*(*)(void*,int))(p,0x14):NULL;fprintf(stderr,"PREVIEW BLOCKED volume=%d master_ready=%d instrument=%d curve=%u\n",!!volume_service,workflow_main_output_gain()>=0.f,!!i,i?FIELD(i,0x908,unsigned):~0u);browser_say("Preview not ready; sound blocked");return 0;}
  atomic_store(&preview_range,0);atomic_store_explicit(&preview_allowed,1,memory_order_release);
- fprintf(stderr,"PREVIEW READY level=%u master=%.4f\n",volume_percent,(double)master_gain());return 1;
+ fprintf(stderr,"PREVIEW READY level=%u master=%.4f\n",volume_percent,(double)workflow_main_output_gain());return 1;
 }
 static void volume_set(unsigned v){
  volume_percent=((v>127?127:v)*100+63)/127;volume_refresh();
@@ -519,7 +519,7 @@ static _Atomic int native_occupied=-1;
 int workflow_native_occupied(void){return atomic_load(&native_occupied);}
 int workflow_native_pad_colours(void){return (int)atomic_load(&native_colours);}
 int workflow_native_selected(void){return atomic_load(&native_selected);}
-int workflow_active(void){return atomic_load(&active);}
+int workflow_active(void){return atomic_load(&active)||atomic_load(&copy_bank_held);}
 int workflow_blocks_sample_controls(void){return atomic_load(&custom)||atomic_load(&button_routes)||atomic_load(&split_forwarded)||batch_job||batch_leaving;}
 int workflow_jobs_busy(void){return batch_job||mono_job;}
 uint64_t workflow_ticket(void){return atomic_load(&epoch);}
@@ -643,7 +643,8 @@ int workflow_tick(void){
 int workflow_owns(unsigned kind,unsigned code){
  if(kind==2&&(code==0x51||code==0x52))return 0; /* Global Stop / Play. */
  if(kind==1&&code==0x13)return 0;
- if(kind==2&&code==0x31)return 0;
+ if(kind==2&&code==0x31)return (atomic_load(&button_routes)&1u)!=0;
+ if(kind==2&&code==0x23&&atomic_load(&copy_bank_held))return 1;
  if(kind==2&&code==0x0e&&atomic_load(&split_forwarded))return 1;
  if(!atomic_load(&active))return 0;
  if(atomic_load(&custom))return 1;
@@ -656,7 +657,7 @@ int workflow_owns(unsigned kind,unsigned code){
   * there; never inspect Components, modal guards or browser objects here.
   * Claim both edges even if Shift is still waiting in the UI FIFO. */
  unsigned routes=atomic_load(&button_routes);
- if((routes&1u)&&code==0x0d)return 1;
+ if((routes&1u)&&(code==0x0d||code==0x23))return 1;
  return (routes&2u)&&(code==0x0e||code==0x0d||code==0x09);
 }
 static void change_character(int delta){
@@ -690,6 +691,7 @@ int workflow_button(void*e,uint64_t ticket){
   * window generation. In particular, Shift-up queued before Batch opened
   * must not be dropped when batch_start/exit increments epoch. */
  if(FIELD(e,8,unsigned char)==0x31){shift=FIELD(e,9,unsigned char)!=0;query.shift=shift;if(files&&!atomic_load(&dead_files))repaint(files);return 0;}
+ if(FIELD(e,8,unsigned char)==0x23&&!FIELD(e,9,unsigned char)&&atomic_exchange(&copy_bank_held,0))return 1;
  /* Pair the remapped Split release even after native Split changes view. */
  if(FIELD(e,8,unsigned char)==0x0e&&!FIELD(e,9,unsigned char)&&atomic_exchange(&split_forwarded,0)){FIELD(e,8,unsigned char)=0x0d;return 0;}
  if(ticket!=workflow_ticket())return 1;
@@ -715,6 +717,14 @@ int workflow_button(void*e,uint64_t ticket){
   if(code==0x0e){if(down)atomic_store(&split_forwarded,1);FIELD(e,8,unsigned char)=0x0d;return 0;}
  }
  if(batch_leaving||batch_job||(batch||(visible(copy_root)&&FIELD(e,8,unsigned char)==0x0d)))return batch_button(e);
+ if(FIELD(e,8,unsigned char)==0x23&&FIELD(e,9,unsigned char)&&shift&&
+    visible(copy_root)&&atomic_load(&native_colours)==2){
+  int bank=step_native_browser_bank(-1);
+  if(bank>=0&&bank<8){
+   if(!atomic_exchange(&copy_bank_held,1))step_native_browser_bank((bank+7)%8);
+   return 1;
+  }
+ }
  if(!visible(files))return 0;
  unsigned code=FIELD(e,8,unsigned char),down=FIELD(e,9,unsigned char);if(code==0x31){shift=!!down;repaint(files);return 0;}
  if(delete_confirm){if(down){if(code==0x0c)close_delete_confirm();else if(code==0x0e)delete_project_folder();}return 1;}

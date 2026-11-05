@@ -6,6 +6,8 @@
 #include <assert.h>
 static unsigned calls,requested;static unsigned state_by_code[112];
 static int allow_preview;static unsigned preview_workers;
+static int music_handled;
+int music_ui_button(void*e){(void)e;return music_handled;}
 int workflow_preview_worker(void*p){(void)p;return allow_preview;}
 void workflow_preview_played(void*p){(void)p;}
 static void preview_receiver(void*p){++preview_workers;void*r=FIELD(p,0,void*);__atomic_fetch_sub((unsigned*)((char*)r+8),1,__ATOMIC_RELEASE);}
@@ -20,6 +22,11 @@ int main(void){void*p=mmap(NULL,0x7500000,7,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);asse
  unsigned char ref[16]={0},payload[80]={0};FIELD(payload,0,void*)=ref;FIELD(ref,8,unsigned)=1;private_preview_worker(payload);assert(!preview_workers&&!FIELD(ref,8,unsigned));
  allow_preview=1;FIELD(ref,8,unsigned)=1;private_preview_worker(payload);assert(preview_workers==1&&!FIELD(ref,8,unsigned));
  unsigned char volume[16]={0};volume[8]=0x13;volume[9]=127;assert(forward_main_volume(volume)&&calls==1);volume[9]=0;assert(forward_main_volume(volume)&&calls==2);volume[8]=0x12;assert(!forward_main_volume(volume)&&calls==2);calls=0;
+ /* FX takes all three physical knobs before any custom screen sees them. */
+ atomic_store(&native_button_lights[0],2);
+ for(unsigned c=0x10;c<=0x12;++c){volume[8]=c;assert(forward_knob_fx(volume));}
+ volume[8]=0x64;assert(!forward_knob_fx(volume));
+ atomic_store(&native_button_lights[0],0);volume[8]=0x10;assert(!forward_knob_fx(volume));calls=0;
  unsigned char event[16]={0};event[8]=0x09;event[9]=1;forward_buttons(event);assert(state_by_code[9]);
  event[9]=0;workflow_buttons(event,1);assert(!state_by_code[9]&&calls==2&&!atomic_load(&native_buttons_down[9]));workflow_buttons(event,1);assert(calls==2);
  /* A button begun IN Batch must not escape into a native action on release. */
@@ -31,4 +38,12 @@ int main(void){void*p=mmap(NULL,0x7500000,7,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);asse
  event[9]=0;forward_buttons(event);event[8]=0x31;forward_buttons(event);assert(calls==before+2);
  /* A fresh Shift press after the handoff works normally. */
  event[9]=1;forward_buttons(event);event[9]=0;forward_buttons(event);assert(calls==before+4&&!state_by_code[0x31]);
- puts("PASS production button routing: native-down/native-up pairing across workflow generations, no orphan native B3 release, B2 immediate Shift/Erase release and suppression of delayed physical releases");munmap(p,0x7500000);return 0;}
+ /* A click claimed before leaving Mod Settings must still reach Project
+  * if the current UI owner no longer consumes it. Keep both native edges. */
+ before=calls;event[8]=0x6f;event[9]=1;music_buttons(event);
+ assert(calls==before+1&&state_by_code[0x6f]);
+ event[9]=0;music_handled=1;music_buttons(event);
+ assert(calls==before+2&&!state_by_code[0x6f]);
+ event[9]=1;music_buttons(event);event[9]=0;music_buttons(event);
+ assert(calls==before+2);
+ puts("PASS production button routing: workflow pairing, entry chord release, stale Music claim forwards click and pairs native release without leaking owned clicks");munmap(p,0x7500000);return 0;}

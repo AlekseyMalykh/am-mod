@@ -9,6 +9,7 @@ void workflow_files_constructed(void *files);
 void *workflow_project_services(void);
 int workflow_jobs_busy(void); /* UI thread; protects an in-flight copy/mono job. */
 void workflow_master_volume_bind(void *parameter,void *control);
+float workflow_main_output_gain(void);
 int workflow_preview_prepare(void *browsing,int mode);
 /* Native SampleFileAudition worker payload, before its own private-program
  * play routine. Returns0 to cancel a queued stale play; caller releases

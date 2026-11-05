@@ -237,7 +237,10 @@ int music_set_sample(const char *name,int field,int value)
         sample_default(&project.samples[project.count++],name);
     }
     struct music_sample *p=&project.samples[i];
-    if (field==MUSIC_ROOT) p->root=value;
+    if (field==MUSIC_ROOT) {
+        p->root=value;
+        if (value>=0) p->mode=MUSIC_SCALE;
+    }
     else if (field==MUSIC_MODE) p->mode=value;
     else if (field==MUSIC_TRANSPOSE) p->transpose=value;
     else if (field==MUSIC_LOCAL_TONIC) p->tonic=value;

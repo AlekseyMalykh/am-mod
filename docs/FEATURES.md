@@ -2,7 +2,7 @@
 
 **English** · [Русский](FEATURES.ru.md)
 
-Public prerelease **r27f**, 3 November 2026; stable **r26s**. MPC Sample firmware **1.3.0.12**.
+Latest release **r27p**, 5 November 2026. MPC Sample firmware **1.3.0.12**.
 
 **Statuses:**
 - **Confirmed**: checked on a real MPC Sample.
@@ -336,3 +336,12 @@ While the selected pad sounds, its **spectrum** (4096-point FFT, 20 Hz–20 kHz)
 Defaults AM Mod / Normal; saved card/project settings take priority. One editing cursor does not restrict simultaneous sample playback. Complete changes since r26s: [r27f](RELEASE_NOTES-r27f.md).
 
 Defaults AM Mod / Normal; saved card/project settings take priority. One editing cursor does not restrict simultaneous sample playback. Complete changes since r26s: [r27f](RELEASE_NOTES-r27f.md).
+
+## Rear recording and monitoring
+
+- **Rear recording and monitoring.** Sample Record → B2 Routing: K1 chooses Record Rear L / Record Rear R / Record L + R. Press a pad to record mono. For L + R, choose the L pad, then a different R pad; recording starts simultaneously after the second choice. B1 or STOP cancels the first choice; occupied pads require confirmation. STOP finishes recording. Hold Pad Bank and use pads 1–8 for banks. Standard stereo recording on one pad remains in the normal Sample Record window; Routing is offered only for the Rear source.
+- **Monitor without recording.** Input Config → Shift+B2 Routing: B2/B3 toggle L/R monitoring, K2/K3 set pan, Shift+K2/K3 set monitor level. The same controls work in recording Routing. Input Config pad presses never start recording. Monitor gain/pan do not change the dry mono recordings. Settings are saved with the project.
+- **Knob FX priority.** Physical K1–K3 control Knob FX while it is open, including over custom screens. Routing resumes afterwards. Note Repeat keeps its controls.
+- **Scale and Orig Note.** Setting Orig Note selects Scale. Tune lighting resolves the current sample from the project model, including when a different pad is selected in Compressor and across banks A–H.
+- **Menu clicks.** A fast encoder click after leaving Mod Settings is passed to the current native menu. Hidden Sample controls no longer take Project controls.
+- **Copy and EQ.** Hold Erase after entering Copy with Shift+Erase; Shift+Pad Bank switches banks backwards. Returning from Seq to Sample retains the EQ page.

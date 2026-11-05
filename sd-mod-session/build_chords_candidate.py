@@ -13,6 +13,7 @@ sources+=['src/startup_project.cc']
 sources+=['src/knob_reset.c']
 sources+=['src/sample_load_trace.c']
 sources+=['src/sample_playing.c']
+sources+=['src/rear_audio.cc','src/rear_native.cc','src/rear_ui.c','src/rear_abi.S','src/pad_resample_commit.cc','src/pad_sample_pool.cc','src/pad_assignment.cc','src/pad_assignment_abi.S','src/pad_source_abi.S','src/pad_memory_abi.S']
 sources=list(dict.fromkeys(sources))
 tracked=sources+['src/chords.h','src/chords_ui.h','src/voice_guard.h','src/values_bipolar.h','src/poly_record.h','src/music_ui.h',
                  'src/note_native.h','src/workflow_ui.h','src/resample_ui.h','src/pad_eq.h','src/music_settings.h','src/filter_spectrum.h','src/takeover_endpoints.h','build_chords_candidate.py']
@@ -24,13 +25,13 @@ tracked+=['src/mod_build.h','src/splash_branding.h','src/branding_font.h']
 tracked+=['src/knob_reset.h']
 tracked+=['src/sample_load_trace.h','phone_build.py','build/phone_hooks.h']
 tracked+=['src/pad_palette.h','src/pad_workflow_colour.h']
-tracked+=['src/sample_playing.h','src/sample_mute.h']
+tracked+=['src/sample_playing.h','src/sample_mute.h','src/rear_audio.h','src/rear_native.h']
 sha=lambda b:hashlib.sha256(b).hexdigest()
 hashes={s:sha((R/s).read_bytes()) for s in tracked}
 common=['-O2','-g','-fPIC','-Wall','-Wextra','-Werror','-Ibuild',
  '-DMPC_RESAMPLE_TRIAL=1','-DMPC_STOCK_RESAMPLE=1','-DMPC_EXPERIMENTAL_CHOP_EXPORT=1',
  '-DMPC_PAD_EQ=1','-DMPC_FAST_RESAMPLE=1','-DMPC_SEQUENCE_COLOURS=1',
- '-DMPC_POLY_RECORD=1','-DMPC_POWER_BUTTON=1','-DMPC_CHORDS=1','-DMPC_COMPRESSOR=1','-DMPC_PROJECT_RECOVERY=1','-DMPC_STARTUP_SPLASH=1','-DMPC_EARLY_STARTUP=1','-DMPC_KNOB_RESET=1','-DMPC_LOOP_FEEDBACK=1','-mbranch-protection=standard']
+ '-DMPC_POLY_RECORD=1','-DMPC_POWER_BUTTON=1','-DMPC_CHORDS=1','-DMPC_COMPRESSOR=1','-DMPC_PROJECT_RECOVERY=1','-DMPC_STARTUP_SPLASH=1','-DMPC_EARLY_STARTUP=1','-DMPC_KNOB_RESET=1','-DMPC_LOOP_FEEDBACK=1','-DMPC_REAR_ROUTING=1','-mbranch-protection=standard']
 objects=[]
 for source in sources:
  cpp=source.endswith('.cc');obj=O/(Path(source).stem+'.o');objects.append(str(obj))
