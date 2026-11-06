@@ -4,6 +4,7 @@
 #include <mutex>
 #include <new>
 #include <ctime>
+#include <cstdio>
 struct mixer_session {
     std::mutex mutex;
     mixer_live*live=nullptr;
@@ -72,6 +73,11 @@ extern "C" void mixer_session_ui_tick(mixer_session*s)
         uint64_t now=static_cast<uint64_t>(time.tv_sec)*1000+time.tv_nsec/1000000;
         mixer_control_meter(s->control,&meter,now);
         bool ready=meter.valid_mask==0x3ff;
+        {   /* Lab diagnostic: which of the 10 bus meters (A-H, Direct, Master) are valid. */
+            static uint32_t last=~0u;static unsigned lines;
+            if(meter.valid_mask!=last&&lines<60){++lines;last=meter.valid_mask;
+                std::fprintf(stderr,"MIXER_METERS valid=0x%03x fault=0x%03x ready=%d\n",meter.valid_mask,meter.fault_mask,ready?1:0);}
+        }
         int expected=ready?0:1;
         s->status.compare_exchange_strong(expected,ready?1:0,std::memory_order_acq_rel);
         if(!ready)mixer_control_close(s->control);
