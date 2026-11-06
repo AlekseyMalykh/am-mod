@@ -215,6 +215,10 @@ static void sample_palette_publish(void *things,void *program,int bank,int enabl
   int hot=used&&!muted&&top>=96&&native!=0xff7700u;
   if(hot)strength=1.f;
   if(used&&now<playback_until[i]){rgb=now<playback_muted_until[i]||muted?PAD_MUTED:rgb;strength=rgb==PAD_MUTED?.65f:1.f;hot=rgb!=PAD_MUTED;}
+  /* Device report: an empty pad that the sequence plays must still show the
+   * note. Its own colour flashes; empty slots count as "muted" above, so the
+   * grey mute marker is not used for them. */
+  else if(!used&&now<playback_until[i]){rgb=music_identity_rgb((unsigned)music_pad_colour(n));strength=.80f;}
 #ifdef MPC_LOOP_FEEDBACK
   int sustained=used&&!(rgb==PAD_MUTED&&now<playback_until[i])&&sample_playing_active(program,n);
   if(sustained){
