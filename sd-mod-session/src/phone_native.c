@@ -403,12 +403,14 @@ static unsigned mixer_block_reasons(void)
 #endif
     return r;
 }
+static _Atomic unsigned mixer_last_reasons=~0u;
 static void mixer_publish_route(void)
 {
     struct mixer_control *control = mixer_session_control(mixer_ui_session);
     {
         static unsigned last = ~0u, lines;
         unsigned now = (mixer_session_status(mixer_ui_session) == 1 ? 0u : 0x10000u) | mixer_block_reasons();
+        atomic_store(&mixer_last_reasons, now);
         if (now != last && lines < 120) {
             ++lines; last = now;
             char m[80]; snprintf(m,sizeof(m),"MIXER_ROUTE session=%d blocked=0x%x",
@@ -518,8 +520,16 @@ static int mixer_queue_pad(void *raw, unsigned pad, int down, int up)
         pad == 8 && atomic_load(&native_shift_requested);
     if (down && pad == 8) {
         static unsigned lines;
-        if (lines++ < 40) fprintf(stderr,"MIXER_ENTRY_PAD9 route=%llx shift=%u entry=%d held=%d\n",
-            (unsigned long long)route,atomic_load(&native_shift_requested),entry,*held!=0);
+        if (lines++ < 40) {
+            /* Why Shift+Pad9 did not open the Mixer: 0x10000 = session not
+             * ready (no live audio match yet), low bits = mixer_block_reasons. */
+            struct mixer_native_binding b = {0};
+            int bound = mixer_live_native_binding(&b);
+            fprintf(stderr,"MIXER_ENTRY_PAD9 route=%llx shift=%u entry=%d held=%d reasons=0x%x binding=%d program=%lx\n",
+                (unsigned long long)route,atomic_load(&native_shift_requested),entry,*held!=0,
+                atomic_load(&mixer_last_reasons),bound,
+                (unsigned long)(uintptr_t)b.program);
+        }
     }
     if (!*held && !entry && !binding) return 0;
     if (!down && !up) return 1; /* pressure follows the captured pad */
