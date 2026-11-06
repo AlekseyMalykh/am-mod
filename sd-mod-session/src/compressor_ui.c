@@ -2,6 +2,9 @@
 #include "compressor.h"
 #include "phone_events.h"
 #include "music_ui.h"
+#ifdef MPC_CHORDS
+#include "takeover_native.h"
+#endif
 #include <stdatomic.h>
 #include <stdio.h>
 #include <sys/mman.h>
@@ -54,7 +57,13 @@ int compressor_ui_tick(void){
  if(repeat_seen&&repeat_previous&&!repeat)header_dirty=1;
  repeat_seen=1;repeat_previous=repeat;
  if(show&&!repeat&&header_dirty){header_dirty=0;repaint();}
- if(atomic_exchange(&active,show)!=show){atomic_fetch_add(&epoch,1);opening=show;}
+ if(atomic_exchange(&active,show)!=show){atomic_fetch_add(&epoch,1);opening=show;
+#ifdef MPC_CHORDS
+  /* Opto owns K1-K3, so the native bindings never saw those turns. On the
+   * way out let the next Scaled binding pick up instead of jumping. */
+  if(!show)takeover_native_context_changed();
+#endif
+ }
  if(opening&&compressor_ready()){
   struct comp_config c;compressor_config(&c);
   if(c.bypass)compressor_select(COMP_DUCK);
