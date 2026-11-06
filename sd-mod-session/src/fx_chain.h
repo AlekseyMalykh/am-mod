@@ -35,6 +35,13 @@ void fx_program_process(struct fx_program *,float*,size_t);
 /* One control owner, one audio owner. Only complete prepared programs cross
  * this boundary; previous programs are reclaimed off the audio thread. */
 struct fx_exchange *fx_exchange_create(void);
+/* Off RT, before first process/publication only. Takes ownership, including
+ * NULL for an initially empty chain, without an initial fade from dry. */
+int fx_exchange_seed(struct fx_exchange *,struct fx_program *);
+/* Audio owner only: true when a complete next swap can start. Collection of
+ * retired instances still belongs to the control owner. */
+int fx_exchange_ready_audio(const struct fx_exchange *);
+int fx_exchange_transitioning_audio(const struct fx_exchange *);
 enum fx_result fx_exchange_publish(struct fx_exchange *,struct fx_program *);
 void fx_exchange_collect(struct fx_exchange *);
 void fx_exchange_process(struct fx_exchange *,float *,size_t);

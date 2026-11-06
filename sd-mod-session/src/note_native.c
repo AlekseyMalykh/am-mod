@@ -255,6 +255,11 @@ int note_native_sample_visible(void)
     return note_native_context() && FN(0x112fd50,int(*)(void*))(root)
         && !FN(0x112f6b0,int(*)(void*))(root);
 }
+void note_native_repaint_sample_region(unsigned x,unsigned y,unsigned w,unsigned h)
+{
+    if(root && !atomic_load(&destroyed) && FIELD(root,0,uintptr_t)==base+SAMPLE_VPTR)
+        FN(0x1149880,void(*)(void*,uint64_t,uint64_t))(root,x|((uint64_t)y<<32),w|((uint64_t)h<<32));
+}
 void note_native_repaint_sample(void){if(root&&FIELD(root,0,uintptr_t)==base+SAMPLE_VPTR)
  FN(0x1149880,void(*)(void*,uint64_t,uint64_t))(root,0,FIELD(root,0x28,uint64_t));}
 static void repaint(void)

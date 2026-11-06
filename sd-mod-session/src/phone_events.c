@@ -3,14 +3,20 @@
 #include <string.h>
 static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 static struct phone_event events[PHONE_EVENT_CAPACITY];
-static unsigned read_pos, write_pos, count;
+static unsigned read_pos, write_pos, count, reserved;
+static void append(const struct phone_event *event)
+{
+    events[write_pos] = *event;
+    write_pos = (write_pos + 1) % PHONE_EVENT_CAPACITY;
+    ++count;
+}
 static int absolute_knob(const struct phone_event *e)
 {
-    return e->kind == PHONE_CONTROLLER && e->native[8] >= 0x10 && e->native[8] <= 0x12;
+    return (e->kind == PHONE_CONTROLLER || e->kind == PHONE_MIXER_CC) && e->native[8] >= 0x10 && e->native[8] <= 0x12;
 }
 static int same_knob_context(const struct phone_event *a,const struct phone_event *b)
 {
-    return absolute_knob(a) && a->generation == b->generation && a->pad == b->pad &&
+    return absolute_knob(a) && a->kind == b->kind && a->generation == b->generation && a->pad == b->pad &&
         a->step_ticket == b->step_ticket && a->workflow_ticket == b->workflow_ticket &&
         a->down == b->down &&
         !memcmp(a->native,b->native,8) && !memcmp(a->native+10,b->native+10,6);
@@ -57,10 +63,21 @@ int phone_events_push(const struct phone_event *event)
         }
     }
     if (ok || replace_knob(event)) ok=1;
-    else if (count < PHONE_EVENT_CAPACITY) {
-        events[write_pos] = *event;
-        write_pos = (write_pos + 1) % PHONE_EVENT_CAPACITY;
-        ++count; ok = 1;
+    else if (count + reserved < PHONE_EVENT_CAPACITY) {
+        append(event);
+        ok = 1;
+    }
+    pthread_mutex_unlock(&mutex);
+    return ok;
+}
+int phone_events_push_pair(const struct phone_event *event, int down)
+{
+    pthread_mutex_lock(&mutex);
+    int ok = down ? count + reserved + 2 <= PHONE_EVENT_CAPACITY : reserved != 0;
+    if (ok) {
+        if (down) ++reserved;
+        else --reserved;
+        append(event);
     }
     pthread_mutex_unlock(&mutex);
     return ok;
