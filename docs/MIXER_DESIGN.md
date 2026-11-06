@@ -1,6 +1,7 @@
 # AM Mod — Mixer, Song Mode & Stems: Classic Console UI
 
 Статус: архитектурное задание и поэтапная реализация, обновлено04.11.2026.
+Продолжение Song/стемов: [SONG_STEMS_DESIGN.md](SONG_STEMS_DESIGN.md) (06.11, ветка `feature/mixer-song-stems-r27r`).
 Ветка: `feature/mixer-song-stems`.
 Основа аудита исходников: `am-mod/main`, `160cee8` (r26s).
 Первый пакет: [audio hooks, block updates и C painter](MIXER_STEP1.md).

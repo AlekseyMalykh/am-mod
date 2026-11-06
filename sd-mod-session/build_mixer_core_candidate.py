@@ -24,8 +24,8 @@ if os.name != "nt" and git_file.is_file():
         git_dir = subprocess.check_output(["wslpath", "-u", git_dir], text=True).strip()
         git += ["--git-dir=" + git_dir, "--work-tree=" + str(R.parent)]
 branch = subprocess.check_output([*git, "branch", "--show-current"], cwd=R, text=True).strip()
-if branch != "feature/mixer-song-stems":
-    raise RuntimeError("Build Mixer work only in feature/mixer-song-stems")
+if branch not in ("feature/mixer-song-stems", "feature/mixer-song-stems-r27r"):
+    raise RuntimeError("Build Mixer work only in the Mixer feature branches")
 runtime = Path(os.environ.get("MPC_RUNTIME_ROOT", str(R.parent))).resolve()
 out = R / "build/mixer-candidate"
 out.mkdir(parents=True, exist_ok=True)
