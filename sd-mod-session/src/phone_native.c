@@ -381,9 +381,41 @@ static void mixer_close_ui(void)
     mixer_entry_cancel(&mixer_entry);
 }
 
+/* Lab diagnostic: why Mixer is (not) ready, one line per change. */
+static unsigned mixer_block_reasons(void)
+{
+    unsigned r = 0;
+    if (atomic_load(&mixer_project_invalidated)) r |= 1;
+    if (!note_native_sample_visible()) r |= 2;
+    if (FN(0x10f87a0,void*(*)(int))(0)) r |= 4;
+    if (atomic_load(&naming_active)) r |= 8;
+    if (workflow_blocks_sample_controls()) r |= 16;
+    if (step_native_active()) r |= 32;
+    if (resample_running()) r |= 64;
+#ifdef MPC_COMPRESSOR
+    if (compressor_ui_active()) r |= 128;
+#endif
+#ifdef MPC_CHORDS
+    if (chords_active()) r |= 256;
+#endif
+#ifdef MPC_POWER_BUTTON
+    if (power_control_busy()) r |= 512;
+#endif
+    return r;
+}
 static void mixer_publish_route(void)
 {
     struct mixer_control *control = mixer_session_control(mixer_ui_session);
+    {
+        static unsigned last = ~0u, lines;
+        unsigned now = (mixer_session_status(mixer_ui_session) == 1 ? 0u : 0x10000u) | mixer_block_reasons();
+        if (now != last && lines < 120) {
+            ++lines; last = now;
+            char m[80]; snprintf(m,sizeof(m),"MIXER_ROUTE session=%d blocked=0x%x",
+                mixer_session_status(mixer_ui_session),now & 0xffffu);
+            note(m);
+        }
+    }
     unsigned state = mixer_session_status(mixer_ui_session) == 1 && !mixer_ui_blocked()
         ? MIXER_READY : 0;
     if (state && mixer_control_active(control)) state |= MIXER_OPEN;
@@ -484,6 +516,11 @@ static int mixer_queue_pad(void *raw, unsigned pad, int down, int up)
     if (!*held && (!down || atomic_load(&mixer_input_fault))) return 0;
     int entry = down && !*held && !binding && (route & MIXER_READY) &&
         pad == 8 && atomic_load(&native_shift_requested);
+    if (down && pad == 8) {
+        static unsigned lines;
+        if (lines++ < 40) fprintf(stderr,"MIXER_ENTRY_PAD9 route=%llx shift=%u entry=%d held=%d\n",
+            (unsigned long long)route,atomic_load(&native_shift_requested),entry,*held!=0);
+    }
     if (!*held && !entry && !binding) return 0;
     if (!down && !up) return 1; /* pressure follows the captured pad */
     int size = FIELD(raw,0x20,int);
