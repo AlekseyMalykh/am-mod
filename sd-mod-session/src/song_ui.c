@@ -23,6 +23,8 @@
  *   0x19a1880 Delete(ctx, song, long step)
  *   0x19a29e0 SetSequence(ctx, song, long step, int seq)
  *   0x19a20d0 SetRepeats(ctx, song, long step, int repeats)
+ * Selected step: Property<int> at controller+0x168 (value +0x1c = +0x184);
+ *   0x14e19c0(property,int) sets it and notifies the list (stock 0x1575a04).
  * Song length: 0x29ba240(song, sequencer) = sum of repeats x bars, 0x2909be0(sequencer, seq)+0x200 bars,
  * stock limit total <= 0x3137 (check 0x15756a0). */
 #define SONG_VPTR 0x6e24a00
@@ -46,6 +48,9 @@ static int knob_accum;
 static char toast[48];
 static uint64_t toast_until;
 static unsigned log_count;
+static int pending_row=-1,pending_count;   /* select after the queued command lands */
+static uint64_t pending_until;
+static int last_row=-1;
 
 static uint64_t now_ms(void)
 { struct timespec t; clock_gettime(CLOCK_MONOTONIC,&t); return (uint64_t)t.tv_sec*1000u+(uint64_t)t.tv_nsec/1000000u; }
@@ -126,6 +131,9 @@ static void insert_step(const struct song_ref *r,int step,int seq,int repeats)
     void *ctx; FN(0x19a0b50,void(*)(void**,void*))(&ctx,r->sequencer);
     FN(0x19a2d20,void(*)(void**,void*,long,int,int))(&ctx,r->song,(long)step,seq,repeats);
     FIELD(r->controller,0x292,unsigned char)=follow;
+    /* Lab: the list fell back to row 0 after our insert. Select the new
+     * step explicitly once the queued command has changed the song. */
+    pending_row=step; pending_count=r->count+1; pending_until=now_ms()+1500;
 }
 static void delete_step(const struct song_ref *r,int step)
 {
@@ -187,6 +195,7 @@ static int move_step(int direction)
     trace("MOVE",&r,seq,target);
     delete_step(&r,r.row);
     insert_step(&r,target,seq,rep);
+    pending_count=r.count;   /* delete + insert: same length */
     say(direction<0?"Step moved up":"Step moved down");
     return 1;
 }
@@ -251,6 +260,26 @@ void song_ui_tick(void)
     int v=visible(screen);
     if(v!=(int)atomic_load(&shown)){ atomic_store(&shown,(unsigned)v); knob_last=-1; if(v)report("SONG_SCREEN_VISIBLE"); }
     if(toast_until&&now_ms()>=toast_until){ toast_until=0; repaint(screen); }
+    if(!v){ pending_row=-1; last_row=-1; return; }
+    struct song_ref r;
+    if(!song_ref(&r)) return;
+    if(pending_row>=0&&(r.count==pending_count||now_ms()>=pending_until)){
+        if(pending_row<r.count){
+            FN(0x14e19c0,void(*)(void*,int))((char*)r.controller+0x168,pending_row);
+            r.row=pending_row;
+        }
+        pending_row=-1;
+    }
+    /* Browsing: show the selected step's repeats for a moment (the stock
+     * list shows only the sequence length). */
+    int seq,rep;
+    if(r.row!=last_row){
+        int was=last_row; last_row=r.row;
+        if(was>=0&&!toast_until&&step_at(&r,r.row,&seq,&rep)&&rep>1){
+            char m[24]; snprintf(m,sizeof(m),"Repeats x%d",rep);
+            snprintf(toast,sizeof(toast),"%s",m); toast_until=now_ms()+1500; repaint(screen);
+        }
+    }
 }
 
 int song_ui_install(void)

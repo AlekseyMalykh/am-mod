@@ -3,9 +3,20 @@
 #include "mixer_archive.h"
 #include "mixer_sources.h"
 #include "mixer_fx.h"
+#include <cstdio>
+#include <cstring>
 #include <ctime>
 
 namespace {
+/* Lab diagnostic: one stderr line per state change of automatic binding. */
+const char *last_state = "";
+unsigned diag_lines = 0;
+void diag(const char *state)
+{
+    if (!std::strcmp(state,last_state) || diag_lines >= 80) return;
+    last_state = state; ++diag_lines;
+    std::fprintf(stderr,"MIXER_RUNTIME %s\n",state);
+}
 mixer_session *current = nullptr;
 mixer_session *retiring = nullptr;
 mixer_fx *current_fx=nullptr,*retiring_fx=nullptr,*preparing_fx=nullptr;
@@ -94,7 +105,7 @@ extern "C" void mixer_runtime_ui_stop()
 
 extern "C" void mixer_runtime_ui_tick()
 {
-    if (!mixer_live_native_ops()) return;
+    if (!mixer_live_native_ops()) { diag("NO_NATIVE_OPS"); return; }
     uint64_t generation = mixer_archive_generation();
     if (archive_generation != generation) {
         archive_generation = generation;
@@ -103,7 +114,7 @@ extern "C" void mixer_runtime_ui_tick()
         prepare_after=0;
         mixer_fx_destroy(preparing_fx);preparing_fx=nullptr;
     }
-    if (!collect() || stopped || mixer_archive_loading()) return;
+    if (!collect() || stopped || mixer_archive_loading()) { diag(stopped?"STOPPED":mixer_archive_loading()?"ARCHIVE_LOADING":"COLLECTING"); return; }
     if(mixer_fx_fault(current_fx)){
         retire();if(!collect())return;
     }
@@ -111,6 +122,7 @@ extern "C" void mixer_runtime_ui_tick()
     mixer_native_binding observed{};
     int observed_status = mixer_live_native_binding(&observed);
     if (observed_status < 0) {
+        diag(current?"BOUND_BINDING_BUSY":"BINDING_BUSY");
         if (current) {
             mixer_session_owner_tick(current);
             refresh_presence();
@@ -124,40 +136,45 @@ extern "C" void mixer_runtime_ui_tick()
         if (!collect()) return;
     }
     if (current) {
+        diag("BOUND");
         mixer_fx_refresh(current_fx,&observed);
         mixer_session_owner_tick(current);
         refresh_presence();
         return;
     }
-    if (!available) {mixer_fx_destroy(preparing_fx);preparing_fx=nullptr;return;}
+    if (!available) {diag("NO_AUDIO_BINDING_OBSERVED");mixer_fx_destroy(preparing_fx);preparing_fx=nullptr;return;}
 
     if(!preparing_fx||!same_source(preparing_source,observed)){
         mixer_fx_destroy(preparing_fx);
         preparing_fx=mixer_fx_create(mixer_live_native_image(),&observed);preparing_source=observed;
         prepare_after=0;
     }
-    if(!preparing_fx)return;
+    if(!preparing_fx){diag("FX_BRIDGE_CREATE_FAILED");return;}
     int was_ready=mixer_fx_ready(preparing_fx);mixer_fx_refresh(preparing_fx,&observed);
     if(!was_ready&&mixer_fx_ready(preparing_fx))prepare_after=0;
-    if(now_ms()<prepare_after)return;
+    if(now_ms()<prepare_after){diag(mixer_fx_ready(preparing_fx)?"WAIT_RETRY":"WAIT_FX_READY");return;}
     /* Engine/Program remain opaque. The FX bridge borrows independently
      * validated application formats; its clock is copied on native audio. */
     mixer_session *prepared = mixer_session_create(observed.epoch,0,observed.rate,
         observed.capacity,observed.engine,observed.program,mixer_live_native_ops(),mixer_fx_backend(preparing_fx));
     if (!prepared) {
+        diag("SESSION_CREATE_FAILED");
         prepare_after=now_ms()+(mixer_fx_ready(preparing_fx)?1000:250);
         return;
     }
     mixer_session_health(prepared,fx_healthy,preparing_fx);
     if (mixer_archive_loading() || mixer_archive_generation() != generation ||
         !mixer_live_native_attach_binding(mixer_session_live(prepared),&observed)) {
+        diag("ATTACH_FAILED");
         mixer_session_destroy(prepared);
         return;
     }
     current = prepared;
     current_fx=preparing_fx;preparing_fx=nullptr;
     source = observed;
+    diag("SESSION_CREATED");
     if (!mixer_phone_bind_ui(current)) {
+        diag("UI_BIND_FAILED");
         retire();
         collect();
     }

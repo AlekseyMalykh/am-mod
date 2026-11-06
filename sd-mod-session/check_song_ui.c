@@ -54,6 +54,8 @@ static int list_row(void *list){ assert(list==screen_obj+0x798); return row; }
 static void *sequence_get(void *sequencer,int seq){ assert(sequencer==sequencer_obj&&seq>=0&&seq<16); return sequences[seq]; }
 static int song_bars(void *song,void *sequencer)
 { assert(song==song_obj&&sequencer==sequencer_obj); /* lab: 0x29ba240 walks steps via sequencer */int n=0;for(int i=0;i<step_count;++i)n+=FIELD(sequences[steps[i][0]],0x200,int)*steps[i][1];return n; }
+static int selected=-1;
+static void select_row(void *property,int value){ assert(property==controller_obj+0x168); selected=value; row=value; }
 static int yes(void *p){ (void)p; return 1; }
 static int no(void *p){ (void)p; return 0; }
 static void noop(void){}
@@ -87,6 +89,7 @@ int main(int argc,char **argv)
     stub(0x3b71e80,(void*)list_row);stub(0x2909be0,(void*)sequence_get);stub(0x29ba240,(void*)song_bars);
     stub(0x19a20d0,(void*)op_repeats);stub(0x19a29e0,(void*)op_sequence);
     stub(0x19a2d20,(void*)op_insert);stub(0x19a1880,(void*)op_delete);
+    stub(0x14e19c0,(void*)select_row);
     for(int i=0;i<16;++i)FIELD(sequences[i],0x200,int)=2;
     FIELD(screen_obj,0,uintptr_t)=elf_image+SONG_VPTR;FIELD(screen_obj,0x110,void*)=controller_obj;
     FIELD(controller_obj,0x260,void*)=sequencer_obj;FIELD(controller_obj,0x1dc,int)=5;
@@ -130,10 +133,12 @@ int main(int argc,char **argv)
     song_ui_owns(PHONE_BUTTON,B2,1,1);button(B2,1);button(B2,0);
     assert(last_op=='I'&&last_step==2&&last_seq==5&&last_rep==4&&step_count==4);
     assert(FIELD(controller_obj,0x292,unsigned char)==0);  /* follow flag restored */
+    song_ui_tick();assert(selected==2&&row==2);             /* new step selected after the command */
 
     phase="Shift+-/+ move";
     row=1;song_ui_owns(PHONE_BUTTON,MINUS,1,1);button(MINUS,1);button(MINUS,0);
     assert(last_op=='I'&&last_step==0&&steps[0][0]==5&&steps[0][1]==4&&steps[1][0]==0&&step_count==4);
+    song_ui_tick();assert(selected==0);
     row=3;before=ops;song_ui_owns(PHONE_BUTTON,PLUS,1,1);button(PLUS,1);button(PLUS,0);assert(ops==before); /* last row */
     row=2;song_ui_owns(PHONE_BUTTON,PLUS,1,1);button(PLUS,1);button(PLUS,0);
     assert(steps[3][0]==5&&steps[3][1]==4&&steps[2][0]==2);
