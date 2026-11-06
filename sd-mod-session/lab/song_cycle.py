@@ -2,6 +2,7 @@
 
   python3 lab/song_cycle.py boot mix1-card   # insert image, reset, wait for the mod and project
   python3 lab/song_cycle.py song             # drive Song Mode, screenshots + logs + project dump
+  python3 lab/song_cycle.py mixer-sound      # record pad 2, enter Mixer while it sounds
   python3 lab/song_cycle.py logs             # only copy logs (clone tail, events)
   python3 lab/song_cycle.py mixer            # enter Mixer (short Shift+Pad9), tabs, tracks, exit, long press
 Writes PNG/JSON/logs to build/song-lab and copies them to the Windows project tmp/song-lab.
@@ -94,6 +95,18 @@ elif cmd=='song':
     pad(3);shift('SCREEN 3');snap('07-replaced')
     songs_dump('07')
     tap('SCREEN 3');snap('08-plain-b3-stock-insert')       # stock Insert still works
+elif cmd=='mixer-sound':
+    # Mixer readiness needs live Program audio: record a pad, then enter the
+    # Mixer while that pad is sounding. Diagnostic only.
+    atexit.register(publish)
+    tap('STOP');tap('SAMPLE RECORD');snap('20-record-screen')
+    pad(2);time.sleep(5);tap('STOP');time.sleep(3);snap('21-recorded')
+    tap('SAMPLE');snap('22-sample')
+    post('PAD 2','press',120);time.sleep(1.5);snap('23-pad2-sounding')
+    send('SHIFT','press');post('PAD 9','press',100);time.sleep(0.12);post('PAD 9','release');time.sleep(0.6)
+    send('SHIFT','release');snap('24-mixer-while-sounding')
+    time.sleep(2);post('PAD 2','release');time.sleep(2);snap('25-after-release')
+    tap('SCREEN 1');snap('26-mix-tab');tap('SAMPLE');snap('27-exit')
 elif cmd=='logs':
     publish()
 elif cmd=='mixer':
