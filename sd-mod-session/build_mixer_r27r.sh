@@ -35,6 +35,7 @@ step mixer-r27r-build  python3 build_mixer_r27r.py
 for t in model meters buses archive control input input_native fx rgb session sources native route_native step1; do
   step "mixer-$t" python3 "verify_mixer_$t.py"
 done
+step song-ui python3 verify_song_ui.py
 
 echo "=== SUMMARY" | tee -a "$LOG"
 grep -E "^(PASS|FAIL) " "$LOG" | tee "build/mixer-r27r-summary.txt"

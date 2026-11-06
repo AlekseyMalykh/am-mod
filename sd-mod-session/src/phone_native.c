@@ -13,6 +13,9 @@ static _Atomic unsigned consumed_rear;
 #ifdef MPC_LOOP_FEEDBACK
 #include "sample_playing.h"
 #endif
+#ifdef MPC_SONG_UI
+#include "song_ui.h"
+#endif
 #ifdef MPC_COMPRESSOR
 #include "compressor.h"
 #endif
@@ -842,6 +845,9 @@ static void tick(void *unused)
 #ifdef MPC_COMPRESSOR
     int compressor_running=compressor_ui_tick();
 #endif
+#ifdef MPC_SONG_UI
+    song_ui_tick();
+#endif
 #ifdef MPC_RESAMPLE_TRIAL
     /* music_ui_active is true on the ordinary Sample screen too, so it is
      * not a modal exclusion. Resample owns its controls while open. */
@@ -1550,6 +1556,9 @@ static int queue_native(void *native,unsigned kind)
 #ifdef MPC_REAR_ROUTING
     if(!naming&&rear_ui_owns(kind,FIELD(native,8,unsigned char)))e.pad=128u;
 #endif
+#ifdef MPC_SONG_UI
+    if(!naming&&song_ui_owns(kind,FIELD(native,8,unsigned char),(atomic_load(&native_shift_requested)||atomic_load(&native_buttons_down[0x31])),kind!=PHONE_BUTTON||FIELD(native,9,unsigned char)!=0))e.pad=256u;
+#endif
     if (phone_events_push(&e)) return 1;
     queue_failed();
     if (e.pad) return 1;
@@ -1617,6 +1626,9 @@ static void controller(void *event)
 #endif
 #ifdef MPC_COMPRESSOR
         ||compressor_ui_owns(PHONE_CONTROLLER,native_cc)
+#endif
+#ifdef MPC_SONG_UI
+        ||song_ui_owns(PHONE_CONTROLLER,native_cc,0,1)
 #endif
         ;
     if(native_cc>=0x10&&native_cc<=0x12&&!custom_owned&&
@@ -1725,6 +1737,9 @@ static void buttons(void *event)
 #endif
 #ifdef MPC_REAR_ROUTING
         ||rear_ui_owns(PHONE_BUTTON,native_code)
+#endif
+#ifdef MPC_SONG_UI
+        ||song_ui_owns(PHONE_BUTTON,native_code,(atomic_load(&native_shift_requested)||atomic_load(&native_buttons_down[0x31])),(int)native_down)
 #endif
         )
         && queue_native(event,PHONE_BUTTON)) return;
@@ -1929,6 +1944,10 @@ static unsigned process_events(void)
             if (current && !(seen&1)) { seen|=1; note("FIFO_CONTROLLER_ON_UI"); }
             if (e.pad) {
                 /* Never replay a claimed metadata edit as native audio pitch. */
+#ifdef MPC_SONG_UI
+                if(e.pad&256u){if(!song_ui_control(e.native))forward_controller(e.native);}
+                else
+#endif
 #ifdef MPC_REAR_ROUTING
                 if(e.pad&128u){if(!rear_ui_control(e.native))forward_controller(e.native);}
                 else
@@ -1957,6 +1976,10 @@ static unsigned process_events(void)
             else forward_controller(e.native);
         } else if (e.kind == PHONE_BUTTON) {
             if (current && !(seen&2)) { seen|=2; note("FIFO_BUTTON_ON_UI"); }
+#ifdef MPC_SONG_UI
+            if(e.pad&256u){if(!song_ui_button(e.native))forward_buttons(e.native);}
+            else
+#endif
 #ifdef MPC_REAR_ROUTING
             if(e.pad&128u){if(!rear_ui_button(e.native))forward_buttons(e.native);}
             else
@@ -2587,6 +2610,9 @@ static void load(void)
     uintptr_t found=0;
     if (!dl_iterate_phdr(find_main,&found)) return; /* setarch also sees LD_PRELOAD. */
     base=found;
+#ifdef MPC_SONG_UI
+    song_ui_init(base);
+#endif
 #ifdef MPC_COMPRESSOR
     compressor_ui_init(base);
 #endif
@@ -2662,6 +2688,10 @@ static void load(void)
 #endif
 #ifdef MPC_COMPRESSOR
     if (!compressor_ui_install()) _exit(121);
+#endif
+#ifdef MPC_SONG_UI
+    /* Optional: a mismatched SongScreen leaves stock Song Mode untouched. */
+    if (!song_ui_install()) note("SONG_UI NOT_INSTALLED");
 #endif
 #ifdef MPC_POWER_BUTTON
     if (!power_control_install(base)) _exit(121);

@@ -1,4 +1,4 @@
-"""Build r27r + Mixer as one full-preload candidate (WSL, run from sd-mod-session).
+"""Build r27r + Mixer + Song UI as one full-preload candidate (WSL, run from sd-mod-session).
 
 Same source list and flags as the released r27r (build_chords_candidate.py),
 plus the Mixer sources with MPC_MIXER_ARCHIVE/LIVE/AUTOBIND. Output only in
@@ -27,7 +27,7 @@ mixer = ['src/mixer_model.c', 'src/mixer_meters.c', 'src/fx_chain.c', 'src/fx_ca
          'src/mixer_live.c', 'src/mixer_live_native.c', 'src/mixer_view.c',
          'src/mixer_control.c', 'src/mixer_session.cc', 'src/mixer_input.c',
          'src/mixer_runtime.cc', 'src/mixer_sources.cc', 'src/mixer_leds.c',
-         'src/mixer_fx.cc', 'src/fx_native.cc']
+         'src/mixer_fx.cc', 'src/fx_native.cc', 'src/song_ui.c']
 sources = list(dict.fromkeys(sources + mixer))
 sha = lambda b: hashlib.sha256(b).hexdigest()
 hashes = {s: sha((R / s).read_bytes()) for s in sources + ['build_mixer_r27r.py', 'build/phone_hooks.h']}
@@ -37,7 +37,7 @@ common = ['-O2', '-g', '-fPIC', '-Wall', '-Wextra', '-Werror', '-Ibuild',
           '-DMPC_POLY_RECORD=1', '-DMPC_POWER_BUTTON=1', '-DMPC_CHORDS=1', '-DMPC_COMPRESSOR=1',
           '-DMPC_PROJECT_RECOVERY=1', '-DMPC_STARTUP_SPLASH=1', '-DMPC_EARLY_STARTUP=1',
           '-DMPC_KNOB_RESET=1', '-DMPC_LOOP_FEEDBACK=1', '-DMPC_REAR_ROUTING=1',
-          '-DMPC_MIXER_ARCHIVE=1', '-DMPC_MIXER_LIVE=1', '-DMPC_MIXER_AUTOBIND=1',
+          '-DMPC_MIXER_ARCHIVE=1', '-DMPC_MIXER_LIVE=1', '-DMPC_MIXER_AUTOBIND=1', '-DMPC_SONG_UI=1',
           '-mbranch-protection=standard']
 objects = []
 for source in sources:
@@ -66,6 +66,7 @@ assert 'VOICE_GUARD RENDER_RELEASE_SERIALISED' in p.stderr
 assert 'VALUES_BIPOLAR CENTRE_BAR_INSTALLED' in p.stderr
 assert 'TAKEOVER NATIVE_PROCESSORS_PRESERVED' in p.stderr
 assert 'TAKEOVER SCALED_ENDPOINTS_INSTALLED' not in p.stderr
+assert 'SONG_UI INSTALLED' in p.stderr  # SongScreen slots matched the pinned ELF
 mixer_lines = [l for l in p.stderr.splitlines() if 'MIXER' in l]
 
 route = O / 'check-phone-routes'
