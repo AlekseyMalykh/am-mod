@@ -22,6 +22,20 @@ struct mixer_live {
     _Atomic(struct live_update*) pending,retired;
 };
 static _Thread_local struct mixer_live*live_scope;
+/* Lab/device diagnostic counters (relaxed, audio-safe). */
+static _Atomic uint64_t diag_program_calls,diag_program_scoped,diag_program_matched,
+    diag_program_other_thread,diag_program_other_object,diag_engine_blocks,diag_engine_matched;
+static _Atomic unsigned diag_engine_active;
+void mixer_live_diag(uint64_t out[7])
+{
+    out[0]=atomic_load_explicit(&diag_engine_blocks,memory_order_relaxed);
+    out[1]=atomic_load_explicit(&diag_engine_matched,memory_order_relaxed);
+    out[2]=atomic_load_explicit(&diag_program_calls,memory_order_relaxed);
+    out[3]=atomic_load_explicit(&diag_program_scoped,memory_order_relaxed);
+    out[4]=atomic_load_explicit(&diag_program_matched,memory_order_relaxed);
+    out[5]=atomic_load_explicit(&diag_program_other_thread,memory_order_relaxed);
+    out[6]=atomic_load_explicit(&diag_program_other_object,memory_order_relaxed);
+}
 static void split(const struct mixer_project*p,struct mixer_project*t,struct mixer_project*m)
 {
     *t=*p;mixer_defaults(m);m->master=p->master;t->master=m->track[0];
@@ -98,7 +112,13 @@ int mixer_live_take_meter(struct mixer_live*s,struct mixer_meter_snapshot*out){r
 void mixer_live_program(const struct mixer_route_ops*ops,void*p,void*clock,unsigned frames)
 {
     struct mixer_live*s=live_scope;
+    atomic_fetch_add_explicit(&diag_program_calls,1,memory_order_relaxed);
+    if(!s&&atomic_load_explicit(&diag_engine_active,memory_order_relaxed))
+        atomic_fetch_add_explicit(&diag_program_other_thread,1,memory_order_relaxed);
+    if(s){atomic_fetch_add_explicit(&diag_program_scoped,1,memory_order_relaxed);
+        if(s->program!=p)atomic_fetch_add_explicit(&diag_program_other_object,1,memory_order_relaxed);}
     if(!s||s->program!=p){ops->render(p,clock,frames);return;}
+    atomic_fetch_add_explicit(&diag_program_matched,1,memory_order_relaxed);
     s->matched_program=1;
     s->block_result=mixer_route_render(s->track,p,clock,frames);
 }
@@ -112,7 +132,13 @@ int mixer_live_render(struct mixer_live*s,void*engine,void*clock,unsigned frames
         s->ops.engine(engine,clock,frames);live_scope=previous;return 0;
     }
     s->matched_program=0;
-    s->block_result=MIXER_ROUTE_PASSTHROUGH;live_scope=s;s->ops.engine(engine,clock,frames);live_scope=NULL;
+    s->block_result=MIXER_ROUTE_PASSTHROUGH;live_scope=s;
+    atomic_fetch_add_explicit(&diag_engine_blocks,1,memory_order_relaxed);
+    atomic_fetch_add_explicit(&diag_engine_active,1,memory_order_relaxed);
+    s->ops.engine(engine,clock,frames);
+    atomic_fetch_sub_explicit(&diag_engine_active,1,memory_order_relaxed);
+    live_scope=NULL;
+    if(s->matched_program)atomic_fetch_add_explicit(&diag_engine_matched,1,memory_order_relaxed);
     struct mixer_meter_input taps[MIXER_METER_BUSES]={0};
     if (!s->matched_program) {
         mixer_meters_push(s->meters,s->epoch,frames,taps);

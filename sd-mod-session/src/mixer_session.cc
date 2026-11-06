@@ -67,6 +67,15 @@ extern "C" void mixer_session_ui_tick(mixer_session*s)
 {
     if(!s)return;
     if(s->status.load(std::memory_order_acquire)<0){mixer_control_close(s->control);return;}
+    {   /* Diagnostic: why live taps stay empty (every 3 s while counters move). */
+        static uint64_t last_ms,last_calls=~0ull;static unsigned lines;
+        timespec t{};clock_gettime(CLOCK_MONOTONIC,&t);uint64_t ms=static_cast<uint64_t>(t.tv_sec)*1000+t.tv_nsec/1000000;
+        if(ms-last_ms>=3000&&lines<80){last_ms=ms;uint64_t d[7];mixer_live_diag(d);
+            if(d[2]!=last_calls){last_calls=d[2];++lines;
+                std::fprintf(stderr,"MIXER_LIVE engine=%llu engine_matched=%llu program=%llu scoped=%llu matched=%llu other_thread=%llu other_program=%llu\n",
+                    (unsigned long long)d[0],(unsigned long long)d[1],(unsigned long long)d[2],(unsigned long long)d[3],
+                    (unsigned long long)d[4],(unsigned long long)d[5],(unsigned long long)d[6]);}}
+    }
     mixer_meter_snapshot meter;
     if(mixer_live_take_meter(s->live,&meter)){
         timespec time{};clock_gettime(CLOCK_MONOTONIC,&time);

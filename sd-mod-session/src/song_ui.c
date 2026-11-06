@@ -43,6 +43,7 @@ static uintptr_t base;
 static void *screen;                     /* UI thread only */
 static _Atomic unsigned shown;           /* producer reads */
 static _Atomic unsigned owned_buttons;   /* bit per claimed button down */
+static _Atomic int selected_sequence=-1; /* published by the UI Timer for the RGB layer */
 static int knob_last=-1;                 /* K1 relative baseline */
 static int knob_accum;
 static char toast[48];
@@ -64,6 +65,7 @@ static unsigned button_bit(unsigned code)
 
 void song_ui_init(uintptr_t b){ base=b; }
 int song_ui_active(void){ return atomic_load(&shown)!=0; }
+int song_ui_selected_sequence(void){ return atomic_load(&selected_sequence); }
 
 int song_ui_owns(unsigned kind,unsigned code,int shift,int down)
 {
@@ -237,10 +239,47 @@ static void text(void *g,const char *s,int x,int y,int w,int h,float height)
     FN(0x1070d60,void(*)(uint64_t*))(&font);
     FN(0xf0a290,void(*)(uint64_t*))(&string);
 }
+/* One-time probe (lab/device log): locate the step list rows so the sequence
+ * colour can be drawn in each row. Reads only Component parent/bounds/child
+ * array; every child pointer must point back to its parent. */
+static int plausible(const void *p){ uintptr_t v=(uintptr_t)p; return v>0x10000&&!(v&7)&&v<((uintptr_t)1<<48); }
+static int child_offset=-1;
+static int children(void *c,void ***list)
+{
+    if(child_offset<0||!plausible(c)) return 0;
+    void **data=FIELD(c,child_offset,void**); int n=FIELD(c,child_offset+12,int),cap=FIELD(c,child_offset+8,int);
+    if(n<=0||n>64||cap<n||!plausible(data)) return 0;
+    for(int i=0;i<n;++i) if(!plausible(data[i])||FIELD(data[i],0x18,void*)!=c) return 0;
+    *list=data; return n;
+}
+static void probe_tree(void *c,int depth,int x0,int y0,unsigned *lines)
+{
+    void **list; int n=children(c,&list);
+    for(int i=0;i<n&&*lines<90;++i){
+        void *k=list[i]; int x=x0+FIELD(k,0x20,int),y=y0+FIELD(k,0x24,int);
+        char m[128]; snprintf(m,sizeof(m),"PROBE d=%d off=%lx vptr=%lx xy=%d,%d wh=%d,%d vis=%d",depth,
+            (unsigned long)((char*)k-(char*)screen),(unsigned long)(FIELD(k,0,uintptr_t)-base),x,y,
+            FIELD(k,0x28,int),FIELD(k,0x2c,int),FN(0x112fd50,int(*)(void*))(k));
+        fprintf(stderr,"SONG_UI %s\n",m); ++*lines;
+        if(depth<6) probe_tree(k,depth+1,x,y,lines);
+    }
+}
+static void probe(void *p)
+{
+    static int done; if(done) return; done=1;
+    const int offsets[]={0x40,0x30,0x38,0x48,0x50,0x58};
+    for(unsigned i=0;i<sizeof(offsets)/sizeof(offsets[0]);++i){
+        child_offset=offsets[i]; void **list;
+        if(children(p,&list)){ fprintf(stderr,"SONG_UI PROBE child_offset=0x%x list_off=0x798\n",child_offset);
+            unsigned lines=0; probe_tree(p,0,0,0,&lines); return; }
+    }
+    child_offset=-1; fprintf(stderr,"SONG_UI PROBE no child array found\n");
+}
 static void paint(void *p,void *g)
 {
     if(FIELD(p,0,uintptr_t)!=base+SONG_VPTR) return;
     screen=p;
+    { struct song_ref pr; if(song_ref(&pr)&&pr.count>=2) probe(p); } /* rows exist only once the song has steps */
     struct song_ref r; int seq,rep;
     char line[128];
     if(!(toast_until&&now_ms()<toast_until)) return;
@@ -260,9 +299,10 @@ void song_ui_tick(void)
     int v=visible(screen);
     if(v!=(int)atomic_load(&shown)){ atomic_store(&shown,(unsigned)v); knob_last=-1; if(v)report("SONG_SCREEN_VISIBLE"); }
     if(toast_until&&now_ms()>=toast_until){ toast_until=0; repaint(screen); }
-    if(!v){ pending_row=-1; last_row=-1; return; }
+    if(!v){ pending_row=-1; last_row=-1; atomic_store(&selected_sequence,-1); return; }
     struct song_ref r;
     if(!song_ref(&r)) return;
+    { int chosen=FIELD(r.controller,0x1dc,int); atomic_store(&selected_sequence,chosen>=0&&chosen<128?chosen:-1); }
     if(pending_row>=0&&(r.count==pending_count||now_ms()>=pending_until)){
         if(pending_row<r.count){
             FN(0x14e19c0,void(*)(void*,int))((char*)r.controller+0x168,pending_row);

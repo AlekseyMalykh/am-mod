@@ -28,6 +28,10 @@ int mixer_live_take_meter(struct mixer_live*,struct mixer_meter_snapshot*);
  * this engine scope, global Master FX/gain after native downstream mixing. */
 int mixer_live_render(struct mixer_live*,void*engine,void*clock,unsigned frames);
 void mixer_live_program(const struct mixer_route_ops*,void*program,void*clock,unsigned frames);
+/* Diagnostic counters: engine blocks, blocks with Program matched, Program calls,
+ * scoped calls, matched calls, calls from another thread during an engine block,
+ * scoped calls for a different Program object. */
+void mixer_live_diag(uint64_t out[7]);
 /* Experimental pinned installer. Call pre-main/stopped only. No automatic
  * binding or activation. One control owner can attach/detach while audio runs;
  * ownership transfers on success, and retirement never waits on audio. */

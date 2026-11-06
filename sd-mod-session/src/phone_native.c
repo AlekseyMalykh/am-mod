@@ -2165,13 +2165,22 @@ static void sequence_palette_tick(void){
     int bank=step_native_browser_bank(-1);
     /* While recording the native app keeps the Sample pad layout on the Seq
      * screen (no sequence selection until Stop): show its lights as they are. */
-    int enabled=music_pad_lighting_mode()&&music_ui_sequence_visible()&&bank>=0&&bank<8&&!(step_native_transport_state()&4u)&&
+    /* Song page: the pads choose sequences too, so they use the same
+     * Seq Colour palette (device request; stock lights them all green). */
+    int song=0;
+#ifdef MPC_SONG_UI
+    song=song_ui_active();
+#endif
+    int enabled=music_pad_lighting_mode()&&(music_ui_sequence_visible()||song)&&bank>=0&&bank<8&&!(step_native_transport_state()&4u)&&
         !atomic_load(&native_mute_mode)&&!atomic_load(&pad_bank_held_long);
     static struct sequence_clock clock;
     static int previous_bank=-1,previous_transport=-1,previous_selected=-1;
     if(!enabled){clock.valid=0;previous_bank=-1;atomic_store(&sequence_palette_enabled,0);return;}
     unsigned present=music_ui_sequence_presence((unsigned)bank);
     int selected=music_ui_sequence_selected();
+#ifdef MPC_SONG_UI
+    if(song)selected=song_ui_selected_sequence();
+#endif
     int transport=(step_native_transport_state()&3u)==3u;
     uint64_t serial;unsigned running=0;int64_t tick=step_native_clock_ticks(&serial,&running);
     uint64_t now=now_ms();struct sequence_timing timing=sequence_timing();
