@@ -40,6 +40,7 @@ unsigned step_native_transport_state(void){return 0;} /* r27r: stopped, invalid 
 void step_native_observe_rgb(unsigned pad,unsigned rgb){(void)pad;(void)rgb;}
 int workflow_native_occupied(void){return -1;}
 int workflow_native_selected(void){return -1;}
+void *note_native_context(void){return NULL;} /* r27r: no CurrentThings in this fixture */
 int music_lighting_levels_state(unsigned *on,unsigned *mode,unsigned *original){*on=*mode=*original=0;return 1;}
 static void capture(void *s,uint32_t colour,unsigned pad)
 {
