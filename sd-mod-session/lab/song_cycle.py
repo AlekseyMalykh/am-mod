@@ -2,10 +2,11 @@
 
   python3 lab/song_cycle.py boot mix1-card   # insert image, reset, wait for the mod and project
   python3 lab/song_cycle.py song             # drive Song Mode, screenshots + logs + project dump
+  python3 lab/song_cycle.py mixer            # enter Mixer (short Shift+Pad9), tabs, tracks, exit, long press
 Writes PNG/JSON/logs to build/song-lab and copies them to the Windows project tmp/song-lab.
 Only lab files; never a physical SD card."""
 from pathlib import Path
-import gzip,json,shutil,subprocess,sys,time,urllib.request
+import atexit,gzip,json,shutil,subprocess,sys,time,urllib.request
 sys.path.insert(0,'/opt/mpc-sample-lab');import lab
 R=Path(__file__).resolve().parent.parent;O=R/'build/song-lab';O.mkdir(parents=True,exist_ok=True)
 WIN=Path('/mnt/c/Users/Алексей/Desktop/akai mpc sample/tmp/song-lab')
@@ -19,7 +20,12 @@ def send(name,action,value=100):
     data=json.dumps(dict(name=name,action=action,value=value)).encode()
     urllib.request.urlopen(urllib.request.Request(URL+'/control',data,{'Content-Type':'application/json'}),timeout=10).read();time.sleep(.4)
 def tap(name):send(name,'press');send(name,'release');time.sleep(1.2)
-def shift(name):send('SHIFT','press');tap(name);send('SHIFT','release');time.sleep(1.2)
+def pad(n,hold=0.0):send(f'PAD {n}','press',100);time.sleep(hold);send(f'PAD {n}','release');time.sleep(1.2)
+def shift(name):
+    send('SHIFT','press')
+    if name.startswith('PAD '):pad(int(name[4:]))
+    else:tap(name)
+    send('SHIFT','release');time.sleep(1.2)
 def knob(k,v):send(k,'set',v);time.sleep(1.2)
 def snap(name):
     time.sleep(1.5)
@@ -68,17 +74,27 @@ if cmd=='boot':
     print(guest(f'grep -a "SONG_UI\\|r27r" {CLONE} | tail -n 5; sha256sum /run/mpc-clone-trial-v1/phone-input.so'),flush=True)
     snap('00-boot');publish()
 elif cmd=='song':
+    atexit.register(publish)
     tap('STOP');shift('PAD 12');snap('01-song-open')
-    tap('PAD 1');tap('SCREEN 3');tap('PAD 2');tap('SCREEN 3');tap('PAD 1');tap('SCREEN 3');snap('02-three-steps')
+    pad(1);tap('SCREEN 3');pad(2);tap('SCREEN 3');pad(1);tap('SCREEN 3');snap('02-three-steps')
     songs_dump('02')
-    tap('-');snap('03-row-selected')
+    tap('MINUS');snap('03-row-selected')
     knob('K1',64);knob('K1',76);snap('04-k1-repeats')       # +12 positions = +3 repeats
     songs_dump('04')
     shift('SCREEN 2');snap('05-duplicated')
     songs_dump('05')
-    shift('-');snap('06-moved-up')
-    tap('PAD 3');shift('SCREEN 3');snap('07-replaced')
+    shift('MINUS');snap('06-moved-up')
+    pad(3);shift('SCREEN 3');snap('07-replaced')
     songs_dump('07')
     tap('SCREEN 3');snap('08-plain-b3-stock-insert')       # stock Insert still works
-    publish()
+elif cmd=='mixer':
+    atexit.register(publish)
+    tap('STOP');tap('SAMPLE');snap('10-sample')
+    send('SHIFT','press');pad(9,0.15);send('SHIFT','release');snap('11-mixer-overview')   # short Shift+Pad9
+    tap('SCREEN 1');snap('12-mixer-mix');pad(2);snap('13-mixer-track-b')
+    tap('SCREEN 2');snap('14-mixer-fx');tap('SCREEN 3');snap('15-mixer-route')
+    pad(16);snap('16-mixer-master');tap('SCREEN 3');snap('17-mixer-route-same-tab-overview')
+    tap('SAMPLE');snap('18-exit-to-sample')
+    send('SHIFT','press');pad(9,0.9);send('SHIFT','release');snap('19-long-shift-pad9-stock-fader-settings')
+    tap('SAMPLE')
 else:raise SystemExit(__doc__)
