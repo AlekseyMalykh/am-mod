@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "song_ui.h"
 #include "phone_events.h"
+#include "music_settings.h"
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdio.h>
@@ -32,6 +33,10 @@
 #define NATIVE_NOOP 0x10e2e10
 #define NATIVE_DTOR 0x16a6540
 #define NATIVE_DELETE 0x16a6d90
+/* SongExportScreen (Song B1): same three slots, only for pad colours. */
+#define EXPORT_VPTR 0x6e24618
+#define EXPORT_DTOR 0x169f960
+#define EXPORT_DELETE 0x169fef0
 #define SONG_BAR_LIMIT 0x3137
 #define REPEATS_MAX 99
 #define FIELD(p,off,type) (*(type *)((char *)(p)+(off)))
@@ -44,6 +49,8 @@ static void *screen;                     /* UI thread only */
 static _Atomic unsigned shown;           /* producer reads */
 static _Atomic unsigned owned_buttons;   /* bit per claimed button down */
 static _Atomic int selected_sequence=-1; /* published by the UI Timer for the RGB layer */
+static void *export_screen;              /* UI thread only */
+static _Atomic unsigned pads_shown;      /* Song or Song Export visible: sequence pad colours */
 static int knob_last=-1;                 /* K1 relative baseline */
 static int knob_accum;
 static char toast[48];
@@ -66,6 +73,7 @@ static unsigned button_bit(unsigned code)
 void song_ui_init(uintptr_t b){ base=b; }
 int song_ui_active(void){ return atomic_load(&shown)!=0; }
 int song_ui_selected_sequence(void){ return atomic_load(&selected_sequence); }
+int song_ui_pads_active(void){ return atomic_load(&pads_shown)!=0; }
 
 int song_ui_owns(unsigned kind,unsigned code,int shift,int down)
 {
@@ -229,13 +237,15 @@ int song_ui_button(void *e)
 /* ---- paint / lifetime ---- */
 static void colour(void *g,uint32_t c){ FN(0x102d5e0,void(*)(void*,uint32_t))(g,c); }
 static void rect(void *g,int x,int y,int w,int h){ FN(0x102e000,void(*)(void*,int,int,int,int))(g,x,y,w,h); }
-static void text(void *g,const char *s,int x,int y,int w,int h,float height)
+static void text_at(void *g,const char *s,int x,int y,int w,int h,float height,int align);
+static void text(void *g,const char *s,int x,int y,int w,int h,float height){ text_at(g,s,x,y,w,h,height,0x24); }
+static void text_at(void *g,const char *s,int x,int y,int w,int h,float height,int align)
 {
     uint64_t string=0,font=0;
     FN(0xf535c0,void(*)(uint64_t*,const char*))(&string,s);
     FN(0x1082810,void(*)(uint64_t*,int,float))(&font,0,height);
     FN(0x102dca0,void(*)(void*,const uint64_t*))(g,&font);
-    FN(0x10817b0,void(*)(void*,const uint64_t*,int,int,int,int,int,int,float))(g,&string,x,y,w,h,0x24,1,0.70f);
+    FN(0x10817b0,void(*)(void*,const uint64_t*,int,int,int,int,int,int,float))(g,&string,x,y,w,h,align,1,0.70f);
     FN(0x1070d60,void(*)(uint64_t*))(&font);
     FN(0xf0a290,void(*)(uint64_t*))(&string);
 }
@@ -275,13 +285,60 @@ static void probe(void *p)
     }
     child_offset=-1; fprintf(stderr,"SONG_UI PROBE no child array found\n");
 }
+/* Step list rows (device probe 06.11): SongScreen+0x798 list -> ... ->
+ * viewport content -> row components (vptr 0x6d84cf0), 320x33 each, row y
+ * inside the content = index*33; the viewport shows y 38..236. */
+#define ROW_VPTR 0x6d84cf0
+#define ROW_HEIGHT 33
+#define LIST_TOP 38
+#define LIST_BOTTOM 236
+struct row_hit { void *row; int y; };
+static unsigned find_rows(void *c,int y0,int depth,struct row_hit *out,unsigned n)
+{
+    void **list; int k=children(c,&list);
+    for(int i=0;i<k&&n<16;++i){
+        void *x=list[i]; int y=y0+FIELD(x,0x24,int);
+        if(FIELD(x,0,uintptr_t)==base+ROW_VPTR){ out[n].row=x; out[n].y=y; ++n; }
+        else if(depth<6) n=find_rows(x,y,depth+1,out,n);
+    }
+    return n;
+}
+static void paint_rows(void *p,void *g,const struct song_ref *r)
+{
+    if(child_offset<0||!music_pad_lighting_mode()) return;
+    void *listbox=(char*)p+0x798;
+    struct row_hit rows[16]; unsigned n=find_rows(listbox,FIELD(listbox,0x24,int),0,rows,0);
+    for(unsigned i=0;i<n;++i){
+        void *row=rows[i].row; int ry=FIELD(row,0x24,int);
+        if(ry<0||ry%ROW_HEIGHT||!FN(0x112fd50,int(*)(void*))(row)) continue;
+        int index=ry/ROW_HEIGHT,seq,rep;
+        if(!step_at(r,index,&seq,&rep)) continue;
+        int top=rows[i].y,bottom=top+ROW_HEIGHT;
+        if(top<LIST_TOP) top=LIST_TOP;
+        if(bottom>LIST_BOTTOM) bottom=LIST_BOTTOM;
+        if(bottom-top<4) continue;
+        uint32_t rgb=0xff000000u|music_identity_rgb((unsigned)music_sequence_colour((unsigned)seq));
+        /* Colour bar on every row; the selected row keeps the stock highlight. */
+        colour(g,rgb); rect(g,0,top+3,4,bottom-top-6);
+        if(index==r->row||rows[i].y<LIST_TOP||rows[i].y+ROW_HEIGHT>LIST_BOTTOM) continue;
+        char name[16]; snprintf(name,sizeof(name),"Seq %c%02d",'A'+seq/16,seq%16+1);
+        colour(g,0xff000000); rect(g,8,rows[i].y+4,100,ROW_HEIGHT-8);
+        colour(g,rgb); text_at(g,name,25,rows[i].y,90,ROW_HEIGHT,15.0f,0x21); /* left, v-centred */
+        if(rep>1){
+            char bars[24]; snprintf(bars,sizeof(bars),"%d bars x%d",sequence_bars(r,seq),rep);
+            colour(g,0xff000000); rect(g,200,rows[i].y+4,100,ROW_HEIGHT-8);
+            colour(g,0xffffffff); text_at(g,bars,200,rows[i].y,96,ROW_HEIGHT,15.0f,0x22); /* right, v-centred */
+        }
+    }
+}
 static void paint(void *p,void *g)
 {
     if(FIELD(p,0,uintptr_t)!=base+SONG_VPTR) return;
     screen=p;
-    { struct song_ref pr; if(song_ref(&pr)&&pr.count>=2) probe(p); } /* rows exist only once the song has steps */
+    { struct song_ref pr; if(song_ref(&pr)&&pr.count>=1) probe(p); } /* rows exist only once the song has steps */
     struct song_ref r; int seq,rep;
     char line[128];
+    { struct song_ref pr; if(song_ref(&pr)) paint_rows(p,g,&pr); }
     if(!(toast_until&&now_ms()<toast_until)) return;
     if(song_ref(&r)&&step_at(&r,r.row,&seq,&rep))
         snprintf(line,sizeof(line),"%.47s   Step %d/%d x%d",toast,r.row+1,r.count,rep);
@@ -291,15 +348,20 @@ static void paint(void *p,void *g)
     colour(g,0xffffc247); text(g,line,4,224,312,16,12.0f);
 }
 static void forget(void *p){ if(screen==p){ screen=NULL; atomic_store(&shown,0); } }
+static void export_paint(void *p,void *g){ (void)g; if(FIELD(p,0,uintptr_t)==base+EXPORT_VPTR) export_screen=p; }
+static void export_forget(void *p){ if(export_screen==p) export_screen=NULL; }
+static void export_destroy(void *p){ export_forget(p); FN(EXPORT_DTOR,void(*)(void*))(p); }
+static void export_delete(void *p){ export_forget(p); FN(EXPORT_DELETE,void(*)(void*))(p); }
 static void destroy(void *p){ forget(p); FN(NATIVE_DTOR,void(*)(void*))(p); }
 static void destroy_delete(void *p){ forget(p); FN(NATIVE_DELETE,void(*)(void*))(p); }
 
 void song_ui_tick(void)
 {
     int v=visible(screen);
+    atomic_store(&pads_shown,(unsigned)(v||visible(export_screen)));
     if(v!=(int)atomic_load(&shown)){ atomic_store(&shown,(unsigned)v); knob_last=-1; if(v)report("SONG_SCREEN_VISIBLE"); }
     if(toast_until&&now_ms()>=toast_until){ toast_until=0; repaint(screen); }
-    if(!v){ pending_row=-1; last_row=-1; atomic_store(&selected_sequence,-1); return; }
+    if(!v){ pending_row=-1; last_row=-1; return; } /* keep the last selection for Song Export */
     struct song_ref r;
     if(!song_ref(&r)) return;
     { int chosen=FIELD(r.controller,0x1dc,int); atomic_store(&selected_sequence,chosen>=0&&chosen<128?chosen:-1); }
@@ -324,15 +386,17 @@ void song_ui_tick(void)
 
 int song_ui_install(void)
 {
-    uintptr_t *slots[3]={(uintptr_t*)(base+SONG_VPTR+SLOT_PAINT),(uintptr_t*)(base+SONG_VPTR),(uintptr_t*)(base+SONG_VPTR+8)};
-    const uintptr_t expected[3]={base+NATIVE_NOOP,base+NATIVE_DTOR,base+NATIVE_DELETE};
-    const uintptr_t callbacks[3]={(uintptr_t)paint,(uintptr_t)destroy,(uintptr_t)destroy_delete};
-    for(unsigned i=0;i<3;++i) if(*slots[i]!=expected[i]) return 0;
+    uintptr_t *slots[6]={(uintptr_t*)(base+SONG_VPTR+SLOT_PAINT),(uintptr_t*)(base+SONG_VPTR),(uintptr_t*)(base+SONG_VPTR+8),
+        (uintptr_t*)(base+EXPORT_VPTR+SLOT_PAINT),(uintptr_t*)(base+EXPORT_VPTR),(uintptr_t*)(base+EXPORT_VPTR+8)};
+    const uintptr_t expected[6]={base+NATIVE_NOOP,base+NATIVE_DTOR,base+NATIVE_DELETE,base+NATIVE_NOOP,base+EXPORT_DTOR,base+EXPORT_DELETE};
+    const uintptr_t callbacks[6]={(uintptr_t)paint,(uintptr_t)destroy,(uintptr_t)destroy_delete,
+        (uintptr_t)export_paint,(uintptr_t)export_destroy,(uintptr_t)export_delete};
+    for(unsigned i=0;i<6;++i) if(*slots[i]!=expected[i]) return 0;
     if(sysconf(_SC_PAGESIZE)!=4096) return 0;
     void *page=(void*)((uintptr_t)slots[0]&~(uintptr_t)4095);
-    for(unsigned i=1;i<3;++i) if(((uintptr_t)slots[i]&~(uintptr_t)4095)!=(uintptr_t)page) return 0;
+    for(unsigned i=1;i<6;++i) if(((uintptr_t)slots[i]&~(uintptr_t)4095)!=(uintptr_t)page) return 0;
     if(mprotect(page,4096,PROT_READ|PROT_WRITE)) return 0;
-    for(unsigned i=0;i<3;++i) *slots[i]=callbacks[i];
+    for(unsigned i=0;i<6;++i) *slots[i]=callbacks[i];
     if(mprotect(page,4096,PROT_READ)) _exit(121);
     report("INSTALLED");
     return 1;

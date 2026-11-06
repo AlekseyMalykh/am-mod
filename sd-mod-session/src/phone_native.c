@@ -2169,7 +2169,7 @@ static void sequence_palette_tick(void){
      * Seq Colour palette (device request; stock lights them all green). */
     int song=0;
 #ifdef MPC_SONG_UI
-    song=song_ui_active();
+    song=song_ui_pads_active();
 #endif
     int enabled=music_pad_lighting_mode()&&(music_ui_sequence_visible()||song)&&bank>=0&&bank<8&&!(step_native_transport_state()&4u)&&
         !atomic_load(&native_mute_mode)&&!atomic_load(&pad_bank_held_long);

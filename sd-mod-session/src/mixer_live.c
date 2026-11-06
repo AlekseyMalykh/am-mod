@@ -26,6 +26,12 @@ static _Thread_local struct mixer_live*live_scope;
 static _Atomic uint64_t diag_program_calls,diag_program_scoped,diag_program_matched,
     diag_program_other_thread,diag_program_other_object,diag_engine_blocks,diag_engine_matched;
 static _Atomic unsigned diag_engine_active;
+static _Atomic uintptr_t diag_seen[4];   /* distinct Program objects seen in scope */
+void mixer_live_diag_objects(const struct mixer_live*s,uintptr_t out[5])
+{
+    out[0]=s?(uintptr_t)s->program:0;
+    for(unsigned i=0;i<4;++i)out[1+i]=atomic_load_explicit(&diag_seen[i],memory_order_relaxed);
+}
 void mixer_live_diag(uint64_t out[7])
 {
     out[0]=atomic_load_explicit(&diag_engine_blocks,memory_order_relaxed);
@@ -116,7 +122,11 @@ void mixer_live_program(const struct mixer_route_ops*ops,void*p,void*clock,unsig
     if(!s&&atomic_load_explicit(&diag_engine_active,memory_order_relaxed))
         atomic_fetch_add_explicit(&diag_program_other_thread,1,memory_order_relaxed);
     if(s){atomic_fetch_add_explicit(&diag_program_scoped,1,memory_order_relaxed);
-        if(s->program!=p)atomic_fetch_add_explicit(&diag_program_other_object,1,memory_order_relaxed);}
+        if(s->program!=p){atomic_fetch_add_explicit(&diag_program_other_object,1,memory_order_relaxed);
+            for(unsigned i=0;i<4;++i){uintptr_t expected=0,v=(uintptr_t)p;
+                uintptr_t now=atomic_load_explicit(&diag_seen[i],memory_order_relaxed);
+                if(now==v)break;
+                if(!now&&atomic_compare_exchange_strong_explicit(&diag_seen[i],&expected,v,memory_order_relaxed,memory_order_relaxed))break;}}}
     if(!s||s->program!=p){ops->render(p,clock,frames);return;}
     atomic_fetch_add_explicit(&diag_program_matched,1,memory_order_relaxed);
     s->matched_program=1;

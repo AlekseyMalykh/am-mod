@@ -1,5 +1,7 @@
 #include "mixer_session.h"
 #include "mixer_archive.h"
+#include <cstdint>
+extern "C" uintptr_t mixer_live_native_image(void);
 #include <atomic>
 #include <mutex>
 #include <new>
@@ -74,7 +76,13 @@ extern "C" void mixer_session_ui_tick(mixer_session*s)
             if(d[2]!=last_calls){last_calls=d[2];++lines;
                 std::fprintf(stderr,"MIXER_LIVE engine=%llu engine_matched=%llu program=%llu scoped=%llu matched=%llu other_thread=%llu other_program=%llu\n",
                     (unsigned long long)d[0],(unsigned long long)d[1],(unsigned long long)d[2],(unsigned long long)d[3],
-                    (unsigned long long)d[4],(unsigned long long)d[5],(unsigned long long)d[6]);}}
+                    (unsigned long long)d[4],(unsigned long long)d[5],(unsigned long long)d[6]);
+                static unsigned object_lines;
+                if(object_lines<6){++object_lines;uintptr_t o[5];mixer_live_diag_objects(s->live,o);uintptr_t img=mixer_live_native_image();
+                    auto vt=[&](uintptr_t p)->unsigned long{return p?static_cast<unsigned long>(*reinterpret_cast<uintptr_t*>(p)-img):0;};
+                    std::fprintf(stderr,"MIXER_LIVE_OBJECTS bound=%lx vptr=%lx\n",(unsigned long)o[0],vt(o[0]));
+                    for(unsigned i=1;i<5;++i)if(o[i])std::fprintf(stderr,"MIXER_LIVE_OBJECTS seen%u=%lx delta=%lld vptr=%lx\n",i,
+                        (unsigned long)o[i],(long long)(o[i]-o[0]),vt(o[i]));}}}
     }
     mixer_meter_snapshot meter;
     if(mixer_live_take_meter(s->live,&meter)){

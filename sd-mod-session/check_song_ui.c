@@ -56,6 +56,9 @@ static int song_bars(void *song,void *sequencer)
 { assert(song==song_obj&&sequencer==sequencer_obj); /* lab: 0x29ba240 walks steps via sequencer */int n=0;for(int i=0;i<step_count;++i)n+=FIELD(sequences[steps[i][0]],0x200,int)*steps[i][1];return n; }
 static int selected=-1;
 static void select_row(void *property,int value){ assert(property==controller_obj+0x168); selected=value; row=value; }
+int music_pad_lighting_mode(void){ return 1; }
+uint32_t music_user_rgb(unsigned raw){ return 0x101010u*raw; }
+int music_sequence_colour(unsigned sequence){ return (int)(sequence%14); }
 static int yes(void *p){ (void)p; return 1; }
 static int no(void *p){ (void)p; return 0; }
 static void noop(void){}
@@ -79,6 +82,8 @@ int main(int argc,char **argv)
     assert(vt[SLOT_PAINT/8]==elf_image+NATIVE_NOOP&&vt[0]==elf_image+NATIVE_DTOR&&vt[1]==elf_image+NATIVE_DELETE);
     assert(song_ui_install());
     assert(vt[SLOT_PAINT/8]==(uintptr_t)paint&&vt[0]==(uintptr_t)destroy&&vt[1]==(uintptr_t)destroy_delete);
+    uintptr_t *ex=(uintptr_t*)(elf_image+EXPORT_VPTR);
+    assert(ex[SLOT_PAINT/8]==(uintptr_t)export_paint&&ex[0]==(uintptr_t)export_destroy&&ex[1]==(uintptr_t)export_delete);
     assert(!song_ui_install()); /* second install refuses: slots no longer stock */
 
     phase="fixtures";
@@ -103,7 +108,7 @@ int main(int argc,char **argv)
     phase="paint binds the screen; tick publishes visibility";
     ((void(*)(void*,void*))vt[SLOT_PAINT/8])(screen_obj,(void*)0x10);
     assert(screen==screen_obj&&!drawn[0]); /* nothing drawn until an edit */
-    song_ui_tick();assert(song_ui_active());
+    song_ui_tick();assert(song_ui_active()&&song_ui_pads_active()&&song_ui_selected_sequence()==5);
 
     phase="ownership pairing";
     assert(song_ui_owns(PHONE_CONTROLLER,K1,0,1)&&!song_ui_owns(PHONE_CONTROLLER,0x11,0,1));

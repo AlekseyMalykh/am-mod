@@ -32,6 +32,8 @@ void mixer_live_program(const struct mixer_route_ops*,void*program,void*clock,un
  * scoped calls, matched calls, calls from another thread during an engine block,
  * scoped calls for a different Program object. */
 void mixer_live_diag(uint64_t out[7]);
+/* Diagnostic: bound Program and up to four other Program objects seen in scope. */
+void mixer_live_diag_objects(const struct mixer_live*,uintptr_t out[5]);
 /* Experimental pinned installer. Call pre-main/stopped only. No automatic
  * binding or activation. One control owner can attach/detach while audio runs;
  * ownership transfers on success, and retirement never waits on audio. */
