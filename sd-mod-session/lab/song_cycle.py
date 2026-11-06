@@ -99,7 +99,7 @@ elif cmd=='mixer-sound':
     # Mixer readiness needs live Program audio: record a pad, then enter the
     # Mixer while that pad is sounding. Diagnostic only.
     atexit.register(publish)
-    tap('STOP');tap('SAMPLE RECORD');snap('20-record-screen')
+    tap('STOP');tap('SAMPLE RECORD');knob('K3',0);snap('20-record-screen')   # threshold off: record even silence
     pad(2);time.sleep(5);tap('STOP');time.sleep(3);snap('21-recorded')
     tap('SAMPLE');snap('22-sample')
     post('PAD 2','press',120);time.sleep(1.5);snap('23-pad2-sounding')
