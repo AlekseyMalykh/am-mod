@@ -23,7 +23,7 @@
  *   0x19a1880 Delete(ctx, song, long step)
  *   0x19a29e0 SetSequence(ctx, song, long step, int seq)
  *   0x19a20d0 SetRepeats(ctx, song, long step, int repeats)
- * Song length: 0x29ba240(song) bars, 0x2909be0(sequencer, seq)+0x200 bars,
+ * Song length: 0x29ba240(song, sequencer) = sum of repeats x bars, 0x2909be0(sequencer, seq)+0x200 bars,
  * stock limit total <= 0x3137 (check 0x15756a0). */
 #define SONG_VPTR 0x6e24a00
 #define SLOT_PAINT 0xd8
@@ -106,7 +106,7 @@ static int sequence_bars(const struct song_ref *r,int seq)
     return sequence?FIELD(sequence,0x200,int):0;
 }
 static int fits(const struct song_ref *r,int extra_bars)
-{ return FN(0x29ba240,int(*)(void*))(r->song)+extra_bars<=SONG_BAR_LIMIT; }
+{ return FN(0x29ba240,int(*)(void*,void*))(r->song,r->sequencer)+extra_bars<=SONG_BAR_LIMIT; }
 static void say(const char *m)
 { snprintf(toast,sizeof(toast),"%s",m); toast_until=now_ms()+1500; repaint(screen); report(m); }
 

@@ -52,8 +52,8 @@ static void op_delete(void **ctx,void *song,long step)
 }
 static int list_row(void *list){ assert(list==screen_obj+0x798); return row; }
 static void *sequence_get(void *sequencer,int seq){ assert(sequencer==sequencer_obj&&seq>=0&&seq<16); return sequences[seq]; }
-static int song_bars(void *song)
-{ assert(song==song_obj);int n=0;for(int i=0;i<step_count;++i)n+=FIELD(sequences[steps[i][0]],0x200,int)*steps[i][1];return n; }
+static int song_bars(void *song,void *sequencer)
+{ assert(song==song_obj&&sequencer==sequencer_obj); /* lab: 0x29ba240 walks steps via sequencer */int n=0;for(int i=0;i<step_count;++i)n+=FIELD(sequences[steps[i][0]],0x200,int)*steps[i][1];return n; }
 static int yes(void *p){ (void)p; return 1; }
 static int no(void *p){ (void)p; return 0; }
 static void noop(void){}
