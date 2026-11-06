@@ -404,6 +404,8 @@ static unsigned mixer_block_reasons(void)
     return r;
 }
 static _Atomic unsigned mixer_last_reasons=~0u;
+static _Atomic unsigned mixer_select_enabled;
+static _Atomic uint64_t mixer_select_lights[16];
 static void mixer_publish_route(void)
 {
     struct mixer_control *control = mixer_session_control(mixer_ui_session);
@@ -424,6 +426,20 @@ static void mixer_publish_route(void)
     atomic_store(&mixer_route, state ? (mixer_binding << 2) | state : 0);
     struct mixer_view_state view = {0};
     mixer_control_view(control,now_ms(),&view);
+    /* Device report: the Sample pad colours stayed lit in the Mixer. Outside
+     * Assign/Inspect the pads select Tracks: pads 1-8 = Track A-H in their
+     * colours (selected bright), pad 16 = Master, the rest off. */
+    if ((state & MIXER_OPEN) && view.project && view.page != MIXER_ASSIGN && view.page != MIXER_INSPECT) {
+        for (unsigned i=0;i<16;++i) {
+            uint64_t light = 0;
+            if (i < 8) {
+                int on = !view.master && (view.selected & (1u<<i));
+                light = pad_light(view.project->track[i].colour & 0xffffffu, on ? 1.f : .22f);
+            } else if (i == 15) light = pad_light(0xffffffu, view.master ? .90f : .22f);
+            atomic_store(&mixer_select_lights[i], light);
+        }
+        atomic_store(&mixer_select_enabled, 1);
+    } else atomic_store(&mixer_select_enabled, 0);
     if ((state & MIXER_OPEN) && (view.page == MIXER_ASSIGN || view.page == MIXER_INSPECT)) {
         /* Use the existing shared bank model so native playback indications
          * refer to the same sixteen sounds as the Mixer palette. */
@@ -2339,6 +2355,10 @@ static int pad_colour_light(unsigned pad,uint64_t *out){
 #ifdef MPC_MIXER_LIVE
 static int mixer_light(unsigned pad,uint64_t *out)
 {
+    if (pad < 16 && atomic_load(&mixer_select_enabled) && (atomic_load(&mixer_route) & MIXER_OPEN)) {
+        *out = atomic_load(&mixer_select_lights[pad]);
+        return 1;
+    }
     uint32_t native=(uint32_t)atomic_load(&original_lights[pad]);
     if(!mixer_leds_light(pad,native,out))return 0;
     if(atomic_load(&mixer_project_invalidated)||atomic_load(&mixer_input_fault)||
