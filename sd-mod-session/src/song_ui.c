@@ -233,10 +233,10 @@ static void paint(void *p,void *g)
     if(FIELD(p,0,uintptr_t)!=base+SONG_VPTR) return;
     screen=p;
     struct song_ref r; int seq,rep;
-    char line[48];
+    char line[128];
     if(!(toast_until&&now_ms()<toast_until)) return;
     if(song_ref(&r)&&step_at(&r,r.row,&seq,&rep))
-        snprintf(line,sizeof(line),"%s   Step %d/%d x%d",toast,r.row+1,r.count,rep);
+        snprintf(line,sizeof(line),"%.47s   Step %d/%d x%d",toast,r.row+1,r.count,rep);
     else snprintf(line,sizeof(line),"%s",toast);
     /* Transient strip after an edit; the stock list is untouched otherwise. */
     colour(g,0xff000000); rect(g,0,224,320,16);
