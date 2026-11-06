@@ -154,6 +154,10 @@ static void note(const char *message)
 /* Match a native button-down with its native release across a workflow
  * transition. A release is not an action owned by the newly opened window. */
 static _Atomic unsigned char native_buttons_down[112],gesture_released[112];
+/* PAD BANK (0x23) held: the native bank picker owns the pads only after a
+ * real hold. A short press (bank change) used to flash the picker's green
+ * over the Seq/Sample colours (device report). Set by the UI timer. */
+static _Atomic unsigned pad_bank_held_long;
 #ifdef MPC_KNOB_RESET
 static _Atomic unsigned bank_pad_owned;
 #endif
@@ -177,7 +181,34 @@ int power_control_operation_busy(void){return workflow_jobs_busy()||resample_ui_
 ;}
 #endif
 static int on_ui(void);
+/* Weak no-op defaults keep host tests that include this file without
+ * music_lighting.c / note_native.c linkable; the real units override them. */
+__attribute__((weak)) void music_lighting_request_refresh(void){}
+__attribute__((weak)) void note_native_mix_shift_tick(void){}
+__attribute__((weak)) int workflow_copy_mode_id(void){return -2;}
+__attribute__((weak)) int workflow_reset_knob(unsigned column,unsigned shift){(void)column;(void)shift;return 0;}
+extern int rear_ui_reset_knob(unsigned column,unsigned shift) __attribute__((weak));
+extern int startup_project_loading(void) __attribute__((weak));
+extern int workflow_startup_loading(void) __attribute__((weak));
+extern int workflow_browser_shown(void) __attribute__((weak));
+extern unsigned workflow_native_muted(void) __attribute__((weak));
+static _Atomic unsigned pad_colour_native_muted;
+/* Startup project load (after the app is up): one running pad, left to
+ * right and top to bottom (13..16, 9..12, 5..8, 1..4), in the Play
+ * position colour, like the Steps playhead. Published by the UI timer; the RGB hook only reads it. */
+static _Atomic unsigned startup_pads;
+/* Weak declarations (not definitions): some host fixtures include this file
+ * and define these themselves, others link without them (address NULL). */
+extern int music_set_sequence_colour(unsigned sequence,unsigned colour) __attribute__((weak));
+extern int music_sequence_colour(unsigned sequence) __attribute__((weak));
+extern unsigned music_ui_sequence_presence(unsigned bank) __attribute__((weak));
+/* Physical STOP press, replayed as a second press so Stop+pad cuts the pad's
+ * sounding voice (stock double-Stop all-sounds-off) before its tail plays. */
+static pthread_mutex_t stop_template_mutex=PTHREAD_MUTEX_INITIALIZER;
+static unsigned char stop_template[16];static int stop_template_ready;
+static void forward_buttons(void*event);
 static unsigned tail_mode(void){
+ if(!music_tail_ms((unsigned)music_mod_setting(MUSIC_SETTING_TAIL)))return 0; /* Preview from end: Off */
  if(!note_native_sample_visible()||!music_ui_chords_available()||music_ui_sequence_visible()
     ||workflow_blocks_sample_controls()||step_native_active()||(step_native_transport_state()&4u)
     ||atomic_load(&naming_active)||atomic_load(&native_mute_mode)||atomic_load(&native_shift_requested))return 0;
@@ -436,6 +467,7 @@ static void tick(void *unused)
 #endif
     levels_state_tick();
     int note_running=note_native_tick();
+    note_native_mix_shift_tick();
     int music_running=music_ui_tick();
     int step_running=step_native_tick();
     int workflow_running=workflow_tick();
@@ -1155,7 +1187,12 @@ static void controller(void *event)
 static void buttons(void *event)
 {
     unsigned native_code=FIELD(event,8,unsigned char),native_down=FIELD(event,9,unsigned char)!=0;
+    /* r27q-fix6 diagnostic: physical button codes (Sample/Seq/... are not
+     * mapped in the repo yet), with the 16 Levels/Chop state, 300 presses. */
+    {static unsigned logged;if(native_down&&logged<300){++logged;unsigned on=0,mode=0,origin=0;music_lighting_levels_state(&on,&mode,&origin);
+        fprintf(stderr,"BUTTON_DOWN code=%02x levels=%u/%u\n",native_code,on,mode);}}
     if(native_code==0x51)atomic_store(&stop_requested,native_down);
+    if(native_code==0x51&&native_down){pthread_mutex_lock(&stop_template_mutex);memcpy(stop_template,event,16);stop_template_ready=1;pthread_mutex_unlock(&stop_template_mutex);}
 #ifdef MPC_KNOB_RESET
     knob_reset_button(native_code,native_down);
 #endif
@@ -1216,6 +1253,13 @@ static void pad_event(void *event)
     int down = FN(0xddfed0,int(*)(void*,int))(msg,0);
     int up = FN(0xddff20,int(*)(void*,int))(msg,1);
     if(atomic_load(&tail_pads)&bit){if(up)atomic_fetch_and(&tail_pads,~bit);return;}
+    /* Shift+Pad16 is the stock Knob FX shortcut; it must not open Knob FX
+     * over the browser (device request). Swallow that pad's press/release. */
+    {static unsigned knob_fx_pad;
+     if((knob_fx_pad&bit)||(down&&pad==15&&atomic_load(&native_shift_requested)&&workflow_browser_shown&&workflow_browser_shown()&&!workflow_owns(3,pad))){
+        if(down){knob_fx_pad|=bit;}
+        if(up){knob_fx_pad&=~bit;}
+        return;}}
     if (passed & bit) {
         if (up) passed &= ~bit;
         ORIG(H_PAD,void(*)(void*))(event); return;
@@ -1320,7 +1364,14 @@ static unsigned process_events(void)
         ++processed;
         if(e.kind==PHONE_TAIL_PAD){
             unsigned tail=tail_mode();
-            if(tail&&tail==e.workflow_ticket)workflow_tail_preview(e.pad,tail==2);
+            if(tail&&tail==e.workflow_ticket){
+                /* Device report: the pad already sounding kept playing under
+                 * its own tail. Second Stop (still held) silences it first. */
+                unsigned char ev[16];int ready;
+                pthread_mutex_lock(&stop_template_mutex);memcpy(ev,stop_template,16);ready=stop_template_ready;pthread_mutex_unlock(&stop_template_mutex);
+                if(ready&&atomic_load(&stop_requested)){ev[8]=0x51;ev[9]=0;forward_buttons(ev);ev[9]=1;forward_buttons(ev);note("TAIL_PREVIEW SECOND_STOP");}
+                workflow_tail_preview(e.pad,tail==2);
+            }
             continue;
         }
 #ifdef MPC_KNOB_RESET
@@ -1336,10 +1387,19 @@ static unsigned process_events(void)
         }
         if(e.kind==PHONE_KNOB_RESET){
             unsigned cc=FIELD(e.native,8,unsigned char),shift=!!(e.workflow_ticket&1),column=cc-0x10;
-            if(knob_reset_begin(e.workflow_ticket,cc)&&!atomic_load(&naming_active)&&!workflow_blocks_sample_controls()&&!resample_running()){
+            /* Mod windows that own the K knobs (browser, Batch, Rear Routing)
+             * reset their own values; the Sample chain below stays blocked
+             * behind them as before. */
+            if(knob_reset_begin(e.workflow_ticket,cc)&&!atomic_load(&naming_active)&&!resample_running()){
+              if(workflow_blocks_sample_controls()){
+                if(!workflow_reset_knob(column,shift))note("KNOB_RESET no_default_for_current_parameter");
+              }else{
                 int done=0;
+#ifdef MPC_REAR_ROUTING
+                done=rear_ui_reset_knob?rear_ui_reset_knob(column,shift):0;
+#endif
 #ifdef MPC_COMPRESSOR
-                done=compressor_ui_reset_knob(column,shift);
+                if(!done)done=compressor_ui_reset_knob(column,shift);
 #endif
 #ifdef MPC_CHORDS
                 if(!done)done=chords_ui_reset_knob(column,shift);
@@ -1349,6 +1409,7 @@ static unsigned process_events(void)
                 if(!done)done=note_native_reset_knob(column,shift);
                 if(!done)done=knob_reset_native(column,shift);
                 if(!done)note("KNOB_RESET no_default_for_current_parameter");
+              }
             }
             continue;
         }
@@ -1531,7 +1592,7 @@ static void sequence_palette_tick(void){
     /* While recording the native app keeps the Sample pad layout on the Seq
      * screen (no sequence selection until Stop): show its lights as they are. */
     int enabled=music_pad_lighting_mode()&&music_ui_sequence_visible()&&bank>=0&&bank<8&&!(step_native_transport_state()&4u)&&
-        !atomic_load(&native_mute_mode)&&!atomic_load(&native_buttons_down[0x23]);
+        !atomic_load(&native_mute_mode)&&!atomic_load(&pad_bank_held_long);
     static struct sequence_clock clock;
     static int previous_bank=-1,previous_transport=-1,previous_selected=-1;
     if(!enabled){clock.valid=0;previous_bank=-1;atomic_store(&sequence_palette_enabled,0);return;}
@@ -1541,6 +1602,7 @@ static void sequence_palette_tick(void){
     uint64_t serial;unsigned running=0;int64_t tick=step_native_clock_ticks(&serial,&running);
     uint64_t now=now_ms();struct sequence_timing timing=sequence_timing();
     if(!transport&&selected!=previous_selected)clock.valid=0;
+    static uint64_t selected_since;if(selected!=previous_selected)selected_since=now;
     double when=sequence_clock_time(&clock,now,transport,serial,tick,timing.bpm);
     previous_selected=selected;
     /* Native queued pulse: a pad's own brightness changed at least three
@@ -1569,6 +1631,12 @@ static void sequence_palette_tick(void){
         unsigned brightness=sequence_brightness(!!(present&(1u<<i)),index,selected,playing,when,queued,&timing);
         int chosen=music_sequence_colour((unsigned)bank*16+i);
         unsigned colour=music_identity_rgb(chosen);
+        /* Agreed: the selected sequence pad blinks white like the Sample
+         * cursor (Mod Settings Cursor pulse; Steady keeps it white). */
+        if((int)index==selected&&!queued&&music_cursor_on(now-selected_since,500)){
+            atomic_store(&sequence_palette[i],pad_light(PAD_SELECT,.95f));continue;
+        }
+        if((int)index==selected&&brightness<96)brightness=96;
         /* Assigned hue is retained in both pulse and background phases. */
         unsigned red=((colour>>16)&255)*brightness/255;
         unsigned green=((colour>>8)&255)*brightness/255;
@@ -1586,6 +1654,7 @@ static _Atomic int pad_colour_native_occupied=-1;
 static _Atomic int pad_colour_native_selected=-1;
 static _Atomic uint64_t pad_colour_chop_phase,pad_colour_target_phase;
 static _Atomic int pad_colour_chop_source=-1;
+static _Atomic int pad_colour_copy_source=-1; /* latched native Copy source, absolute index */
 static _Atomic int pad_colour_bank;
 /* Sample pad layout: the user's Pad Colour (Mix, K2) keeps the
  * native brightness of each pad (dim loaded, bright playing) and replaces
@@ -1597,23 +1666,51 @@ static int pad_colour_light(unsigned pad,uint64_t *out){
     if(atomic_load(&pad_colour_native_workflow)){
         unsigned kind=atomic_load(&pad_colour_native_workflow);
         unsigned raw=(unsigned)atomic_load(&original_lights[pad]);
-        /* The real CopyModePadsLighting emits full red for selected source
-         * bits. Do not reinterpret those source bits as occupied targets. */
-        if((kind==2&&raw==0xff0000)||(kind==1&&atomic_load(&pad_colour_native_selected)==bank*16+(int)pad)){
-            int occupied=atomic_load(&pad_colour_native_occupied);
-            int used=kind==2||(occupied>=0&&((unsigned)occupied&(1u<<pad)));
-            *out=pad_source_light(used?music_identity_rgb((unsigned)chosen):0,atomic_load(&pad_colour_target_phase));return 1;
-        }
         int occupied=atomic_load(&pad_colour_native_occupied);
+        int used=occupied>=0&&((unsigned)occupied&(1u<<pad));
+        uint64_t phase=atomic_load(&pad_colour_target_phase);
+        unsigned index=(unsigned)bank*16+pad;
+        if(kind==2||kind==3){
+            /* Native Copy encoding (device log): source = pulsing pure green
+             * (003000..00e800, 000000 in its off phase), chosen target =
+             * ff0000 whether free or occupied. Agreed rules: source blinks
+             * white/own colour, target free = Free colour, target occupied =
+             * Occupied colour (steady), others own colour dim, empty off. */
+            uint32_t hue=music_identity_rgb((unsigned)(kind==3?(music_sequence_colour?music_sequence_colour(index):0):music_pad_colour(index)));
+            unsigned r=(raw>>16)&255,g=(raw>>8)&255,b=raw&255;
+            if(!r&&!b&&g)atomic_store(&pad_colour_copy_source,(int)index);
+            if((int)index==atomic_load(&pad_colour_copy_source)&&raw!=0xff0000){
+                *out=pad_source_light(used?hue:PAD_SELECT,phase);return 1;
+            }
+            if(raw==0xff0000){*out=pad_light(used?PAD_DANGER:PAD_FREE,used?PAD_BRIGHT_DANGER:.60f);return 1;}
+            *out=pad_light(used?hue:0,used?.18f:0);return 1;
+        }
+        int muted=used&&(atomic_load(&pad_colour_native_muted)&(1u<<pad));
+        /* Browser + Mute (device report: red, never grey): native Mute
+         * emits ff0000 muted / ff7700 playable. Agreed Mute look: own colour
+         * brighter, muted = Occupied/danger colour; outside Mute, muted
+         * loaded pads are grey (Muted colour) as on the Sample screen. */
+        if(kind==1&&(atomic_load(&native_mute_mode)||atomic_load(&native_buttons_down[0x2b]))){
+            if(!used){*out=pad_light(0,0);return 1;}
+            *out=raw==0xff0000u||muted?pad_light(PAD_DANGER,.80f):pad_light(music_identity_rgb((unsigned)chosen),.70f);return 1;
+        }
+        /* Sample browser (kind 1): selected load pad. */
+        if(kind==1&&atomic_load(&pad_colour_native_selected)==(int)index){
+            *out=pad_source_light(used?music_identity_rgb((unsigned)chosen):0,phase);return 1;
+        }
         if(occupied>=0){
             int marked=raw==0xff0000||raw==0xffffff;
-            *out=pad_target_colour((unsigned)bank*16+pad,!!((unsigned)occupied&(1u<<pad)),marked,marked,atomic_load(&pad_colour_target_phase));return 1;
+            if(muted&&!marked){*out=pad_light(PAD_MUTED,.32f);return 1;}
+            *out=pad_target_colour(index,used,marked,marked,phase);return 1;
         }
         return 0;
     }
-    /* Temporary native indications keep priority: Mute mode, held Mute
-     * (0x23) and held Erase (0x09) show the native colours as they are. */
-    if(atomic_load(&native_mute_mode)||atomic_load(&native_buttons_down[0x23])||atomic_load(&native_buttons_down[0x09]))return 0;
+    /* Mute mode and held Mute (0x23) still show the native colours (their
+     * per-pad meaning is not decoded yet). Held Erase (0x09) keeps the user's
+     * pad colours (agreed rules, PREF-05): occupied pads stay in their hue at
+     * content brightness, empty pads stay off. */
+    if(atomic_load(&native_mute_mode)||atomic_load(&pad_bank_held_long))return 0;
+    int erase_held=atomic_load(&native_buttons_down[0x09]);
     unsigned enabled=0,mode=0,origin=0;music_lighting_levels_state(&enabled,&mode,&origin);
     if(enabled&&mode==8){
         unsigned raw=(unsigned)atomic_load(&original_lights[pad]);
@@ -1633,6 +1730,7 @@ static int pad_colour_light(unsigned pad,uint64_t *out){
     unsigned level=(old>>16)&255;if(((old>>8)&255)>level)level=(old>>8)&255;if((old&255)>level)level=old&255;
     if(!level)return 0;
     unsigned colour=music_identity_rgb(chosen);
+    if(erase_held){*out=pad_light(colour,PAD_BRIGHT_CONTENT);return 1;}
     unsigned red=((colour>>16)&255)*level/255,green=((colour>>8)&255)*level/255,blue=(colour&255)*level/255;
     float intensity=1;uint32_t bits;memcpy(&bits,&intensity,4);
     *out=(uint64_t)((red<<16)|(green<<8)|blue)|((uint64_t)bits<<32);return 1;
@@ -1644,8 +1742,9 @@ static void rgb(void *s,uint32_t colour,unsigned pad)
         atomic_store(&original_lights[pad],colour);
         step_native_observe_rgb(pad,colour);
         atomic_fetch_or(&light_mask,1u << pad);
+        if(atomic_load(&startup_pads))return; /* startup row animation owns the pads */
 #ifdef MPC_KNOB_RESET
-        if((knob_reset_ticket()&2)&&atomic_load(&native_buttons_down[0x23])){ORIG(H_RGB,void(*)(void*,uint32_t,unsigned))(s,colour,pad);return;}
+        if((knob_reset_ticket()&2)&&atomic_load(&pad_bank_held_long)){ORIG(H_RGB,void(*)(void*,uint32_t,unsigned))(s,colour,pad);return;}
 #endif
         uint64_t workflow_colour;
 #ifdef MPC_REAR_ROUTING
@@ -1692,13 +1791,66 @@ static void rgb(void *s,uint32_t colour,unsigned pad)
     }
     ORIG(H_RGB,void(*)(void*,uint32_t,unsigned))(s,colour,pad);
 }
+/* r27q-fix4 diagnostic (stderr -> MPC_CLONE_TRIAL.txt on power-off):
+ * one line per change of lighting context/owners, at most 240 lines.
+ * Owner per pad: W mod workflow, N native workflow, C chords, S steps,
+ * Q sequence colours, P pad colour, - native passthrough. Read-only. */
+static void lights_diagnostic(void){
+    static unsigned lines;static char last[160];
+    if(lines>=800)return;
+    unsigned on=0,mode=0,origin=0;music_lighting_levels_state(&on,&mode,&origin);
+    char owners[17];unsigned raw_mask=0;
+    for(unsigned i=0;i<16;++i){
+        uint64_t l;char o='-';
+        if(workflow_light(i,&l))o='W';
+        else if(atomic_load(&pad_colour_native_workflow)&&pad_colour_light(i,&l))o='N';
+#ifdef MPC_CHORDS
+        else if(chords_light(i,&l))o='C';
+#endif
+        else if(step_native_light(i,&l))o='S';
+#ifdef MPC_SEQUENCE_COLOURS
+        else if(sequence_light(i,&l))o='Q';
+#endif
+        else if(pad_colour_light(i,&l))o=(l&0xffffffu)?'P':'p';
+        owners[i]=o;if(atomic_load(&original_lights[i])&0xffffffu)raw_mask|=1u<<i;
+    }
+    owners[16]=0;
+    char line[160];
+    snprintf(line,sizeof(line),"lv=%u/%u/%u nw=%u sl=%u seq=%d tr=%u erase=%d mute=%u src=%d raw=%04x own=%s",
+        on,mode,origin,atomic_load(&pad_colour_native_workflow),atomic_load(&pad_colour_sample_layout),
+        music_ui_sequence_visible(),step_native_transport_state(),(int)atomic_load(&native_buttons_down[0x09]),
+        atomic_load(&native_mute_mode),atomic_load(&pad_colour_chop_source),raw_mask,owners);
+    if(!strcmp(line,last))return;
+    memcpy(last,line,sizeof(line));++lines;
+    char raws[16*7+1];
+    for(unsigned i=0;i<16;++i)snprintf(raws+i*7,8,"%06x ",(unsigned)atomic_load(&original_lights[i])&0xffffffu);
+    fprintf(stderr,"PAD_LIGHTS %s copy=%d sel=%d occ=%x raw: %s\n",line,workflow_copy_mode_id(),
+        atomic_load(&pad_colour_native_selected),(unsigned)atomic_load(&pad_colour_native_occupied),raws);
+}
 static void send_step_lights(void)
 {
+    {static uint64_t bank_since;uint64_t t=now_ms();
+     if(atomic_load(&native_buttons_down[0x23])){if(!bank_since)bank_since=t;}else bank_since=0;
+     atomic_store(&pad_bank_held_long,bank_since&&t-bank_since>=300);}
     /* The compressor still plays the current Sample bank. Its algorithm and
      * Bypass do not change pad ownership. Other FX keep native status colours. */
     unsigned native_workflow=workflow_native_pad_colours();
+    /* Copy Sequence (kind 3): remember chosen targets (native ff0000) and,
+     * when Copy closes, give every target that now holds a sequence the
+     * source sequence's colour (device report: colour was not carried). */
+    {static uint64_t targets[2];static int was_seq_copy;
+     if(native_workflow==3){int b=step_native_browser_bank(-1);
+        if(b>=0&&b<8)for(unsigned i=0;i<16;++i)if((unsigned)atomic_load(&original_lights[i])==0xff0000u){unsigned n=(unsigned)b*16+i;targets[n/64]|=1ull<<(n%64);}
+        was_seq_copy=1;}
+     else if(was_seq_copy){was_seq_copy=0;int source=atomic_load(&pad_colour_copy_source);
+        if(source>=0&&source<128&&music_sequence_colour&&music_set_sequence_colour&&music_ui_sequence_presence){int colour=music_sequence_colour((unsigned)source);
+            for(unsigned n=0;n<128;++n)if((targets[n/64]>>(n%64))&1&&(int)n!=source&&(music_ui_sequence_presence(n/16)>>(n%16)&1)){
+                music_set_sequence_colour(n,(unsigned)colour);fprintf(stderr,"COPY_SEQUENCE_COLOUR %d->%u colour=%d\n",source,n,colour);}}
+        targets[0]=targets[1]=0;}}
+    if(native_workflow!=2&&native_workflow!=3)atomic_store(&pad_colour_copy_source,-1);
     atomic_store(&pad_colour_native_workflow,native_workflow);
     atomic_store(&pad_colour_native_occupied,workflow_native_occupied());
+    atomic_store(&pad_colour_native_muted,workflow_native_muted?workflow_native_muted():0u);
     atomic_store(&pad_colour_native_selected,workflow_native_selected());
     atomic_store(&pad_colour_bank,step_native_browser_bank(-1));
     uint64_t selection_phase=now_ms();
@@ -1733,13 +1885,30 @@ static void send_step_lights(void)
     static uint64_t workflow_generation;
     uintptr_t s=atomic_load(&sender);
 #ifdef MPC_KNOB_RESET
-    if((knob_reset_ticket()&2)&&atomic_load(&native_buttons_down[0x23])){
+    if((knob_reset_ticket()&2)&&atomic_load(&pad_bank_held_long)){
         if(s)for(unsigned i=0;i<16;++i)if(atomic_load(&light_mask)&(1u<<i))
             ORIG(H_RGB,void(*)(void*,uint32_t,unsigned))((void*)s,(uint32_t)atomic_load(&original_lights[i]),i);
         owned=0;return;
     }
 #endif
     if (!s) {owned=0;return;}
+    {static int was;
+     int loading=startup_project_loading?startup_project_loading():workflow_startup_loading?workflow_startup_loading():0;
+     loading=loading&&music_pad_lighting_mode();
+     atomic_store(&startup_pads,(unsigned)loading);
+     if(loading){
+        /* One pad runs left to right, top to bottom: 13..16, 9..12, 5..8, 1..4. */
+        unsigned step=(unsigned)((now_ms()/100u)%16u),lit=(3u-step/4u)*4u+step%4u;
+        for(unsigned i=0;i<16;++i){
+            uint64_t light=i==lit?pad_light(PAD_PLAYHEAD,.90f):pad_light(0,0);
+            if(!(owned&(1u<<i))||previous[i]!=light){previous[i]=light;
+                uint32_t packed=FN(0x23b00c0,uint32_t(*)(const uint64_t*))(&light);
+                ORIG(H_RGB,void(*)(void*,uint32_t,unsigned))((void*)s,packed,i);}
+        }
+        owned=0xffffu;was=1;return;
+     }
+     /* Loaded: let the native layer re-emit the real pad state. */
+     if(was){was=0;music_lighting_request_refresh();}}
     uint64_t palette_epoch=workflow_palette_generation();
     int force_palette=palette_epoch!=workflow_generation;workflow_generation=palette_epoch;
     uint64_t workflow_probe;int workflow_colours=workflow_light(0,&workflow_probe);
@@ -1749,6 +1918,12 @@ static void send_step_lights(void)
     force_palette|=resample_epoch!=resample_generation;resample_generation=resample_epoch;
     workflow_colours|=resample_ui_light(0,&workflow_probe);
 #endif
+    /* A mod workflow (Extract, Copy, Stereo > Mono, browser) owned the pads
+     * while the native layer may have repainted underneath (e.g. Extract
+     * changes the program). On release, ask the native layer to re-emit. */
+    {static int workflow_was;int now_workflow=workflow_colours||(int)native_workflow;
+     if(workflow_was&&!now_workflow){music_lighting_request_refresh();}
+     workflow_was=now_workflow;}
     if (atomic_load(&led_enabled)&&!workflow_colours) {owned=0;return;}
     /* After a mode change (Chords, 16 Levels, Sample/Seq screens) the native
      * app repaints only pads it thinks changed. Resend its own colours for
@@ -1805,6 +1980,7 @@ static void send_step_lights(void)
         }
     }
     if(resync)--resync;
+    lights_diagnostic();
 }
 static void button_light(void *s,unsigned value,unsigned code)
 {

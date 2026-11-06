@@ -1,5 +1,16 @@
 # Changelog
 
+## r27r — release
+
+- **Recall** (Shift + Sample Record) no longer freezes the MPC: only Stop is serialised with the audio render.
+- **Pad lighting rules:** white cursor and selected sequence; Copy / Copy Sequence source blinks, free targets green, occupied red; Mute keeps colours with muted pads red (also in the browser), muted pads grey outside Mute; Erase keeps colours; brighter pressed and playing pads; no green flash on a short Pad Bank press; Resample source lit at once; running pad while the project loads.
+- **Chop** lit on entry, after Extract and after leaving (no native repaint inside Chop). Seq Colour, Scaled takeover after EQ and the Mix encoder cycle fixed; Mix with Shift keeps Volume / Pan.
+- **Search:** Internal and All (Internal + SD), SD limits 4096 folders / 200 000 entries and a faster scan, B2 idle while typing, steady K3 Volume, stock Internal / External tab, no Knob FX over the browser.
+- **Lights renamed Scales.** Sample / Seq leave Mod Settings, Key / Scale, Search and Stereo > Mono; Pad Bank + K resets the browser and Rear Routing; Filter spectrum in the EQ colour; Preview from end cuts the sounding pad and can be Off (replaces 4000 ms); Copy Sequence carries the sequence colour; Restored note and screen after autoload repaint correctly.
+- Thanks to **Leusha** for careful testing.
+
+[English notes](docs/RELEASE_NOTES-r27r.md) · [Русский](docs/RELEASE_NOTES-r27r.ru.md).
+
 ## r27q — release
 
 - **Degrees layout** for 16 Levels Tune: pads play consecutive key notes; tonic Red, key notes Cyan, IV Violet, V Yellow by default (IV/V stored as MPCS19 when changed); K1 on the Lights page is now called Layout.

@@ -68,7 +68,7 @@ static void empty_sample_cursor_checks(void){
     assert(got==pad_light(white?PAD_SELECT:0,white?.95f:0));
     for(unsigned j=0;j<16;++j)if(j!=pad){
      assert(step_native_light(j,&got));
-     assert(got==pad_light(bank*16+j==other?music_identity_rgb(music_pad_colour(other)):0,bank*16+j==other?PAD_BRIGHT_CONTENT:0));
+     assert(got==pad_light(bank*16+j==other?music_identity_rgb(music_pad_colour(other)):0,bank*16+j==other?.30f:0)); /* fix6: dimmer rest level */
     }
    }
    assert(FIELD(things,0x60,void*)==sample_instruments[0]);
@@ -98,10 +98,10 @@ static void sample_playing_checks(void){
    atomic_store(&requested_shift,1);
    assert(step_native_light(pad,&out)&&out==pad_light(0,0));
    unsigned neighbour=(pad+2)%16;
-   assert(step_native_light(neighbour,&out)&&out==pad_light(music_identity_rgb(music_pad_colour(bank*16+neighbour)),PAD_BRIGHT_CONTENT));
+   assert(step_native_light(neighbour,&out)&&out==pad_light(music_identity_rgb(music_pad_colour(bank*16+neighbour)),.30f));
    atomic_store(&requested_shift,0);
    active_voices[n]=0;sample_palette_publish(things,sample_program,(int)bank,1,0,40800);
-   assert(step_native_light(pad,&out)&&out==pad_light(music_identity_rgb(music_colour_choice(colour)),PAD_BRIGHT_CONTENT));
+   assert(step_native_light(pad,&out)&&out==pad_light(music_identity_rgb(music_colour_choice(colour)),.30f));
   }
  }
  /* Cursor is still white; its colour phase retains real playback intensity. */
@@ -119,8 +119,9 @@ static void sample_playing_checks(void){
  sample_palette_publish(things,sample_program,0,1,0,40800);assert(step_native_light(0,&out)&&out==pad_light(PAD_MUTED,.65f));
  sample_used[2]=0;FIELD(things,0x5f8,unsigned)=0;
  sample_palette_publish(things,sample_program,0,1,1,40800);
- assert(step_native_light(0,&out)&&out==pad_light(PAD_DANGER,.75f));
- assert(step_native_light(1,&out)&&out==pad_light(PAD_FREE,.75f));
+ /* fix6 agreed Mute: muted = danger colour, others keep their own colour, brighter. */
+ assert(step_native_light(0,&out)&&out==pad_light(PAD_DANGER,.70f));
+ assert(step_native_light(1,&out)&&out==pad_light(music_identity_rgb(music_pad_colour(1)),.70f));
  assert(step_native_light(2,&out)&&out==0);
  FIELD(sample_instruments[0],0x78,unsigned char)=0;
  active_voices[0]=0;sample_palette_publish(NULL,NULL,0,0,0,50500);

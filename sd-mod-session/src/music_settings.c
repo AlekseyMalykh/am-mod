@@ -56,7 +56,8 @@ int music_mod_settings_restore(uint64_t v){
 }
 int music_pad_lighting_mode(void){return (int)(atomic_load(&mod_settings)&1);}
 unsigned music_tail_ms(unsigned choice){
- static const unsigned ms[MUSIC_TAIL_CHOICES]={100,250,500,750,1000,1500,2000,4000};
+ /* Last choice (formerly 4000 ms) = Off: Stop+pad then stays stock. */
+ static const unsigned ms[MUSIC_TAIL_CHOICES]={100,250,500,750,1000,1500,2000,0};
  return ms[choice<MUSIC_TAIL_CHOICES?choice:4];
 }
 int music_mod_setting(unsigned field){uint64_t v=atomic_load(&mod_settings);return field<3?(int)((v>>field)&1):field==MUSIC_SETTING_BLINK?(int)((v>>3)&3):field==MUSIC_SETTING_TAIL?(int)(v>>TAIL_SHIFT)^4:0;}

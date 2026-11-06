@@ -825,8 +825,11 @@ int main(int argc,char **argv)
     memset(playback_until,0,sizeof(playback_until));memset(playback_muted_until,0,sizeof(playback_muted_until));
     play_instrument[0x78]=0;assert(music_set_pad_colour(6,13));step_native_observe_rgb(6,0);
     sample_palette_publish(things,program,0,1,0,0);assert((uint32_t)atomic_load(&sample_palette[6])==PAD_SELECT);
-    sample_palette_publish(things,program,0,1,0,650);assert(atomic_load(&sample_palette[6])==pad_light(music_identity_rgb(13),.35f));
-    step_native_observe_rgb(6,0x00ffff);sample_palette_publish(things,program,0,1,0,650);assert(atomic_load(&sample_palette[6])==pad_light(music_identity_rgb(13),.35f));
+    sample_palette_publish(things,program,0,1,0,650);assert(atomic_load(&sample_palette[6])==pad_light(music_identity_rgb(13),.30f));
+    /* fix6: native selection orange (device log) is the cursor, not a press; a real press lights the focus colour phase at full. */
+    step_native_observe_rgb(6,0xff7700);sample_palette_publish(things,program,0,1,0,650);assert(atomic_load(&sample_palette[6])==pad_light(music_identity_rgb(13),.30f));
+    step_native_observe_rgb(6,0x00ffff);sample_palette_publish(things,program,0,1,0,650);assert(atomic_load(&sample_palette[6])==pad_light(music_identity_rgb(13),1.f));
+    step_native_observe_rgb(6,0);
     play_instrument[0x78]=1;sample_palette_publish(things,program,0,1,0,650);assert(atomic_load(&sample_palette[6])==pad_light(PAD_MUTED,.32f));
     playback_until[6]=playback_muted_until[6]=700;sample_palette_publish(things,program,0,1,0,650);assert(atomic_load(&sample_palette[6])==pad_light(PAD_MUTED,.65f)&&play_instrument[0x78]==1);
     sample_palette_publish(things,program,0,1,0,750);assert(atomic_load(&sample_palette[6])==pad_light(PAD_MUTED,.32f));

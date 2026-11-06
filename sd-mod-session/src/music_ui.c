@@ -37,6 +37,7 @@ static int choice(unsigned,int,int,int,int);
 #include <string.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#include <time.h>
 #include <fcntl.h>
 
 /* Components and drawing are accessed only by the existing native UI Timer.
@@ -196,6 +197,19 @@ void music_ui_request_project(void *p)
 int music_ui_tick(void)
 {
     atomic_store(&knob_fx_visible,visible(knob_fx_root));
+#ifdef MPC_PROJECT_RECOVERY
+    /* "Restored: <name>" (5 s after an autoload) was drawn only when some
+     * native part repainted, so it showed partly, blinked under repainting
+     * children and stayed on screen after expiry until a pad press forced a
+     * repaint (device report). Repaint the Sample screen while it shows and
+     * once more when it ends. */
+    {static int shown;static uint64_t last;struct timespec ts;clock_gettime(CLOCK_MONOTONIC,&ts);
+     uint64_t t=(uint64_t)ts.tv_sec*1000u+(uint64_t)ts.tv_nsec/1000000u;
+     int now_shown=project_recovery_notice()!=NULL&&sample&&visible(sample);
+     if(now_shown&&(!shown||t-last>=250)){last=t;repaint(sample);}
+     else if(!now_shown&&shown&&sample)repaint(sample);
+     shown=now_shown;}
+#endif
     if(atomic_exchange(&dead_repeat,0))repeat_root=NULL;
     atomic_store(&repeat_visible,repeat_root&&visible(repeat_root));
     if (atomic_exchange(&dead_sample,0)) { sample=0; lights=0; last_index=-2;
@@ -478,6 +492,9 @@ static int eq_control(unsigned cc,unsigned value){
     repaint(sample);return 1;
 }
 #endif
+/* Weak no-op defaults: host tests link music_ui.c without workflow_ui.c. */
+__attribute__((weak)) const char*workflow_storage_tab(void*files_root){(void)files_root;return NULL;}
+__attribute__((weak)) void workflow_storage_tab_painted(void){}
 void music_ui_tab(void *p,void *g)
 {
     if (FIELD(p,0,uintptr_t)!=base+0x706e940) return;
@@ -509,12 +526,19 @@ void music_ui_tab(void *p,void *g)
     }
     if (FIELD(root,0,uintptr_t)==base+SAMPLE_VPTR && (uintptr_t)p-(uintptr_t)root==0x7f0) {
         count=3;
-        if (root==sample && lights && index==1) { index=2; title="Lights"; }
+        if (root==sample && lights && index==1) { index=2; title="Scales"; }
         else title=index==1 ? "Play" : "Tune";
     }
 #ifdef MPC_PAD_EQ
     if(FIELD(root,0,uintptr_t)==base+SAMPLE_VPTR&&(uintptr_t)p-(uintptr_t)root==0xe50&&!shifted(root,0)){count=3;if(root==sample&&eq_page&&index==1){index=2;title="EQ";}}
 #endif
+    /* Files B2 storage tab: in the mod both pages read "Internal" (the card
+     * the mod runs from is mounted like internal storage). Name it after the
+     * open folder; keep the stock font and the two position dots. */
+    if(FIELD(root,0,uintptr_t)==base+0x6e1cfb8&&(!strcmp(title,"Internal")||!strcmp(title,"External"))){
+        const char*tab=workflow_storage_tab(root);
+        if(tab){title=tab;if(mode==2&&count==2)index=tab[0]=='E';workflow_storage_tab_painted();}
+    }
     unsigned column=(unsigned)((x+w/2)*3/320);
     if (column<3 && !(painted_headers[screen_index]&(1u<<column))) {
         painted_headers[screen_index]|=1u<<column;
@@ -567,11 +591,13 @@ void music_ui_sample(void *p,void *g)
     if(visible(p)&&eq_page){unsigned pad=0;if(note_native_pad_index(&pad))eq_paint(g,pad);return;}
     /* The native sample rasteriser is suppressed separately on these pages.
      * Never clear this graph after native paint: that would erase the filter
-     * and envelope curves as well. Dim translucent bars keep them visible. */
+     * and envelope curves as well. Device request: the same colour as EQ
+     * (hue x 3/5); alpha e0 instead of EQ's ff leaves the native curves just
+     * visible where a bar crosses them. */
     if(music_ui_filter_spectrum_visible(p)){
         unsigned pad;if(note_native_pad_index(&pad)){
             struct resample_painter painter={g,eq_rect,eq_text};
-            pad_eq_spectrum_paint(pad,sample_pad_muted(pad),15,94,289,94,0x605a4419u,&painter);
+            pad_eq_spectrum_paint(pad,sample_pad_muted(pad),15,94,289,94,0xe05a4419u,&painter);
         }
     }
 #endif
@@ -679,7 +705,7 @@ static void mod_settings_paint(void*g){
   unsigned field=mod_field(i);
   unsigned value=mod_tab==2?music_service_colour(i):(unsigned)music_mod_setting(field);
   char duration[16];
-  if(field==MUSIC_SETTING_TAIL)snprintf(duration,sizeof(duration),"%u ms",music_tail_ms(value));
+  if(field==MUSIC_SETTING_TAIL){if(music_tail_ms(value))snprintf(duration,sizeof(duration),"%u ms",music_tail_ms(value));else snprintf(duration,sizeof(duration),"Off");}
   const char*name=mod_tab==0?(value?"Am MOD":"Standard"):field==MUSIC_SETTING_TAIL?duration:mod_tab==1?(value?"Pad colour":"Original"):mod_tab==2?music_palette_name(value):speeds[value];
   colour(g,0xffffffff);text_aligned(g,label,14,y,190,21,13,0x21);
   colour(g,current&&mod_edit?0xffffc247:0xffffffff);text_aligned(g,name,196,y,110,21,13,0x22);
@@ -735,7 +761,7 @@ void music_ui_project(void *p,void *g)
     colour(g,0xffffffff); text(g,"Back",4,1,98,22,14); text(g,"Key / Scale",30,55,260,28,22);
     char key[48]; music_key_text(tonic,scale,key,sizeof(key));
     colour(g,0xffffc247); text(g,key,10,95,300,26,20);
-    colour(g,0xffffffff); text(g,"Default for sample Lights",10,137,300,18,13);
+    colour(g,0xffffffff); text(g,"Default for pad layouts",10,137,300,18,13);
     text(g,"Save the project to keep changes",6,158,308,18,12);
     if (music_archive_status()==2) {
         colour(g,0xffff4040); text(g,"Mod settings could not serialize",2,178,316,16,11);
@@ -842,6 +868,13 @@ int music_ui_button(void *event)
     music_ui_tick();
     if(key_page==3)return code==0x31?0:1;
     if (!down) return 0;
+    /* Key/Scale, Mod Settings, Mod Off question, error page: a screen/mode
+     * button (Sample, Seq, Main...) leaves the page and keeps its stock
+     * action. Page keys, encoder, Shift, transport, Tap, Knob FX stay. */
+    if((key_page==1||key_page==2||key_page==4||key_page==5)&&visible(project)&&
+       code!=0x0c&&code!=0x0d&&code!=0x0e&&code!=0x6f&&code!=0x31&&code!=0x51&&code!=0x52&&code!=0x50&&code!=0x35&&code!=0x00){
+        key_page=0;mod_reset_confirm=mod_edit=0;repaint(project);music_ui_tick();report("PAGE_LEFT_BY_SCREEN_BUTTON");return 0;
+    }
     if(key_page==4&&visible(project)){
         if(code==0x31)return 0;
         if(code==0x0c){key_page=0;repaint(project);music_ui_tick();}

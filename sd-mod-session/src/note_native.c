@@ -100,6 +100,34 @@ static int trim_showing(void)
     return FIELD(b1,0x21c,int)==2 && FIELD(b1,0x218,int)==1
         && FN(0x112fd50,int(*)(void*))(root) && !FN(0x112f6b0,int(*)(void*))(root);
 }
+/* Native Mix Shift layer shows only K2 Kit Volume and hides K1 Volume and
+ * K3 Pan, so Shift+Encoder (backwards) had a single stop. Keep both native
+ * sliders shown while Shift is held, as on Amp Env where Shift replaces K2
+ * only. Component::setVisible is vtable slot 12 (0x1172670, same in Slider
+ * and SampleScreen vtables). Flags+0xa8 bit1 is JUCE visibleFlag. Only
+ * exact native sliders at the two Mix offsets are touched; on Shift release
+ * the native layer restores its own state. */
+#define MIX_PAN_OFFSET 0x4988
+static int mix_showing(void)
+{
+    if (!music_ui_chords_available() || !root || FIELD(root,0,uintptr_t)!=base+SAMPLE_VPTR || atomic_load(&repeat_held)) return 0;
+    void *b1=(char*)root+0x190;
+    return FIELD(b1,0x21c,int)==2 && FIELD(b1,0x218,int)==1
+        && FN(0x112fd50,int(*)(void*))(root) && !FN(0x112f6b0,int(*)(void*))(root);
+}
+static int shifted(void);
+void note_native_mix_shift_tick(void)
+{
+    static unsigned reports;
+    if (!mix_showing() || !shifted()) return;
+    const unsigned offsets[2]={MIX_VOLUME_OFFSET,MIX_PAN_OFFSET};
+    for (unsigned i=0;i<2;++i) {
+        void *c=(char*)root+offsets[i];
+        if (FIELD(c,0,uintptr_t)!=base+SLIDER_VPTR || (FIELD(c,0xa8,unsigned)&2u)) continue;
+        FN(0x1172670,void(*)(void*,int))(c,1);
+        if (reports++<8) fprintf(stderr,"MIX_SHIFT_KEEP %s\n",i?"pan":"volume");
+    }
+}
 static void trim_repaint(void)
 {
     if (root) FN(0x1149880,void(*)(void*,uint64_t,uint64_t))(root,0,FIELD(root,0x28,uint64_t));

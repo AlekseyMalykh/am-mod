@@ -43,6 +43,14 @@ int workflow_control(void*,uint64_t);
 int workflow_button(void*,uint64_t);
 void workflow_pad(unsigned,int,uint64_t,uint64_t);
 int workflow_light(unsigned,uint64_t*);
+/* Files screen B2 storage tab: "Internal"/"External" for the open folder
+ * (NULL if unknown). The header painter marks that it drew the tab. */
+const char*workflow_storage_tab(void*files_root);
+int workflow_copy_mode_id(void);
+int workflow_reset_knob(unsigned column,unsigned shift);
+int workflow_browser_shown(void);
+unsigned workflow_native_muted(void); /* muted loaded pads of the shown bank (browser/Copy) */
+void workflow_storage_tab_painted(void);
 uint64_t workflow_palette_generation(void);
 void workflow_fault(void);
 #endif

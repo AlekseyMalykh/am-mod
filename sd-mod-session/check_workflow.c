@@ -417,7 +417,7 @@ assert(FIELD(derived_copy,0x48,uintptr_t)==base+0x6e0dfd8&&FIELD(derived_copy,0x
 assert(current_program()==copy_program);workflow_tick();
 #ifndef PROJECT_RESTORE_BASELINE
 assert(workflow_native_pad_colours()==2);
-FIELD(copy_mode,0x80,int)=0x20ab;workflow_tick();assert(!workflow_native_pad_colours());FIELD(copy_mode,0x80,int)=0x20a7;workflow_tick();
+FIELD(copy_mode,0x80,int)=0x20ab;workflow_tick();assert(workflow_native_pad_colours()==3); /* Copy Sequence (device log) */FIELD(copy_mode,0x80,int)=0x20a7;workflow_tick();
 #endif
 unsigned char b3[16]={0};b3[8]=0x0e;b3[9]=1;
 assert(workflow_button(b3,workflow_ticket())==0&&!batch); /* Copy B3 stays native, even in Chop prototype. */

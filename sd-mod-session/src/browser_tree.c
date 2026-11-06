@@ -11,7 +11,7 @@
 static struct {DIR*dir;char path[PATH_SIZE];} stack[DEPTH];
 static unsigned depth,visited,directories;
 static int project_files,limited,last_error;
-static struct {dev_t dev;ino_t ino;} seen[512];
+static struct {dev_t dev;ino_t ino;} seen[4096];
 void browser_tree_close(void){while(depth)closedir(stack[--depth].dir);}
 int browser_tree_start(const char*root,int projects){
  browser_tree_close();visited=0;directories=1;limited=last_error=0;project_files=projects;
@@ -31,7 +31,7 @@ int browser_tree_accepts(const char*name,int projects){
 int browser_tree_next(char*out,size_t cap,unsigned budget){
  struct timespec before,now;clock_gettime(CLOCK_MONOTONIC,&before);
  while(depth&&budget--){
-  if(++visited>50000){limited=1;browser_tree_close();break;}
+  if(++visited>200000){limited=1;browser_tree_close();break;}
   errno=0;struct dirent*e=readdir(stack[depth-1].dir);
   if(!e){if(errno)last_error=errno;closedir(stack[--depth].dir);continue;}
   if(!strcmp(e->d_name,".")||!strcmp(e->d_name,"..")||!strcmp(e->d_name,"System Volume Information"))continue;
@@ -42,7 +42,7 @@ int browser_tree_next(char*out,size_t cap,unsigned budget){
   struct stat s;if(stat(p,&s)){last_error=errno;continue;}
   if(S_ISDIR(s.st_mode)){
    unsigned known=0;for(unsigned i=0;i<directories;++i)if(seen[i].dev==s.st_dev&&seen[i].ino==s.st_ino){known=1;break;}if(known)continue;
-   if(depth==DEPTH||directories>=512){limited=1;continue;}
+   if(depth==DEPTH||directories>=4096){limited=1;continue;}
    DIR*d=opendir(p);if(d){seen[directories].dev=s.st_dev;seen[directories].ino=s.st_ino;strcpy(stack[depth].path,p);stack[depth++].dir=d;++directories;}else last_error=errno;
   }else if(S_ISREG(s.st_mode)&&browser_tree_accepts(e->d_name,project_files)){
    if((size_t)n>=cap){limited=1;continue;}memcpy(out,p,(size_t)n+1);return 1;

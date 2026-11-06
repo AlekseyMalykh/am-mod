@@ -211,6 +211,16 @@ int rear_ui_button(void *event){
     repaint();return 1;
 }
 static unsigned adjusted(unsigned value,unsigned max){unsigned n=value*(max+1)/128;return n>max?max:n;}
+/* Pad Bank + K: Rear Routing K2/K3 back to the defaults of rear_audio.cc
+ * (Pan: Rear L hard left 0, Rear R hard right 100; Shift Level 100 %).
+ * K1 (record mode) is a choice, not a parameter: consumed, unchanged. */
+int rear_ui_reset_knob(unsigned column,unsigned shift){
+    if(column>2||!rear_ui_owns(1,0x10+column))return 0;
+    if(confirm||column==0)return 1;
+    unsigned ch=column-1;
+    rear_set_setting(ch,shift?REAR_LEVEL:REAR_PAN,shift?100:(ch?100:0));
+    repaint();return 1;
+}
 int rear_ui_control(void *event){
     unsigned cc=FIELD(event,8,unsigned char),value=FIELD(event,9,unsigned char);
     if(!rear_ui_owns(1,cc))return 0;

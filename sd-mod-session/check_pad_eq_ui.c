@@ -39,8 +39,9 @@ static int shown(void*p){if(p==knob_screen)return knob_open;if(p==repeat_screen)
 static int blocked(void*p){assert(p==screen||p==sequence_screen||p==project_screen||p==repeat_screen||p==knob_screen);return 0;}
 static int enabled(void*p){assert(p==screen+0xe50||p==fx_header);return p!=fx_header||!header_disabled;}
 static void ui_repaint(void*p,uint64_t a,uint64_t b){assert((p==screen||p==sequence_screen||p==project_screen)&&!a&&!b);++repaints;}
-static void draw_colour(void*g,uint32_t c){assert(g==screen&&((c>>24)==255||c==0x605a4419||c==0x605b5b5b));draw_ink=c;if(c==0x605b5b5b||c==0xff5b5b5b)++muted_bars;}
-static void draw_rect(void*g,int x,int y,int w,int h){assert(g==screen&&x>=0&&y>=0&&w>0&&h>0&&x+w<=320&&y+h<=240);if(draw_ink==0xff000000&&x==0&&y==88&&w==320&&h==110){++graph_clears;graph_cleared=1;}if(draw_ink==0x605a4419){assert(x>=15&&x+w<=304&&y>=94&&y+h<=188);++spectrum_bars;}if(repeat_drawing)assert(y>=5&&y+h<=38);if(header_testing&&y==25)++header_bars;++draws;}
+/* fix6: Filter/Filt Env spectrum uses the EQ colour at alpha e0 (was 60). */
+static void draw_colour(void*g,uint32_t c){assert(g==screen&&((c>>24)==255||c==0xe05a4419||c==0xe05b5b5b));draw_ink=c;if(c==0xe05b5b5b||c==0xff5b5b5b)++muted_bars;}
+static void draw_rect(void*g,int x,int y,int w,int h){assert(g==screen&&x>=0&&y>=0&&w>0&&h>0&&x+w<=320&&y+h<=240);if(draw_ink==0xff000000&&x==0&&y==88&&w==320&&h==110){++graph_clears;graph_cleared=1;}if(draw_ink==0xe05a4419){assert(x>=15&&x+w<=304&&y>=94&&y+h<=188);++spectrum_bars;}if(repeat_drawing)assert(y>=5&&y+h<=38);if(header_testing&&y==25)++header_bars;++draws;}
 static void font_make(void*p,int type,float size){assert(p&&!type&&size>=10&&size<=26);*(uintptr_t*)p=0;}
 static void font_set(void*g,const void*f){assert(g==screen&&f);}
 static void font_delete(void*f){assert(f);}
@@ -218,7 +219,7 @@ int main(int argc,char**argv){
  phase="Standard retains 16 Levels layout controls";
  sequence_only=0;F(screen,0x7f0+0x218,int)=1;paint_ui();
  assert(key(0x0d,1)&&key(0x0d,0)&&music_ui_owns(0x10));
- paint_ui();assert(strstr(captions,"Lights")&&strstr(captions,"Tonic")&&strstr(captions,"Scale"));
+ paint_ui();assert(strstr(captions,"Scales")&&strstr(captions,"Tonic")&&strstr(captions,"Scale"));
  knob(0x10,64);knob(0x11,127);knob(0x12,127);
  struct music_sample layout;assert(music_get_sample("Shared",&layout));
  assert(layout.mode==MUSIC_PIANO&&layout.tonic==11&&layout.scale==7);

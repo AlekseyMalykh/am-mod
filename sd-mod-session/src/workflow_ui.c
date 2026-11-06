@@ -25,6 +25,9 @@
 #include <sys/stat.h>
 #include "pad_palette.h"
 #include "pad_workflow_colour.h"
+#include "sample_mute.h"
+/* Weak default for host tests without music_ui.c; the real one is in music_ui.c. */
+__attribute__((weak)) unsigned music_ui_sequence_presence(unsigned bank){(void)bank;return 0;}
 #define FN(o,t) ((t)(base+(o)))
 #define FIELD(p,o,t) (*(t*)((char*)(p)+(o)))
 #define FILE_VPTR 0x6e1cfb8
@@ -89,7 +92,7 @@ static int search,results,shift,selected,scanning,scan_row,scan_count,overflow;
 static int search_scope=2,tree_scan;
 /* Search in: 0 this folder, 1 library of the open folder, 2 SD card library,
  * 3 library of the open folder + SD card. Kept for the session. */
-enum{WHERE_FOLDER,WHERE_LIBRARY,WHERE_SD,WHERE_ALL,WHERE_COUNT};
+enum{WHERE_FOLDER,WHERE_LIBRARY,WHERE_INTERNAL,WHERE_SD,WHERE_ALL,WHERE_COUNT};
 static int search_where=WHERE_LIBRARY,second_pending;
 static char second_root[1024];
 static int search_storage; /*0 open folder/library, 2 SD, 3 open library + SD. */
@@ -368,11 +371,19 @@ static int sd_search_root(char*out,size_t capacity){
  int written=snprintf(out,capacity,"%s/%s",saved,sample_browser()?"Samples":"Projects");
  return written>0&&(size_t)written<capacity;
 }
+/* Built-in MPC storage library (device log: Internal = /content/Samples). */
+static int internal_search_root(char*out,size_t capacity){
+ int written=snprintf(out,capacity,"/content/%s",sample_browser()?"Samples":"Projects");
+ struct stat st;return written>0&&(size_t)written<capacity&&!stat(out,&st)&&S_ISDIR(st.st_mode);
+}
+/* search_storage: 0 open storage, 2 SD card, 3 All (Internal + SD), 4 Internal. */
 static int storage_search_root(char*out,size_t capacity){
  if(search_storage==2)return sd_search_root(out,capacity);
+ if(search_storage==4)return internal_search_root(out,capacity);
+ if(search_storage==3)return internal_search_root(out,capacity)||sd_search_root(out,capacity);
  snprintf(out,capacity,"%s",search_origin);return 1;
 }
-static void apply_where(void){search_scope=search_where==WHERE_FOLDER?0:2;search_storage=search_where==WHERE_SD?2:search_where==WHERE_ALL?3:0;}
+static void apply_where(void){search_scope=search_where==WHERE_FOLDER?0:2;search_storage=search_where==WHERE_SD?2:search_where==WHERE_ALL?3:search_where==WHERE_INTERNAL?4:0;}
 static void filter(void){phone_utf8(&query,query_text,sizeof(query_text));if(search&&strcmp(scan_query,query_text)&&(scanning||overflow||!contains(query_text,scan_query)))scan_start();match_count=0;for(unsigned i=0;i<entry_count;++i)if(contains(filename(&entries[i]),query_text))matches[match_count++]=i;selected=clamp(selected,0,match_count?(int)match_count-1:0);}
 static void scan_start(void){
  release_files();scanning=0;fault=0;scan_row=scan_count=overflow=library_root_found=0;void*m=FIELD(files,0xff0+0x188,void*);
@@ -381,7 +392,7 @@ static void scan_start(void){
  if(!storage_search_root(search_root,sizeof(search_root))){fault=1;browser_say("This storage is not available");return;}
  if(search_scope||search_storage){
   second_pending=0;second_root[0]=0;
-  if(search_storage==2)library_root_found=1;
+  if(search_storage>=2)library_root_found=1;
   else if(search_scope==2){const char*section=sample_browser()?"/Samples":"/Projects";char*last=NULL;for(char*p=search_root;(p=strstr(p,section));++p)if(p[strlen(section)]=='/'||!p[strlen(section)])last=p;if(last){last[strlen(section)]=0;library_root_found=1;}}
   if(search_storage==3&&sd_search_root(second_root,sizeof(second_root))&&strcmp(second_root,search_root))second_pending=1;
   if(browser_tree_start(search_root,!sample_browser())){scanning=tree_scan=1;fprintf(stderr,"SEARCH BEGIN type=%s scope=%d root=%s\n",sample_browser()?"samples":"projects",search_scope,search_root);return;}
@@ -413,7 +424,10 @@ static void start_search(void){search_preview_stop();search=1;results=0;selected
  phone_init(&query,64);phone_enable(&query,1);if(last_query[0])phone_sync(&query,last_query,strlen(last_query));/* Reopen with the previous query; Shift+Erase clears it. */memset(feedback,0,sizeof(feedback));scan_start();atomic_store(&custom,1);atomic_fetch_add(&epoch,1);atomic_fetch_add(&palette_generation,1);repaint(files);}
 static void scan_tick(void){
  if(tree_scan){
-  for(unsigned budget=16;scanning&&budget--;){char path[1024];int r=browser_tree_next(path,sizeof(path),16);
+  /* SD libraries: stat() per entry is slow on the card. Spend up to ~8 ms
+   * of each UI tick (was at most 16 files / 256 entries). */
+  uint64_t scan_from=now_ms();
+  for(unsigned budget=512;scanning&&budget--&&now_ms()-scan_from<8;){char path[1024];int r=browser_tree_next(path,sizeof(path),64);
    if(r<0&&second_pending&&!browser_tree_limited()){second_pending=0;browser_tree_close();if(browser_tree_start(second_root,!sample_browser())){fprintf(stderr,"SEARCH SECOND root=%s\n",second_root);continue;}}
    if(r<0){overflow|=browser_tree_limited();scanning=0;fprintf(stderr,"SEARCH END files=%u limited=%d errno=%d root=%s\n",entry_count,overflow,browser_tree_error(),search_root);break;}if(!r)break;
    const char*name=strrchr(path,'/');if(!contains(name?name+1:path,scan_query))continue;
@@ -527,8 +541,11 @@ int workflow_install(void(*fp)(void*,void*),void(*cp)(void*,void*)){
  for(unsigned i=0;i<2;++i){void*page=(void*)((uintptr_t)slots[i]&~(uintptr_t)4095);if(mprotect(page,4096,PROT_READ|PROT_WRITE))return 0;*slots[i]=(uintptr_t)callbacks[i];if(mprotect(page,4096,PROT_READ))_exit(121);}return 1;
 }
 void workflow_destroyed(void*p){if(p==constructed_files)constructed_files=NULL;if((uintptr_t)p==atomic_load(&chop_id)){atomic_store(&dead_chop,1);atomic_store(&chop_available,0);}if((uintptr_t)p==atomic_load(&files_id)){atomic_store(&dead_files,1);atomic_store(&active,0);atomic_store(&custom,0);atomic_fetch_add(&epoch,1);}if((uintptr_t)p==atomic_load(&copy_id)){atomic_store(&dead_copy,1);atomic_store(&active,0);atomic_store(&custom,0);atomic_fetch_add(&epoch,1);}}
-static _Atomic int native_occupied=-1;
+static _Atomic int native_occupied=-1;static _Atomic unsigned native_muted;
+/* Input threads: the browser (Load/Save Files screen) is showing. */
+int workflow_browser_shown(void){return (atomic_load(&button_routes)&2u)!=0;}
 int workflow_native_occupied(void){return atomic_load(&native_occupied);}
+unsigned workflow_native_muted(void){return atomic_load(&native_muted);}
 int workflow_native_pad_colours(void){return (int)atomic_load(&native_colours);}
 int workflow_native_selected(void){return atomic_load(&native_selected);}
 int workflow_active(void){return atomic_load(&active)||atomic_load(&copy_bank_held);}
@@ -639,7 +656,12 @@ int workflow_tick(void){
  if(batch_leaving)batch_exit_tick();
  int v=visible(files);if(search&&!v)close_search();
  if(delete_confirm&&!v){delete_confirm=0;delete_dir[0]=0;atomic_store(&custom,0);}
- selected_audio=v&&(search&&results?(sample_browser()&&match_count>0):selected_is_audio());
+ /* While scrolling, the native list is rebuilt asynchronously and the
+  * selection briefly reads as "no file": keep K3 Volume for 400 ms after
+  * the last audio selection instead of blinking it off (device report). */
+ {static uint64_t audio_seen;int audio=v&&(search&&results?(sample_browser()&&match_count>0):selected_is_audio());
+  uint64_t t=now_ms();if(audio)audio_seen=t;
+  selected_audio=audio||(v&&audio_seen&&t-audio_seen<400);if(!v)audio_seen=0;}
  if(volume_service||(v&&sample_browser()))volume_refresh();
  if(locating)locate_tick();
  atomic_store(&volume_owned,(unsigned)(v&&selected_audio&&!shift));
@@ -650,13 +672,16 @@ int workflow_tick(void){
  unsigned native_kind=v&&sample_browser()?1u:0u;
  if(copy_visible&&current_program()){
   void*c=(void*)atomic_load(&copy_context),*mode=c?FIELD(c,0x98,void*):NULL;
-  native_kind=mode&&FIELD(mode,0x80,int)==0x20a7?2u:0u;
+  int id=mode?FIELD(mode,0x80,int):-1;
+  /* 0x20a7 Sample pads Copy, 0x20ab Copy Sequence (device log r27q-fix5). */
+  native_kind=id==0x20a7?2u:id==0x20ab?3u:0u;
  }
- int occupied_mask=-1;void *identity_program=current_program();
- if(native_kind&&identity_program){int bank=step_native_browser_bank(-1);if(bank>=0&&bank<8){occupied_mask=0;
-  for(unsigned i=0;i<16;++i){void*p=FN(0x286bbe0,void*(*)(void*,int))(identity_program,bank*16+(int)i);if(p&&FN(0x2804760,int(*)(void*))(p))occupied_mask|=1<<i;}
+ int occupied_mask=-1;unsigned muted_mask=0;void *identity_program=current_program();
+ if(native_kind==3){int bank=step_native_browser_bank(-1);if(bank>=0&&bank<8)occupied_mask=(int)music_ui_sequence_presence((unsigned)bank);}
+ else if(native_kind&&identity_program){int bank=step_native_browser_bank(-1);if(bank>=0&&bank<8){occupied_mask=0;
+  for(unsigned i=0;i<16;++i){void*p=FN(0x286bbe0,void*(*)(void*,int))(identity_program,bank*16+(int)i);if(p&&FN(0x2804760,int(*)(void*))(p)){occupied_mask|=1<<i;if(sample_instrument_muted(p))muted_mask|=1u<<i;}}
  }}
- atomic_store(&native_occupied,occupied_mask);
+ atomic_store(&native_occupied,occupied_mask);atomic_store(&native_muted,muted_mask);
  int selection=-1;
  if(native_kind==1)selection=load_pad_index();
  atomic_store(&native_selected,selection);
@@ -673,6 +698,7 @@ int workflow_owns(unsigned kind,unsigned code){
  if(kind==1&&code==0x13)return 0;
  if(kind==2&&code==0x31)return (atomic_load(&button_routes)&1u)!=0;
  if(kind==2&&code==0x23&&atomic_load(&copy_bank_held))return 1;
+ if(kind==2&&code==0x00&&(atomic_load(&button_routes)&2u))return 1; /* Knob FX over the browser */
  if(kind==2&&code==0x0e&&atomic_load(&split_forwarded))return 1;
  if(!atomic_load(&active))return 0;
  if(atomic_load(&custom))return 1;
@@ -706,6 +732,18 @@ static void change_character(int delta){
  if(pos==query.length)++query.length;
  query.text[pos]=(unsigned char)alphabet[i];
 }
+/* Pad Bank + K in the browser: K3 preview Volume back to 75 %, and while
+ * typing a search K2 "Search in" back to Library. Other K positions in the
+ * browser, Batch and Stereo > Mono are choices/navigation: consumed only. */
+int workflow_reset_knob(unsigned column,unsigned shift){
+ (void)shift;if(column>2)return 0;
+ if(mono||batch||batch_job||batch_leaving)return 1;
+ if(!visible(files))return 0;
+ if(project_confirm||delete_confirm)return 1;
+ if(column==2&&(selected_audio||(search&&!results&&sample_browser()))){volume_percent=75;volume_refresh();repaint(files);return 1;}
+ if(column==1&&search&&!results&&search_where!=WHERE_LIBRARY){search_where=WHERE_LIBRARY;apply_where();selected=0;scan_start();repaint(files);}
+ return 1;
+}
 int workflow_control(void*e,uint64_t ticket){
  if(FIELD(e,8,unsigned char)==0x13)return 0;
  if(ticket!=workflow_ticket())return 1;
@@ -738,6 +776,9 @@ int workflow_button(void*e,uint64_t ticket){
   if(!down)return 1;
   if(mono_job){if(mono_progress.phase>=BATCH_JOB_DONE&&code==0x0c){batch_copy_release();mono=mono_job=0;atomic_store(&custom,0);atomic_fetch_add(&epoch,1);repaint(mono_root);}return 1;}
   if(code==0x0c){mono=0;atomic_store(&custom,0);atomic_fetch_add(&epoch,1);repaint(mono_root);return 1;}
+  if(code!=0x0d&&code!=0x0e&&code!=0x23&&code!=0x36&&code!=0x37&&code!=0x35&&code!=0x00&&code!=0x50){
+   mono=0;atomic_store(&custom,0);atomic_fetch_add(&epoch,1);repaint(mono_root);return 0; /* Sample/Seq... leave with their stock action */
+  }
   if(code==0x23||code==0x36||code==0x37){mono_bank=(mono_bank+(code==0x37||(code==0x23&&shift)?7:1))%8;step_native_browser_bank((int)mono_bank);mono_confirm=-1;}
   if(code==0x0d||code==0x0e){
    unsigned channel=code==0x0e;
@@ -766,6 +807,7 @@ int workflow_button(void*e,uint64_t ticket){
  }
  if(!visible(files))return 0;
  unsigned code=FIELD(e,8,unsigned char),down=FIELD(e,9,unsigned char);if(code==0x31){shift=!!down;repaint(files);return 0;}
+ if(code==0x00)return 1; /* Knob FX (also Shift+Pad16) never opens over the browser (device request). */
  if(delete_confirm){if(down){if(code==0x0c)close_delete_confirm();else if(code==0x0e)delete_project_folder();}return 1;}
  if(code==0x09&&(!search||results)){if(down)request_delete();return 1;}
  if(!search&&shift&&code==0x0d)return 1; /* Eject is reserved for stock after Mod Off. */
@@ -777,13 +819,14 @@ int workflow_button(void*e,uint64_t ticket){
   return 0;}
  if(!down)return 1;
  if(project_confirm){if(code==0x0c){clear_project_confirm();repaint(files);}else if(code==0x0e)confirm_project();return 1;}
- if(code==0x0c)close_search();else if(code==0x0d){phone_commit(&query);results=!results;}
+ if(code==0x0c)close_search();else if(code==0x0d){if(results){results=0;}} /* B2: no action while typing (List duplicated Find); in results it returns to the query. */
  else if(code==0x6f&&results){if(shift)locate_result();else choose_result();}
- else if(code==0x6f&&!results){if(query.enabled)phone_commit(&query);else add_letter();} /* Press enters a letter; B2/B3 open the list. */
+ else if(code==0x6f&&!results){if(query.enabled)phone_commit(&query);else add_letter();} /* Press enters a letter; B3 Find opens the list. */
  else if(code==0x0e||code==0x6f){if(results){if(sample_browser())preview_result();else choose_result();}else{phone_commit(&query);results=1;}}
  else if(code==0x23&&results){int bank=step_native_browser_bank(-1);if(bank>=0&&bank<8)step_native_browser_bank((bank+(shift?7:1))%8);}
  else if(code==0x36||code==0x37){if(results)selected=clamp(selected+(code==0x37?-1:1),0,match_count?(int)match_count-1:0);else if(query.enabled)change_character(code==0x37?-1:1);else phone_move(&query,code==0x36?1:-1);} /* Encoder input: turn = letter, +/- = cursor. */
  else if(code==0x09){if(shift)phone_sync(&query,"",0);else phone_delete(&query,!query.enabled&&query.cursor<query.length);} /* Erase deletes in both input modes. */
+ else if(code!=0x35&&code!=0x00&&code!=0x50){close_search();return 0;} /* Screen/mode buttons (Sample, Seq...) leave the search and keep their stock action. */
  filter();search_preview_update();publish_palette();repaint(files);return 1;
 }
 void workflow_pad(unsigned pad,int down,uint64_t when,uint64_t ticket){if(ticket==workflow_ticket()&&mono){if(down&&!mono_job&&pad<16){mono_target=mono_bank*16+pad;mono_confirm=-1;mono_error[0]=0;mono_palette();repaint(mono_root);}return;}if(ticket==workflow_ticket()&&batch){batch_pad(pad,down);return;}if(ticket!=workflow_ticket()||!visible(files)||!search||project_confirm||pad>=16)return;if(results){if(down&&sample_browser()){int bank=step_native_browser_bank(-1);if(bank>=0&&bank<8){result_pad=(unsigned)bank*16+pad;result_pad_ready=1;search_preview_update();publish_palette();repaint(files);}}return;}if(!query.enabled)return;phone_pad(&query,pad+1,down,when);if(down)feedback[pad]=now_ms()+100;filter();publish_palette();repaint(files);}
@@ -823,6 +866,15 @@ static void component_caption(void*root,size_t offset,void*g,const char*caption,
  if(node!=root||x<0||y<5||w<60||h<12||h>42||x+w>320||y+h>198)return;
  colour(g,0xff000000);rect(g,x,y,w,h);colour(g,WHITE);text(g,caption,x+3,y,w-6,h,font);
 }
+static _Atomic unsigned storage_tab_native;
+void workflow_storage_tab_painted(void){atomic_store(&storage_tab_native,1);}
+const char*workflow_storage_tab(void*p){
+ void*m=FIELD(p,0xff0+0x188,void*),*b=m?FIELD(m,0x30,void*):NULL;uint64_t directory=0;
+ if(b)workflow_directory(base+0x1db08c0,b,&directory);
+ if(!directory)return NULL;
+ const char*tab=!strncmp((const char*)(uintptr_t)directory,"/media/",7)?"External":"Internal";
+ FN(0xf0a290,void(*)(uint64_t*))(&directory);return tab;
+}
 static void storage_paint(void*p,void*g){
  void*m=FIELD(p,0xff0+0x188,void*),*b=m?FIELD(m,0x30,void*):NULL;uint64_t directory=0;
  if(b)workflow_directory(base+0x1db08c0,b,&directory);
@@ -832,7 +884,9 @@ static void storage_paint(void*p,void*g){
   * card the mod runs from is mounted like internal storage. Name the page
   * after the folder actually open: /media/... is the SD card. */
  {const char*d=(const char*)(uintptr_t)directory;const char*tab=!strncmp(d,"/media/",7)?"External":"Internal";
-  colour(g,0xff000000);rect(g,108,5,104,25);colour(g,WHITE);text(g,tab,107,6,106,22,14);}
+  /* The stock-style header painter (music_ui_tab) now names this tab with
+   * its own font and position dots; this is only a fallback. */
+  if(!atomic_load(&storage_tab_native)){colour(g,0xff000000);rect(g,108,5,104,25);colour(g,WHITE);text(g,tab,107,6,106,22,14);}}
  if(storage_caption((char*)(uintptr_t)directory,name,sizeof(name),address,sizeof(address))){
   component_caption(p,0x418,g,name,13);component_caption(p,0x11d0,g,address,11);
  }
@@ -856,10 +910,10 @@ static void search_status(char*out,size_t size){
 }
 static void search_paint(void*g){
  char line[96],status[64];
- static const char*const wheres[WHERE_COUNT]={"Folder","Library","SD Card","All"};
- const char*scope=search_where==WHERE_FOLDER?"This folder":search_where==WHERE_SD?"SD card library":search_where==WHERE_ALL?"This library + SD card":library_root_found?"Whole library of this folder":"This folder + subfolders";
+ static const char*const wheres[WHERE_COUNT]={"Folder","Library","Internal","SD Card","All"};
+ const char*scope=search_where==WHERE_FOLDER?"This folder":search_where==WHERE_SD?"SD card library":search_where==WHERE_INTERNAL?"Internal library":search_where==WHERE_ALL?"Internal + SD card":library_root_found?"Whole library of this folder":"This folder + subfolders";
  colour(g,0xff000000);rect(g,0,5,320,235);colour(g,WHITE);
- text(g,"Cancel",0,6,106,23,14);text(g,results?"Query":"List",107,6,106,23,14);
+ text(g,"Cancel",0,6,106,23,14);if(results)text(g,"Query",107,6,106,23,14);
  text(g,results?(sample_browser()?(search_preview_on?"Preview On":"Preview Off"):"Open"):"Find",214,6,106,23,14);
  search_status(status,sizeof(status));
  if(!results){
@@ -939,6 +993,11 @@ void workflow_sample_paint(void*p,void*g){
  colour(g,0xff000000);rect(g,107,6,213,25);colour(g,WHITE);
  text(g,"Batch",107,6,106,23,14);text(g,"Split",214,6,106,23,14);
  if(batch_message[0]){colour(g,0xff000000);rect(g,4,169,312,22);colour(g,RED);text(g,batch_message,4,169,312,22,12);}
+}
+/* Diagnostic: native Copy mode id (0x20a7 Sample pads) while Copy shows, else -1. */
+int workflow_copy_mode_id(void){
+ if(!visible(copy_root))return -1;
+ void*c=(void*)atomic_load(&copy_context),*mode=c?FIELD(c,0x98,void*):NULL;return mode?FIELD(mode,0x80,int):-1;
 }
 void workflow_copy_context(void*p,void*services){atomic_store(&copy_services,(uintptr_t)services);atomic_store(&copy_context,(uintptr_t)p);}
 void workflow_copy_context_dead(void*p){uintptr_t expected=(uintptr_t)p;if(atomic_compare_exchange_strong(&copy_context,&expected,0))atomic_store(&copy_services,0);}
@@ -1204,6 +1263,7 @@ static int batch_button(void*e){
  else if(batch_page&&(code==0x36||code==0x37)){preview_stop();batch_row=clamp(batch_row+(code==0x37?-1:1),0,(int)batch_count-1);}
  else if(code==0x23||code==0x36||code==0x37){batch_bank=(batch_bank+(code==0x37||(code==0x23&&shift)?7:1))%8;}
  else if(code==0x09&&batch_page){pinned[batch_row]=0;arrange();}
+ else if(code!=0x31&&code!=0x35&&code!=0x00&&code!=0x50){batch_exit();return 1;} /* Sample/Seq...: Batch closes (async native Copy exit); press again to switch */
  else if(code!=0x31)return 1;
  step_native_browser_bank(batch_bank);batch_palette();repaint(batch_surface());return 1;
 }

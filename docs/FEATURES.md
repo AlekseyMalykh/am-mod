@@ -2,7 +2,7 @@
 
 **English** · [Русский](FEATURES.ru.md)
 
-Latest release **r27p**, 5 November 2026. MPC Sample firmware **1.3.0.12**.
+Latest release **r27r**, 6 November 2026. MPC Sample firmware **1.3.0.12**.
 
 **Statuses:**
 - **Confirmed**: checked on a real MPC Sample.
@@ -11,6 +11,26 @@ Latest release **r27p**, 5 November 2026. MPC Sample firmware **1.3.0.12**.
 A confirmation covers that specific trial, not every combination of features in later builds. Build history: [CHANGELOG](../CHANGELOG.md).
 
 Terms: **B1–B3** are the three buttons above the screen, **K1–K3** the three knobs below it, "encoder" is the large DATA wheel.
+
+## r27r release
+
+Changes since r27q ([release notes](RELEASE_NOTES-r27r.md)). Thanks to Leusha for the careful tests behind these fixes.
+
+**Pad lighting rules** (Am MOD lighting; colours in Project → Mod Settings → Colours):
+
+| Role | Look | Where | Status |
+|---|---|---|---|
+| Cursor / selected pad | blinks white (Cursor pulse; Steady = white) | Sample, browser, Chop focus, selected sequence in Seq | confirmed |
+| Copy source | blinks white and its own colour | Copy (Shift+Erase), Copy Sequence, Resample, Batch | confirmed (Sample Copy) |
+| Target, free / occupied | steady green / red | Copy, Copy Sequence, Batch, Resample | confirmed (Sample Copy) |
+| Other occupied pads | own colour, dim | everywhere | confirmed |
+| Pressed / playing pad | own colour, full brightness (several at once) | Sample | confirmed |
+| Mute | own colours brighter, muted pads red; outside Mute muted pads grey | Sample, Seq, browser | confirmed |
+| Erase held | own colours kept | Sample, Chop | confirmed |
+| Pad Bank | short press: no green flash; picker after a 0.3 s hold | everywhere | confirmed |
+| Startup | one pad runs 13→16, 9→12, 5→8, 1→4 in the Play position colour | while the project loads | confirmed |
+
+**Other changes:** Recall without freezing (confirmed); Chop lit on entry, after Extract and after leaving (confirmed); Seq Colour, Scaled takeover after EQ and the Mix encoder cycle with Shift keeping Volume / Pan (confirmed); Lights renamed **Scales**; Search in Internal / All, faster SD search, no B2 action while typing, steady K3 Volume, stock Internal / External tab, no Knob FX over the browser; Sample / Seq leave Mod Settings, Key / Scale, Search and Stereo > Mono (trial); Pad Bank + K in the browser and Rear Routing (confirmed); Filter spectrum colour as in EQ; Preview from end cuts the sounding pad and can be Off; Copy Sequence carries the sequence colour (trial).
 
 ## r27f prerelease
 
@@ -45,7 +65,7 @@ Other Leusha reports are not declared closed by these changes.
 1. [Start, exit and saving](#1-start-exit-and-saving)
 2. [Interface](#2-interface)
 3. [Typing names with the pads](#3-typing-names-with-the-pads)
-4. [Orig Note, key and Lights](#4-orig-note-key-and-lights)
+4. [Orig Note, key and Scales](#4-orig-note-key-and-scales)
 5. [Chords](#5-chords)
 6. [Recording chords (Poly)](#6-recording-chords-poly)
 7. [Steps: step sequencer on the pads](#7-steps-step-sequencer-on-the-pads)
@@ -72,7 +92,7 @@ Other Leusha reports are not declared closed by these changes.
 | Saving projects and samples to **External** (`MPC-Sample/Projects`, `MPC-Sample/Samples`, including subfolders); the stock app opens them | confirmed |
 | **Internal** is temporary in the mod: anything saved there is lost when the mod stops | — |
 | The browser names the storage after the folder actually open: SD or Internal RAM | confirmed |
-| Mod settings (Orig Note, Lights, sequence colours and more) are kept in an extra field of the XPJ project. The stock app ignores it and drops it when it re-saves the project | confirmed (Orig Note, r23a) |
+| Mod settings (Orig Note, Scales, sequence colours and more) are kept in an extra field of the XPJ project. The stock app ignores it and drops it when it re-saves the project | confirmed (Orig Note, r23a) |
 
 Startup selects the newest saved XPJ in SD Projects or one folder level below,
 using modification time, rather than a history of manually opened projects.
@@ -114,7 +134,7 @@ proposals; the implemented subset is described here.
 | Seq in Am MOD | Selected once per bar at Stop, playing once per beat, queued twice per beat; background and other occupied pads stay visible |
 
 System colours cannot be selected as new Pad Colour/Seq Colour assignments.
-Musical Lights/Chords roles and the typing keyboard use separate palettes.
+Musical Scales/Chords roles and the typing keyboard use separate palettes.
 Dedicated new Loop/Song status markers remain proposals.
 
 In Am MOD, set **Sample → B1 Mix → K2 Pad Colour without Shift**.
@@ -145,30 +165,30 @@ Works in Save Project / Save Sample and in search. **K1** switches Encoder / Pad
 
 **r27q:** in the name window (Save Project / Save Sample) **Erase** deletes in both input modes: before the cursor with pads, the selected letter with the encoder.
 
-## 4. Orig Note, key and Lights
+## 4. Orig Note, key and Scales
 
 | Feature | Where | Status |
 |---|---|---|
 | **Orig Note**: the sample's original note (C…B or `--`). It only labels the sample and does not change the sound. Semi Tune shows semitones and the name of the resulting note | Sample → Tune → Shift+K1 | confirmed, including save/reopen (r23a) |
 | Project **Key / Scale**: K1 tonic, K2 scale (Major, Natural Minor, Dorian, Phrygian, Lydian, Mixolydian, Locrian, Chromatic) | Project → Key / Scale | confirmed |
-| **Lights**: pad colours for 16 Levels Tune by note | Sample → B2: Tune → Play → **Lights** | partly confirmed |
+| **Scales**: pad colours for 16 Levels Tune by note | Sample → B2: Tune → Play → **Scales** | partly confirmed |
 
-Lights: K1 is the **Layout**, K2 the tonic, K3 the scale; with Shift, K1 is Transpose16, K2 the colour group, K3 its colour.
+Scales: K1 is the **Layout**, K2 the tonic, K3 the scale; with Shift, K1 is Transpose16, K2 the colour group, K3 its colour.
 - Layouts: **Monochrome** (stock colours), **Piano** (white and black keys), **Scale** (tonic / in scale / out of scale, every pad lit) and **Degrees** (r27q: the 16 pads play **only notes of the key**, one scale degree per pad. Pad by pad you go up the scale: with C Major and Orig Note C on the original pad you get C D E F G A B C D…; Transpose16 then shifts by scale degrees. If the original note is not in the key, the layout starts from the next key note above it and the original note is not shown. All pads are lit; the tonic I, IV and V are highlighted, each in its own colour, other degrees are dimmer). Default colours for new sounds: tonic Red, key notes Cyan (also in Scale), IV Violet, V Yellow, original note Magenta, out of key (Scale) Grey. In Chromatic, IV and V are the perfect fourth and fifth; in Lydian and Locrian they follow the scale (#4, b5). Older Tonic values load as Scale; projects saved with Degrees open as Scale in r27p and earlier.
 - In Degrees, the Shift colour groups are **I Tonic**, **Key notes**, **IV**, **V** and **Original**; in Scale they are Tonic, Scale, Other and Original (Tonic and Scale/Key notes are shared). A changed IV or V colour is saved in project format MPCS19; r27p and earlier cannot read the mod settings of such a project. With default IV/V colours the project stays readable by older builds.
 - Tonic and scale either follow the project (shown as **(P)**) or are set per sound. 12 colours including Off; the sample's original pitch has its own colour.
 - **Transpose16 −24…+24** shifts the 16 Levels Tune layout without changing normal pad playback.
 - Colours follow Orig Note, Semi Tune, pad number and Transpose16. Without an Orig Note the stock colours are used.
-- Lights also apply in the Tune event editor from Events and Steps (see §9).
+- Scales also apply in the Tune event editor from Events and Steps (see §9).
 
 ### Quick start: 16 Levels Piano/Scale
 
 1. Select a sound; set **Sample → Tune → Shift+K1 → Orig Note**.
 2. Set **Project → Key / Scale** if needed.
-3. Press Sample **B2: Tune → Play → Lights**. K1 (Layout) chooses Piano, Scale or Degrees,
+3. Press Sample **B2: Tune → Play → Scales**. K1 (Layout) chooses Piano, Scale or Degrees,
    K2 the tonic, K3 the scale. `(P)` means the project setting is inherited.
 4. Enable **16 Levels**; choose **Tune** via **Shift+16 Levels → Type**.
-5. On Lights, **Shift+K1 → Transpose16** shifts the layout. Lights work in
+5. On Scales, **Shift+K1 → Transpose16** shifts the layout. Scales work in
    Standard and Am MOD. Monochrome or no Orig Note leaves native colours.
 
 Checked against the code; a complete physical-button walkthrough is still pending.
@@ -178,7 +198,7 @@ Checked against the code; a complete physical-button walkthrough is still pendin
 **Status: trial (r24v).** A chord mode on top of 16 Levels Tune.
 
 1. Pick a melodic sample, set its **Orig Note**, and set Play to **Poly**.
-2. The key comes from the project's Key / Scale or the sound's Lights.
+2. The key comes from the project's Key / Scale or the sound's Scales.
 3. Turn on **16 Levels → Tune** and press **Chop**. **B1 Back** or Chop again returns.
 
 | Pads | Function | Colour |
@@ -244,7 +264,7 @@ When the selected event has a C or L mark, the Chop or 16 Levels button lights u
 | The original variant is amber, the chosen one white | confirmed |
 | Levels types: Velocity, Tune, Filter, Layer, Attack, Decay, Probability, Ratchet, Slice, Articulation; Tune pages by octave | confirmed |
 | **Several notes in Tune**: pads add and remove notes (up to 16); Apply replaces the event with separate events as one Undo step | trial (r21) |
-| The sound's Lights colours in the Tune editor | trial |
+| The sound's Scales colours in the Tune editor | trial |
 
 ## 10. Sequence and playback lighting
 
@@ -262,8 +282,8 @@ When the selected event has a C or L mark, the Chop or 16 Levels button lights u
 **Search:** Sample Select / Open Project → **Shift+B3 Search**. **Status:** search in the current folder confirmed, the rest trial; the r27q window and controls still need a wider device check.
 
 - **Query page:** type with the pads (or the encoder with K1 = Encoder). The first three matches appear live under the query with the count in the top right, so the list is often not needed. **Shift+Erase** clears the query; Erase deletes one character. The previous query is restored when Search is opened again in the same session.
-- **K1** Input (Pads / Encoder), **K2 Search in**: **Folder** (the open folder only), **Library** (the whole library the open folder belongs to, default), **SD Card** (the card's MPC-Sample library), **All** (Library + SD card). The choice is kept until restart. **K3** preview volume. With Pads input the encoder moves the cursor; pad 16 deletes, Shift+pad 16 deletes forward. Pressing the encoder enters the letter: with Pads it confirms the multi-tap letter, with Encoder input it adds the next letter. B2 List / B3 Find open the results. With Encoder input, turning changes the letter, +/− move the cursor. **Erase** deletes in both modes (the selected letter with the encoder); Shift+Erase clears the query.
-- **B2 List / B3 Find** open the list; in the list **B2 Query** returns to typing, **B1** closes Search.
+- **K1** Input (Pads / Encoder), **K2 Search in**: **Folder** (the open folder only), **Library** (the whole library the open folder belongs to, default), **Internal** (the MPC's built-in library), **SD Card** (the card's MPC-Sample library), **All** (Internal + SD card, r27r). The choice is kept until restart. **K3** preview volume. With Pads input the encoder moves the cursor; pad 16 deletes, Shift+pad 16 deletes forward. Pressing the encoder enters the letter: with Pads it confirms the multi-tap letter, with Encoder input it adds the next letter. B3 Find opens the results; B2 does nothing while typing (r27r). With Encoder input, turning changes the letter, +/− move the cursor. **Erase** deletes in both modes (the selected letter with the encoder); Shift+Erase clears the query.
+- **B3 Find** opens the list; in the list **B2 Query** returns to typing, **B1** closes Search. Sample, Seq and other screen buttons leave Search with their stock action (r27r). Knob FX does not open over the browser.
 - **List:** five rows; the selected row is highlighted and its folder is shown below. Case-insensitive. Samples: WAV, AIF/AIFF, MP3, FLAC, OGG. Projects: XPJ. Up to 4096 matches.
 - Samples: tap a pad to choose the target (**Load to**), **press the encoder to load** and stay in the list. **B3 Preview** previews while scrolling; it is on by default. **Shift+press** opens the file's folder with the file selected. Pads follow §2: selected empty targets green, occupied targets red; unselected empty pads off, other occupied pads dimmed in their own hue.
 - Projects: a press asks for confirmation (B3 Open / B1 Cancel).
@@ -334,7 +354,7 @@ While the selected pad sounds, its **spectrum** (4096-point FFT, 20 Hz–20 kHz)
 - Firmware **1.3.0.12** only: the mod refuses to start on any other version.
 - Internal is temporary in the mod; work on External.
 - The stock app does not read the mod's project settings and drops them when it re-saves the project. The musical content of the project is kept.
-- Automatic migration of name-keyed Lights settings on sample rename is not implemented. This is separate from implemented Pad Colour/EQ inheritance in Copy/Extract with Undo/Redo.
+- Automatic migration of name-keyed Scales settings on sample rename is not implemented. This is separate from implemented Pad Colour/EQ inheritance in Copy/Extract with Undo/Redo.
 - An emulator run does not replace a hardware test: timing, audio, battery and USB audio differ.
 - A fast arpeggio on a slow card can bring up the stock *Disk too slow* message.
 

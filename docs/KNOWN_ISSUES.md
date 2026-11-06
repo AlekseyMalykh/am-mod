@@ -1,7 +1,7 @@
 # Known issues, testing status and requests
 
-Updated **5 November 2026**. Latest release **r27q**; r27p and r26s remain available as older versions.
-[Full changes](RELEASE_NOTES-r27q.md) ·
+Updated **6 November 2026**. Latest release **r27r**; r27q, r27p and r26s remain available as older versions.
+[Full changes](RELEASE_NOTES-r27r.md) ·
 [Settings](MOD_SETTINGS.md) · [Original Leusha list, Russian](TESTER_FEEDBACK_LEUSHA.ru.md).
 
 Implemented means the change and stated coverage exist, not that the entire
@@ -10,6 +10,17 @@ power-off, External saves and stock startup without the mod card.
 
 | ID | Status | Implementation / next check |
 | --- | --- | --- |
+| BUG-07 | Fixed in r27r; confirmed on MPC | Recall (Shift + Sample Record) froze the MPC (Leusha, three times). Only Stop now waits for the audio render; Recall works with Resample and Rear sources. The exact native cause of the old freeze was not proven; the protective change removed it on the device. |
+| BUG-02 | Fixed in r27r; confirmed on MPC | Seq Colour (Shift+K1) kept the old controls. |
+| BUG-03 | Fixed in r27r; confirmed on MPC | Mix encoder cycle after K2 Pad Colour; with Shift, Volume and Pan stay and only K2 is Kit Volume. |
+| BUG-04 / BUG-05 | Fixed in r27r; confirmed on MPC | Chop pads dark or wrong colour on entry, after Extract and after leaving Chop. No native repaint is requested inside Chop. |
+| BUG-06 | Fixed in r27r; confirmed on MPC | Incomplete screen and blinking “Restored” note after autoload until a pad was pressed. |
+| BUG-01 | Fixed in r27r | Scaled takeover jump after EQ → Filter. |
+| P01 | Changed in r27r; confirmed on MPC | One set of pad lighting rules: white cursor and selected sequence; Copy source blinks, free/occupied targets green/red; Mute keeps colours, muted red; Erase keeps colours; brighter pressed pads; no green flash on a short Pad Bank press; source lit at once in Resample → B3. |
+| P02 | Changed in r27r; device check pending | Copy Sequence colours and transfer of the sequence colour to the target. Sample / Seq leaving Mod Settings, Key / Scale, Search and Stereo > Mono. |
+| S01 | Changed in r27r; confirmed on MPC | Search: Internal and All (Internal + SD), complete SD results, steady K3 Volume, stock Internal / External tab, no Knob FX over the browser, B2 idle while typing. |
+| O01 | Open | Sample / Seq do not leave 16 Levels or Chop (stock behaviour). r27r logs button codes to add it. |
+| O02 | Request | Spectrum for a muted pad (it does not play; would need a whole-sample spectrum). |
 | Q01 | Added in r27q; device check pending | Degrees layout: pads play key notes, I/IV/V colours, Transpose16 by degrees, MPCS19 colours. Check every scale, an original note outside the key, Steps playback flashes and Save/Load. |
 | Q02 | Changed in r27q; device check pending | Search: Folder/Library/SD Card/All, live matches, preview on, encoder press enters a letter, Erase in Encoder input (also in the Save name window). |
 | Q03 | Changed in r27q; device check pending | Rear Routing, Mod Settings and confirmations redrawn in the stock style; anti-aliased splash text. |
@@ -24,11 +35,11 @@ power-off, External saves and stock startup without the mod card.
 | L01–L04 | P1 / implemented; original hardware cases pending | Full project restore, original recovery identity/sample paths and separate first-Save confirmation are implemented. The author passed basic A/B cases, not every original Leusha case. Test normal shutdown → stock without SD using A → mod with B; compare notes, sequences, samples and effects. Historical Mod Off steps are obsolete in r27e. |
 | N09 | Implemented; device check pending | Delayed New Project Auto Save Error: initialize a missing Temp-Project through native serialization. Relevant ARM/UBSan branches and an earlier native VM case passed; the exact final package was not booted end-to-end in VM. Create/edit a new project, wait for autosave, then test manual Save/Load. |
 | L05 | Implemented; original device case pending | Physical ERASE deletes from Project Load with native confirmation. Retest files/folders and ordinary/search views. |
-| L06 | Open | First-beat Chop light appears only after looping. Need the precise first-Play/restart case. |
+| L06 | Author: looks fixed in r27r | First-beat Chop light appears only after looping. Confirm on more projects. |
 | L07 / L10 / L12 | Earlier confirmation | Sample playback Pad Colour, distinct Green/Cyan and native Scaled/K end stops fixed. The author confirmed K on MPC; issue #2 closed. This does not confirm every new colour workflow. |
 | L08 / L09 / L22 | Implemented; full hardware cases pending | Assigned colours across Copy/Extract/Mono/Render/browser and Duck/OptoCat, plus Copy/Extract inheritance and Undo/Redo. Retest banks, Paste/Cancel/Undo, occupied targets, both compressors, Bypass and Save/Load. |
 | L11 | Fixed in r27n; device confirmation pending | A muted pad shows grey waveform and spectrum in Trim, Filter, Filter Env and EQ regardless of tint. Curves and envelopes remain visible. Verified with VM screenshots. |
-| L13 | Fixed in r27p; targeted device retry remains | Native Copy retains Erase after Shift release; Shift+Pad Bank reverses banks. Native VM A → H verified. |
+| L13 | Fixed in r27p; confirmed on MPC in r27r | Native Copy retains Erase after Shift release; Shift+Pad Bank reverses banks. Native VM A → H verified. |
 | L16 | Implemented; device readability pending | Seq selection pulses per bar at Stop, playing per beat, queue twice per beat; background/other brightness stable. Test queue/cancel, tempos and meters. Standard keeps native lighting. |
 | L20 / L21a | Implemented | Filter/Filter Env/EQ spectrum with curves and side strips. Pad Colour is Sample → B1 Mix → K2 in Am MOD; Shift+K2 Kit Volume, K1 Volume. |
 | N01–N03 | Implemented; targeted device checks remain | EQ Volume/Pan; OptoCat−6…+6dB, Shift Attack/Release/Knee, Warm, paw/red GR and input bow; shared Bypass, New Project rebinding and active-type entry. Retest audio/meters, New Project and restart. |
@@ -60,4 +71,4 @@ inside the mod. Stock resaving may discard optional mod XPJ fields. K reset does
 not cover native Duck/other FX. Newest cursors/final-package hardware confirmation
 remain pending; a full VM boot of the exact final r27e is not claimed.
 
-Thanks to Leusha, mxt1iga and everyone providing tests and reproductions.
+Special thanks to **Leusha** for careful, detailed testing: BUG-01…BUG-07 and most r27r changes come from those reports. Thanks also to mxt1iga and everyone providing tests and reproductions.

@@ -32,7 +32,7 @@ Eight user slots plus Default remain, without collisions with six service roles.
 Existing project colour IDs stay stable; swapping a slot changes every pad or
 sequence assigned to that slot.
 
-**Sample → Preview from end** selects how far before the trim or slice end playback starts when holding **STOP** and pressing a pad in Sample or Chop. It defaults to 1000 ms and is saved in the project and card defaults.
+**Sample → Preview from end** selects how far before the trim or slice end playback starts when holding **STOP** and pressing a pad in Sample or Chop. It defaults to 1000 ms and is saved in the project and card defaults. Choices: 100, 250, 500, 750, 1000, 1500, 2000 ms or **Off** (r27r; Off replaces the former 4000 ms and keeps STOP + pad stock). Since r27r the pad that is already sounding is cut first, like a double Stop (all sounding pads stop).
 
 Standard disables Pad Colour/Seq Colour without deleting assignments and keeps
 16 Levels Piano/Scale/Degrees layouts. Optional waveform/spectrum tint applies in Am MOD.

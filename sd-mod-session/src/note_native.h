@@ -6,6 +6,8 @@
 void note_native_init(uintptr_t base);
 int note_native_footer(void *component, void *graphics);
 int note_native_tick(void);
+/* UI timer only: Mix Shift replaces K2 alone (Volume/Pan stay shown). */
+void note_native_mix_shift_tick(void);
 int note_native_active(void);
 int note_native_control(void *event);
 int note_native_reset_knob(unsigned column,unsigned shifted);

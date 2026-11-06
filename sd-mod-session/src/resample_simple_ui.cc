@@ -110,6 +110,10 @@ extern "C" int resample_ui_control(void*e,uint64_t ticket){
 }
 extern "C" int resample_ui_tick(int blocked){
     if(dead.exchange(0)){root=nullptr;root_id.store(0);}
+    /* Source blink and the first target-page frame need a live palette, not
+     * one published only on input (device: source lit only after a bank
+     * change). publish_palette bumps the epoch only on a real change. */
+    publish_palette();
     if(fault.exchange(0)){close_dialog();session=nullptr;handoff=0;}
     auto*current=backend.load();auto*poller=session?session:current;
     if(stop_phase==2){

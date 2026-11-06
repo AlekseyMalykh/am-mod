@@ -198,17 +198,23 @@ static void sample_palette_publish(void *things,void *program,int bank,int enabl
   int used=p&&FN(0x2804760,int(*)(void*))(p);
   int muted=used&&sample_instrument_muted(p);
   if(mute_mode){
-   uint64_t light=used?pad_light(muted?PAD_DANGER:PAD_FREE,now<playback_until[i]?1.f:.75f):0;
+   /* Agreed: Mute keeps each pad's colour, brighter; muted pads turn the
+    * Occupied/danger colour (red by default); playing pads at full. */
+   uint64_t light=used?pad_light(muted?PAD_DANGER:music_identity_rgb((unsigned)music_pad_colour(n)),now<playback_until[i]?1.f:.70f):0;
    atomic_store(&sample_palette[i],light);
    continue;
   }
   uint32_t rgb=muted?PAD_MUTED:used?music_identity_rgb((unsigned)music_pad_colour(n)):0;
-  float strength=used?(muted?.32f:PAD_BRIGHT_CONTENT):0;
+  /* Agreed: loaded pads dimmer at rest, clearly brighter while pressed or
+   * playing (each held pad, several at once). Native selection orange
+   * ff7700 is the cursor, not a press. */
+  float strength=used?(muted?.32f:.30f):0;
   unsigned native=atomic_load(&sample_native_rgb[i]),top=(native>>16)&255;
   if(((native>>8)&255)>top)top=(native>>8)&255;
   if((native&255)>top)top=native&255;
-  if(used&&!muted&&top>=192)strength=.90f; /* real held/Loop playback remains visible */
-  if(used&&now<playback_until[i]){rgb=now<playback_muted_until[i]||muted?PAD_MUTED:rgb;strength=rgb==PAD_MUTED?.65f:.90f;}
+  int hot=used&&!muted&&top>=96&&native!=0xff7700u;
+  if(hot)strength=1.f;
+  if(used&&now<playback_until[i]){rgb=now<playback_muted_until[i]||muted?PAD_MUTED:rgb;strength=rgb==PAD_MUTED?.65f:1.f;hot=rgb!=PAD_MUTED;}
 #ifdef MPC_LOOP_FEEDBACK
   int sustained=used&&!(rgb==PAD_MUTED&&now<playback_until[i])&&sample_playing_active(program,n);
   if(sustained){
@@ -223,6 +229,7 @@ static void sample_palette_publish(void *things,void *program,int bank,int enabl
 #ifdef MPC_LOOP_FEEDBACK
    light=sustained?(music_cursor_on(now-sample_focus_since,500)?pad_light(PAD_SELECT,.95f):
        pad_light(muted?PAD_MUTED:music_identity_rgb((unsigned)music_pad_colour(n)),muted?.65f:.95f)):
+       hot?(music_cursor_on(now-sample_focus_since,500)?pad_light(PAD_SELECT,.95f):pad_light(rgb,1.f)):
        pad_focus_light(rgb,strength,now-sample_focus_since);
 #else
    light=pad_focus_light(rgb,strength,now-sample_focus_since);
@@ -694,7 +701,7 @@ void step_native_playback_context(void *things,int transpose,int sample_visible)
     }
     int sample_enabled=enabled&&mode==10&&!picker&&!(showing&&steps);
     if (gate || picker) { /* Editor markers describe original/choice, not loop flashes. */
-        playback_previous=-1;memset(playback_until,0,sizeof(playback_until));memset(playback_pitch_until,0,sizeof(playback_pitch_until));atomic_store(&playback_colour_bank,-1);atomic_store(&playback_mask,0);atomic_store(&playback_muted_mask,0);memset(playback_muted_until,0,sizeof(playback_muted_until));sample_palette_publish(things,program,bank,sample_enabled,sample_mute,now);return;
+        playback_previous=-1;memset(playback_until,0,sizeof(playback_until));memset(playback_pitch_until,0,sizeof(playback_pitch_until));atomic_store(&playback_colour_bank,-1);atomic_store(&playback_mask,0);atomic_store(&playback_muted_mask,0);memset(playback_muted_until,0,sizeof(playback_muted_until));sample_palette_publish(things,program,bank,sample_enabled,sample_mute||seq_mute,now);return;
     }
     unsigned muted_pads=0;
     if(mode==10) {
@@ -760,7 +767,7 @@ void step_native_playback_context(void *things,int transpose,int sample_visible)
     }
     unsigned muted_mask=0;for(unsigned i=0;i<16;++i)if(now<playback_muted_until[i]||(muted_pads&(1u<<i)))muted_mask|=1u<<i;
     atomic_store(&playback_muted_mask,muted_mask&mask);
-    sample_palette_publish(things,program,bank,sample_enabled,sample_mute,now);
+    sample_palette_publish(things,program,bank,sample_enabled,sample_mute||seq_mute,now);
     atomic_store(&playback_colour_bank,mode==10?bank:-1);
     atomic_store(&playback_mask,mask);
 }

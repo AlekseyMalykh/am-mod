@@ -27,6 +27,7 @@ int rear_ui_tick(void);
 int rear_ui_owns(unsigned kind, unsigned code);
 int rear_ui_button(void *event);
 int rear_ui_control(void *event);
+int rear_ui_reset_knob(unsigned column,unsigned shift);
 void rear_ui_pad(unsigned pad, int down);
 int rear_ui_pad_owns(void);
 int rear_ui_light(unsigned pad, uint64_t *colour);
