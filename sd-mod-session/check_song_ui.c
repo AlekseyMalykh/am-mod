@@ -99,7 +99,7 @@ int main(int argc,char **argv)
 
     phase="paint binds the screen; tick publishes visibility";
     ((void(*)(void*,void*))vt[SLOT_PAINT/8])(screen_obj,(void*)0x10);
-    assert(screen==screen_obj&&!strcmp(drawn,"Step 2/3  x1   K1 Repeats"));
+    assert(screen==screen_obj&&!drawn[0]); /* nothing drawn until an edit */
     song_ui_tick();assert(song_ui_active());
 
     phase="ownership pairing";
@@ -119,6 +119,9 @@ int main(int argc,char **argv)
 
     phase="Shift+B3 replace";
     button(B3,1);assert(last_op=='S'&&last_step==1&&last_seq==5&&steps[1][0]==5);button(B3,0);
+    ((void(*)(void*,void*))vt[SLOT_PAINT/8])(screen_obj,(void*)0x10);
+    assert(!strcmp(drawn,"Step replaced   Step 2/3 x1"));   /* transient strip after the edit */
+    toast_until=1;((void(*)(void*,void*))vt[SLOT_PAINT/8])(screen_obj,(void*)0x10);song_ui_tick();assert(!toast_until);
     assert(!song_ui_owns(PHONE_BUTTON,B3,0,0));
     before=ops;song_ui_owns(PHONE_BUTTON,B3,1,1);button(B3,1);button(B3,0);assert(ops==before); /* same sequence */
 

@@ -2,6 +2,7 @@
 
   python3 lab/song_cycle.py boot mix1-card   # insert image, reset, wait for the mod and project
   python3 lab/song_cycle.py song             # drive Song Mode, screenshots + logs + project dump
+  python3 lab/song_cycle.py logs             # only copy logs (clone tail, events)
   python3 lab/song_cycle.py mixer            # enter Mixer (short Shift+Pad9), tabs, tracks, exit, long press
 Writes PNG/JSON/logs to build/song-lab and copies them to the Windows project tmp/song-lab.
 Only lab files; never a physical SD card."""
@@ -15,6 +16,10 @@ actions=[]
 def guest(cmd,timeout=30):
     try:return lab.guest(cmd,timeout=timeout).decode('utf-8','replace')
     except Exception as e:return f'<{type(e).__name__}: {e}>'
+def post(name,action,value=100):
+    actions.append(dict(name=name,action=action,value=value,t=time.time()))
+    data=json.dumps(dict(name=name,action=action,value=value)).encode()
+    urllib.request.urlopen(urllib.request.Request(URL+'/control',data,{'Content-Type':'application/json'}),timeout=10).read()
 def send(name,action,value=100):
     actions.append(dict(name=name,action=action,value=value,t=time.time()))
     data=json.dumps(dict(name=name,action=action,value=value)).encode()
@@ -60,7 +65,9 @@ def songs_dump(name):
     print('songs dump failed',name,flush=True)
 def publish():
     (O/'actions.json').write_text(json.dumps(actions,indent=1))
-    (O/'song-log.txt').write_text(guest(f'grep -a "SONG_UI\\|MIXER\\|STARTUP_PROJECT" {CLONE} | tail -n 80'))
+    (O/'song-log.txt').write_text(guest(f'grep -a "SONG_UI\\|MIXER\\|STARTUP_PROJECT" {CLONE} | tail -n 120'))
+    (O/'clone-tail.txt').write_text(guest(f'tail -n 400 {CLONE}',timeout=60))
+    (O/'events-tail.txt').write_text(guest('tail -n 120 /run/mpc-clone-trial-v1/events.txt; ls -la /run/mpc-clone-trial-v1/ /run/mpc-clone-trial-v1/app 2>&1 | head -80',timeout=60))
     WIN.mkdir(parents=True,exist_ok=True)
     for f in O.iterdir():shutil.copy2(f,WIN/f.name)
     print('copied to',WIN,flush=True)
@@ -87,10 +94,13 @@ elif cmd=='song':
     pad(3);shift('SCREEN 3');snap('07-replaced')
     songs_dump('07')
     tap('SCREEN 3');snap('08-plain-b3-stock-insert')       # stock Insert still works
+elif cmd=='logs':
+    publish()
 elif cmd=='mixer':
     atexit.register(publish)
     tap('STOP');tap('SAMPLE');snap('10-sample')
-    send('SHIFT','press');pad(9,0.15);send('SHIFT','release');snap('11-mixer-overview')   # short Shift+Pad9
+    send('SHIFT','press');post('PAD 9','press',100);time.sleep(0.12);post('PAD 9','release');time.sleep(0.6)
+    send('SHIFT','release');snap('11-mixer-overview')   # short Shift+Pad9 (well under 500 ms)
     tap('SCREEN 1');snap('12-mixer-mix');pad(2);snap('13-mixer-track-b')
     tap('SCREEN 2');snap('14-mixer-fx');tap('SCREEN 3');snap('15-mixer-route')
     pad(16);snap('16-mixer-master');tap('SCREEN 3');snap('17-mixer-route-same-tab-overview')

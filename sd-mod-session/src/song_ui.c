@@ -43,7 +43,6 @@ static _Atomic unsigned shown;           /* producer reads */
 static _Atomic unsigned owned_buttons;   /* bit per claimed button down */
 static int knob_last=-1;                 /* K1 relative baseline */
 static int knob_accum;
-static uint64_t knob_ms;
 static char toast[48];
 static uint64_t toast_until;
 static unsigned log_count;
@@ -111,6 +110,8 @@ static int fits(const struct song_ref *r,int extra_bars)
 static void say(const char *m)
 { snprintf(toast,sizeof(toast),"%s",m); toast_until=now_ms()+1500; repaint(screen); report(m); }
 
+static void trace(const char*what,const struct song_ref*r,int a,int b)
+{ char m[96]; snprintf(m,sizeof(m),"%s row=%d count=%d a=%d b=%d",what,r->row,r->count,a,b); report(m); }
 static void set_repeats(const struct song_ref *r,int step,int repeats)
 {
     void *ctx; FN(0x19a0b50,void(*)(void**,void*))(&ctx,r->sequencer);
@@ -146,6 +147,7 @@ static int change_repeats(int delta)
     if(next>REPEATS_MAX) next=REPEATS_MAX;
     if(next==rep) return 1;
     if(next>rep&&!fits(&r,sequence_bars(&r,seq)*(next-rep))){ say("Song would be too long"); return 1; }
+    trace("REPEATS",&r,rep,next);
     set_repeats(&r,r.row,next);
     char m[32]; snprintf(m,sizeof(m),"Repeats x%d",next); say(m);
     return 1;
@@ -158,6 +160,7 @@ static int replace_step(void)
     if(chosen<0||chosen==seq) return 1;
     int diff=(sequence_bars(&r,chosen)-sequence_bars(&r,seq))*rep;
     if(diff>0&&!fits(&r,diff)){ say("Song would be too long"); return 1; }
+    trace("REPLACE",&r,seq,chosen);
     set_sequence(&r,r.row,chosen);
     say("Step replaced");
     return 1;
@@ -166,8 +169,11 @@ static int duplicate_step(void)
 {
     struct song_ref r; int seq,rep;
     if(!song_ref(&r)||!step_at(&r,r.row,&seq,&rep)) return 0;
+    trace("DUPLICATE_BEGIN",&r,seq,rep);
     if(!fits(&r,sequence_bars(&r,seq)*rep)){ say("Song would be too long"); return 1; }
+    trace("DUPLICATE_FITS",&r,seq,rep);
     insert_step(&r,r.row+1,seq,rep);
+    trace("DUPLICATE_INSERTED",&r,seq,rep);
     say("Step duplicated");
     return 1;
 }
@@ -178,6 +184,7 @@ static int move_step(int direction)
     int target=r.row+direction;
     if(target<0||target>=r.count) return 1;
     /* Two stock commands (Undo restores in two steps). */
+    trace("MOVE",&r,seq,target);
     delete_step(&r,r.row);
     insert_step(&r,target,seq,rep);
     say(direction<0?"Step moved up":"Step moved down");
@@ -188,10 +195,10 @@ int song_ui_control(void *e)
 {
     unsigned cc=FIELD(e,8,unsigned char); int value=FIELD(e,9,unsigned char);
     if(cc!=K1||!screen||!atomic_load(&shown)) return 0;
-    uint64_t t=now_ms();
-    /* K1 is an absolute knob: count movement, 4 positions per repeat. */
-    if(knob_last<0||t-knob_ms>1500){ knob_last=value; knob_accum=0; knob_ms=t; return 1; }
-    knob_accum+=value-knob_last; knob_last=value; knob_ms=t;
+    /* K1 is an absolute knob: count movement, 4 positions per repeat.
+     * The baseline resets when the Song screen appears, never on a timer. */
+    if(knob_last<0){ knob_last=value; knob_accum=0; return 1; }
+    knob_accum+=value-knob_last; knob_last=value;
     int steps=knob_accum/4; knob_accum-=steps*4;
     if(steps) change_repeats(steps);
     return 1;
@@ -227,11 +234,11 @@ static void paint(void *p,void *g)
     screen=p;
     struct song_ref r; int seq,rep;
     char line[48];
-    if(toast_until&&now_ms()<toast_until) snprintf(line,sizeof(line),"%s",toast);
-    else if(song_ref(&r)&&step_at(&r,r.row,&seq,&rep))
-        snprintf(line,sizeof(line),"Step %d/%d  x%d   K1 Repeats",r.row+1,r.count,rep);
-    else return;
-    /* Bottom status strip; the stock step list keeps the rest of the screen. */
+    if(!(toast_until&&now_ms()<toast_until)) return;
+    if(song_ref(&r)&&step_at(&r,r.row,&seq,&rep))
+        snprintf(line,sizeof(line),"%s   Step %d/%d x%d",toast,r.row+1,r.count,rep);
+    else snprintf(line,sizeof(line),"%s",toast);
+    /* Transient strip after an edit; the stock list is untouched otherwise. */
     colour(g,0xff000000); rect(g,0,224,320,16);
     colour(g,0xffffc247); text(g,line,4,224,312,16,12.0f);
 }
