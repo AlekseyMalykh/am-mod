@@ -14,6 +14,8 @@ int note_native_sample_visible(void) { return 1; }
 int workflow_blocks_sample_controls(void) { return 0; }
 int note_native_active(void) { return 0; }
 int music_ui_active(void) { return 0; }
+int music_ui_knob_fx_active(void) { return 0; }
+int music_lighting_levels_state(unsigned *e,unsigned *m,unsigned *o) { *e=*m=*o=0; return 0; }
 int step_native_active(void) { return 0; }
 int step_native_browser_bank(int bank) { static int current=5;if(bank>=0)current=bank;return current; }
 int mixer_live_native_binding(struct mixer_native_binding *binding)

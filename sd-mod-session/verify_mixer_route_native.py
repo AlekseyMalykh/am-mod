@@ -23,9 +23,9 @@ core = ["src/mixer_route_native.c", "src/mixer_buses.c", "src/mixer_model.c",
         "src/mixer_meters.c", "src/fx_chain.c", "src/fx_eq.c"]
 suites = [
     ("routing", ["check_mixer_route_native.c", *core], "PASS scoped Mixer native adapter"),
-    ("native-dsp", ["check_mixer_route_dsp.c", *core, "src/pad_eq.c", "src/pad_eq_native.c"],
+    ("native-dsp", ["check_mixer_route_dsp.c", *core, "src/pad_eq.c", "src/pad_eq_native.c", "src/music_settings.c"],
      "PASS Mixer native allocated-buffer and Pad EQ integration"),
-    ("installed-live", ["check_mixer_live_native.c", *core, "src/pad_eq.c", "src/pad_eq_native.c", "src/mixer_live.c", "src/mixer_live_native.c"],
+    ("installed-live", ["check_mixer_live_native.c", *core, "src/pad_eq.c", "src/pad_eq_native.c", "src/music_settings.c", "src/mixer_live.c", "src/mixer_live_native.c"],
      "PASS installed pinned live hooks"),
 ]
 tracked = list(dict.fromkeys(p for _, sources, _ in suites for p in sources)) + [

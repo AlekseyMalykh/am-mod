@@ -89,7 +89,8 @@ int main(int argc,char **argv)
     struct sigaction sa={.sa_sigaction=fault,.sa_flags=SA_SIGINFO};
     sigaction(SIGSEGV,&sa,NULL);sigaction(SIGABRT,&sa,NULL);sigaction(SIGILL,&sa,NULL);
     phase="Mixer native lighting installer";
-    assert(MIXER_COLOURS+1==MUSIC_SEQUENCE_COLOURS);
+    /* r27r appended Pink after the twelve Mixer colours; the shared prefix is unchanged. */
+    assert(MIXER_COLOURS+1<=MUSIC_SEQUENCE_COLOURS);
     for(unsigned i=0;i<MIXER_COLOURS;++i){assert(mixer_colour_at(i)==music_sequence_colours[i+1]);assert(!strcmp(mixer_colour_name(mixer_colour_at(i)),music_sequence_colour_names[i+1]));}
     assert(mixer_leds_install(base)&&mixer_leds_install(base));
     assert(!mixer_leds_install(base+4096));

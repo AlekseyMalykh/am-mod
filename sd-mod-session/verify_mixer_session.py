@@ -9,7 +9,7 @@ expected='b6584cba76e416e432ad202509099d34373dc2c3d6a8fb625f5678bf0193b508'
 assert sha(stock)==expected
 root=os.environ.get('MPC_QEMU_SYSROOT','/home/user/mpc-rootfs-user-20260808')
 out=R/'build/mixer-session';out.mkdir(parents=True,exist_ok=True)
-sources=['check_mixer_session_native.c','src/mixer_session.cc','src/mixer_runtime.cc','src/mixer_fx.cc','src/fx_native.cc','src/mixer_sources.cc','src/resample_queue.cc','src/pad_source_abi.S','src/mixer_control.c','src/mixer_archive.cc','src/mixer_live.c','src/mixer_live_native.c','src/mixer_route_native.c','src/mixer_buses.c','src/mixer_model.c','src/mixer_meters.c','src/fx_chain.c','src/fx_eq.c','src/fx_catalog.c','src/pad_eq.c','src/pad_eq_native.c']
+sources=['check_mixer_session_native.c','src/mixer_session.cc','src/mixer_runtime.cc','src/mixer_fx.cc','src/fx_native.cc','src/mixer_sources.cc','src/resample_queue.cc','src/pad_source_abi.S','src/mixer_control.c','src/mixer_archive.cc','src/mixer_live.c','src/mixer_live_native.c','src/mixer_route_native.c','src/mixer_buses.c','src/mixer_model.c','src/mixer_meters.c','src/fx_chain.c','src/fx_eq.c','src/fx_catalog.c','src/pad_eq.c','src/pad_eq_native.c','src/music_settings.c']
 tracked=sources+['check_mixer_live_native.c','check_mixer_route_dsp.c','check_mixer_route_native.c','check_fx_native.c','src/mixer_session.h','src/mixer_runtime.h','src/mixer_fx.h','src/fx_native.h','src/mixer_sources.h','src/resample_queue.h','src/mixer_control.h','src/mixer_live.h','src/mixer_archive.h','src/mixer_view.h','verify_mixer_session.py']
 before={p:sha(R/p) for p in tracked};checks=[]
 for mode,flags in [('normal',[]),('ubsan',['-fsanitize=undefined','-static-libubsan','-fno-sanitize-recover=all'])]:
