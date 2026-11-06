@@ -174,7 +174,10 @@ int main(int argc,char **argv)
     assert(mixer_control_button(control,MIXER_PAD_FX,1,ticket)&&mixer_control_button(control,MIXER_PAD_FX,0,ticket));
     publish(control,1);native_refresh(16);assert(sent[0]==0x804020);
     assert(mixer_control_confirm(control,&accepted,3,1));publish(control,1);send_step_lights();assert(sent[0]==mixer_colour_at(11));
-    mixer_leds_disable();send_step_lights();assert(sent[0]==native_value);
+    /* r27r: with Mixer released, the AM Mod pad-colour layer owns the Sample
+     * grid again (lighting mode AM Mod); Standard mode is plain native. */
+    mixer_leds_disable();send_step_lights();assert(sent[0]!=mixer_colour_at(11));
+    assert(music_set_pad_lighting_mode(MUSIC_LIGHTING_STANDARD));native_refresh(16);send_step_lights();assert(sent[0]==native_value);
     mixer_control_destroy(control);
     puts("PASS Mixer physical RGB path: actual native chain/Playing refresh/event, real voice membership and converter, confirmed routing colours, other/direct/empty, playback/tail/preview/unknown/Mute/Erase priority, bank identity, epoch reset, modal priorities, delta refresh and native restore; receiver/app-model fixtures, no hardware");
     return 0;
