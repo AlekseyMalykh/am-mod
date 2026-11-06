@@ -23,11 +23,16 @@ def tool(name):
 def win(p,exe):return out(['wslpath','-w',p]) if exe.endswith('.exe') else str(p)
 
 # 1. Clean tree, fast-forward from origin/main.
-run(['git','fetch','origin'],cwd=ROOT)
-status=out(['git','-C',ROOT,'status','--porcelain','--untracked-files=no'])
+# A Codex/Windows worktree stores a Windows gitdir path that WSL git cannot
+# open: use git.exe with Windows paths for every git call in that case.
+dotgit=ROOT/'.git'
+GIT='git.exe' if dotgit.is_file() and ':/' in dotgit.read_text() else 'git'
+G=[GIT,'-C',win(ROOT,GIT)]
+run(G+['fetch','origin'])
+status=out(G+['status','--porcelain','--untracked-files=no'])
 if status:sys.exit('Commit or stash changes first:\n'+status)
-head=out(['git','-C',ROOT,'rev-parse','HEAD'])
-if subprocess.run(['git','-C',str(ROOT),'merge-base','--is-ancestor','origin/main','HEAD']).returncode:sys.exit('HEAD does not contain origin/main; rebase first')
+head=out(G+['rev-parse','HEAD'])
+if subprocess.run(G+['merge-base','--is-ancestor','origin/main','HEAD']).returncode:sys.exit('HEAD does not contain origin/main; rebase first')
 # 2. Build and package from this exact commit.
 if not args.skip_build:
     run(['sh','build_r27r.sh'],cwd=R)
@@ -53,13 +58,11 @@ body=f"{fix(en)}\n\nSHA-256 `am-mod-r27r.zip`: `{sha(z)}`\n\n---\n\n## По-ру
 print('Prepared',D,'package',sha(z))
 if args.dry_run:print('Dry run: nothing pushed or published.');sys.exit(0)
 # 4. Push main and the tag.
-git='git'
-if subprocess.run(['git','-C',str(ROOT),'push','origin','HEAD:main']).returncode:
-    git='git.exe';run([git,'-C',win(ROOT,git),'push','origin','HEAD:main'])
-if not subprocess.run(['git','-C',str(ROOT),'rev-parse','-q','--verify','refs/tags/'+TAG],capture_output=True).returncode==0:
-    who=[out(['git','-C',ROOT,'log','-1','--format=%an']),out(['git','-C',ROOT,'log','-1','--format=%ae'])]
-    run(['git','-C',ROOT,'-c','user.name='+who[0],'-c','user.email='+who[1],'tag','-a',TAG,'-m',TITLE,head])
-run([git,'-C',win(ROOT,git),'push','origin',TAG])
+run(G+['push','origin','HEAD:main'])
+if subprocess.run(G+['rev-parse','-q','--verify','refs/tags/'+TAG],capture_output=True).returncode!=0:
+    who=[out(G+['log','-1','--format=%an']),out(G+['log','-1','--format=%ae'])]
+    run(G+['-c','user.name='+who[0],'-c','user.email='+who[1],'tag','-a',TAG,'-m',TITLE,head])
+run(G+['push','origin',TAG])
 # 5. Release.
 gh=tool('gh')
 flags=['--prerelease'] if args.prerelease else ['--latest']
