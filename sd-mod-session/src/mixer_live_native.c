@@ -18,6 +18,19 @@ static atomic_flag binding_lock = ATOMIC_FLAG_INIT;
 static struct mixer_native_binding binding, attached_binding;
 static uint64_t clock_serial;
 static _Thread_local uint64_t clock_scope,clock_epoch;
+/* The engine's root list holds the SubmixProgram, not the kit: the kit
+ * DrumProgram is the one rendered through the Program entry inside the live
+ * callsite. AuxPrograms (preview/monitor) render there too and stay native.
+ * Learned on the live audio thread, one block behind for the pre-render check. */
+static _Thread_local void *block_kit;
+static _Thread_local unsigned block_kits;
+static void *kit;
+static void note_program(void *p)
+{
+    if(!clock_scope||!p||*(uintptr_t*)p==image+0x6e3abc8)return;
+    if(!block_kits){block_kit=p;block_kits=1;}
+    else if(block_kit!=p)block_kits=2;
+}
 static int position(void *out)
 {
     void *app=*(void**)(image+0x71e3dc8);
@@ -59,13 +72,15 @@ static struct mixer_native_binding observe(void *engine,unsigned frames)
     /* The Sample kit has one native Program. Other graphs stay unavailable
      * until their complete multi-Program routing is supported. */
     if (!first || end < first || end - first != sizeof(void*)) return result;
-    void *program;
-    memcpy(&program,(void*)first,sizeof(program));
-    if (!program) return result;
+    void *submix,*program = kit;
+    memcpy(&submix,(void*)first,sizeof(submix));
+    if (!submix || !program) return result;
     /* Program ctor28ce220 constructs its Instrument base at+78.
      *277157c reads that base's sample-rate property at638, then passes it to
      * the native buffer allocator. Read on the render owner while valid. */
-    void *property = ptr(program,0x78+0x638);
+    /* Rate/capacity come from the live root Program (same engine format), so
+     * the learned kit pointer is only compared, never dereferenced here. */
+    void *property = ptr(submix,0x78+0x638);
     if (!property) return result;
     float rate;
     memcpy(&rate,(char*)property+0x50,sizeof(rate));
@@ -94,6 +109,8 @@ static void engine(void*p,void*c,unsigned n)
     uint64_t previous_scope=clock_scope,previous_epoch=clock_epoch;
     clock_scope=caller==image+0x18dc010?++clock_serial:0;
     clock_epoch=atomic_load(&binding_epoch);
+    void *previous_kit=block_kit;unsigned previous_kits=block_kits;
+    block_kit=NULL;block_kits=0;
     if (s && expected) {
         struct mixer_native_binding current = observe(p,n);
         if (caller != image + 0x18dc010 || !same_binding(&current,&attached_binding) ||
@@ -103,14 +120,16 @@ static void engine(void*p,void*c,unsigned n)
     /* Only the real live callsite may discover a session. Offline renderers
      * call the same entry from18b556c/18b98bc and have independent lifetimes. */
     if (caller == image + 0x18dc010) {
+        kit=block_kits==1?block_kit:NULL;
         struct mixer_native_binding current = observe(p,n);
         current.clock_valid=position(current.position);
         publish_binding(&current);
     }
     clock_scope=previous_scope;clock_epoch=previous_epoch;
+    block_kit=previous_kit;block_kits=previous_kits;
     atomic_fetch_sub_explicit(&callbacks,1,memory_order_seq_cst);
 }
-static void program(void*p,void*c,unsigned n){mixer_live_program(&ops.route,p,c,n);}
+static void program(void*p,void*c,unsigned n){note_program(p);mixer_live_program(&ops.route,p,c,n);}
 static int sum(void*i,void*s,void*d,const void*r,unsigned n){return mixer_route_sum(&ops.route,i,s,d,r,n);}
 static void stage(void*p,void*b,unsigned n,unsigned s){mixer_route_stage(&ops.route,p,b,n,s);}
 static void*ptr(void*p,unsigned offset){void*v;memcpy(&v,(char*)p+offset,8);return v;}
