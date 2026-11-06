@@ -28,11 +28,15 @@ def win(p,exe):return out(['wslpath','-w',p]) if exe.endswith('.exe') else str(p
 dotgit=ROOT/'.git'
 GIT='git.exe' if dotgit.is_file() and ':/' in dotgit.read_text() else 'git'
 G=[GIT,'-C',win(ROOT,GIT)]
-run(G+['fetch','origin'])
+# The public repository may be a second remote (here: am-mod; origin is the private mirror).
+def public(r):return out(G+['remote','get-url',r]).rstrip('/').removesuffix('.git').endswith(REPO)
+REMOTE=next((r for r in out(G+['remote']).split() if public(r)),None) or sys.exit('No git remote points to '+REPO)
+print('public remote:',REMOTE,flush=True)
+run(G+['fetch',REMOTE])
 status=out(G+['status','--porcelain','--untracked-files=no'])
 if status:sys.exit('Commit or stash changes first:\n'+status)
 head=out(G+['rev-parse','HEAD'])
-if subprocess.run(G+['merge-base','--is-ancestor','origin/main','HEAD']).returncode:sys.exit('HEAD does not contain origin/main; rebase first')
+if subprocess.run(G+['merge-base','--is-ancestor',REMOTE+'/main','HEAD']).returncode:sys.exit(f'HEAD does not contain {REMOTE}/main; merge it first')
 # 2. Build and package from this exact commit.
 if not args.skip_build:
     run(['sh','build_r27r.sh'],cwd=R)
@@ -58,11 +62,11 @@ body=f"{fix(en)}\n\nSHA-256 `am-mod-r27r.zip`: `{sha(z)}`\n\n---\n\n## По-ру
 print('Prepared',D,'package',sha(z))
 if args.dry_run:print('Dry run: nothing pushed or published.');sys.exit(0)
 # 4. Push main and the tag.
-run(G+['push','origin','HEAD:main'])
+run(G+['push',REMOTE,'HEAD:main'])
 if subprocess.run(G+['rev-parse','-q','--verify','refs/tags/'+TAG],capture_output=True).returncode!=0:
     who=[out(G+['log','-1','--format=%an']),out(G+['log','-1','--format=%ae'])]
     run(G+['-c','user.name='+who[0],'-c','user.email='+who[1],'tag','-a',TAG,'-m',TITLE,head])
-run(G+['push','origin',TAG])
+run(G+['push',REMOTE,TAG])
 # 5. Release.
 gh=tool('gh')
 flags=['--prerelease'] if args.prerelease else ['--latest']
