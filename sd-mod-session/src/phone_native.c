@@ -689,6 +689,14 @@ static int mixer_dispatch(struct phone_event *e)
     int suppress = atomic_load(&mixer_input_fault) || atomic_load(&mixer_project_invalidated) ||
         mixer_session_status(mixer_ui_session) != 1;
     if (control && (suppress || blocked)) mixer_close_ui();
+    /* Device report: Shift did nothing in the Mixer. Shift itself stays a
+     * native button (it is never queued to the Mixer), so give the control
+     * the current Shift state before each Mixer event: Shift+B1 Mute,
+     * Shift+B3 Solo, Shift+B2 FX bypass, Shift+PAD FX Inspect, Shift+Bank. */
+    if (control)
+        mixer_control_button(control,MIXER_SHIFT,
+            atomic_load(&native_shift_requested)||atomic_load(&native_buttons_down[0x31]),
+            mixer_control_ticket(control));
     switch (e->kind) {
     case PHONE_MIXER_ENTRY:
     case PHONE_MIXER_PAD:

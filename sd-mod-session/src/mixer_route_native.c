@@ -2,6 +2,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdatomic.h>
 
 #define BUFFER_BYTES 0x130u
 struct route_buffer { unsigned char native[BUFFER_BYTES];float *channel[2]; };
@@ -74,45 +75,55 @@ void mixer_route_destroy(struct mixer_route_native*a)
 {
     if(a){mixer_buses_destroy(a->buses);free(a->pcm);free(a);}
 }
+/* Device diagnostic: last reason a block stayed native (0 = captured). */
+static _Atomic unsigned last_reject;
+unsigned mixer_route_last_reject(void){return atomic_load_explicit(&last_reject,memory_order_relaxed);}
+#define REJECT(n) do{atomic_store_explicit(&last_reject,(n),memory_order_relaxed);return 0;}while(0)
 static int eligible(struct mixer_route_native*a)
 {
     a->main=a->ops.buffer((char*)a->program+0x78,0);
     /* Shared/nonempty program buffers can already contain voices outside the
      * captured list. Reject the complete block before suppressing any sum. */
-    if(!stereo(a->main,a->frames)||!clear(a->main))return 0;
+    if(!stereo(a->main,a->frames))REJECT(1);
+    if(!clear(a->main))REJECT(2);
     /* The native sum may add the second channel after clearing the flag.
      * Until native buffer-reset ownership is proved, accept only a genuinely
      * zeroed destination. A clear flag alone is not sufficient evidence. */
     float **main_pcm=ptr(a->main,16);
-    for(unsigned c=0;c<2;++c)for(unsigned i=0;i<a->frames;++i)if(main_pcm[c][i]!=0)return 0;
+    for(unsigned c=0;c<2;++c)for(unsigned i=0;i<a->frames;++i)if(main_pcm[c][i]!=0)REJECT(10);
     uintptr_t begin=(uintptr_t)ptr(a->program,0x2820),end=(uintptr_t)ptr(a->program,0x2828);
-    if(end<begin||(end-begin)%16||(end-begin)/16>MIXER_PADS)return 0;
+    if(end<begin||(end-begin)%16||(end-begin)/16>MIXER_PADS)REJECT(3);
     a->count=(unsigned)((end-begin)/16);
-    if(a->count&&!begin)return 0;
+    if(a->count&&!begin)REJECT(3);
     for(unsigned i=0;i<a->count;++i){
         void *instrument=ptr((const void*)(begin+i*16),0);
         if(!instrument||ptr(instrument,0x2310)!=a->program||
-           word(instrument,0x2168)>=MIXER_PADS||a->ops.buffer_count(instrument)<=1)return 0;
+           word(instrument,0x2168)>=MIXER_PADS||a->ops.buffer_count(instrument)<=1)REJECT(4);
         void *source=a->ops.buffer(instrument,0);
         void *second=a->ops.buffer(instrument,1);
         if(!stereo(source,a->frames)||!stereo(second,a->frames)||source==a->main||
-           overlaps(source,a->main,a->frames)||overlaps(second,a->main,a->frames))return 0;
-        for(unsigned j=0;j<i;++j)if(a->source[j].instrument==instrument||a->source[j].buffer==source)return 0;
+           overlaps(source,a->main,a->frames)||overlaps(second,a->main,a->frames))REJECT(5);
+        for(unsigned j=0;j<i;++j)if(a->source[j].instrument==instrument||a->source[j].buffer==source)REJECT(6);
         const char *route=(const char*)instrument+0x560;
         void *destination=a->ops.resolve((char*)a->program+0xc10,route);
         if(destination){
             float gain;memcpy(&gain,route+24,4);
-            if(destination!=a->main||word(route,16)>1||word(route,20)>1||!isfinite(gain))return 0;
+            if(destination!=a->main||word(route,16)>1||word(route,20)>1||!isfinite(gain))REJECT(7);
         } /* null destination uses the native fallback route (stereo unity). */
         a->source[i]=(struct route_source){instrument,source,word(instrument,0x2168)};
     }
+    atomic_store_explicit(&last_reject,0,memory_order_relaxed);
     return 1;
 }
-static void recover(struct mixer_route_native*a)
+static _Atomic unsigned last_recover;
+unsigned mixer_route_last_recover(void){return atomic_load_explicit(&last_recover,memory_order_relaxed);}
+static void recover_at(struct mixer_route_native*a,unsigned why)
 {
+    atomic_store_explicit(&last_recover,why,memory_order_relaxed);
     copy_buffer(a->main,a->shadow.native,a->frames);
     a->forwarding=1;a->disabled=1;a->result=MIXER_ROUTE_RECOVERED;
 }
+#define recover(a) recover_at((a),__LINE__)
 enum mixer_route_result mixer_route_render(struct mixer_route_native*a,void*program,void*clock,unsigned frames)
 {
     if(!a)return MIXER_ROUTE_INVALID;
@@ -124,7 +135,7 @@ enum mixer_route_result mixer_route_render(struct mixer_route_native*a,void*prog
         return MIXER_ROUTE_PASSTHROUGH;
     }
     a->result=MIXER_ROUTE_PASSTHROUGH;a->frames=frames;a->meter_pushed=0;
-    if(a->disabled||frames>a->capacity){a->ops.render(program,clock,frames);return a->result;}
+    if(a->disabled||frames>a->capacity){atomic_store_explicit(&last_reject,a->disabled?8:9,memory_order_relaxed);a->ops.render(program,clock,frames);return a->result;}
     a->program=program;a->captured=0;a->forwarding=0;a->flushed=0;
     if(!eligible(a)){a->ops.render(program,clock,frames);return a->result;}
     if(a->before_block)a->before_block(a->before_user);

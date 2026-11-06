@@ -1,3 +1,4 @@
+#include "mixer_route_native.h"
 #include "mixer_session.h"
 #include "mixer_archive.h"
 #include <cstdint>
@@ -17,6 +18,7 @@ struct mixer_session {
     int(*healthy)(void*)=nullptr;void *health_user=nullptr;
     bool queued=false,published=false;
     std::atomic<int> status{0};
+    uint64_t last_complete_ms=0; /* UI tick only */
 };
 static int submit(void*user,const mixer_project*model,uint64_t expected,uint64_t*revision)
 {
@@ -89,11 +91,17 @@ extern "C" void mixer_session_ui_tick(mixer_session*s)
         timespec time{};clock_gettime(CLOCK_MONOTONIC,&time);
         uint64_t now=static_cast<uint64_t>(time.tv_sec)*1000+time.tv_nsec/1000000;
         mixer_control_meter(s->control,&meter,now);
-        bool ready=meter.valid_mask==0x3ff;
+        bool complete=meter.valid_mask==0x3ff;
+        /* Device: during playback some snapshots miss the Track taps (a block
+         * stayed native), which closed the open Mixer mid-song. Become ready on
+         * one complete snapshot; lose readiness only after 2 s with none. */
+        if(complete)s->last_complete_ms=now;
+        bool ready=complete||(s->last_complete_ms&&now-s->last_complete_ms<2000);
         {   /* Lab diagnostic: which of the 10 bus meters (A-H, Direct, Master) are valid. */
             static uint32_t last=~0u;static unsigned lines;
             if(meter.valid_mask!=last&&lines<60){++lines;last=meter.valid_mask;
-                std::fprintf(stderr,"MIXER_METERS valid=0x%03x fault=0x%03x ready=%d\n",meter.valid_mask,meter.fault_mask,ready?1:0);}
+                std::fprintf(stderr,"MIXER_METERS valid=0x%03x fault=0x%03x ready=%d reject=%u recover=%u\n",meter.valid_mask,meter.fault_mask,ready?1:0,
+                    mixer_route_last_reject(),mixer_route_last_recover());}
         }
         int expected=ready?0:1;
         s->status.compare_exchange_strong(expected,ready?1:0,std::memory_order_acq_rel);

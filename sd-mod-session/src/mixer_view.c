@@ -102,7 +102,17 @@ void mixer_view_channel_strip(const struct mixer_view_state*s,unsigned track,int
     text(p,label,x+2,54,width-4,12,compact?10:12,primary?AMBER:WHITE,1);
     short_name(name,c->name,compact?3:8);text(p,name,x+2,67,width-4,12,10,WHITE,1);
     level(label,sizeof(label),m->level_db);text(p,label,x+2,80,width-4,11,10,AMBER,1);
-    pan(label,sizeof(label),m->pan);text(p,label,x+2,91,width-4,10,8,WHITE,1);
+    {   /* Device report: the 8 px Pan text was unreadable. Draw a balance bar:
+         * centre tick, amber fill from centre, white marker; exact value stays
+         * in the K1 footer. */
+        int bx=x+4,bw=width-8,centre=bx+bw/2;float position=m->pan;
+        if(!(position>=-1))position=-1;
+        if(position>1)position=1;
+        int at=centre+(int)lroundf(position*(float)(bw/2-1));
+        rect(p,bx,91,bw,10,BLACK);rect(p,bx,95,bw,2,DARK);rect(p,centre,92,1,8,GREY);
+        if(at<centre)rect(p,at,94,centre-at,4,AMBER);else if(at>centre)rect(p,centre+1,94,at-centre,4,AMBER);
+        rect(p,at-1,91,3,10,WHITE);
+    }
     int rail=x+(compact?12:24),thumb=mixer_view_gain_y(m->level_db);
     rect(p,rail,102,2,76,GREY);rect(p,rail-5,114,12,1,WHITE);
     text(p,"0",rail-10,108,8,10,8,GREY,1);
