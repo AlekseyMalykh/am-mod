@@ -127,9 +127,8 @@ static int eligible(struct mixer_route_native*a)
                 if(left>1||right>1||!isfinite(gain))REJECT(7);
             } else {
                 /* Device: the stock Pad output is another buffer (often a
-                 * multi-channel output). Capture it if it is a sane buffer and
-                 * the same target as the other captured Pads; otherwise keep
-                 * that Pad on its exact native route. */
+                 * multi-channel output). Capture it if the buffer and channel
+                 * pair are sane; otherwise keep that Pad on its native route. */
                 unsigned channels=word(destination,0);void **pcm=ptr(destination,16);
                 int sane=isfinite(gain)&&channels>left&&channels>right&&channels<=64&&left!=right&&
                     word(destination,4)>=a->frames&&pcm&&pcm[left]&&pcm[right];
@@ -140,16 +139,15 @@ static int eligible(struct mixer_route_native*a)
         unsigned pair=dest!=a->main?(word(route,16)|word(route,20)<<8):0;
         a->source[i]=(struct route_source){instrument,source,dest,word(instrument,0x2168),native,pair};
     }
-    /* One target per block. Any Pad on the Program main keeps the main as
-     * target (foreign Pads stay native, as before). Only when no Pad uses
-     * main (device: stock Pads sum into an output buffer) the first foreign
-     * buffer+pair becomes the target and matching Pads are captured. */
+    /* Tracks sit between every Pad and the Master: all Pads with a usable
+     * route are captured, whatever buffer the stock route names. The mixed
+     * Master goes to ONE output: the Program main if any Pad uses it, else
+     * the stock output buffer/pair of the first Pad (device default). */
     for(unsigned i=0;i<a->count;++i)if(!a->source[i].native&&a->source[i].dest==a->main){a->target=a->main;break;}
     for(unsigned i=0;i<a->count;++i){struct route_source*r=a->source+i;
         if(r->native||r->dest==a->main)continue;
         if(!a->target){a->target=r->dest;a->target_left=r->pair&0xff;a->target_right=r->pair>>8;}
-        if(a->target==r->dest&&r->pair==(a->target_left|a->target_right<<8))++a->target_pads;
-        else r->native=1;
+        ++a->target_pads;
     }
     if(a->count){unsigned natives=0;for(unsigned i=0;i<a->count;++i)natives+=a->source[i].native;
         atomic_store_explicit(&last_target,(a->target_pads&0xff)|(a->target==a->main?0x100u:0)|(natives?0x200u:0)|
@@ -222,8 +220,8 @@ int mixer_route_sum(const struct mixer_route_ops*ops,void*instrument,void*source
          * pair for the stage1 write-back (gain 1). */
         memcpy(stereo_route,route,24);set_word(stereo_route,8,0);set_word(stereo_route,12,1);
         capture_route=stereo_route;
-        if(word(route,8)!=a->target_left||word(route,12)!=a->target_right){recover(a);return ops->sum(instrument,source,destination,route,frames);}
-        memcpy(a->target_route,route,24);float one=1.f;memcpy(a->target_route+16,&one,4);a->target_route_valid=1;
+        if(s->dest==a->target&&word(route,8)==a->target_left&&word(route,12)==a->target_right&&!a->target_route_valid){
+            memcpy(a->target_route,route,24);float one=1.f;memcpy(a->target_route+16,&one,4);a->target_route_valid=1;}
     }
     /* The native stereo summation clears its destination flag while writing
      * L, then may ADD R. Both backing channels must be zero, even when clear. */
@@ -247,9 +245,9 @@ void mixer_route_stage(const struct mixer_route_ops*ops,void*processor,void*buff
             struct mixer_pcm_view view;
             if(error!=MIXER_BUS_OK||!mixer_buses_view(a->buses,MIXER_METER_MASTER,&view))recover(a);
             else if(a->target&&a->target!=a->main){
-                /* Foreign target: main keeps only native Pads; the mix goes
-                 * back to the Pads' own output through the same native sum
-                 * (adds to whatever else is already there, honours clear). */
+                /* No Pad uses main: the Master mix goes back to the Pads'
+                 * stock output through the same native sum (adds to what is
+                 * already there from other programs, honours clear). */
                 unsigned quiet=1;
                 for(unsigned c=0;c<2;++c){memcpy(a->scratch.channel[c],view.channel[c],frames*sizeof(float));
                     for(unsigned i=0;i<frames;++i)if(view.channel[c][i]!=0)quiet=0;}

@@ -187,12 +187,12 @@ static void tests(void)
     for(unsigned n=0;n<N;++n){main_pcm[0][n]=.25f;main_pcm[1][n]=-.125f;}
     assert(mixer_route_render(a,program,NULL,N)==MIXER_ROUTE_PASSTHROUGH);expect_audio(.5f,-.25f);
     assert(!mixer_route_view(a,0,&v));
-    /* A Pad on a physical output keeps its exact native route; the other
-     * Pads of the block are still captured (device: whole-block fallback
-     * dropped every Track during playback). */
+    /* Tracks sit between every Pad and the Master: a Pad whose stock route
+     * names a physical output is captured too; with other Pads on main the
+     * Master mix goes to main, so the physical buffer gets nothing. */
     fixture();F(instruments[0],0x560,unsigned)=2;
     assert(mixer_route_render(a,program,NULL,N)==MIXER_ROUTE_APPLIED);
-    assert(physical_pcm[0][0]==.125f&&physical_pcm[1][0]==-.0625f);
+    assert(physical_pcm[0][0]==0&&physical_pcm[1][0]==0);
     assert(mixer_route_view(a,0,&v));
     fixture();F(containers[0],16,void*)=pad_buffers[0]+1;
     assert(mixer_route_render(a,program,NULL,N)==MIXER_ROUTE_PASSTHROUGH);
@@ -200,7 +200,7 @@ static void tests(void)
     fixture();F(instruments[0],0x560,unsigned)=99;
     assert(mixer_route_render(a,program,NULL,N)==MIXER_ROUTE_APPLIED);expect_audio(.375f,-.1875f);
     mixer_route_destroy(a);
-    puts("PASS whole-block native fallback for shared paths, physical-output Pad kept native beside captured Pads, real one-buffer early return; native unknown-route unity fallback preserved");
+    puts("PASS whole-block native fallback for shared paths, physical-output Pad captured into its Track beside main Pads, real one-buffer early return; native unknown-route unity fallback preserved");
 
     /* Stereo route mapping (including both inputs to one output) is owned by
      * the native summation, not reimplemented as a guessed gain/pan law. */
