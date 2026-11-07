@@ -6,13 +6,18 @@
 
 #define BUFFER_BYTES 0x130u
 struct route_buffer { unsigned char native[BUFFER_BYTES];float *channel[2]; };
-struct route_source {void *instrument,*buffer;unsigned pad,native;};
+struct route_source {void *instrument,*buffer,*dest;unsigned pad,native,pair;};
 struct mixer_route_native {
     struct mixer_buses *buses;
     struct mixer_route_ops ops;
     unsigned capacity,frames,count,captured,disabled,forwarding,flushed,meter_pushed;
     enum mixer_route_result result;
     void *program,*main;
+    /* Device: stock Pads sum into another output buffer (not the Program
+     * main). Captured Pads of the block share one target (buffer + channel
+     * pair); the Track/Master mix is summed back there at stage1. */
+    void *target;unsigned target_left,target_right,target_pads,target_route_valid;
+    unsigned char target_route[24];
     struct route_buffer shadow,scratch;
     float *pcm;
     struct route_source source[MIXER_PADS];
@@ -78,11 +83,15 @@ void mixer_route_destroy(struct mixer_route_native*a)
 /* Device diagnostic: last reason a block stayed native (0 = captured). */
 static _Atomic unsigned last_reject,last_native_route;
 unsigned mixer_route_last_native_route(void){return atomic_load_explicit(&last_native_route,memory_order_relaxed);}
+static _Atomic unsigned last_target;
+/* Diagnostic: bits0-7 captured foreign Pads, bit8 target is main, 9 native Pads seen, 16-23/24-31 target pair. */
+unsigned mixer_route_last_target(void){return atomic_load_explicit(&last_target,memory_order_relaxed);}
 unsigned mixer_route_last_reject(void){return atomic_load_explicit(&last_reject,memory_order_relaxed);}
 #define REJECT(n) do{atomic_store_explicit(&last_reject,(n),memory_order_relaxed);return 0;}while(0)
 static int eligible(struct mixer_route_native*a)
 {
     a->main=a->ops.buffer((char*)a->program+0x78,0);
+    a->target=NULL;a->target_pads=0;a->target_route_valid=0;
     /* Shared/nonempty program buffers can already contain voices outside the
      * captured list. Reject the complete block before suppressing any sum. */
     if(!stereo(a->main,a->frames))REJECT(1);
@@ -107,24 +116,44 @@ static int eligible(struct mixer_route_native*a)
         for(unsigned j=0;j<i;++j)if(a->source[j].instrument==instrument||a->source[j].buffer==source)REJECT(6);
         const char *route=(const char*)instrument+0x560;
         void *destination=a->ops.resolve((char*)a->program+0xc10,route);
-        unsigned native=0;
+        unsigned native=0;void *dest=a->main;
         if(destination){
             float gain;memcpy(&gain,route+24,4);
-            /* Device: during playback some Pads route elsewhere than the
-             * Program main (e.g. another output pair). Rejecting the whole
-             * block dropped every Track and closed the Mixer. A Pad whose
-             * destination is another buffer keeps its exact native route
-             * (uncaptured, not in a Track); main is still overwritten only
-             * by the captured sum, so it cannot be lost there. */
-            if(destination==a->main&&(word(route,16)>1||word(route,20)>1||!isfinite(gain)))REJECT(7);
-            if(destination!=a->main){
-                native=1;atomic_store_explicit(&last_native_route,
-                    (unsigned)(word(route,0)&0xff)|(unsigned)(word(route,8)&0xff)<<8|
-                    (unsigned)(word(route,16)&0xff)<<16|(unsigned)(word(route,20)&0xff)<<24,memory_order_relaxed);
+            unsigned left=word(route,16),right=word(route,20);
+            atomic_store_explicit(&last_native_route,
+                (unsigned)(word(route,0)&0xff)|(unsigned)(word(route,8)&0xff)<<8|
+                (left&0xff)<<16|(right&0xff)<<24,memory_order_relaxed);
+            if(destination==a->main){
+                if(left>1||right>1||!isfinite(gain))REJECT(7);
+            } else {
+                /* Device: the stock Pad output is another buffer (often a
+                 * multi-channel output). Capture it if it is a sane buffer and
+                 * the same target as the other captured Pads; otherwise keep
+                 * that Pad on its exact native route. */
+                unsigned channels=word(destination,0);void **pcm=ptr(destination,16);
+                int sane=isfinite(gain)&&channels>left&&channels>right&&channels<=64&&left!=right&&
+                    word(destination,4)>=a->frames&&pcm&&pcm[left]&&pcm[right];
+                if(sane)dest=destination;
+                else native=1;
             }
         } /* null destination uses the native fallback route (stereo unity). */
-        a->source[i]=(struct route_source){instrument,source,word(instrument,0x2168),native};
+        unsigned pair=dest!=a->main?(word(route,16)|word(route,20)<<8):0;
+        a->source[i]=(struct route_source){instrument,source,dest,word(instrument,0x2168),native,pair};
     }
+    /* One target per block. Any Pad on the Program main keeps the main as
+     * target (foreign Pads stay native, as before). Only when no Pad uses
+     * main (device: stock Pads sum into an output buffer) the first foreign
+     * buffer+pair becomes the target and matching Pads are captured. */
+    for(unsigned i=0;i<a->count;++i)if(!a->source[i].native&&a->source[i].dest==a->main){a->target=a->main;break;}
+    for(unsigned i=0;i<a->count;++i){struct route_source*r=a->source+i;
+        if(r->native||r->dest==a->main)continue;
+        if(!a->target){a->target=r->dest;a->target_left=r->pair&0xff;a->target_right=r->pair>>8;}
+        if(a->target==r->dest&&r->pair==(a->target_left|a->target_right<<8))++a->target_pads;
+        else r->native=1;
+    }
+    if(a->count){unsigned natives=0;for(unsigned i=0;i<a->count;++i)natives+=a->source[i].native;
+        atomic_store_explicit(&last_target,(a->target_pads&0xff)|(a->target==a->main?0x100u:0)|(natives?0x200u:0)|
+            (a->target_left&0xff)<<16|(a->target_right&0xff)<<24,memory_order_relaxed);}
     atomic_store_explicit(&last_reject,0,memory_order_relaxed);
     return 1;
 }
@@ -177,20 +206,31 @@ int mixer_route_sum(const struct mixer_route_ops*ops,void*instrument,void*source
        ptr(instrument,0x2310)==a->program&&frames==a->frames){
         ++a->captured;return ops->sum(instrument,source,destination,route,frames);
     }
-    if(!s||s->instrument!=instrument||s->buffer!=source||destination!=a->main||
+    if(!s||s->instrument!=instrument||s->buffer!=source||destination!=s->dest||
        ptr(instrument,0x2310)!=a->program||word(instrument,0x2168)!=s->pad||
        frames!=a->frames||!stereo(source,frames)){
         recover(a);return ops->sum(instrument,source,destination,route,frames);
     }
     /* Native shadow retains original summation order and route mapping/gain.
      * Per-Pad scratch goes through that SAME real native summing routine. */
-    int result=ops->sum(instrument,source,a->shadow.native,route,frames);
+    int result=1;
+    unsigned char stereo_route[24];const void *capture_route=route;
+    if(s->dest==a->main)result=ops->sum(instrument,source,a->shadow.native,route,frames);
+    else {
+        /* Foreign target: native reads channel indices at +8/+0xc and gain at
+         * +0x10. Keep gain, map into the stereo scratch, remember the real
+         * pair for the stage1 write-back (gain 1). */
+        memcpy(stereo_route,route,24);set_word(stereo_route,8,0);set_word(stereo_route,12,1);
+        capture_route=stereo_route;
+        if(word(route,8)!=a->target_left||word(route,12)!=a->target_right){recover(a);return ops->sum(instrument,source,destination,route,frames);}
+        memcpy(a->target_route,route,24);float one=1.f;memcpy(a->target_route+16,&one,4);a->target_route_valid=1;
+    }
     /* The native stereo summation clears its destination flag while writing
      * L, then may ADD R. Both backing channels must be zero, even when clear. */
     memset(a->scratch.channel[0],0,frames*sizeof(float));
     memset(a->scratch.channel[1],0,frames*sizeof(float));
     set_clear(a->scratch.native,1);
-    ops->sum(instrument,source,a->scratch.native,route,frames);
+    ops->sum(instrument,source,a->scratch.native,capture_route,frames);
     enum mixer_bus_result error=mixer_buses_accumulate(a->buses,s->pad,
         a->scratch.channel[0],a->scratch.channel[1],2,clear(a->scratch.native));
     ++a->captured;
@@ -206,6 +246,17 @@ void mixer_route_stage(const struct mixer_route_ops*ops,void*processor,void*buff
         if(!a->forwarding){
             struct mixer_pcm_view view;
             if(error!=MIXER_BUS_OK||!mixer_buses_view(a->buses,MIXER_METER_MASTER,&view))recover(a);
+            else if(a->target&&a->target!=a->main){
+                /* Foreign target: main keeps only native Pads; the mix goes
+                 * back to the Pads' own output through the same native sum
+                 * (adds to whatever else is already there, honours clear). */
+                unsigned quiet=1;
+                for(unsigned c=0;c<2;++c){memcpy(a->scratch.channel[c],view.channel[c],frames*sizeof(float));
+                    for(unsigned i=0;i<frames;++i)if(view.channel[c][i]!=0)quiet=0;}
+                set_clear(a->scratch.native,quiet);
+                if(a->target_pads&&a->target_route_valid)ops->sum(NULL,a->scratch.native,a->target,a->target_route,frames);
+                a->result=MIXER_ROUTE_APPLIED;
+            }
             else {
                 float **out=ptr(a->main,16);unsigned quiet=1;
                 for(unsigned c=0;c<2;++c){memcpy(out[c],view.channel[c],frames*sizeof(float));
