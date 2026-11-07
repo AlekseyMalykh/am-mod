@@ -258,9 +258,11 @@ static void entry_checks(void)
     for(unsigned n=0;n<N;++n)assert(fabsf(pcm[0][n]-(track.channel[0][n]+pad1[0][n]+direct[0][n])*.5f)<2e-7f);
     assert(mixer_route_meters_push(a,meters,2)==1&&mixer_meters_take(meters,2,&snapshot));
     assert(snapshot.valid_mask==0x1ff&&snapshot.frame_end==N);
-    entry_fixture();F(instruments[0],0x560,unsigned)=2;run_entry(a);assert(entry_result==MIXER_ROUTE_PASSTHROUGH);
+    /* A physical-output Pad stays native; the remaining Pads are still
+     * captured, so the block is applied and the Track meters stay valid. */
+    entry_fixture();F(instruments[0],0x560,unsigned)=2;run_entry(a);assert(entry_result==MIXER_ROUTE_APPLIED);
     assert(mixer_route_meters_push(a,meters,2)==1&&mixer_meters_take(meters,2,&snapshot));
-    assert(snapshot.valid_mask==0&&snapshot.frame_end==N*2&&snapshot.peak[0][0]==0);
+    assert(snapshot.valid_mask==0x1ff&&snapshot.frame_end==N*2);
     assert(mixer_route_render(a,NULL,NULL,N)==MIXER_ROUTE_INVALID&&mixer_route_meters_push(a,meters,2)==-1);
     mixer_meters_destroy(meters);mixer_route_destroy(a);use_voice_pcm=0;pad_eq_native_clear();
     puts("PASS actual DrumProgram render entry chunks2048 frames at unaligned native clock into33 voice calls per Pad, then real Pad EQ/routing/Program gain; unity and selected Track Level preserved");

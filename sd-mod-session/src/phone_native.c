@@ -440,12 +440,10 @@ static void mixer_publish_route(void)
             atomic_store(&mixer_select_lights[i], light);
         }
         atomic_store(&mixer_select_enabled, 1);
-        mixer_leds_disable();
-        int bank = step_native_browser_bank(-1);
-        if (bank >= 0 && bank < 8 && bank != (int)view.bank) step_native_browser_bank((int)view.bank);
-        return;
+        /* Fall through: the routing palette below still claims the pads (and
+         * native fallbacks) underneath; mixer_light shows this cursor first. */
     }
-    if ((state & MIXER_OPEN) && view.project && view.page != MIXER_ASSIGN && view.page != MIXER_INSPECT) {
+    else if ((state & MIXER_OPEN) && view.project && view.page != MIXER_ASSIGN && view.page != MIXER_INSPECT) {
         for (unsigned i=0;i<16;++i) {
             uint64_t light = 0;
             if (i < 8) {
