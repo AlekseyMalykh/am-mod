@@ -260,6 +260,8 @@ static unsigned tail_mode(void){
  music_lighting_levels_state(&enabled,&mode,&origin);
  return enabled?(mode==8?2u:0u):1u;
 }
+static _Atomic unsigned seq_sample_pads;
+static _Atomic uint64_t seq_sample_since;
 static void forward_controller(void*event){
 #ifdef MPC_CHORDS
  takeover_native_forward(event,ORIG(H_CONTROLLER,void(*)(void*)));
@@ -274,6 +276,12 @@ static void forward_buttons(void*event){
   if(!down&&atomic_exchange(&gesture_released[code],0))return;
   if(down&&(code==0x31||code==0x09)){pthread_mutex_lock(&gesture_mutex);memcpy(gesture_down_events[code==0x31?0:1],event,16);pthread_mutex_unlock(&gesture_mutex);}
   atomic_store(&native_buttons_down[code],(unsigned char)down);
+  /* Stock Seq+Sample (both mode keys together): Seq screen with Sample pads.
+   * A mode key pressed alone returns to the normal pad layout. */
+  if((code==6||code==7)&&down){
+   atomic_store(&seq_sample_pads,atomic_load(&native_buttons_down[13-code])?1u:0u);
+   atomic_store(&seq_sample_since,now_ms());
+  }
  }
  /* The native app handles buttons on its MIDI input thread. Queued buttons
   * reach it from the UI thread instead, which native code tolerates in the
@@ -2231,7 +2239,12 @@ static void sequence_palette_tick(void){
 #ifdef MPC_SONG_UI
     song=song_ui_pads_active();
 #endif
-    int enabled=music_pad_lighting_mode()&&(music_ui_sequence_visible()||song)&&bank>=0&&bank<8&&!(step_native_transport_state()&4u)&&
+    /* Seq+Sample: the Seq screen stays but the pads are Sample pads (device
+     * report: AM Mod lit sequences there). Leaving the Seq screen ends it. */
+    if(atomic_load(&seq_sample_pads)&&!music_ui_sequence_visible()&&now_ms()-atomic_load(&seq_sample_since)>700)
+        atomic_store(&seq_sample_pads,0);
+    int seq_sample=atomic_load(&seq_sample_pads)&&!song;
+    int enabled=music_pad_lighting_mode()&&(music_ui_sequence_visible()||song)&&bank>=0&&bank<8&&!(step_native_transport_state()&4u)&&!seq_sample&&
         !atomic_load(&native_mute_mode)&&!atomic_load(&pad_bank_held_long);
     static struct sequence_clock clock;
     static int previous_bank=-1,previous_transport=-1,previous_selected=-1;
@@ -2542,7 +2555,7 @@ static void send_step_lights(void)
 #ifdef MPC_COMPRESSOR
         compressor_ui_active()||
 #endif
-        (music_ui_sequence_visible()?!!(step_native_transport_state()&4u):!!note_native_sample_visible()));
+        (music_ui_sequence_visible()?(!!(step_native_transport_state()&4u)||!!atomic_load(&seq_sample_pads)):!!note_native_sample_visible()));
 #ifdef MPC_SEQUENCE_COLOURS
     sequence_palette_tick();
 #endif
