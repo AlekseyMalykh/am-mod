@@ -115,7 +115,7 @@ int main(void)
     /* A lone PAD FX is held back only briefly, then reaches the native app
      * unchanged (released early, or after the combo window). */
     button(1,1);assert(!stock_down[1]);button(1,0);assert(stock_down[1]==1&&stock_up[1]==1);
-    button(0,1);assert(!stock_down[0]);usleep(200000);mixer_tick_ui();assert(stock_down[0]==1);
+    button(0,1);assert(!stock_down[0]);usleep(300000);mixer_tick_ui();assert(stock_down[0]==1);
     button(0,0);assert(stock_up[0]==1);
     /* PAD FX + KNOB FX opens the Mixer; neither press nor release is native. */
     button(1,1);button(0,1);button(1,0);button(0,0);drain();
