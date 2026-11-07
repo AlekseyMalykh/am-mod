@@ -90,7 +90,7 @@ static void fader_rail(float db,int selected,int x,int y,int h,const struct resa
  * meter (centre, full height), letter and S/M/fx (right). */
 static void cell(const struct mixer_view_state*s,unsigned track,int x,int y,const struct resample_painter*p)
 {
-    const int w=80,h=86;
+    const int w=80,h=81;
     const struct mixer_channel*c=s->project->track+track;
     struct mixer_mix resolved[8];mixer_scene_resolve(s->project,s->part_id,resolved);const struct mixer_mix*m=resolved+track;
     int selected=!s->master&&(s->selected&(1u<<track));
@@ -112,40 +112,48 @@ void mixer_view_channel_strip(const struct mixer_view_state*s,unsigned track,int
     (void)width;
     const struct mixer_channel*c=track<8?s->project->track+track:&s->project->master;
     struct mixer_mix resolved[8];const struct mixer_mix*m=track<8?(mixer_scene_resolve(s->project,s->part_id,resolved),resolved+track):&s->project->master.mix;
-    rect(p,x,26,80,172,BLACK);rect(p,x+79,26,1,172,GREY);
-    rect(p,x+2,27,76,4,0xff000000u|(c->colour&0xffffff));
+    rect(p,x,36,80,162,BLACK);rect(p,x+79,36,1,162,GREY);
+    rect(p,x+2,37,76,4,0xff000000u|(c->colour&0xffffff));
     char name[8];if(track<8)snprintf(name,sizeof(name),"%c",'A'+track);else snprintf(name,sizeof(name),"MSTR");
-    text(p,name,x+2,34,76,36,track<8?32:18,AMBER,1);
-    char db[24];level_text(db,sizeof(db),m->level_db);text(p,db,x+2,72,76,14,11,WHITE,1);
-    pan_bar(m->pan,x+8,90,64,p);
-    fader_rail(m->level_db,1,x+22,104,88,p);
-    vmeter(s,track<8?track:9,x+46,104,14,88,p);
-    if(track<8){text(p,"S",x+62,112,16,14,11,m->solo?AMBER:GREY,1);text(p,"M",x+62,132,16,14,11,m->mute?AMBER:GREY,1);}
+    text(p,name,x+2,43,76,32,track<8?30:18,AMBER,1);
+    char db[24];level_text(db,sizeof(db),m->level_db);text(p,db,x+2,76,76,14,11,WHITE,1);
+    pan_bar(m->pan,x+8,93,64,p);
+    fader_rail(m->level_db,1,x+22,106,86,p);
+    vmeter(s,track<8?track:9,x+46,106,14,86,p);
+    if(track<8){text(p,"S",x+62,114,16,14,11,m->solo?AMBER:GREY,1);text(p,"M",x+62,134,16,14,11,m->mute?AMBER:GREY,1);}
 }
 void mixer_view_overview(const struct mixer_view_state*s,const struct resample_painter*p)
 {
     /* Bottom row A-D, top row E-H. */
-    for(unsigned i=0;i<8;++i)cell(s,i,(int)(i%4)*80,i<4?112:26,p);
+    for(unsigned i=0;i<8;++i)cell(s,i,(int)(i%4)*80,i<4?117:36,p);
 }
 static void header(const struct mixer_view_state*s,const struct resample_painter*p)
 {
-    rect(p,0,0,320,26,BLACK);
+    rect(p,0,0,320,36,BLACK);
+    /* B1 B2 B3 functions on top (no "B1" text in the names). */
+    int sub=s->page==MIXER_ASSIGN||s->page==MIXER_INSPECT||s->page==MIXER_KNOB_FX;
+    int muted=0,soloed=0;struct mixer_mix all[8];mixer_scene_resolve(s->project,s->part_id,all);
+    if(!s->master)for(unsigned i=0;i<8;++i)if(s->selected&(1u<<i)){muted|=all[i].mute;soloed|=all[i].solo;}
+    const char*names[3]={sub?"Back":"Sample","Mute","Solo"};
+    int lit[3]={0,muted,soloed},off=s->master||s->page==MIXER_INSPECT||s->page==MIXER_KNOB_FX;
+    for(unsigned i=0;i<3;++i){int x=i==2?213:(int)i*106,w=i==0?106:107;
+        uint32_t ink=i&&off?GREY:lit[i]?AMBER:WHITE;
+        text(p,names[i],x,1,w,17,12,ink,1);rect(p,x+6,18,w-12,1,lit[i]?AMBER:DARK);}
     unsigned group=0;for(unsigned i=0;i<8;++i)if(s->selected&(1u<<i))++group;
     char title[64],db[24];
-    const struct mixer_mix*m=s->master?&s->project->master.mix:NULL;struct mixer_mix resolved[8];
-    if(!m){mixer_scene_resolve(s->project,s->part_id,resolved);m=resolved+s->primary;}
+    const struct mixer_mix*m=s->master?&s->project->master.mix:all+s->primary;
     level_text(db,sizeof(db),m->level_db);
     if(s->master)snprintf(title,sizeof(title),"MSTR  %s",db);
     else if(group>1)snprintf(title,sizeof(title),"%c +%u  %s",'A'+s->primary,group-1,db);
     else snprintf(title,sizeof(title),"%c  %s",'A'+s->primary,db);
-    text(p,title,4,4,150,18,13,s->pending?GREY:WHITE,0);
-    /* Master: name, level and a horizontal stereo meter. */
-    text(p,"MSTR",160,4,40,18,12,s->master?0xff00c700u:WHITE,1);
-    rect(p,204,7,112,12,BLACK);
+    text(p,title,4,20,150,15,11,s->pending?GREY:WHITE,0);
+    /* Master: name and a horizontal stereo meter. */
+    text(p,"MSTR",160,20,40,15,11,s->master?0xff00c700u:WHITE,1);
+    rect(p,204,22,112,11,BLACK);
     if(available(s,9))for(unsigned c=0;c<2;++c){float v=mixer_meter_dbfs(s->meter->peak[9][c]);
         int fill=isfinite(v)?(int)lroundf((fmaxf(-60,fminf(0,v))+60)*112/60):0;
-        rect(p,204,7+(int)c*6,112,5,DARK);if(fill>0)rect(p,204,7+(int)c*6,fill,5,0xff00c700u);}
-    else text(p,"N/A",204,6,112,13,8,GREY,1);
+        rect(p,204,22+(int)c*6,112,5,DARK);if(fill>0)rect(p,204,22+(int)c*6,fill,5,0xff00c700u);}
+    else text(p,"N/A",204,21,112,13,8,GREY,1);
 }
 static void footer(const struct mixer_view_state*s,const struct resample_painter*p)
 {
@@ -163,7 +171,7 @@ static void footer(const struct mixer_view_state*s,const struct resample_painter
 }
 void mixer_view_context(const struct mixer_view_state*s,const struct resample_painter*p)
 {
-    rect(p,80,26,240,172,BLACK);
+    rect(p,80,36,240,162,BLACK);
     if(s->page==MIXER_ASSIGN||s->page==MIXER_INSPECT){
         /* "Select pads for track X": every bank with the pads on this
          * Track (Master: pads not on any Track), as compact ranges. */
@@ -171,7 +179,7 @@ void mixer_view_context(const struct mixer_view_state*s,const struct resample_pa
         char title[48];
         if(s->master)snprintf(title,sizeof(title),"Select pads for MSTR");
         else snprintf(title,sizeof(title),"Select pads for track %c",'A'+s->primary);
-        text(p,s->page==MIXER_INSPECT?"Pads on this track":title,86,28,230,18,13,AMBER,0);
+        text(p,s->page==MIXER_INSPECT?"Pads on this track":title,86,38,230,18,13,AMBER,0);
         for(unsigned bank=0;bank<8;++bank){
             char line[96];int n=snprintf(line,sizeof(line),"%c:",'A'+bank),any=0;
             for(unsigned pad=0;pad<16;){
@@ -185,26 +193,26 @@ void mixer_view_context(const struct mixer_view_state*s,const struct resample_pa
                 any=1;pad=end+1;
             }
             if(!any)snprintf(line+n,sizeof(line)-(size_t)n," -");
-            int y=50+(int)bank*18;
-            if(bank==s->bank)rect(p,84,y-1,232,17,DARK);
-            text(p,line,90,y,226,16,11,bank==s->bank?WHITE:GREY,0);
+            int y=58+(int)bank*16;
+            if(bank==s->bank)rect(p,84,y-1,232,16,DARK);
+            text(p,line,90,y,226,15,11,bank==s->bank?WHITE:GREY,0);
         }
         if(s->message&&*s->message)text(p,s->message,86,186,230,12,9,AMBER,0);
         rect(p,0,198,320,42,BLACK);
-        if(s->page==MIXER_INSPECT)text(p,"Read only   B1: Back",4,210,312,16,12,WHITE,1);
+        if(s->page==MIXER_INSPECT)text(p,"Read only",4,210,312,16,12,WHITE,1);
         else{text(p,"Pads: to this track / back to MSTR   Bank +/-",4,201,312,15,10,AMBER,1);
-            text(p,"Fader Level  K1 Pan  K3 Colour  B2 M  B3 S  B1 Back",4,220,312,14,10,WHITE,1);}
+            text(p,"Fader Level   K1 Pan   K3 Colour",4,220,312,14,10,WHITE,1);}
     }else{
-        text(p,"Track FX",90,60,220,22,16,WHITE,0);
-        text(p,"Coming later",90,90,220,20,13,GREY,0);
-        rect(p,0,198,320,42,BLACK);text(p,"B1: Back",4,210,312,16,12,WHITE,1);
+        text(p,"Track FX",90,70,220,22,16,WHITE,0);
+        text(p,"Coming later",90,100,220,20,13,GREY,0);
+        rect(p,0,198,320,42,BLACK);
     }
 }
 void mixer_view_meters(const struct mixer_view_state*s,unsigned mask,const struct resample_painter*p)
 {
     if(!s||!p||!p->rect||!p->text)return;
-    if(s->page==MIXER_OVERVIEW){for(unsigned i=0;i<8;++i)if(mask&(1u<<i)){int x=(int)(i%4)*80,y=i<4?112:26;vmeter(s,i,x+34,y+18,12,86-24,p);}}
-    else {unsigned track=s->master?8:s->primary;if(mask&(1u<<track))vmeter(s,track==8?9:track,46,104,14,88,p);}
+    if(s->page==MIXER_OVERVIEW){for(unsigned i=0;i<8;++i)if(mask&(1u<<i)){int x=(int)(i%4)*80,y=i<4?117:36;vmeter(s,i,x+34,y+18,12,81-24,p);}}
+    else {unsigned track=s->master?8:s->primary;if(mask&(1u<<track))vmeter(s,track==8?9:track,46,106,14,86,p);}
 }
 void mixer_view_paint(const struct mixer_view_state*s,const struct resample_painter*p)
 {
