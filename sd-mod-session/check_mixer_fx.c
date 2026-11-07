@@ -112,6 +112,7 @@ int main(int argc,char**argv)
     mixer_fx_fixture_position(epoch,123,7,8,0,0,0);mixer_runtime_ui_tick();assert(automatic);
     real_block(epoch,123,7,8,0,0,0);mixer_session_ui_tick(automatic);assert(mixer_session_status(automatic)==1);
     struct mixer_control*c=mixer_session_control(automatic);assert(mixer_control_open(c,1,0));uint64_t ticket=mixer_control_ticket(c);
+    mixer_control_set_fx_editing(c,1); /* the device UI keeps Track FX editing off for now */
     float dry[N];memcpy(dry,root_pcm[0],sizeof(dry));
     assert(mixer_control_button(c,MIXER_KNOB,1,ticket)&&mixer_control_button(c,MIXER_KNOB,0,ticket));
     assert(mixer_control_cc(c,0x10,127,ticket));mixer_session_ui_tick(automatic);mixer_runtime_ui_tick();

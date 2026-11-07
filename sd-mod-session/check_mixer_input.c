@@ -47,8 +47,9 @@ static void keys(void)
     struct mixer_control*c=mixer_control_create(&ops,48000);assert(c);
     assert(mixer_control_confirm(c,&p,1,1));assert(mixer_control_open(c,1,0));
     uint64_t t=mixer_control_ticket(c);
-    for(unsigned code=0x0c;code<=0x0e;++code){
-        assert(mixer_input_button(c,code,1,t));assert(view(c).page==(enum mixer_page)(code-0x0b));
+    /* B2 Mute, B3 Solo on the Mixer page (no tabs). */
+    for(unsigned code=0x0d;code<=0x0e;++code){
+        assert(mixer_input_button(c,code,1,t));assert(view(c).page==MIXER_OVERVIEW&&view(c).pending);
         assert(mixer_input_button(c,code,0,t));
     }
     assert(mixer_input_button(c,1,1,t)&&view(c).page==MIXER_ASSIGN);
@@ -61,7 +62,7 @@ static void keys(void)
     assert(mixer_input_button(c,0,1,t)&&view(c).page==MIXER_KNOB_FX);
     assert(mixer_input_button(c,0x36,0,t)); /* Captured up after changing tabs. */
     assert(!mixer_input_button(c,0x36,1,t));
-    assert(mixer_input_button(c,0x6f,1,t)&&view(c).pending);
+    assert(mixer_input_button(c,0x6f,1,t));
     assert(mixer_input_button(c,0x6f,0,t));
     /* Sample closes before forwarding; late FX release remains consumed. */
     assert(!mixer_input_button(c,6,1,t)&&!mixer_control_active(c));
@@ -71,6 +72,10 @@ static void keys(void)
     assert(!mixer_input_button(c,0x31,1,t));
     assert(!mixer_input_button(c,7,1,t)&&!mixer_control_active(c));
     assert(!mixer_input_button(c,0x31,0,t));
-    mixer_control_destroy(c);puts("PASS pinned raw button IDs route tabs/FX; mode exit forwards; outside Mixer stock buttons/transport/Shift remain forwarded");
+    /* B1 on the Mixer page leaves (the owner then opens native Sample). */
+    assert(mixer_control_open(c,1,0));t=mixer_control_ticket(c);
+    assert(mixer_input_button(c,0x0c,1,t)&&!mixer_control_active(c)&&mixer_control_exit_requested(c));
+    assert(mixer_input_button(c,0x0c,0,t));
+    mixer_control_destroy(c);puts("PASS pinned raw button IDs route B1 exit/B2 Mute/B3 Solo/FX; mode exit forwards; outside Mixer stock buttons/transport/Shift remain forwarded");
 }
 int main(void){gestures();keys();return 0;}

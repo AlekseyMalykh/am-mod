@@ -27,26 +27,17 @@ static void session_test(void)
     live_fixture();run_live(); /* Compare with steady Pan, after its ramp block. */
     float before_colour[2][N];memcpy(before_colour,root_pcm,sizeof(before_colour));
     uint32_t old_colour=observed.track[0].colour;
-    assert(mixer_control_button(c,MIXER_B1,1,ticket)&&mixer_control_button(c,MIXER_B1,0,ticket));
-    assert(mixer_control_cc(c,0x12,127,ticket));mixer_session_ui_tick(s);mixer_session_owner_tick(s);
+    assert(mixer_control_cc(c,0x12,127,ticket)); /* K3 Colour directly on the Mixer page */mixer_session_ui_tick(s);mixer_session_owner_tick(s);
     assert(mixer_archive_snapshot(&observed,&after,&mode)&&after==rev+1&&observed.track[0].colour==old_colour);
     mixer_control_view(c,1000,&v);assert(v.pending&&v.project->track[0].colour==old_colour);
     live_fixture();run_live();compare_pcm(root_pcm[0],before_colour[0],1);compare_pcm(root_pcm[1],before_colour[1],1);
     mixer_session_owner_tick(s);mixer_session_ui_tick(s);
     assert(mixer_archive_snapshot(&observed,&after,&mode)&&after==rev+2&&observed.track[0].colour==mixer_colour_at(11));
     assert(observed.track[0].mix.pan==-1&&observed.output[0]==1&&observed.master.colour==initial.master.colour);
-    /* A missing factory rejects this edit without retiring the active mix. */
-    assert(mixer_control_button(c,MIXER_KNOB,1,ticket)&&mixer_control_button(c,MIXER_KNOB,0,ticket));
-    assert(mixer_control_cc(c,0x10,5,ticket)); /* Delay: native backend is absent in this session. */
-    assert(mixer_control_button(c,MIXER_SELECT,1,ticket)&&mixer_control_button(c,MIXER_SELECT,0,ticket));
-    mixer_session_ui_tick(s);mixer_session_owner_tick(s);mixer_session_ui_tick(s);
-    mixer_control_view(c,1000,&v);assert(mixer_session_status(s)==1&&mixer_control_active(c)&&!v.pending);
-    assert(!v.project->track[0].fx.count&&v.fx_catalog&&!strcmp(mixer_control_message(c),"FX unavailable"));
-    assert(mixer_archive_snapshot(&observed,&after,&mode)&&after==rev+2&&!observed.track[0].fx.count);
-    assert(mixer_control_cc(c,0x10,0,ticket));
-    assert(mixer_control_button(c,MIXER_SELECT,1,ticket)&&mixer_control_button(c,MIXER_SELECT,0,ticket));
+    /* B2 Mute uses the same acknowledged path (Track FX editing is not offered). */
+    assert(mixer_control_button(c,MIXER_B2,1,ticket)&&mixer_control_button(c,MIXER_B2,0,ticket));
     mixer_session_ui_tick(s);mixer_session_owner_tick(s);live_fixture();run_live();mixer_session_owner_tick(s);mixer_session_ui_tick(s);
-    assert(mixer_archive_snapshot(&observed,&after,&mode)&&after==rev+3&&observed.track[0].fx.count==1&&observed.track[0].fx.stage[0].kind==FX_STAGE_EQ);
+    assert(mixer_archive_snapshot(&observed,&after,&mode)&&after==rev+3&&observed.track[0].mix.mute==1);
     char *payload=malloc(MIXER_PAYLOAD_BYTES);assert(payload);size_t length;
     assert(mixer_encode(&observed,payload,MIXER_PAYLOAD_BYTES,&length)==MIXER_OK);
     struct mixer_project decoded;assert(mixer_decode(payload,length,&decoded)==MIXER_OK&&decoded.track[0].mix.pan==-1&&decoded.output[0]==1&&decoded.track[0].colour==mixer_colour_at(11));free(payload);

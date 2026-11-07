@@ -49,10 +49,10 @@ static int scene_valid(const struct mixer_scene*s)
 void mixer_defaults(struct mixer_project*p)
 {
     if(!p)return;
-    static const unsigned default_colours[]={0,11,2,1,7,5,3,8};
+    static const unsigned default_colours[]={6,6,6,6,6,6,6,6}; /* all Yellow (device request) */
     memset(p,0,sizeof(*p));
     for(unsigned i=0;i<MIXER_TRACKS;++i){snprintf(p->track[i].name,MIXER_NAME_BYTES,"Track %c",'A'+i);p->track[i].colour=mixer_colour_at(default_colours[i]);}
-    memcpy(p->master.name,"Master",7);p->master.colour=0xffc247;
+    memcpy(p->master.name,"Master",7);p->master.colour=0x00c700; /* Master green */
 }
 int mixer_project_valid(const struct mixer_project*p)
 {

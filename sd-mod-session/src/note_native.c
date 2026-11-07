@@ -19,7 +19,7 @@ static void *root, *slider;
 static _Atomic(uintptr_t) identity;
 static _Atomic unsigned destroyed, active;
 static _Atomic unsigned requested_shift, focused_k1,repeat_held;
-static _Atomic unsigned trim_active,focused_trim,mix_track_active;
+static _Atomic unsigned trim_active,focused_trim,mix_track_active,focused_track;
 static unsigned colour_push_owned;
 static void give_back_knob_focus(void);
 static int original_note = -1, previous_shift = -1, selection_valid;
@@ -53,6 +53,7 @@ int note_native_owns(unsigned cc)
     if (!atomic_load(&requested_shift))
         return atomic_load(&trim_active) && (cc==0x11 || (cc==0x64 && atomic_load(&focused_trim)));
     if (cc==0x10 && atomic_load(&mix_track_active)) return 1; /* Shift+K1 Mix: Pad Track */
+    if (cc==0x64 && atomic_load(&mix_track_active) && atomic_load(&focused_track)) return 1;
     return atomic_load(&active) && (cc==0x10 || (cc==0x64 && atomic_load(&focused_k1)));
 }
 void note_native_destroyed(void *p)
@@ -281,6 +282,9 @@ static void repaint(void)
         (slider,0,FIELD(slider,0x28,uint64_t));
 }
 
+#ifdef MPC_MIXER_LIVE
+static void give_back_track_focus(void);
+#endif
 int note_native_tick(void)
 {
     int visible=showing();
@@ -296,6 +300,7 @@ int note_native_tick(void)
         atomic_store(&trim_active,(unsigned)trim_showing());
 #ifdef MPC_MIXER_LIVE
         atomic_store(&mix_track_active,(unsigned)mix_showing());
+        if (atomic_load(&focused_track) && (!mix_showing() || !shift)) { give_back_track_focus(); trim_repaint(); }
 #endif
         (void)s;
         /* A native knob movement can replace our focus before the next tick. */
@@ -338,11 +343,51 @@ static void give_back_knob_focus(void)
     if (atomic_exchange(&focused_trim,0) && *focus==0) *focus=saved_knob_focus;
     saved_knob_focus=0;
 }
+#ifdef MPC_MIXER_LIVE
+/* Shift on Mix: the encoder cycle is Track (K1 cell) -> Kit Volume -> Pan.
+ * The Track cell holds the focus like Pad Colour: native focus cleared while
+ * it is ours, restored when the cycle moves on or Shift is released. */
+static uintptr_t saved_track_focus;
+static void take_track_focus(void)
+{
+    uintptr_t *focus=(uintptr_t*)(base+0x723cde0);
+    if(atomic_exchange(&focused_track,1))return;
+    saved_track_focus=*focus;*focus=0;
+}
+static void give_back_track_focus(void)
+{
+    uintptr_t *focus=(uintptr_t*)(base+0x723cde0);
+    if(atomic_exchange(&focused_track,0)&&*focus==0)*focus=saved_track_focus;
+    saved_track_focus=0;
+}
+static unsigned track_push_owned;
+#endif
 int note_native_button(void *event)
 {
     unsigned code=FIELD(event,8,unsigned char),down=FIELD(event,9,unsigned char)!=0;
     if(code==0x6f && !down && colour_push_owned){colour_push_owned=0;return 1;}
+#ifdef MPC_MIXER_LIVE
+    if(code==0x6f && !down && track_push_owned){track_push_owned=0;return 1;}
+#endif
     if (!root || FIELD(root,0,uintptr_t)!=base+SAMPLE_VPTR) return 0;
+#ifdef MPC_MIXER_LIVE
+    if(code==0x31 && !down && atomic_load(&focused_track)){ give_back_track_focus(); trim_repaint(); }
+    if(code==0x6f && down && mix_showing() && shifted()){
+        void *pan=(char*)root+MIX_PAN_OFFSET;
+        if(atomic_load(&focused_track)){
+            /* Track -> Kit Volume: hand the press to native from Pan, whose
+             * next stop is Kit Volume. */
+            give_back_track_focus();
+            if(FIELD(pan,0,uintptr_t)==base+SLIDER_VPTR)FIELD((void*)(base+0x723cde0),0,uintptr_t)=(uintptr_t)pan+0x1d8;
+            trim_repaint();return 0;
+        }
+        uintptr_t focus=FIELD((void*)(base+0x723cde0),0,uintptr_t);
+        if(!focus || (FIELD(pan,0,uintptr_t)==base+SLIDER_VPTR && focus==(uintptr_t)pan+0x1d8)){
+            take_track_focus();track_push_owned=1;trim_repaint();return 1;
+        }
+        return 0;
+    }
+#endif
     if(code==0x31 && down && atomic_load(&focused_trim)) { give_back_knob_focus(); trim_repaint(); }
     if(code!=0x6f || !down || !trim_showing() || shifted()) return 0;
     void *volume=trim_slider();
@@ -388,6 +433,19 @@ int note_native_control(void *event)
         int current=mixer_phone_pad_output(pad);
         if (current<0) return 1;
         int next=(int)((value&127)*9/128);
+        take_track_focus();
+        if (next!=current && mixer_phone_set_pad_output(pad,(unsigned)next)) log_note("PAD_TRACK_CHANGED mixer_output");
+        trim_repaint();
+        return 1;
+    }
+    if (root && FIELD(root,0,uintptr_t)==base+SAMPLE_VPTR && mix_showing() && shifted() && cc==0x64 && atomic_load(&focused_track)) {
+        unsigned pad;
+        if (!note_native_pad_index(&pad)) return 1;
+        int current=mixer_phone_pad_output(pad);
+        if (current<0) return 1;
+        int step=value>64 ? (int)value-128 : (int)value,next=current+step;
+        if (next<0) next=0;
+        if (next>8) next=8;
         if (next!=current && mixer_phone_set_pad_output(pad,(unsigned)next)) { trim_repaint(); log_note("PAD_TRACK_CHANGED mixer_output"); }
         return 1;
     }
@@ -478,7 +536,7 @@ static void pad_colour_cell(void *g,int ox,int oy,int focused)
 /* Sample screen paint: K2 has no native child without Shift on Mix. */
 #ifdef MPC_MIXER_LIVE
 /* Shift+K1 on Mix, K1 block at (ox,oy): the Pad's Mixer Track. */
-static void pad_track_cell(void *g,int ox,int oy)
+static void pad_track_cell(void *g,int ox,int oy,int focused)
 {
     unsigned pad; int valid=note_native_pad_index(&pad);
     int output=valid ? mixer_phone_pad_output(pad) : -1;
@@ -496,13 +554,14 @@ static void pad_track_cell(void *g,int ox,int oy)
         colour(g,i==output ? ink : 0xff3b3b3b);
         rect(g,ox+4+x,oy+35,next-x-2,2);
     }
+    if (focused && output>=0) { colour(g,0xffffc247); rect(g,ox,oy,106,2); rect(g,ox,oy,2,32); rect(g,ox+104,oy,2,32); }
 }
 #endif
 void note_native_sample_overlay(void *p,void *g)
 {
     if (!p || p!=root) return;
 #ifdef MPC_MIXER_LIVE
-    if (mix_showing() && shifted()) { pad_track_cell(g,0,198); return; }
+    if (mix_showing() && shifted()) { pad_track_cell(g,0,198,(int)atomic_load(&focused_track)); return; }
 #endif
     if (!trim_showing() || shifted()) return;
     pad_colour_cell(g,106,198,(int)atomic_load(&focused_trim));

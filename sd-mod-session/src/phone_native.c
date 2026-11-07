@@ -457,7 +457,7 @@ static void mixer_publish_route(void)
             if (i < 8) {
                 int on = !view.master && (view.selected & (1u<<i));
                 light = pad_light(view.project->track[i].colour & 0xffffffu, on ? 1.f : .22f);
-            } else if (i == 15) light = pad_light(0xffffffu, view.master ? .90f : .22f);
+            } else if (i == 15) light = pad_light(view.project->master.colour & 0xffffffu, view.master ? .90f : .22f);
             atomic_store(&mixer_select_lights[i], light);
         }
         atomic_store(&mixer_select_enabled, 1);
@@ -566,8 +566,9 @@ static int mixer_queue_pad(void *raw, unsigned pad, int down, int up)
     uint64_t binding = mixer_capture_route();
     uint64_t *held = &mixer_pad_pairs[pad];
     if (!*held && (!down || atomic_load(&mixer_input_fault))) return 0;
-    int entry = down && !*held && !binding && (route & MIXER_READY) &&
-        pad == 8 && atomic_load(&native_shift_requested);
+    /* Shift+Pad9 is the stock Fader Settings again (device request 07.11);
+     * the Mixer opens with PAD FX + KNOB FX. */
+    int entry = 0;
     if (down && pad == 8) {
         static unsigned lines;
         if (lines++ < 40) {
@@ -634,9 +635,11 @@ static int mixer_replay_entry(void)
     return 1;
 }
 
+static void mixer_fx_combo_tick(void);
 static void mixer_tick_ui(void)
 {
     static uint64_t shown_presence[2];
+    mixer_fx_combo_tick();
     if (atomic_exchange(&mixer_input_fault, 0)) {
         mixer_close_ui();
         atomic_store(&mixer_pending, 0);
@@ -663,7 +666,7 @@ static void mixer_tick_ui(void)
     if (!mixer_control_active(control) || before.revision != after.revision || before.pending != after.pending || presence_changed)
         note_native_repaint_sample();
     else
-        note_native_repaint_sample_region(0,102,320,93);
+        note_native_repaint_sample_region(0,0,320,198); /* header Master meter + Track cells */
 }
 
 static void mixer_pad_ui(const struct phone_event *e, struct mixer_control *control, int suppress)
@@ -727,6 +730,12 @@ static void mixer_button_ui(struct phone_event *e, struct mixer_control *control
         mixer_native_buttons[code] = 1;
         forward_buttons(e->native);
     }
+    if (mixer_control_exit_requested(control)) {
+        /* B1 on the Mixer page: leave to Sample with a stock Sample press. */
+        _Alignas(8) unsigned char sample[16];memcpy(sample,e->native,16);
+        sample[8]=0x06;sample[9]=1;forward_buttons(sample);
+        sample[9]=0;forward_buttons(sample);
+    }
     if (was_open && !mixer_control_active(control)) note_native_repaint_sample();
 }
 
@@ -747,6 +756,18 @@ static int mixer_dispatch(struct phone_event *e)
         mixer_control_button(control,MIXER_SHIFT,
             atomic_load(&native_shift_requested)||atomic_load(&native_buttons_down[0x31]),
             mixer_control_ticket(control));
+    if (e->kind == PHONE_MIXER_ENTRY && e->pad == 0xffu) {
+        /* PAD FX + KNOB FX: open on the press itself. */
+        if (control && !suppress && !blocked && e->generation == mixer_binding &&
+            mixer_control_open(control,1,0)) {
+            int bank = step_native_browser_bank(-1);
+            if (bank >= 0 && bank < 8) mixer_control_presence(control,0,0,(unsigned)bank);
+            note_native_repaint_sample();
+        }
+        atomic_store(&mixer_pending,0);
+        mixer_publish_route();
+        return 1;
+    }
     switch (e->kind) {
     case PHONE_MIXER_ENTRY:
     case PHONE_MIXER_PAD:
@@ -756,6 +777,14 @@ static int mixer_dispatch(struct phone_event *e)
         mixer_button_ui(e,control,suppress);
         break;
     case PHONE_MIXER_CC:
+#ifdef MPC_KNOB_RESET
+        if (!suppress && control && e->generation == mixer_binding && e->native[8] == 0x14 &&
+            (knob_reset_ticket()&2) && mixer_control_active(control)) {
+            /* Pad Bank held + Fader: default Level (0 dB) for the selection. */
+            mixer_control_reset(control,0x14,mixer_control_ticket(control));
+            break;
+        }
+#endif
         if (!suppress && control && e->generation == mixer_binding &&
             !mixer_control_cc(control,e->native[8],e->native[9],mixer_control_ticket(control)))
             ORIG(H_CONTROLLER,void(*)(void*))(e->native);
@@ -1754,6 +1783,50 @@ static void controller(void *event)
     forward_controller(event);
 }
 
+#ifdef MPC_MIXER_LIVE
+/* Mixer entry (device request 07.11): PAD FX + KNOB FX together. While the
+ * Mixer is ready and closed, the first of the two is held back for a short
+ * window; the other one within it opens the Mixer and both releases are
+ * swallowed. Otherwise the held press reaches the native app unchanged. */
+#define MIXER_FX_COMBO_MS 180u
+static pthread_mutex_t fx_combo_mutex=PTHREAD_MUTEX_INITIALIZER;
+static unsigned char fx_combo_event[16];
+static unsigned fx_combo_code=~0u,fx_combo_swallow;
+static uint64_t fx_combo_ms;
+static int mixer_fx_combo(void *event,unsigned code,unsigned down)
+{
+    unsigned bit=1u<<code;
+    pthread_mutex_lock(&fx_combo_mutex);
+    if(!down&&(fx_combo_swallow&bit)){fx_combo_swallow&=~bit;pthread_mutex_unlock(&fx_combo_mutex);return 1;}
+    uint64_t route=atomic_load(&mixer_route);
+    if(down&&(route&MIXER_READY)&&!(route&MIXER_OPEN)&&!atomic_load(&mixer_input_fault)){
+        if(fx_combo_code==(code^1u)){
+            fx_combo_code=~0u;fx_combo_swallow|=3u;pthread_mutex_unlock(&fx_combo_mutex);
+            struct phone_event e={.kind=PHONE_MIXER_ENTRY,.pad=0xffu,.down=1,.generation=route>>2};
+            e.when_ms=now_ms();memcpy(e.native,event,16);
+            if(!phone_events_push(&e))mixer_fail_input();
+            return 1;
+        }
+        if(fx_combo_code==~0u){memcpy(fx_combo_event,event,16);fx_combo_code=code;fx_combo_ms=now_ms();
+            pthread_mutex_unlock(&fx_combo_mutex);return 1;}
+    }
+    if(!down&&fx_combo_code==code){
+        /* Released before the partner: a normal native press. */
+        unsigned char held[16];memcpy(held,fx_combo_event,16);fx_combo_code=~0u;
+        pthread_mutex_unlock(&fx_combo_mutex);forward_buttons(held);return 0;
+    }
+    pthread_mutex_unlock(&fx_combo_mutex);
+    return 0;
+}
+static void mixer_fx_combo_tick(void)
+{
+    unsigned char held[16];int release=0;
+    pthread_mutex_lock(&fx_combo_mutex);
+    if(fx_combo_code!=~0u&&now_ms()-fx_combo_ms>=MIXER_FX_COMBO_MS){memcpy(held,fx_combo_event,16);fx_combo_code=~0u;release=1;}
+    pthread_mutex_unlock(&fx_combo_mutex);
+    if(release)forward_buttons(held);
+}
+#endif
 static void buttons(void *event)
 {
     unsigned native_code=FIELD(event,8,unsigned char),native_down=FIELD(event,9,unsigned char)!=0;
@@ -1789,6 +1862,7 @@ static void buttons(void *event)
 #endif
     if(native_code==0x31)atomic_store(&native_shift_requested,native_down);
 #ifdef MPC_MIXER_LIVE
+    if (native_code <= 1 && mixer_fx_combo(event,native_code,native_down)) return;
     if (native_code < 112 && native_code != 0x31) {
         uint64_t *held = &mixer_button_pairs[native_code];
         uint64_t ticket = mixer_capture_route();
@@ -2020,6 +2094,10 @@ static unsigned process_events(void)
                 if(!workflow_reset_knob(column,shift))note("KNOB_RESET no_default_for_current_parameter");
               }else{
                 int done=0;
+#ifdef MPC_MIXER_LIVE
+                {struct mixer_control *mc=mixer_session_control(mixer_ui_session);
+                 if(mixer_control_active(mc))done=mixer_control_reset(mc,cc,mixer_control_ticket(mc))||1;}
+#endif
 #ifdef MPC_REAR_ROUTING
                 done=rear_ui_reset_knob?rear_ui_reset_knob(column,shift):0;
 #endif

@@ -35,6 +35,12 @@ uint64_t mixer_control_ticket(const struct mixer_control*);
 int mixer_control_button(struct mixer_control*,enum mixer_action,int down,uint64_t ticket);
 int mixer_control_pad(struct mixer_control*,unsigned pad,int down,uint64_t ticket);
 int mixer_control_cc(struct mixer_control*,unsigned cc,unsigned value,uint64_t ticket);
+/* Pad Bank held + Fader/K1/K3: default Level/Pan/Colour for the selection. */
+int mixer_control_reset(struct mixer_control*,unsigned cc,uint64_t ticket);
+/* B1 on the Mixer page closed it; the owner then opens native Sample (once). */
+int mixer_control_exit_requested(struct mixer_control*);
+/* Track FX editor behind KNOB FX (tests; the device UI keeps it off for now). */
+void mixer_control_set_fx_editing(struct mixer_control*,int on);
 void mixer_control_tick(struct mixer_control*);
 /* Native owner supplies actual occupied sounds, not table assignments. */
 void mixer_control_presence(struct mixer_control*,uint64_t low,uint64_t high,unsigned bank);

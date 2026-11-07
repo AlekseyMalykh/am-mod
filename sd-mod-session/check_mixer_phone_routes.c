@@ -2,6 +2,7 @@
 #define MPC_MIXER_LIVE 1
 #include "src/phone_native.c"
 #include <assert.h>
+#include <unistd.h>
 
 struct mixer_session { struct mixer_control *control; };
 struct mixer_control *mixer_session_control(struct mixer_session *s) { return s ? s->control : NULL; }
@@ -9,7 +10,7 @@ int mixer_session_status(const struct mixer_session *s) { return s ? 1 : -2; }
 void mixer_session_ui_tick(struct mixer_session *s) { (void)s; }
 void note_native_repaint_sample(void) {}
 void note_native_repaint_sample_region(unsigned x,unsigned y,unsigned w,unsigned h)
-{ assert(!x && y==102 && w==320 && h==93); }
+{ assert(!x && !y && w==320 && h==198); }
 int note_native_sample_visible(void) { return 1; }
 int workflow_blocks_sample_controls(void) { return 0; }
 int note_native_active(void) { return 0; }
@@ -111,17 +112,20 @@ int main(void)
     mixer_entry_init(&mixer_entry,500);
     mixer_publish_route();
 
-    button(0x31,1);
-    pad(8,1);
-    button(0x31,0);
-    pad(8,0);
+    /* A lone PAD FX is held back only briefly, then reaches the native app
+     * unchanged (released early, or after the combo window). */
+    button(1,1);assert(!stock_down[1]);button(1,0);assert(stock_down[1]==1&&stock_up[1]==1);
+    button(0,1);assert(!stock_down[0]);usleep(200000);mixer_tick_ui();assert(stock_down[0]==1);
+    button(0,0);assert(stock_up[0]==1);
+    /* PAD FX + KNOB FX opens the Mixer; neither press nor release is native. */
+    button(1,1);button(0,1);button(1,0);button(0,0);drain();
+    assert(mixer_control_active(session.control)&&stock_down[1]==1&&stock_up[1]==1&&stock_down[0]==1&&stock_up[0]==1);
     pad(4,1);
     pad(4,0);
-    button(0x0c,1);
     drain();
     struct mixer_view_state view;
     mixer_control_view(session.control,0,&view);
-    assert(view.page==MIXER_MIX && view.primary==4 && view.bank==5 && !stock_pad[0] && !stock_pad[1]);
+    assert(view.page==MIXER_OVERVIEW && view.primary==4 && !stock_pad[0] && !stock_pad[1]);
     button(0x23,1);button(0x23,0);drain();
     assert(stock_down[0x23]==1&&stock_up[0x23]==1); /* Native outside Assign. */
     button(1,1);button(1,0);drain();
@@ -137,7 +141,7 @@ int main(void)
     button(0x36,0);drain();
     assert(!stock_down[0x36]&&!stock_up[0x36]);
     mixer_control_view(session.control,0,&view);
-    assert(view.page==MIXER_MIX&&view.bank==7&&view.primary==4);
+    assert(view.page==MIXER_OVERVIEW&&view.bank==7&&view.primary==4);
     assert(step_native_browser_bank(-1)==7&&!mixer_leds_light(0,0,&colour));
     unsigned char knob[16]={0};
     knob[8]=0x10;
@@ -148,13 +152,18 @@ int main(void)
 
     button(7,1);
     button(7,0);
-    button(0x0c,0);
     drain();
     assert(!mixer_control_active(session.control) && stock_down[7]==1 && stock_up[7]==1);
-    assert(!stock_down[0x0c] && !stock_up[0x0c]);
     button(0x0c,1);
     button(0x0c,0);
     assert(stock_down[0x0c]==1 && stock_up[0x0c]==1);
+
+    /* B1 on the Mixer page leaves to Sample with one stock Sample press. */
+    assert(mixer_control_open(session.control,1,0));mixer_publish_route();
+    unsigned sample_down=stock_down[6],sample_up=stock_up[6];
+    button(0x0c,1);drain();
+    assert(!mixer_control_active(session.control)&&stock_down[6]==sample_down+1&&stock_up[6]==sample_up+1);
+    button(0x0c,0);drain();assert(stock_down[0x0c]==1&&stock_up[0x0c]==1);
 
     /* Mode exit remains paired when there is room for only one event. */
     assert(mixer_control_open(session.control,1,0));
@@ -166,30 +175,28 @@ int main(void)
     for(unsigned i=0;i<PHONE_EVENT_CAPACITY-1;++i) assert(phone_events_push(&dummy));
     button(6,1);
     button(6,0);
-    assert(stock_down[6]==1 && stock_up[6]==1);
+    assert(stock_down[6]==sample_down+2 && stock_up[6]==sample_up+2);
     drain();
     mixer_tick_ui();
     assert(!mixer_control_active(session.control));
     assert(!mixer_leds_light(0,0,&colour));
 
+    /* Shift+Pad9 is the stock Fader Settings again, on its first down. */
     button(0x31,1);
     pad(8,1);
+    drain();
+    assert(stock_pad[1]==1 && !mixer_pad_pairs[8]);
+    pad(8,0);
     button(0x31,0);
     drain();
-    mixer_entry.started_ms=now_ms()-500;
-    mixer_tick_ui();
-    assert(stock_pad[1]==1 && !stock_pad[0] && !atomic_load(&native_buttons_down[0x31]));
+    assert(stock_pad[0]==1 && !atomic_load(&native_buttons_down[0x31]));
 
-    /* Invalidation and a saturated FIFO must still deliver the native up. */
-    for(unsigned i=0;i<PHONE_EVENT_CAPACITY-1;++i) assert(phone_events_push(&dummy));
-    assert(!phone_events_push(&dummy));
+    /* Project change revokes the route. */
     mixer_project_changing();
-    pad(8,0);
-    assert(phone_events_pending()==PHONE_EVENT_CAPACITY);
     drain();
-    assert(stock_pad[0]==1 && !mixer_native_pads && !mixer_pad_pairs[8]);
+    assert(!mixer_native_pads && !mixer_pad_pairs[8]);
     assert(!atomic_load(&mixer_route) && !mixer_control_active(session.control));
     mixer_control_destroy(session.control);
     munmap(image,0x7500000);
-    puts("PASS Mixer through production input hooks and shared FIFO: short entry, track/tab, K1, Seq exit, late up, long replay and reserved up during project change");
+    puts("PASS Mixer through production input hooks and shared FIFO: PAD FX+KNOB FX entry, lone FX presses native, track select, Assign bank, K1, Seq exit, B1 exit to Sample, stock Shift+Pad9 and project change");
 }

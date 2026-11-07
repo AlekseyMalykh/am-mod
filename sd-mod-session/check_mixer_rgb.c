@@ -170,8 +170,7 @@ int main(int argc,char **argv)
     assert(sent[0]!=0x804020);atomic_store(&led_enabled,0);send_step_lights();assert(sent[0]==0x804020);
     /* User K3 colour edit is visible on physical output only after confirm. */
     assert(mixer_control_button(control,MIXER_PAD_FX,1,ticket)&&mixer_control_button(control,MIXER_PAD_FX,0,ticket));
-    assert(mixer_control_button(control,MIXER_B1,1,ticket)&&mixer_control_button(control,MIXER_B1,0,ticket));
-    assert(mixer_control_cc(control,0x12,127,ticket));mixer_control_tick(control);
+    assert(mixer_control_cc(control,0x12,127,ticket));mixer_control_tick(control); /* K3 on the Mixer page */
     assert(mixer_control_button(control,MIXER_PAD_FX,1,ticket)&&mixer_control_button(control,MIXER_PAD_FX,0,ticket));
     publish(control,1);native_refresh(16);assert(sent[0]==0x804020);
     assert(mixer_control_confirm(control,&accepted,3,1));publish(control,1);send_step_lights();assert(sent[0]==mixer_colour_at(11));

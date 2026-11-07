@@ -10,7 +10,7 @@ struct mixer_control {
     struct mixer_meter_snapshot meter;
     uint64_t revision,epoch,ticket,submitted,present[2];
     double rate;
-    unsigned active,shift,owned_buttons,owned_pads,held_tracks,temporary,dirty;
+    unsigned active,shift,owned_buttons,owned_pads,held_tracks,temporary,dirty,exit_requested,fx_editing;
     unsigned pickup,last_fader_valid,last_fader,anchor;
     float anchors[8];
     unsigned catalog,parameter_page;
@@ -62,19 +62,12 @@ void mixer_control_close(struct mixer_control*c)
 }
 int mixer_control_active(const struct mixer_control*c){return c&&c->active;}
 uint64_t mixer_control_ticket(const struct mixer_control*c){return c?c->ticket:0;}
-static void temporary(struct mixer_control*c,unsigned kind,enum mixer_page page)
-{
-    c->view.colour_edit=0;
-    if(c->temporary==kind){enum mixer_page back=c->back.page;unsigned cursor=c->back.cursor,scroll=c->back.scroll;
-        c->temporary=0;c->view.page=back;c->view.cursor=cursor;c->view.scroll=scroll;
-    }else{if(!c->temporary)c->back=c->view;c->temporary=kind;c->view.page=page;c->view.cursor=c->view.scroll=0;}
-}
-static void set_colour(struct mixer_control*c,unsigned index)
-{
-    if(!one(c)){c->message="Select one Track";return;}
-    uint32_t rgb=mixer_colour_at(index);
-    if(selected(c)->colour!=rgb){selected(c)->colour=rgb;changed(c);}
-}
+/* Device-agreed layout (07.11.2026): one Mixer page with Track cells.
+ * B1 = back to the Mixer from PAD FX/KNOB FX, from the Mixer exit to Sample;
+ * B2 = Mute, B3 = Solo of the selection; Fader = Level, K1 = Pan, K3 =
+ * Colour, all absolute and equal for every selected Track; the last moved
+ * control becomes the encoder parameter. Track FX editing is not offered. */
+enum {PARAM_LEVEL,PARAM_PAN,PARAM_COLOUR,PARAMS};
 static void group_gate(struct mixer_control*c,int solo)
 {
     if(c->view.master){c->message="Master has no Mute/Solo";return;}
@@ -85,9 +78,26 @@ static void group_gate(struct mixer_control*c,int solo)
 }
 static void open_fx(struct mixer_control*c)
 {
-    struct mixer_channel*ch=selected(c);c->catalog=c->view.fx_slot>=ch->fx.count;c->parameter_page=0;
+    struct mixer_channel*ch=selected(c);c->catalog=c->fx_editing&&c->view.fx_slot>=ch->fx.count;c->parameter_page=0;
     c->view.cursor=0;
 }
+void mixer_control_set_fx_editing(struct mixer_control*c,int on){if(c)c->fx_editing=on!=0;}
+static void each(struct mixer_control*c,void(*apply)(struct mixer_mix*,float),float value)
+{
+    if(c->view.master){apply(&c->desired.master.mix,value);changed(c);return;}
+    for(unsigned i=0;i<8;++i)if(c->view.selected&(1u<<i))apply(&c->desired.track[i].mix,value);
+    changed(c);
+}
+static void set_level(struct mixer_mix*m,float db){m->level_db=db;}
+static void set_pan(struct mixer_mix*m,float pan){m->pan=pan<-1?-1:pan>1?1:pan;}
+static void set_colour(struct mixer_control*c,unsigned index)
+{
+    if(c->view.master){c->message="Master colour is fixed";return;}
+    uint32_t rgb=mixer_colour_at(index<MIXER_COLOURS?index:MIXER_COLOURS-1);
+    for(unsigned i=0;i<8;++i)if((c->view.selected&(1u<<i))&&c->desired.track[i].colour!=rgb){c->desired.track[i].colour=rgb;changed(c);}
+}
+static const struct mixer_mix*primary_mix(const struct mixer_control*c)
+{return c->view.master?&c->desired.master.mix:&c->desired.track[c->view.primary].mix;}
 int mixer_control_button(struct mixer_control*c,enum mixer_action action,int down,uint64_t ticket)
 {
     if(!c||(unsigned)action>MIXER_BANK_PREVIOUS)return 0;
@@ -106,24 +116,28 @@ int mixer_control_button(struct mixer_control*c,enum mixer_action action,int dow
         int previous=action==MIXER_BANK_PREVIOUS||(action==MIXER_BANK&&c->shift);
         c->view.bank=(c->view.bank+(previous?7:1))%8;
         c->view.sound=c->view.bank*16+c->view.sound%16;
-    }else if(action<=MIXER_B3){
-        if(c->shift){if(action==MIXER_B1||action==MIXER_B3)group_gate(c,action==MIXER_B3);
-            else if(one(c)){selected(c)->fx_bypass^=1;changed(c);}else c->message="Select one Track";
-        }else{enum mixer_page page=(enum mixer_page)(action+1);c->view.page=!c->temporary&&c->view.page==page?MIXER_OVERVIEW:page;
-            c->temporary=0;c->view.cursor=c->view.scroll=c->view.colour_edit=0;}
+    }else if(action==MIXER_B1){
+        if(c->view.page!=MIXER_OVERVIEW){c->view.page=MIXER_OVERVIEW;c->temporary=0;c->view.cursor=PARAM_LEVEL;}
+        else{c->exit_requested=1;mixer_control_close(c);}
+    }else if(action==MIXER_B2&&c->shift){
+        /* Shift+B2: FX Bypass of the selection or Master. */
+        if(c->view.master)c->desired.master.fx_bypass^=1;
+        else for(unsigned i=0;i<8;++i)if(c->view.selected&(1u<<i))c->desired.track[i].fx_bypass^=1;
+        changed(c);
+    }else if(action==MIXER_B2||action==MIXER_B3){
+        if(c->view.page==MIXER_OVERVIEW||c->view.page==MIXER_ASSIGN)group_gate(c,action==MIXER_B3);
     }else if(action==MIXER_PAD_FX){
-        if(c->temporary==1){temporary(c,1,MIXER_ASSIGN);return 1;}
-        if((!one(c)||c->view.master)&&!c->shift){c->message="Select one Track";return 1;}
-        temporary(c,1,c->shift?MIXER_INSPECT:MIXER_ASSIGN);
+        if(c->view.page==MIXER_ASSIGN||c->view.page==MIXER_INSPECT){c->view.page=MIXER_OVERVIEW;c->temporary=0;return 1;}
+        if(!c->shift&&!one(c)){c->message="Select one Track";return 1;}
+        c->view.page=c->shift?MIXER_INSPECT:MIXER_ASSIGN;c->temporary=1;
     }else if(action==MIXER_KNOB){
-        if(c->temporary==2){temporary(c,2,MIXER_KNOB_FX);return 1;}
-        if(!one(c)){c->message="Select one Track";return 1;}
-        temporary(c,2,c->shift?MIXER_ADVANCED:MIXER_KNOB_FX);open_fx(c);
+        if(c->view.page==MIXER_KNOB_FX){c->view.page=MIXER_OVERVIEW;c->temporary=0;c->view.cursor=PARAM_LEVEL;return 1;}
+        if(c->fx_editing&&!one(c)){c->message="Select one Track";return 1;}
+        c->view.page=MIXER_KNOB_FX;c->temporary=2;open_fx(c);
+        if(!c->fx_editing)c->message="Track FX: coming later";
     }else if(action==MIXER_SELECT){
-        if(c->view.page==MIXER_KNOB_FX&&!one(c)){c->message="Select one Track";return 1;}
-        if(c->view.page==MIXER_FX){if(!one(c)){c->message="Select one Track";return 1;}
-            c->view.fx_slot=c->view.cursor;temporary(c,2,MIXER_KNOB_FX);open_fx(c);}
-        else if(c->view.page==MIXER_KNOB_FX){struct mixer_channel*ch=selected(c);
+        if(c->view.page==MIXER_OVERVIEW)c->view.cursor=(c->view.cursor+1)%PARAMS;
+        else if(c->view.page==MIXER_KNOB_FX&&c->fx_editing){struct mixer_channel*ch=selected(c);
             if(c->catalog){struct fx_stage stage;
                 if(fx_catalog_stage(c->view.cursor,c->rate,&stage)){
                     if(c->view.fx_slot<ch->fx.count)ch->fx.stage[c->view.fx_slot]=stage;
@@ -134,10 +148,6 @@ int mixer_control_button(struct mixer_control*c,enum mixer_action action,int dow
                     c->catalog=0;c->parameter_page=c->view.cursor=0;changed(c);}
             }else if(c->shift){if(fx_chain_remove(&ch->fx,c->view.fx_slot)==FX_OK){c->catalog=1;changed(c);}}
             else if(c->view.fx_slot<ch->fx.count){ch->fx.stage[c->view.fx_slot].bypass^=1;changed(c);}
-        }else if(c->view.page==MIXER_MIX){
-            if(c->view.cursor==2)group_gate(c,0);else if(c->view.cursor==3)group_gate(c,1);
-            else if(c->view.cursor==4&&one(c)){selected(c)->fx_bypass^=1;changed(c);}
-            else if(c->view.cursor==5){if(one(c))c->view.colour_edit^=1;else c->message="Select one Track";}
         }
     }
     return 1;
@@ -154,11 +164,18 @@ int mixer_control_pad(struct mixer_control*c,unsigned pad,int down,uint64_t tick
     c->owned_pads|=bit;
     if(c->view.page==MIXER_ASSIGN||c->view.page==MIXER_INSPECT){unsigned sound=c->view.bank*16+pad;c->view.sound=sound;
         if(c->view.page==MIXER_ASSIGN){if(!(c->present[sound/64]&(UINT64_C(1)<<(sound%64))))c->message="Empty pad";
-            else if(one(c)&&!c->view.master){unsigned output=c->view.primary+1;
+            else if(c->view.master){if(c->desired.output[sound]){c->desired.output[sound]=0;changed(c);}}
+            else if(one(c)){unsigned output=c->view.primary+1;
                 c->desired.output[sound]=(unsigned char)(c->desired.output[sound]==output?0:output);changed(c);}}
         return 1;
     }
-    if(pad<8){if(!c->held_tracks||c->view.master){c->view.selected=bit;c->view.primary=pad;}
+    if(pad<8){
+        if(c->shift&&!c->view.master){
+            /* Shift: add or remove one Track; the last Track stays selected. */
+            unsigned next=c->view.selected^bit;
+            if(next){c->view.selected=next;if(next&bit)c->view.primary=pad;
+                else if(c->view.primary==pad){for(unsigned i=0;i<8;++i)if(next&(1u<<i)){c->view.primary=i;break;}}}
+        }else if(!c->held_tracks||c->view.master){c->view.selected=bit;c->view.primary=pad;}
         else c->view.selected|=bit;
         c->held_tracks|=bit;c->view.master=0;pickup(c);
     }else if(pad==15){c->view.master=1;c->view.selected=0;c->held_tracks=0;pickup(c);}
@@ -172,62 +189,23 @@ float mixer_fader_db(unsigned value)
     if(value>127)value=127;
     return value<=103?-60.f+(value-1)*60.f/102.f:(value-103)*.25f;
 }
-static void fader(struct mixer_control*c,unsigned value)
+int mixer_control_reset(struct mixer_control*c,unsigned cc,uint64_t ticket)
 {
-    float target=selected(c)->mix.level_db,position=mixer_fader_db(value);
-    unsigned group=!c->view.master&&count(c->view.selected)>1;
-    if(group&&!isfinite(target)){c->message="Select one track to raise from Off";return;}
-    if(!c->pickup){float last=c->last_fader_valid?mixer_fader_db(c->last_fader):position;
-        int hit=(!isfinite(target)&&!value)||(isfinite(target)&&isfinite(position)&&
-            (fabsf(position-target)<=.6f||(isfinite(last)&&((last<=target&&position>=target)||(last>=target&&position<=target)))));
-        c->last_fader=value;c->last_fader_valid=1;
-        if(!hit){c->message="PICKUP";return;}
-        c->pickup=1;c->anchor=value;
-        for(unsigned i=0;i<8;++i)c->anchors[i]=c->desired.track[i].mix.level_db;
-    }
-    if(group){if(!isfinite(position))position=-60;
-        float delta=position-mixer_fader_db(c->anchor),low=-1000,high=1000;
-        for(unsigned i=0;i<8;++i)if((c->view.selected&(1u<<i))&&isfinite(c->anchors[i])){
-            low=fmaxf(low,-60-c->anchors[i]);high=fminf(high,6-c->anchors[i]);}
-        delta=fminf(high,fmaxf(low,delta));
-        for(unsigned i=0;i<8;++i)if((c->view.selected&(1u<<i))&&isfinite(c->anchors[i]))c->desired.track[i].mix.level_db=c->anchors[i]+delta;
-    }else selected(c)->mix.level_db=position;
-    changed(c);
-}
-int mixer_control_cc(struct mixer_control*c,unsigned cc,unsigned value,uint64_t ticket)
-{
+    /* Pad Bank held + control: default value for the whole selection. */
     if(!c||!c->active)return 0;
-    if(cc!=0x10&&cc!=0x11&&cc!=0x12&&cc!=0x14&&cc!=0x64)return 0;
-    if(ticket!=c->ticket||value>127)return 1;
-    if(c->view.page==MIXER_INSPECT||c->view.page==MIXER_ASSIGN){
-        if(cc==0x12){c->view.bank=value*8/128;c->view.sound=c->view.bank*16+c->view.sound%16;}
-        else if(cc==0x64){int delta=value>64?(int)value-128:(int)value;
-            int sound=(int)c->view.sound+delta;if(sound<0)sound=0;if(sound>127)sound=127;c->view.sound=(unsigned)sound;c->view.bank=(unsigned)sound/16;}
-        return 1; /* Inspect is read-only, including Fader and K1. */
-    }
-    if(cc==0x14){fader(c,value);return 1;}
+    if(ticket!=c->ticket||(c->view.page!=MIXER_OVERVIEW&&c->view.page!=MIXER_ASSIGN))return 1;
+    if(cc==0x14){each(c,set_level,0);c->view.cursor=PARAM_LEVEL;}
+    else if(cc==0x10){each(c,set_pan,0);c->view.cursor=PARAM_PAN;}
+    else if(cc==0x12){set_colour(c,MIXER_DEFAULT_TRACK_COLOUR);c->view.cursor=PARAM_COLOUR;}
+    return 1;
+}
+/* Track FX editor (kept for the native FX tests; off on the device UI). */
+static int fx_cc(struct mixer_control*c,unsigned cc,unsigned value)
+{
     struct mixer_channel*ch=selected(c);
-    if(c->view.page==MIXER_MIX&&cc==0x12){
-        c->view.cursor=5;c->view.scroll=1;set_colour(c,value*MIXER_COLOURS/128);return 1;
-    }
     if(cc==0x64){int delta=value>64?(int)value-128:(int)value;
-        if(c->view.page==MIXER_MIX&&c->view.colour_edit){
-            if(!delta)return 1;
-            int index=mixer_colour_index(ch->colour);
-            int next=index<0?(delta>0?0:(int)MIXER_COLOURS-1):index+delta;
-            if(next<0)next=0;
-            if(next>=(int)MIXER_COLOURS)next=MIXER_COLOURS-1;
-            set_colour(c,(unsigned)next);return 1;
-        }
-        if(c->view.page==MIXER_FX&&c->shift){
-            if(!one(c)){c->message="Select one Track";return 1;}
-            int next=(int)c->view.cursor+delta;
-            if(next>=0&&(unsigned)next<ch->fx.count&&c->view.cursor<ch->fx.count&&
-               fx_chain_move(&ch->fx,c->view.cursor,(unsigned)next)==FX_OK){c->view.cursor=(unsigned)next;changed(c);}
-            return 1;
-        }
-        unsigned limit=c->view.page==MIXER_KNOB_FX&&c->catalog?fx_catalog_count():c->view.page==MIXER_OVERVIEW?8:c->view.page==MIXER_MIX?6:5;
-        if(c->view.page==MIXER_KNOB_FX&&!c->catalog&&c->view.fx_slot<ch->fx.count){
+        unsigned limit=c->catalog?fx_catalog_count():5;
+        if(!c->catalog&&c->view.fx_slot<ch->fx.count){
             const struct fx_stage*s=ch->fx.stage+c->view.fx_slot;
             if(s->kind==FX_STAGE_EQ)limit=s->eq.count?s->eq.count:1;
             else{const struct fx_catalog_entry*e=fx_catalog_find(s->native_id);unsigned n=0;
@@ -235,36 +213,62 @@ int mixer_control_cc(struct mixer_control*c,unsigned cc,unsigned value,uint64_t 
                 limit=(n+2)/3;if(!limit)limit=1;}
         }
         int next=(int)c->view.cursor+delta;if(next<0)next=0;if((unsigned)next>=limit)next=(int)limit-1;c->view.cursor=(unsigned)next;
-        if(c->view.page==MIXER_MIX){if(c->view.cursor<c->view.scroll)c->view.scroll=c->view.cursor;else if(c->view.cursor>=c->view.scroll+5)c->view.scroll=c->view.cursor-4;}
-        if(c->view.page==MIXER_KNOB_FX&&!c->catalog){c->parameter_page=c->view.cursor;}
+        if(!c->catalog)c->parameter_page=c->view.cursor;
         return 1;
     }
-    if(c->view.page==MIXER_ADVANCED){c->message="Sidechain unavailable";return 1;}
-    if(c->view.page==MIXER_KNOB_FX){
-        if(!one(c)){c->message="Select one Track";return 1;}
-        if(c->catalog){if(cc==0x10)c->view.cursor=value*fx_catalog_count()/128;return 1;}
-        if(c->view.fx_slot>=ch->fx.count)return 1;
-        struct fx_stage*s=ch->fx.stage+c->view.fx_slot;
-        if(s->kind==FX_STAGE_NATIVE){unsigned position=c->parameter_page*3+cc-0x10,index=FX_CHAIN_PARAMETERS,n=0;
-            const struct fx_catalog_entry*e=fx_catalog_find(s->native_id);
-            if(e)for(unsigned i=0;i<e->count;++i)if(e->parameter[i]&&*e->parameter[i]){if(n++==position){index=i;break;}}
-            if(index<FX_CHAIN_PARAMETERS){s->parameter[index]=value/127.f;changed(c);}
-        }else{if(!s->eq.count)fx_eq_default(&s->eq);
-            struct fx_eq_band*b=s->eq.band+(c->parameter_page<s->eq.count?c->parameter_page:0);
-            if(c->shift&&cc==0x10)b->type=value*6/128;
-            else if(c->shift&&cc==0x11)b->enabled=value>=64;
-            else if(c->shift&&cc==0x12)s->eq.output_db=-24+value*36./127;
-            else if(cc==0x10)b->hz=20*pow(1000,value/127.);
-            else if(cc==0x11)b->gain_db=-18+value*36./127;
-            else b->q=.2*pow(80,value/127.);
-            if(b->hz>c->rate*.45)b->hz=c->rate*.45;
-            if(fx_eq_valid(&s->eq,c->rate))changed(c);
-        }return 1;
+    if(!one(c)){c->message="Select one Track";return 1;}
+    if(c->catalog){if(cc==0x10)c->view.cursor=value*fx_catalog_count()/128;return 1;}
+    if(cc==0x14||c->view.fx_slot>=ch->fx.count)return 1;
+    struct fx_stage*s=ch->fx.stage+c->view.fx_slot;
+    if(s->kind==FX_STAGE_NATIVE){unsigned position=c->parameter_page*3+cc-0x10,index=FX_CHAIN_PARAMETERS,n=0;
+        const struct fx_catalog_entry*e=fx_catalog_find(s->native_id);
+        if(e)for(unsigned i=0;i<e->count;++i)if(e->parameter[i]&&*e->parameter[i]){if(n++==position){index=i;break;}}
+        if(index<FX_CHAIN_PARAMETERS){s->parameter[index]=value/127.f;changed(c);}
+    }else{if(!s->eq.count)fx_eq_default(&s->eq);
+        struct fx_eq_band*b=s->eq.band+(c->parameter_page<s->eq.count?c->parameter_page:0);
+        if(c->shift&&cc==0x10)b->type=value*6/128;
+        else if(c->shift&&cc==0x11)b->enabled=value>=64;
+        else if(c->shift&&cc==0x12)s->eq.output_db=-24+value*36./127;
+        else if(cc==0x10)b->hz=20*pow(1000,value/127.);
+        else if(cc==0x11)b->gain_db=-18+value*36./127;
+        else b->q=.2*pow(80,value/127.);
+        if(b->hz>c->rate*.45)b->hz=c->rate*.45;
+        if(fx_eq_valid(&s->eq,c->rate))changed(c);
     }
-    if(cc==0x10){ch->mix.pan=value==64?0:((float)value-64)/(value<64?64:63);changed(c);}
-    else if(cc==0x11)c->message="Send unavailable";
-    else if(c->view.page==MIXER_ASSIGN||c->view.page==MIXER_INSPECT)c->view.bank=value*8/128;
     return 1;
+}
+int mixer_control_cc(struct mixer_control*c,unsigned cc,unsigned value,uint64_t ticket)
+{
+    if(!c||!c->active)return 0;
+    if(cc!=0x10&&cc!=0x11&&cc!=0x12&&cc!=0x14&&cc!=0x64)return 0;
+    if(ticket!=c->ticket||value>127)return 1;
+    if(c->view.page==MIXER_INSPECT){
+        if(cc==0x12){c->view.bank=value*8/128;c->view.sound=c->view.bank*16+c->view.sound%16;}
+        else if(cc==0x64){int delta=value>64?(int)value-128:(int)value;
+            int sound=(int)c->view.sound+delta;if(sound<0)sound=0;if(sound>127)sound=127;c->view.sound=(unsigned)sound;c->view.bank=(unsigned)sound/16;}
+        return 1; /* Inspect is read-only, including Fader and K1. */
+    }
+    /* PAD FX (Select pads): the enlarged Track on the left keeps Fader, K1,
+     * K3 and the encoder exactly as on the Mixer page; banks via Bank/+/-. */
+    if(c->view.page==MIXER_KNOB_FX&&c->fx_editing)return fx_cc(c,cc,value);
+    if(c->view.page!=MIXER_OVERVIEW&&c->view.page!=MIXER_ASSIGN)return 1; /* Track FX: not editable yet */
+    if(cc==0x14){each(c,set_level,mixer_fader_db(value));c->view.cursor=PARAM_LEVEL;return 1;}
+    if(cc==0x10){each(c,set_pan,value==64?0:((float)value-64)/(value<64?64:63));c->view.cursor=PARAM_PAN;return 1;}
+    if(cc==0x12){set_colour(c,value*MIXER_COLOURS/128);c->view.cursor=PARAM_COLOUR;return 1;}
+    if(cc==0x11)return 1; /* K2: empty */
+    int delta=value>64?(int)value-128:(int)value;if(!delta)return 1;
+    const struct mixer_mix*m=primary_mix(c);
+    if(c->view.cursor==PARAM_LEVEL){float db=isfinite(m->level_db)?m->level_db:-60.5f;db+=delta*.5f;
+        each(c,set_level,db< -60?-INFINITY:db>6?6:db);}
+    else if(c->view.cursor==PARAM_PAN)each(c,set_pan,m->pan+delta*.02f);
+    else if(!c->view.master){int index=mixer_colour_index(c->desired.track[c->view.primary].colour);
+        int next=index<0?0:index+delta;if(next<0)next=0;if(next>=(int)MIXER_COLOURS)next=MIXER_COLOURS-1;set_colour(c,(unsigned)next);}
+    return 1;
+}
+int mixer_control_exit_requested(struct mixer_control*c)
+{
+    if(!c||!c->exit_requested)return 0;
+    c->exit_requested=0;return 1;
 }
 void mixer_control_tick(struct mixer_control*c)
 {

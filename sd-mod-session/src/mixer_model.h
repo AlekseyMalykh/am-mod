@@ -17,6 +17,7 @@ extern "C" {
 #define MIXER_LEVEL_MAX_DB 6.f
 #define MIXER_MODEL_VERSION 1u
 #define MIXER_COLOURS 12u
+#define MIXER_DEFAULT_TRACK_COLOUR 6u /* Yellow */
 enum mixer_result { MIXER_OK, MIXER_INVALID, MIXER_FULL, MIXER_UNSUPPORTED,
                     MIXER_CORRUPT, MIXER_SHORT_BUFFER };
 enum mixer_scene_field { MIXER_SCENE_LEVEL=1, MIXER_SCENE_PAN=2,
