@@ -432,7 +432,7 @@ static void mixer_publish_route(void)
     if ((state & MIXER_OPEN) && (view.page == MIXER_ASSIGN || view.page == MIXER_INSPECT)) {
         /* Device feedback: sounds on the selected Track blink white, other
          * loaded sounds dim white, empty pads off (no Track colours). */
-        int cursor_on = music_cursor_on(now_ms(), 500);
+        int cursor_on = now_ms() % 1000 < 500; /* no music_settings in the route test */
         for (unsigned i=0;i<16;++i) {
             int k = mixer_control_cursor(control,i);
             uint64_t light = k == 2 ? pad_light(0xffffffu, cursor_on ? .95f : .12f)
