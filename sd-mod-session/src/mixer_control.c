@@ -289,6 +289,28 @@ int mixer_control_led(const struct mixer_control*c,unsigned pad,uint32_t*rgb)
         *rgb=!c->view.master&&output==c->view.primary+1?colour:((colour&0xfcfcfc)>>2);}
     return 1;
 }
+int mixer_control_cursor(const struct mixer_control*c,unsigned pad)
+{
+    /* Device feedback: no Track colours on the pads. 2 = sound on the selected
+     * Track (Master when Master is selected), shown as the blinking white
+     * cursor; 1 = other loaded sound; 0 = empty. Uses the desired routing so
+     * several quick presses all show before audio confirms them. */
+    if(!c||!c->active||pad>=16||(c->view.page!=MIXER_ASSIGN&&c->view.page!=MIXER_INSPECT))return -1;
+    unsigned sound=c->view.bank*16+pad,output=c->desired.output[sound];
+    unsigned target=c->view.master?0:c->view.primary+1;
+    if(!(c->present[sound/64]&(UINT64_C(1)<<(sound%64))))return 0;
+    return output==target?2:1;
+}
+int mixer_control_output(const struct mixer_control*c,unsigned sound)
+{
+    return c&&sound<MIXER_PADS?(int)c->desired.output[sound]:-1;
+}
+int mixer_control_set_output(struct mixer_control*c,unsigned sound,unsigned output)
+{
+    if(!c||sound>=MIXER_PADS||output>8)return 0;
+    if(c->desired.output[sound]!=output){c->desired.output[sound]=(unsigned char)output;changed(c);}
+    return 1;
+}
 void mixer_control_meter(struct mixer_control*c,const struct mixer_meter_snapshot*m,uint64_t now)
 {
     if(c&&m&&m->epoch==c->epoch){c->meter=*m;c->view.meter_ms=now;}

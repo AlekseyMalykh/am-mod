@@ -29,7 +29,8 @@ void mixer_route_destroy(struct mixer_route_native*);
  * Failure after capture restores the native shadow sum and disables this
  * adapter until it is destroyed/reprepared. No allocations, locks or IO. */
 unsigned mixer_route_last_reject(void); /* diagnostic, 0 = last block captured */
-unsigned mixer_route_last_recover(void); /* diagnostic, source line of the last recovery */
+unsigned mixer_route_last_recover(void);
+unsigned mixer_route_last_native_route(void); /* diagnostic: route words of the last native-only Pad */ /* diagnostic, source line of the last recovery */
 enum mixer_route_result mixer_route_render(struct mixer_route_native*,
     void *program,void *clock,unsigned frames);
 /* Only these specific call sites may use these dispatchers:

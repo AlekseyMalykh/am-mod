@@ -6,7 +6,7 @@
 
 #define BUFFER_BYTES 0x130u
 struct route_buffer { unsigned char native[BUFFER_BYTES];float *channel[2]; };
-struct route_source {void *instrument,*buffer;unsigned pad;};
+struct route_source {void *instrument,*buffer;unsigned pad,native;};
 struct mixer_route_native {
     struct mixer_buses *buses;
     struct mixer_route_ops ops;
@@ -76,7 +76,8 @@ void mixer_route_destroy(struct mixer_route_native*a)
     if(a){mixer_buses_destroy(a->buses);free(a->pcm);free(a);}
 }
 /* Device diagnostic: last reason a block stayed native (0 = captured). */
-static _Atomic unsigned last_reject;
+static _Atomic unsigned last_reject,last_native_route;
+unsigned mixer_route_last_native_route(void){return atomic_load_explicit(&last_native_route,memory_order_relaxed);}
 unsigned mixer_route_last_reject(void){return atomic_load_explicit(&last_reject,memory_order_relaxed);}
 #define REJECT(n) do{atomic_store_explicit(&last_reject,(n),memory_order_relaxed);return 0;}while(0)
 static int eligible(struct mixer_route_native*a)
@@ -106,11 +107,23 @@ static int eligible(struct mixer_route_native*a)
         for(unsigned j=0;j<i;++j)if(a->source[j].instrument==instrument||a->source[j].buffer==source)REJECT(6);
         const char *route=(const char*)instrument+0x560;
         void *destination=a->ops.resolve((char*)a->program+0xc10,route);
+        unsigned native=0;
         if(destination){
             float gain;memcpy(&gain,route+24,4);
-            if(destination!=a->main||word(route,16)>1||word(route,20)>1||!isfinite(gain))REJECT(7);
+            /* Device: during playback some Pads route elsewhere than the
+             * Program main (e.g. another output pair). Rejecting the whole
+             * block dropped every Track and closed the Mixer. A Pad whose
+             * destination is another buffer keeps its exact native route
+             * (uncaptured, not in a Track); main is still overwritten only
+             * by the captured sum, so it cannot be lost there. */
+            if(destination==a->main&&(word(route,16)>1||word(route,20)>1||!isfinite(gain)))REJECT(7);
+            if(destination!=a->main){
+                native=1;atomic_store_explicit(&last_native_route,
+                    (unsigned)(word(route,0)&0xff)|(unsigned)(word(route,8)&0xff)<<8|
+                    (unsigned)(word(route,16)&0xff)<<16|(unsigned)(word(route,20)&0xff)<<24,memory_order_relaxed);
+            }
         } /* null destination uses the native fallback route (stereo unity). */
-        a->source[i]=(struct route_source){instrument,source,word(instrument,0x2168)};
+        a->source[i]=(struct route_source){instrument,source,word(instrument,0x2168),native};
     }
     atomic_store_explicit(&last_reject,0,memory_order_relaxed);
     return 1;
@@ -160,6 +173,10 @@ int mixer_route_sum(const struct mixer_route_ops*ops,void*instrument,void*source
      * ownership changed is instead a failed capture and must recover first. */
     if(ptr(instrument,0x2310)!=a->program&&(!s||s->instrument!=instrument))
         return ops->sum(instrument,source,destination,route,frames);
+    if(s&&s->native&&s->instrument==instrument&&s->buffer==source&&
+       ptr(instrument,0x2310)==a->program&&frames==a->frames){
+        ++a->captured;return ops->sum(instrument,source,destination,route,frames);
+    }
     if(!s||s->instrument!=instrument||s->buffer!=source||destination!=a->main||
        ptr(instrument,0x2310)!=a->program||word(instrument,0x2168)!=s->pad||
        frames!=a->frames||!stereo(source,frames)){

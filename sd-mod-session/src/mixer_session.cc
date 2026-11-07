@@ -100,8 +100,8 @@ extern "C" void mixer_session_ui_tick(mixer_session*s)
         {   /* Lab diagnostic: which of the 10 bus meters (A-H, Direct, Master) are valid. */
             static uint32_t last=~0u;static unsigned lines;
             if(meter.valid_mask!=last&&lines<60){++lines;last=meter.valid_mask;
-                std::fprintf(stderr,"MIXER_METERS valid=0x%03x fault=0x%03x ready=%d reject=%u recover=%u\n",meter.valid_mask,meter.fault_mask,ready?1:0,
-                    mixer_route_last_reject(),mixer_route_last_recover());}
+                std::fprintf(stderr,"MIXER_METERS valid=0x%03x fault=0x%03x ready=%d reject=%u recover=%u native_route=%08x\n",meter.valid_mask,meter.fault_mask,ready?1:0,
+                    mixer_route_last_reject(),mixer_route_last_recover(),mixer_route_last_native_route());}
         }
         int expected=ready?0:1;
         s->status.compare_exchange_strong(expected,ready?1:0,std::memory_order_acq_rel);

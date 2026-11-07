@@ -39,6 +39,12 @@ void mixer_control_tick(struct mixer_control*);
 /* Native owner supplies actual occupied sounds, not table assignments. */
 void mixer_control_presence(struct mixer_control*,uint64_t low,uint64_t high,unsigned bank);
 int mixer_control_led(const struct mixer_control*,unsigned pad,uint32_t*rgb);
+/* Assign/Inspect pad cursor: -1 not shown, 0 empty, 1 other sound, 2 on selected Track. */
+int mixer_control_cursor(const struct mixer_control*,unsigned pad);
+/* Desired Output of an absolute sound 0..127: 0 Master, 1..8 Track A-H.
+ * set_output queues a normal confirmed edit (UI owner only, Mixer open or not). */
+int mixer_control_output(const struct mixer_control*,unsigned sound);
+int mixer_control_set_output(struct mixer_control*,unsigned sound,unsigned output);
 void mixer_control_meter(struct mixer_control*,const struct mixer_meter_snapshot*,uint64_t now_ms);
 void mixer_control_view(struct mixer_control*,uint64_t now_ms,struct mixer_view_state*);
 const char*mixer_control_message(const struct mixer_control*);

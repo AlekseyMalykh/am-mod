@@ -9,6 +9,9 @@ struct mixer_session;
 /* Native phone UI thread only. Pass NULL on the same thread before destroying
  * a bound session. The caller retains ownership and drives owner_tick. */
 int mixer_phone_bind_ui(struct mixer_session*);
+/* UI owner: Output of absolute sound 0..127 (0 Master, 1..8 Track A-H), -1 = Mixer audio not ready. */
+int mixer_phone_pad_output(unsigned sound);
+int mixer_phone_set_pad_output(unsigned sound,unsigned output);
 /* Create and owner_tick on one non-audio owner. Native engine/Program pointers
  * serve as opaque identities. The automatic runtime uses the phone UI owner for
  * its AM model and DSP preparation. Engine/Program reads stay on audio;

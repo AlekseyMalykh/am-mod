@@ -4,6 +4,10 @@
 #include "music_ui.h"
 #include "music_lighting.h"
 #include <math.h>
+#ifdef MPC_MIXER_LIVE
+int mixer_phone_pad_output(unsigned sound);
+int mixer_phone_set_pad_output(unsigned sound,unsigned output);
+#endif
 #include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
@@ -15,7 +19,7 @@ static void *root, *slider;
 static _Atomic(uintptr_t) identity;
 static _Atomic unsigned destroyed, active;
 static _Atomic unsigned requested_shift, focused_k1,repeat_held;
-static _Atomic unsigned trim_active,focused_trim;
+static _Atomic unsigned trim_active,focused_trim,mix_track_active;
 static unsigned colour_push_owned;
 static void give_back_knob_focus(void);
 static int original_note = -1, previous_shift = -1, selection_valid;
@@ -48,6 +52,7 @@ int note_native_owns(unsigned cc)
     if (atomic_load(&repeat_held)) return 0;
     if (!atomic_load(&requested_shift))
         return atomic_load(&trim_active) && (cc==0x11 || (cc==0x64 && atomic_load(&focused_trim)));
+    if (cc==0x10 && atomic_load(&mix_track_active)) return 1; /* Shift+K1 Mix: Pad Track */
     return atomic_load(&active) && (cc==0x10 || (cc==0x64 && atomic_load(&focused_k1)));
 }
 void note_native_destroyed(void *p)
@@ -62,7 +67,7 @@ void note_native_destroyed(void *p)
 static void forget(void)
 {
     atomic_store(&active,0); atomic_store(&identity,0);
-    atomic_store(&requested_shift,0); atomic_store(&focused_k1,0); atomic_store(&trim_active,0); atomic_store(&focused_trim,0);
+    atomic_store(&requested_shift,0); atomic_store(&focused_k1,0); atomic_store(&trim_active,0); atomic_store(&focused_trim,0); atomic_store(&mix_track_active,0);
     root=0; slider=0; original_note=-1; previous_shift=-1;
     selection_valid=0; selected_pad[0]=0; selected_sample[0]=0;
     selection_generation=0;
@@ -119,9 +124,17 @@ static int shifted(void);
 void note_native_mix_shift_tick(void)
 {
     static unsigned reports;
+#ifdef MPC_MIXER_LIVE
+    /* Shift+K1 on Mix is the Pad's Mixer Track: repaint when Shift changes. */
+    {static int last=-1;int now=mix_showing()&&shifted();if(now!=last){last=now;if(root)FN(0x1149880,void(*)(void*,uint64_t,uint64_t))(root,0,FIELD(root,0x28,uint64_t));}}
+#endif
     if (!mix_showing() || !shifted()) return;
     const unsigned offsets[2]={MIX_VOLUME_OFFSET,MIX_PAN_OFFSET};
+#ifdef MPC_MIXER_LIVE
+    for (unsigned i=1;i<2;++i) { /* K1 slot is the Track cell */
+#else
     for (unsigned i=0;i<2;++i) {
+#endif
         void *c=(char*)root+offsets[i];
         if (FIELD(c,0,uintptr_t)!=base+SLIDER_VPTR || (FIELD(c,0xa8,unsigned)&2u)) continue;
         FN(0x1172670,void(*)(void*,int))(c,1);
@@ -272,7 +285,7 @@ int note_native_tick(void)
 {
     int visible=showing();
     if (!root || !slider || FIELD(root,0,uintptr_t)!=base+SAMPLE_VPTR) {
-        atomic_store(&active,0); music_publish(NULL,0); return 0;
+        atomic_store(&active,0); atomic_store(&mix_track_active,0); music_publish(NULL,0); return 0;
     }
     int shift=shifted(), before=original_note, was_valid=selection_valid;
     atomic_store(&requested_shift,(unsigned)shift);
@@ -281,6 +294,9 @@ int note_native_tick(void)
     {
         void *s=trim_slider();
         atomic_store(&trim_active,(unsigned)trim_showing());
+#ifdef MPC_MIXER_LIVE
+        atomic_store(&mix_track_active,(unsigned)mix_showing());
+#endif
         (void)s;
         /* A native knob movement can replace our focus before the next tick. */
         if ((!atomic_load(&trim_active) || shift || FIELD((void*)(base+0x723cde0),0,uintptr_t)) && atomic_load(&focused_trim)) { give_back_knob_focus(); trim_repaint(); }
@@ -364,6 +380,18 @@ int note_native_control(void *event)
         if (next!=current && music_set_pad_colour(pad,music_colour_choice((unsigned)next))) { trim_repaint(); log_note("PAD_COLOUR_CHANGED project_setting"); }
         return 1;
     }
+#ifdef MPC_MIXER_LIVE
+    if (root && FIELD(root,0,uintptr_t)==base+SAMPLE_VPTR && mix_showing() && shifted() && cc==0x10) {
+        /* Shift+K1 on Mix: Output of the selected Pad, Master or Track A-H. */
+        unsigned pad;
+        if (!note_native_pad_index(&pad)) return 1;
+        int current=mixer_phone_pad_output(pad);
+        if (current<0) return 1;
+        int next=(int)((value&127)*9/128);
+        if (next!=current && mixer_phone_set_pad_output(pad,(unsigned)next)) { trim_repaint(); log_note("PAD_TRACK_CHANGED mixer_output"); }
+        return 1;
+    }
+#endif
     if (!showing() || !shifted()) return 0;
     if (cc!=0x10 && cc!=0x64) return 0;
     /* Encoder belongs to Original note only while the same K1 is focused. */
@@ -387,6 +415,9 @@ int note_native_control(void *event)
 }
 int note_native_reset_knob(unsigned column,unsigned shift){
  if(column>2||!root)return 0;
+#ifdef MPC_MIXER_LIVE
+ if(shift&&column==0&&mix_showing()){unsigned pad;if(note_native_pad_index(&pad))mixer_phone_set_pad_output(pad,0);trim_repaint();return 1;}
+#endif
  if(!shift&&column==1&&trim_showing()&&music_pad_lighting_mode()){
   unsigned pad;if(note_native_pad_index(&pad))music_set_pad_colour(pad,0);
   trim_repaint();return 1;
@@ -445,9 +476,35 @@ static void pad_colour_cell(void *g,int ox,int oy,int focused)
     if (focused && valid) { colour(g,ink); rect(g,ox,oy,106,2); rect(g,ox,oy,2,32); rect(g,ox+104,oy,2,32); }
 }
 /* Sample screen paint: K2 has no native child without Shift on Mix. */
+#ifdef MPC_MIXER_LIVE
+/* Shift+K1 on Mix, K1 block at (ox,oy): the Pad's Mixer Track. */
+static void pad_track_cell(void *g,int ox,int oy)
+{
+    unsigned pad; int valid=note_native_pad_index(&pad);
+    int output=valid ? mixer_phone_pad_output(pad) : -1;
+    uint32_t ink=output<0 ? 0xff707070 : 0xffffffff;
+    colour(g,0xff000000); rect(g,ox,oy,106,38);
+    colour(g,ink); text(g,"Track",ox+7,oy+2,82,12,12.0f);
+    shift_badge(g,ox+94,oy+2,1);
+    char value[16];
+    if (output<0) snprintf(value,sizeof(value),"--");
+    else if (!output) snprintf(value,sizeof(value),"Master");
+    else snprintf(value,sizeof(value),"Track %c",'A'+output-1);
+    text(g,value,ox+6,oy+14,96,18,16.0f);
+    for (int i=0;i<9;++i) {
+        int x=i*98/9, next=(i+1)*98/9;
+        colour(g,i==output ? ink : 0xff3b3b3b);
+        rect(g,ox+4+x,oy+35,next-x-2,2);
+    }
+}
+#endif
 void note_native_sample_overlay(void *p,void *g)
 {
-    if (!p || p!=root || !trim_showing() || shifted()) return;
+    if (!p || p!=root) return;
+#ifdef MPC_MIXER_LIVE
+    if (mix_showing() && shifted()) { pad_track_cell(g,0,198); return; }
+#endif
+    if (!trim_showing() || shifted()) return;
     pad_colour_cell(g,106,198,(int)atomic_load(&focused_trim));
 }
 int note_native_footer(void *p,void *g)

@@ -429,6 +429,22 @@ static void mixer_publish_route(void)
     /* Device report: the Sample pad colours stayed lit in the Mixer. Outside
      * Assign/Inspect the pads select Tracks: pads 1-8 = Track A-H in their
      * colours (selected bright), pad 16 = Master, the rest off. */
+    if ((state & MIXER_OPEN) && (view.page == MIXER_ASSIGN || view.page == MIXER_INSPECT)) {
+        /* Device feedback: sounds on the selected Track blink white, other
+         * loaded sounds dim white, empty pads off (no Track colours). */
+        int cursor_on = music_cursor_on(now_ms(), 500);
+        for (unsigned i=0;i<16;++i) {
+            int k = mixer_control_cursor(control,i);
+            uint64_t light = k == 2 ? pad_light(0xffffffu, cursor_on ? .95f : .12f)
+                : k == 1 ? pad_light(0xffffffu, .12f) : 0;
+            atomic_store(&mixer_select_lights[i], light);
+        }
+        atomic_store(&mixer_select_enabled, 1);
+        mixer_leds_disable();
+        int bank = step_native_browser_bank(-1);
+        if (bank >= 0 && bank < 8 && bank != (int)view.bank) step_native_browser_bank((int)view.bank);
+        return;
+    }
     if ((state & MIXER_OPEN) && view.project && view.page != MIXER_ASSIGN && view.page != MIXER_INSPECT) {
         for (unsigned i=0;i<16;++i) {
             uint64_t light = 0;
@@ -461,6 +477,18 @@ static void mixer_publish_route(void)
     mixer_leds_disable();
 }
 
+/* UI owner: per-Pad Output from the Sample Mix page (Shift+K1). */
+int mixer_phone_pad_output(unsigned sound)
+{
+    struct mixer_control *control = mixer_session_control(mixer_ui_session);
+    return control && mixer_session_status(mixer_ui_session) == 1 ? mixer_control_output(control,sound) : -1;
+}
+int mixer_phone_set_pad_output(unsigned sound,unsigned output)
+{
+    struct mixer_control *control = mixer_session_control(mixer_ui_session);
+    return on_ui() && control && mixer_session_status(mixer_ui_session) == 1 &&
+        mixer_control_set_output(control,sound,output);
+}
 int mixer_phone_bind_ui(struct mixer_session *session)
 {
     if (!on_ui()) return 0;
