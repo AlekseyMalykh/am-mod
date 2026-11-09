@@ -5,6 +5,7 @@
  * to start at a centre mark, so the default (0, "C") reads as centred.
  * Patched at runtime: the zero-width skip (cbz) becomes a NOP and the fill
  * call goes through a relay that passes the slider and the fill colour. */
+#include "shift_badge.h"
 #include "values_bipolar.h"
 #include <math.h>
 #include <stdio.h>
@@ -34,6 +35,17 @@ static void values_fill(void*g,int x,int y,int w,int h,void*slider,uint32_t colo
         ink(g,0xffa0a0a0u);rect(g,centre-1,y-2,2,h+4);ink(g,colour);
     }else if(w>0)rect(g,x,y,w,h);
 }
+/* Native badge has already set ink and drawn the frame. The original
+ * fitted-text call supplied the inner rectangle at (x+1, y+1). */
+static void values_shift_arrow(void*g,const void*unused,int x,int y)
+{
+    (void)unused;
+    void(*rect)(void*,int,int,int,int)=(void(*)(void*,int,int,int,int))(image+0x102e000);
+    for(unsigned i=4;i<sizeof(shift_badge_rects)/sizeof(shift_badge_rects[0]);++i){
+        const unsigned char*r=shift_badge_rects[i];
+        rect(g,x-1+r[0],y-1+r[1],r[2],r[3]);
+    }
+}
 static int patch_word(uintptr_t at,uint32_t value){
     void *page=(void*)(at&~(uintptr_t)4095);
     if(mprotect(page,4096,PROT_READ|PROT_WRITE))return 0;
@@ -55,18 +67,30 @@ int values_bipolar_install(uintptr_t base){
     const uint32_t code[]={0xaa1403e5u /* mov x5,x20 */,0x2a1903e6u /* mov w6,w25 */,
         0x910203e7u /* add x7,sp,#0x80 */,0x58000070u /* ldr x16,#12 */,0xd61f0200u /* br x16 */,0xd503201fu};
     memcpy(relay,code,sizeof(code));F(relay,24,uintptr_t)=(uintptr_t)values_fill;
-    __builtin___clear_cache(relay,(char*)relay+32);
+    const uintptr_t badge_call=base+0x6d3c220;
+    const uint32_t badge_signature[]={0x110006e2u,0x52800063u,0x52800104u,0x52800145u,0x52800486u,0x52800027u,0x1e2e1000u};
+    int badge=!memcmp((void*)(badge_call-sizeof(badge_signature)),badge_signature,sizeof(badge_signature))&&
+        F((void*)badge_call,0,uint32_t)==(0x94000000u|((uint32_t)((0x10817b0-0x6d3c220)/4)&0x3ffffffu));
+    const uint32_t badge_relay[]={0xd503245fu,0x58000070u,0xd61f0200u,0xd503201fu};
+    memcpy((char*)relay+32,badge_relay,sizeof(badge_relay));
+    F(relay,48,uintptr_t)=(uintptr_t)values_shift_arrow;
+    __builtin___clear_cache(relay,(char*)relay+56);
     if(mprotect(relay,4096,PROT_READ|PROT_EXEC)){munmap(relay,4096);return 0;}
     int64_t d=(int64_t)(uintptr_t)relay-(int64_t)call;
     if(d< -0x8000000||d>=0x8000000){munmap(relay,4096);return 0;}
     image=base;
     if(!patch_word(skip,0xd503201fu))return 0;
     if(!patch_word(call,0x94000000u|((uint32_t)(d/4)&0x3ffffffu)))_exit(121);
+    if(badge){
+        int64_t offset=(int64_t)(uintptr_t)relay+32-(int64_t)badge_call;
+        if(!patch_word(badge_call,0x94000000u|((uint32_t)(offset/4)&0x3ffffffu)))_exit(121);
+        fprintf(stderr,"VALUES_SHIFT_ARROW INSTALLED\n");
+    }
     fprintf(stderr,"VALUES_BIPOLAR CENTRE_BAR_INSTALLED\n");
     return 1;
 }
 
-/* Shift badges ("S") come from the native-UI pair table in values-code
+/* Shift badges come from the native-UI pair table in values-code
  * (ui_shift_pairs: screen, visible anchor, Shift alternative, K column; 19
  * rows). Add Sample Amp Env K2 Decay (native Shift alternative at +0x5a18).
  * Mix K2 already pairs with native Shift Kit Volume. The extra row goes

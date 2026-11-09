@@ -231,7 +231,7 @@ static void draw_text(void *g,const uint64_t *s,int x,int y,int w,int h,int flag
     (void)g;(void)flags;(void)lines;(void)scale;
     fprintf(draw_file,"T %d %d %d %d %08x %.1f @%x %s\n",x,y,w,h,draw_ink,draw_height,flags,(const char*)(uintptr_t)*s);
 }
-static void draw_preview(const char *path)
+static void draw_preview(const char *path,int status_only)
 {
     draw_file=fopen(path,"w");assert(draw_file);
     stub(0x102d5e0,draw_colour);stub(0x102e000,draw_rect);
@@ -240,6 +240,13 @@ static void draw_preview(const char *path)
     __builtin___clear_cache((char*)base,(char*)(base+0x7500000));
     steps=want_steps=1;menu=0;focus=3;message[0]=0;step_native_tick();
     step_native_paint(surface,(void*)1);assert(draw_bars==2);
+    if(status_only){
+        say("Status test");
+        atomic_store(&clock_valid,1);atomic_store(&clock_running,1);atomic_store(&clock_tick,123);
+        follow=1;step_native_paint(surface,(void*)1);
+        follow=0;atomic_store(&clock_running,0);step_native_paint(surface,(void*)1);
+        atomic_store(&clock_valid,0);message[0]=0;follow=1;
+    }
     fclose(draw_file);draw_file=NULL;
     button(0x0d,1);button(0x0d,0);assert(!steps && !want_steps);
 }
@@ -262,7 +269,7 @@ static void setup(void)
 }
 int main(int argc,char **argv)
 {
-    assert(argc==3);struct sigaction a={0};a.sa_sigaction=fault;a.sa_flags=SA_SIGINFO;
+    assert(argc==3||(argc==4&&!strcmp(argv[3],"status-only")));struct sigaction a={0};a.sa_sigaction=fault;a.sa_flags=SA_SIGINFO;
     sigaction(SIGSEGV,&a,NULL);sigaction(SIGBUS,&a,NULL);sigaction(SIGILL,&a,NULL);
     load_elf(argv[1],0x1800000000ULL);setup();
     phase="physical Chop input routing, separate from Sample Save";
@@ -430,7 +437,8 @@ int main(int argc,char **argv)
     assert(step_native_light(3,&light)&&(uint32_t)light==0x303030);
     assert(step_native_light(7,&light)&&((uint32_t)light==PAD_SELECT||(uint32_t)light==PAD_EMPTY));
     step_native_requested(0x0c,0);steps=want_steps=0;step_native_tick();
-    draw_preview(argv[2]);
+    draw_preview(argv[2],argc==4);
+    if(argc==4)return 0;
     FIELD(sample_refs,8,int)=0;read_sample_name(label);assert(!strcmp(label,"Empty"));
     FN(0xf0a290,void(*)(void*))((void*)(sample_data+0xa8));
     phase="shared native bank selection property";

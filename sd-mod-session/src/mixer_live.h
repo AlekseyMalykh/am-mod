@@ -28,6 +28,7 @@ int mixer_live_bus_view(const struct mixer_live*,unsigned bus,struct mixer_pcm_v
 enum mixer_bus_result mixer_live_publish(struct mixer_live*,const struct mixer_project*,uint64_t part,uint64_t revision);
 void mixer_live_collect(struct mixer_live*);
 uint64_t mixer_live_applied_revision(const struct mixer_live*);
+int mixer_live_fx_monitor(struct mixer_live*,unsigned channel,unsigned slot,struct mixer_fx_monitor*);
 int mixer_live_take_meter(struct mixer_live*,struct mixer_meter_snapshot*);
 /* Native dispatch: engine executes exactly once, Program capture only inside
  * this engine scope, global Master FX/gain after native downstream mixing. */

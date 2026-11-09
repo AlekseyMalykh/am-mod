@@ -13,6 +13,9 @@ struct mixer_bus_update {
     unsigned char output[MIXER_PADS];
     unsigned solo;
     float gain[9][2];
+    unsigned char send_to[MIXER_TRACKS];
+    unsigned order[MIXER_TRACKS];
+    float send[MIXER_TRACKS];
     struct fx_chain_config config[9];
     struct fx_program *fx[9];
 };
@@ -22,16 +25,26 @@ struct mixer_buses {
     enum mixer_bus_result fault;
     unsigned char output[MIXER_PADS];
     float gain[9][2];
+    unsigned char send_to[MIXER_TRACKS];
+    unsigned order[MIXER_TRACKS];
+    float send[MIXER_TRACKS];
     struct fx_exchange*fx[9];
     struct fx_chain_config config[9];
     unsigned char previous_output[MIXER_PADS];
-    float previous_gain[9][2];
+    float previous_gain[9][2],previous_send[MIXER_TRACKS];
     unsigned previous_solo,ramp_position,ramp_total,transition;
     uint64_t target_revision;
     double rate;
     _Atomic uint64_t applied_revision;
     _Atomic(struct mixer_bus_update*) pending,retired;
-    float *pcm,*scratch;
+    float *pcm,*scratch,*keys,*returns;
+    uint32_t return_mask;
+    float return_peak[MIXER_TRACKS];
+    const struct mixer_buses*key_source;
+    _Atomic unsigned monitor,monitor_ready;
+    unsigned monitor_key,monitor_frames,monitor_offset;
+    const float *monitor_detector;
+    struct mixer_fx_monitor collecting,monitor_packet;
 };
 static void result(enum mixer_bus_result*out,enum mixer_bus_result value){if(out)*out=value;}
 static float*channel(const struct mixer_buses*b,unsigned bus,unsigned ch){return b->pcm+(bus*2u+ch)*b->max_frames;}
@@ -50,18 +63,23 @@ struct mixer_buses*mixer_buses_prepare(const struct mixer_project*p,uint64_t par
     struct mixer_mix mix[MIXER_TRACKS];mixer_scene_resolve(p,part_id,mix);
     for(unsigned i=0;i<=MIXER_TRACKS;++i){
         const struct mixer_channel*c=i<MIXER_TRACKS?p->track+i:&p->master;
-        const struct mixer_mix*m=i<MIXER_TRACKS?mix+i:&p->master.mix;
-        if(m->send!=0){result(error,MIXER_BUS_UNSUPPORTED);return NULL;}
+        if(i==MIXER_TRACKS&&p->master.mix.send!=0){result(error,MIXER_BUS_UNSUPPORTED);return NULL;}
         if(!fx_chain_valid(&c->fx,rate))return NULL;
     }
     struct mixer_buses*b=calloc(1,sizeof(*b));if(!b){result(error,MIXER_BUS_RESOURCE);return NULL;}
     b->max_frames=max_frames;b->rate=rate;
+    atomic_init(&b->monitor,0);atomic_init(&b->monitor_ready,0);
     atomic_init(&b->pending,NULL);atomic_init(&b->retired,NULL);atomic_init(&b->applied_revision,0);
     /* Ten stereo planar buses plus one shared stereo interleaved FX block. */
-    b->pcm=calloc((size_t)max_frames*22,sizeof(float));
+    b->pcm=calloc((size_t)max_frames*(22+FX_SIDECHAIN_KEYS+2*MIXER_TRACKS),sizeof(float));
     if(!b->pcm){free(b);result(error,MIXER_BUS_RESOURCE);return NULL;}
     b->scratch=b->pcm+(size_t)max_frames*20;
+    b->keys=b->pcm+(size_t)max_frames*22;
+    b->returns=b->keys+(size_t)max_frames*FX_SIDECHAIN_KEYS;
     memcpy(b->output,p->output,sizeof(b->output));
+    memcpy(b->send_to,p->send_to,sizeof(b->send_to));
+    mixer_send_order(b->send_to,b->order);
+    for(unsigned i=0;i<MIXER_TRACKS;++i)b->send[i]=mix[i].send;
     for(unsigned i=0;i<MIXER_TRACKS;++i)if(mix[i].solo)b->solo=1;
     for(unsigned i=0;i<=MIXER_TRACKS;++i){
         const struct mixer_channel*c=i<MIXER_TRACKS?p->track+i:&p->master;
@@ -90,7 +108,7 @@ static int same_fx(const struct fx_chain_config*a,const struct fx_chain_config*c
     if(a->count!=c->count)return 0;
     for(unsigned i=0;i<a->count;++i){const struct fx_stage*x=a->stage+i,*y=c->stage+i;
         if(x->kind!=y->kind||x->bypass!=y->bypass)return 0;
-        if(x->kind==FX_STAGE_NATIVE){if(x->native_id!=y->native_id)return 0;
+        if(x->kind!=FX_STAGE_EQ){if(x->native_id!=y->native_id)return 0;
             for(unsigned p=0;p<FX_CHAIN_PARAMETERS;++p)if(x->parameter[p]!=y->parameter[p])return 0;
         }else{if(x->eq.count!=y->eq.count||x->eq.bypass!=y->eq.bypass||x->eq.output_db!=y->eq.output_db)return 0;
             for(unsigned j=0;j<x->eq.count;++j){const struct fx_eq_band*u=x->eq.band+j,*v=y->eq.band+j;
@@ -109,6 +127,11 @@ static void accept_update(struct mixer_buses*b)
     if(u->revision>b->target_revision){
         memcpy(b->previous_output,b->output,sizeof(b->output));memcpy(b->output,u->output,sizeof(b->output));
         memcpy(b->previous_gain,b->gain,sizeof(b->gain));memcpy(b->gain,u->gain,sizeof(b->gain));
+        for(unsigned i=0;i<MIXER_TRACKS;++i)
+            b->previous_send[i]=b->send_to[i]==u->send_to[i]?b->send[i]:0;
+        memcpy(b->send,u->send,sizeof(b->send));
+        memcpy(b->send_to,u->send_to,sizeof(b->send_to));
+        memcpy(b->order,u->order,sizeof(b->order));
         b->previous_solo=b->solo;b->solo=u->solo;b->target_revision=u->revision;
         b->ramp_position=0;b->ramp_total=(unsigned)(b->rate*.005);if(!b->ramp_total)b->ramp_total=1;
         b->transition=1;
@@ -155,12 +178,77 @@ enum mixer_bus_result mixer_buses_accumulate(struct mixer_buses*b,unsigned pad,c
     }
     return MIXER_BUS_OK;
 }
+void mixer_buses_key_source(struct mixer_buses*b,const struct mixer_buses*source)
+{b->key_source=source;}
+void mixer_buses_monitor(struct mixer_buses*b,unsigned channel,unsigned slot)
+{
+    unsigned key=channel<9&&slot<FX_CHAIN_MAX?1+channel*FX_CHAIN_MAX+slot:0;
+    atomic_store_explicit(&b->monitor,key,memory_order_relaxed);
+}
+int mixer_buses_take_monitor(struct mixer_buses*b,struct mixer_fx_monitor*out)
+{
+    if(!atomic_load_explicit(&b->monitor_ready,memory_order_acquire))return 0;
+    *out=b->monitor_packet;
+    atomic_store_explicit(&b->monitor_ready,0,memory_order_release);
+    return 1;
+}
+static void monitor_stage(void*user,const float*pcm,size_t frames,int after)
+{
+    struct mixer_buses*b=user;
+    unsigned n=MIXER_FX_MONITOR_FRAMES-b->monitor_frames;
+    if(frames<n)n=(unsigned)frames;
+    float peak=0;
+    for(unsigned i=0;i<n;++i){
+        float l=pcm[i*2],r=pcm[i*2+1];
+        peak=fmaxf(peak,fmaxf(fabsf(l),fabsf(r)));
+        float *wave=after?b->collecting.pcm:b->collecting.input_pcm;
+        wave[b->monitor_frames+i]=.5f*l+.5f*r;
+        if(!after&&b->monitor_detector)
+            b->collecting.key_peak=fmaxf(b->collecting.key_peak,b->monitor_detector[b->monitor_offset+i]);
+    }
+    if(!after){b->collecting.input_peak=fmaxf(b->collecting.input_peak,peak);return;}
+    b->collecting.output_peak=fmaxf(b->collecting.output_peak,peak);
+    b->monitor_offset+=(unsigned)frames;
+    b->monitor_frames+=n;
+    if(b->monitor_frames!=MIXER_FX_MONITOR_FRAMES)return;
+    if(!atomic_load_explicit(&b->monitor_ready,memory_order_acquire)){
+        b->monitor_packet=b->collecting;
+        atomic_store_explicit(&b->monitor_ready,1,memory_order_release);
+    }
+    b->monitor_frames=0;
+    b->collecting.input_peak=b->collecting.output_peak=b->collecting.key_peak=0;
+}
 static int process(struct mixer_buses*b,unsigned bus,unsigned fx)
 {
     float*l=channel(b,bus,0),*r=channel(b,bus,1);
     if(b->fx[fx]){
         for(unsigned i=0;i<b->frames;++i){b->scratch[i*2]=l[i];b->scratch[i*2+1]=r[i];}
-        fx_exchange_process(b->fx[fx],b->scratch,b->frames);
+        const struct mixer_buses*source=b->key_source?b->key_source:b;
+        const float*keys[FX_SIDECHAIN_KEYS]={0};
+        if(source->frames==b->frames&&(source==b||source->state==2))
+            for(unsigned i=0;i<FX_SIDECHAIN_KEYS;++i)keys[i]=source->keys+(size_t)i*source->max_frames;
+        unsigned key=atomic_load_explicit(&b->monitor,memory_order_relaxed);
+        if(key&&((key-1)/FX_CHAIN_MAX)==fx){
+            unsigned slot=(key-1)%FX_CHAIN_MAX;
+            if(key!=b->monitor_key){
+                b->monitor_key=key;b->monitor_frames=0;
+                b->collecting.input_peak=b->collecting.output_peak=b->collecting.key_peak=0;
+                b->collecting.channel=fx;b->collecting.slot=slot;
+            }
+            b->monitor_detector=NULL;
+            b->monitor_offset=0;
+            if(slot<b->config[fx].count){
+                const struct fx_stage*stage=b->config[fx].stage+slot;
+                if(stage->kind==FX_STAGE_SIDECHAIN){
+                    unsigned detector=(unsigned)fx_sidechain_value(0,stage->parameter[0]);
+                    if(detector)b->monitor_detector=keys[detector-1];
+                }
+            }
+            fx_exchange_process_keyed(b->fx[fx],b->scratch,b->frames,slot,monitor_stage,b,keys);
+        }else{
+            if(!key)b->monitor_key=0;
+            fx_exchange_process_keyed(b->fx[fx],b->scratch,b->frames,0,NULL,NULL,keys);
+        }
         for(unsigned i=0;i<b->frames;++i){l[i]=b->scratch[i*2];r[i]=b->scratch[i*2+1];}
     }
     for(unsigned i=0;i<b->frames;++i){
@@ -176,8 +264,45 @@ enum mixer_bus_result mixer_buses_finish(struct mixer_buses*b,struct mixer_meter
 {
     if(!b||b->state!=1)return MIXER_BUS_STATE;
     if(meters&&!epoch)b->fault=MIXER_BUS_INVALID;
+    b->return_mask=0;
     if(b->fault==MIXER_BUS_OK){
-        for(unsigned i=0;i<MIXER_TRACKS;++i)if(!process(b,i,i)){b->fault=MIXER_BUS_AUDIO_ERROR;break;}
+        /* Snapshot the detector before any track FX, send, fader or gate.
+         * All tracks can key each other without an audio dependency cycle. */
+        for(unsigned i=0;i<FX_SIDECHAIN_KEYS;++i){
+            float *key=b->keys+(size_t)i*b->max_frames;
+            const float *l=channel(b,i,0),*r=channel(b,i,1);
+            for(unsigned frame=0;frame<b->frames;++frame)key[frame]=fmaxf(fabsf(l[frame]),fabsf(r[frame]));
+        }
+        for(unsigned n=0;n<MIXER_TRACKS;++n){
+            unsigned i=b->order[n];
+            if(b->return_mask&(1u<<i)){
+                float peak=0;
+                for(unsigned ch=0;ch<2;++ch){
+                    float*input=channel(b,i,ch);
+                    const float*returns=b->returns+(size_t)(2*i+ch)*b->max_frames;
+                    for(unsigned frame=0;frame<b->frames;++frame){
+                        float value=returns[frame];
+                        peak=fmaxf(peak,fabsf(value));
+                        input[frame]+=value;
+                    }
+                }
+                b->return_peak[i]=peak;
+            }
+            if(!process(b,i,i)){b->fault=MIXER_BUS_AUDIO_ERROR;break;}
+            unsigned destination=b->send_to[i];
+            if(!destination||(!b->send[i]&&(!b->transition||!b->previous_send[i])))continue;
+            unsigned bit=1u<<(destination-1);
+            for(unsigned ch=0;ch<2;++ch){
+                const float*source=channel(b,i,ch);
+                float*target=b->returns+(size_t)(2*(destination-1)+ch)*b->max_frames;
+                if(!(b->return_mask&bit))memset(target,0,b->frames*sizeof(float));
+                for(unsigned frame=0;frame<b->frames;++frame){
+                    float level=b->transition?b->previous_send[i]+blend(b,frame)*(b->send[i]-b->previous_send[i]):b->send[i];
+                    target[frame]+=source[frame]*level;
+                }
+            }
+            b->return_mask|=bit;
+        }
         for(unsigned ch=0;ch<2;++ch){float*direct=channel(b,MIXER_METER_DIRECT,ch);
             for(unsigned i=0;i<b->frames;++i){float gate=b->solo?0:1;
                 if(b->transition){float before=b->previous_solo?0:1;gate=before+blend(b,i)*(gate-before);}
@@ -204,7 +329,7 @@ enum mixer_bus_result mixer_buses_finish(struct mixer_buses*b,struct mixer_meter
     }else {memset(b->pcm,0,(size_t)b->max_frames*20*sizeof(float));b->state=3;}
     /* Failure publishes unavailable taps, not stale peaks from a former block.
      * A full queue is telemetry backpressure only, never an audio error. */
-    if(meters&&epoch)mixer_meters_push(meters,epoch,b->frames,taps);
+    if(meters&&epoch)mixer_meters_push_returns(meters,epoch,b->frames,taps,b->state==2?b->return_mask:0,b->return_peak);
     return b->fault;
 }
 int mixer_buses_view(const struct mixer_buses*b,unsigned bus,struct mixer_pcm_view*out)
@@ -212,7 +337,13 @@ int mixer_buses_view(const struct mixer_buses*b,unsigned bus,struct mixer_pcm_vi
     if(!b||!out||b->state!=2||bus>=MIXER_METER_BUSES)return 0;
     out->channel[0]=channel(b,bus,0);out->channel[1]=channel(b,bus,1);out->frames=b->frames;return 1;
 }
-size_t mixer_buses_pcm_bytes(const struct mixer_buses*b){return b?(size_t)b->max_frames*22*sizeof(float):0;}
+uint32_t mixer_buses_return_peaks(const struct mixer_buses*b,float out[MIXER_TRACKS])
+{
+    if(!b||b->state!=2)return 0;
+    memcpy(out,b->return_peak,sizeof(b->return_peak));
+    return b->return_mask;
+}
+size_t mixer_buses_pcm_bytes(const struct mixer_buses*b){return b?(size_t)b->max_frames*(22+FX_SIDECHAIN_KEYS+2*MIXER_TRACKS)*sizeof(float):0;}
 struct mixer_bus_update*mixer_buses_update_prepare_delta(const struct mixer_project*p,uint64_t part,double rate,
     uint64_t revision,const struct fx_backend*backend,const struct fx_chain_config previous[9],enum mixer_bus_result*error)
 {
@@ -221,10 +352,13 @@ struct mixer_bus_update*mixer_buses_update_prepare_delta(const struct mixer_proj
     struct mixer_mix mix[MIXER_TRACKS];mixer_scene_resolve(p,part,mix);
     struct mixer_bus_update*u=calloc(1,sizeof(*u));if(!u){result(error,MIXER_BUS_RESOURCE);return NULL;}
     u->revision=revision;u->rate=rate;memcpy(u->output,p->output,sizeof(u->output));
+    memcpy(u->send_to,p->send_to,sizeof(u->send_to));
+    mixer_send_order(u->send_to,u->order);
+    for(unsigned i=0;i<MIXER_TRACKS;++i)u->send[i]=mix[i].send;
     for(unsigned i=0;i<8;++i)if(mix[i].solo)u->solo=1;
     for(unsigned i=0;i<9;++i){const struct mixer_channel*c=i<8?p->track+i:&p->master;
         const struct mixer_mix*m=i<8?mix+i:&p->master.mix;
-        if(m->send){result(error,MIXER_BUS_UNSUPPORTED);goto fail;}
+        if(i==8&&m->send){result(error,MIXER_BUS_UNSUPPORTED);goto fail;}
         if(!fx_chain_valid(&c->fx,rate))goto fail;
         gains(u->gain[i],m,i==8||(!m->mute&&(!u->solo||m->solo)));
         if(!c->fx_bypass)u->config[i]=c->fx;

@@ -18,7 +18,7 @@ project_append:
 #ifdef NOTE_UI
  mov x0,x19
  mov x1,x20
- bl list_append                  // Separate Key / Scale row, preserving Mod Off.
+ bl list_append                  // Separate Key / Scale / Tempo row, preserving Mod Off.
 #ifdef PAD_LIGHTING_MENU
 #ifndef NO_MOD_OFF
  mov x0,x19
@@ -184,7 +184,11 @@ project_dispatch:
 mod_off_title: .asciz "Mod Off"
 #endif
 #ifdef NOTE_UI
+#ifdef PAD_LIGHTING_MENU
+music_title: .asciz "Key / Scale / Tempo"
+#else
 music_title: .asciz "Key / Scale"
+#endif
 #ifdef PAD_LIGHTING_MENU
 lighting_title: .asciz "Mod Settings"
 #endif

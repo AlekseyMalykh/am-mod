@@ -10,7 +10,7 @@ int mixer_stems_install(uintptr_t image);
 int mixer_stems_available(void);
 void mixer_stems_disarm(void);
 /* UI: arm the next confirmed Song export to write Track and Master stems. */
-void mixer_stems_arm(void);
+void mixer_stems_arm(int with_fx);
 int mixer_stems_armed(void);
 void mixer_stems_song_frame(void *context,void *writer,const char *path,unsigned rate);
 /* Offline export worker (engine entry from 18b556c/18b98bc): 1 = rendered

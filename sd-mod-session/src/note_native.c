@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include "shift_badge.h"
 #include "note_native.h"
 #include "music_settings.h"
 #include "music_ui.h"
@@ -501,18 +502,15 @@ static void text(void *g,const char *s,int x,int y,int w,int h,float height)
     FN(0x1070d60,void(*)(uint64_t*))(&font);
     FN(0xf0a290,void(*)(uint64_t*))(&string);
 }
-/* Shift badge as the native K panel draws it (values_ui.S): a 10x12 frame
- * with "S", white, red while Shift is held. bx = column*106+94, top = y. */
 static void shift_badge(void *g,int bx,int top,int on)
 {
     colour(g,on ? 0xffff4747 : 0xffffffff);
-    rect(g,bx,top,10,1); rect(g,bx,top+11,10,1); rect(g,bx,top,1,12); rect(g,bx+9,top,1,12);
-    text(g,"S",bx+1,top+1,8,10,10.0f);
+    SHIFT_BADGE_RECTS(rect,g,bx,top);
 }
 
 /* Mix K2 without Shift: Pad Colour of the selected pad (Stock = native). */
 static void pad_colour_cell(void *g,int ox,int oy,int focused);
-/* Pad Colour, K2 block at (ox,oy): S marks the native Kit Volume alternative. */
+/* Pad Colour, K2 block at (ox,oy): the arrow marks the Kit Volume alternative. */
 static void pad_colour_cell(void *g,int ox,int oy,int focused)
 {
     unsigned pad; int valid=note_native_pad_index(&pad);
@@ -561,7 +559,13 @@ void note_native_sample_overlay(void *p,void *g)
 {
     if (!p || p!=root) return;
 #ifdef MPC_MIXER_LIVE
-    if (mix_showing() && shifted()) { pad_track_cell(g,0,198,(int)atomic_load(&focused_track)); return; }
+    if(mix_showing()){
+        if(shifted()){
+            pad_track_cell(g,0,198,(int)atomic_load(&focused_track));
+            return;
+        }
+        shift_badge(g,94,200,0);
+    }
 #endif
     if (!trim_showing() || shifted()) return;
     pad_colour_cell(g,106,198,(int)atomic_load(&focused_trim));

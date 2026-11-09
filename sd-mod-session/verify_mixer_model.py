@@ -47,7 +47,7 @@ name_bytes = raw[8]
 assert raw[9:9+name_bytes].decode("utf-8") == "Бас"
 offset = 9 + name_bytes
 colour, level, pan, send, mute, solo, bypass, fx_count = struct.unpack_from("<IfffBBBB", raw, offset)
-assert colour == 0x00c700 and level == 0 and pan == -1 and send == 0
+assert colour == 0xffe000 and level == 0 and pan == -1 and send == 0
 assert mute == solo == bypass == 0 and fx_count == 2
 offset += struct.calcsize("<IfffBBBB")
 kind, fx_bypass, native_id = struct.unpack_from("<BBI", raw, offset)

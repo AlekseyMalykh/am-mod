@@ -1,4 +1,6 @@
 #define _GNU_SOURCE
+#include "shift_badge.h"
+#include "spectrum_plot.h"
 #include "pad_eq.h"
 #include "sample_mute.h"
 #include "music_settings.h"
@@ -93,14 +95,6 @@ int pad_eq_spectrum_dirty(void){
     if(spec_now_ms()-spec_seen_ms>600){atomic_store_explicit(&spec_pad,-1,memory_order_relaxed);return 0;}
     return atomic_load_explicit(&spec_frames,memory_order_relaxed)!=spec_painted_frames||spec_visible_bars;
 }
-static void fft(float*re,float*im,unsigned n){
-    for(unsigned i=1,j=0;i<n;++i){unsigned bit=n>>1;for(;j&bit;bit>>=1)j^=bit;j^=bit;if(i<j){float t=re[i];re[i]=re[j];re[j]=t;t=im[i];im[i]=im[j];im[j]=t;}}
-    for(unsigned len=2;len<=n;len<<=1){double a=-2*M_PI/len;float wr=(float)cos(a),wi=(float)sin(a);
-        for(unsigned i=0;i<n;i+=len){float cr=1,ci=0;for(unsigned k=0;k<len/2;++k){
-            float ur=re[i+k],ui=im[i+k],vr=re[i+k+len/2]*cr-im[i+k+len/2]*ci,vi=re[i+k+len/2]*ci+im[i+k+len/2]*cr;
-            re[i+k]=ur+vr;im[i+k]=ui+vi;re[i+k+len/2]=ur-vr;im[i+k+len/2]=ui-vi;
-            float nr=cr*wr-ci*wi;ci=cr*wi+ci*wr;cr=nr;}}}
-}
 void pad_eq_spectrum_paint(unsigned pad,int muted,int left,int top,int width,int height,uint32_t tint,const struct resample_painter*p){
     if(pad>=128||!p||!p->rect||width<1||height<1)return;
     if(muted||(music_pad_lighting_mode()&&music_mod_setting(MUSIC_SETTING_SPECTRUM))){
@@ -117,14 +111,11 @@ void pad_eq_spectrum_paint(unsigned pad,int muted,int left,int top,int width,int
     if(fresh){
         static float re[SPEC_N],im[SPEC_N];unsigned end=atomic_load_explicit(&spec_pos,memory_order_acquire);
         for(unsigned i=0;i<SPEC_N;++i){float w=.5f-.5f*(float)cos(2*M_PI*i/(SPEC_N-1));re[i]=spec_ring[(end-SPEC_N+i)&(SPEC_RING-1)]*w;im[i]=0;}
-        fft(re,im,SPEC_N);
+        spectrum_fft(re,im,SPEC_N);
         uint64_t bits=atomic_load_explicit(&spec_rate_bits,memory_order_relaxed);double rate;memcpy(&rate,&bits,8);
         if(!(rate>=8000&&rate<=192000))rate=44100;
         for(int x=0;x<width;++x){
-            double lo=20*pow(1000,x/(double)width),hi=20*pow(1000,(x+1)/(double)width);
-            unsigned a=(unsigned)(lo*SPEC_N/rate),b=(unsigned)(hi*SPEC_N/rate);if(a<1)a=1;if(b<a+1)b=a+1; /* no DC bin */if(b>SPEC_N/2)b=SPEC_N/2;
-            float peak=0;for(unsigned k=a;k<b;++k){float m=re[k]*re[k]+im[k]*im[k];if(m>peak)peak=m;}
-            float db=peak>0?10.f*log10f(peak)-60.f:-96.f; /* Hann window sum N/2: full scale near 0 dB */
+            float db=spectrum_column(re,im,SPEC_N,rate,x,width);
             shown[x]=db>shown[x]?db:shown[x]-1.5f;
         }
     }else for(int x=0;x<width;++x)shown[x]-=1.5f;
@@ -170,9 +161,8 @@ void pad_eq_paint(uint64_t v,unsigned pad,int muted,int shift,int focus,const st
             int fill=(int)(value*(unsigned)(w-8)/127);if(enabled&&fill)p->rect(p->user,x+4,235,fill,2,ink);
         }
     }
-    {   /* Shift badge as the native K panel draws it: 10x12 frame with "S". */
-        uint32_t c=shift?0xffff4747u:white;int bx=200,top=200;
-        p->rect(p->user,bx,top,10,1,c);p->rect(p->user,bx,top+11,10,1,c);p->rect(p->user,bx,top,1,12,c);p->rect(p->user,bx+9,top,1,12,c);
-        p->text(p->user,"S",bx+1,top+1,8,10,10,c,1);
+    {
+        uint32_t c=shift?0xffff4747u:white;
+        SHIFT_BADGE_COLOURED(p->rect,p->user,200,200,c);
     }
 }

@@ -50,7 +50,7 @@ static void ramps(void)
     assert(mixer_buses_publish(b,u)==MIXER_BUS_INVALID);mixer_buses_update_destroy(u);
     u=mixer_buses_update_prepare(&p,0,16000,5,NULL,&error);assert(u);
     assert(mixer_buses_publish(b,u)==MIXER_BUS_INVALID);mixer_buses_update_destroy(u);
-    p.track[1].mix.send=.5f;assert(!mixer_buses_update_prepare(&p,0,8000,5,NULL,&error)&&error==MIXER_BUS_UNSUPPORTED);
+    p.master.mix.send=.5f;assert(!mixer_buses_update_prepare(&p,0,8000,5,NULL,&error)&&error==MIXER_BUS_UNSUPPORTED);
     mixer_buses_destroy(b);puts("PASS block-boundary Level/Pan/gates and Pad routing ramps, exact endpoints, delayed revision acknowledgement and off-RT collection");
 }
 struct effect {unsigned id,calls;};

@@ -1,3 +1,4 @@
+#include "shift_badge.h"
 #include "fx_eq_editor.h"
 #include <math.h>
 #include <stdio.h>
@@ -111,5 +112,10 @@ void fx_eq_editor_paint(struct fx_eq_editor*e,const struct resample_painter*p){
         if(e->config.count){snprintf(values[0],32,"%s",types[e->config.band[e->selected].type]);snprintf(values[1],32,"%s",e->config.band[e->selected].enabled?"On":"Off");}
         snprintf(values[2],32,"%+.1f dB",e->config.output_db);
     }
-    for(unsigned k=0;k<3;++k){text(p,names[k],(int)k*106,203,106,14,11,WHITE,1);text(p,values[k],(int)k*106,218,106,21,17,AMBER,1);}
+    for(unsigned k=0;k<3;++k){
+        int x=(int)k*106;
+        text(p,names[k],x+4,200,84,13,12,WHITE,1);
+        text(p,values[k],x+4,214,98,19,16,AMBER,1);
+        SHIFT_BADGE_COLOURED(p->rect,p->user,x+94,200,e->shifted?0xffff4747u:WHITE);
+    }
 }

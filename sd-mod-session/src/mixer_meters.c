@@ -15,6 +15,7 @@ struct mixer_meters {
     double rate;
     uint64_t epoch,frames,clip_until[MIXER_METER_BUSES];
     float envelope[MIXER_METER_BUSES][2],pending[MIXER_METER_BUSES][2];
+    float return_envelope[MIXER_METER_TRACKS],return_pending[MIXER_METER_TRACKS];
 };
 size_t mixer_meters_bytes(void){return sizeof(struct mixer_meters);}
 struct mixer_meters *mixer_meters_create(double rate)
@@ -26,7 +27,8 @@ struct mixer_meters *mixer_meters_create(double rate)
     return m;
 }
 void mixer_meters_destroy(struct mixer_meters*m){free(m);}
-int mixer_meters_push(struct mixer_meters*m,uint64_t epoch,unsigned frames,const struct mixer_meter_input in[MIXER_METER_BUSES])
+int mixer_meters_push_returns(struct mixer_meters*m,uint64_t epoch,unsigned frames,
+    const struct mixer_meter_input in[MIXER_METER_BUSES],uint32_t return_mask,const float return_peak[MIXER_METER_TRACKS])
 {
     if(!m||!in||!epoch||epoch<m->epoch||!frames||frames>8192)return -1;
     uint64_t start=epoch==m->epoch?m->frames:0;
@@ -35,6 +37,8 @@ int mixer_meters_push(struct mixer_meters*m,uint64_t epoch,unsigned frames,const
     if(epoch!=m->epoch){
         m->epoch=epoch;m->frames=0;memset(m->envelope,0,sizeof(m->envelope));
         memset(m->pending,0,sizeof(m->pending));memset(m->clip_until,0,sizeof(m->clip_until));
+        memset(m->return_envelope,0,sizeof(m->return_envelope));
+        memset(m->return_pending,0,sizeof(m->return_pending));
     }
     struct mixer_meter_snapshot snapshot={0};snapshot.epoch=epoch;snapshot.frame_end=start+frames;
     float decay=expf(-(float)frames/(float)(m->rate*.300));
@@ -64,13 +68,29 @@ int mixer_meters_push(struct mixer_meters*m,uint64_t epoch,unsigned frames,const
             snapshot.peak[bus][ch]=fmaxf(m->envelope[bus][ch],m->pending[bus][ch]);
         }
     }
+    for(unsigned i=0;i<MIXER_METER_TRACKS;++i){
+        if(!return_peak||!(return_mask&(1u<<i))||!(snapshot.valid_mask&(1u<<i))){
+            m->return_envelope[i]=m->return_pending[i]=0;
+            continue;
+        }
+        float peak=return_peak[i];
+        m->return_envelope[i]=fmaxf(peak,m->return_envelope[i]*decay);
+        m->return_pending[i]=fmaxf(peak,m->return_pending[i]);
+        snapshot.return_peak[i]=fmaxf(m->return_envelope[i],m->return_pending[i]);
+        snapshot.return_mask|=1u<<i;
+    }
     m->frames=snapshot.frame_end;
     unsigned write=atomic_load_explicit(&m->write,memory_order_relaxed);
     unsigned read=atomic_load_explicit(&m->read,memory_order_acquire);
     if((unsigned)(write-read)>=MIXER_METER_QUEUE)return 0;
     m->queue[write%MIXER_METER_QUEUE]=snapshot;
     atomic_store_explicit(&m->write,write+1,memory_order_release);
-    memset(m->pending,0,sizeof(m->pending));return 1;
+    memset(m->pending,0,sizeof(m->pending));
+    memset(m->return_pending,0,sizeof(m->return_pending));return 1;
+}
+int mixer_meters_push(struct mixer_meters*m,uint64_t epoch,unsigned frames,const struct mixer_meter_input in[MIXER_METER_BUSES])
+{
+    return mixer_meters_push_returns(m,epoch,frames,in,0,NULL);
 }
 int mixer_meters_take(struct mixer_meters*m,uint64_t epoch,struct mixer_meter_snapshot*out)
 {

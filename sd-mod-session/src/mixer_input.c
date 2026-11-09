@@ -6,6 +6,7 @@ int mixer_input_action(unsigned code, enum mixer_action *mapped)
     switch(code){
     case 0x00:action=MIXER_KNOB;break;
     case 0x01:action=MIXER_PAD_FX;break;
+    case 0x09:action=MIXER_ERASE;break;
     case 0x0c:action=MIXER_B1;break;
     case 0x0d:action=MIXER_B2;break;
     case 0x0e:action=MIXER_B3;break;

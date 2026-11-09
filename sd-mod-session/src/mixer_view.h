@@ -1,11 +1,17 @@
 #ifndef AM_MIXER_VIEW_H
 #define AM_MIXER_VIEW_H
 #include "mixer_model.h"
-#include "mixer_meters.h"
+#include "mixer_buses.h"
 #include "resample_view.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
+#define MIXER_FX_SLOTS 4u
+static inline uint32_t mixer_fx_slot_rgb(unsigned slot)
+{
+    static const uint32_t hue[MIXER_FX_SLOTS]={0xffc247u,0x9e68ffu,0x00c8ffu,0xff54afu};
+    return slot<MIXER_FX_SLOTS?hue[slot]:0;
+}
 enum mixer_page {MIXER_OVERVIEW,MIXER_MIX,MIXER_FX,MIXER_ROUTE,MIXER_KNOB_FX,MIXER_ADVANCED,MIXER_ASSIGN,MIXER_INSPECT};
 struct mixer_view_state {
     enum mixer_page page;
@@ -15,9 +21,14 @@ struct mixer_view_state {
     const struct mixer_meter_snapshot*meter;
     unsigned pending;
     unsigned sound,fx_catalog,parameter_page,pickup;
-    unsigned shifted,colour_edit;
+    unsigned shifted,colour_edit,fx_editing,fx_parameters,fx_delete;
     uint64_t present[2];
     const char*message;
+    const char*name_edit;
+    uint64_t name_elapsed;
+    unsigned name_pads;
+    const struct mixer_fx_monitor*fx_signal;
+    double rate;
 };
 /* UI-owner only. Existing 320x240 rect/text painter, no image/framebuffer,
  * global mode state or native object ownership. Meter age>250ms => N/A. */

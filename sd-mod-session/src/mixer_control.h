@@ -5,7 +5,7 @@
 extern "C" {
 #endif
 enum mixer_action {MIXER_B1,MIXER_B2,MIXER_B3,MIXER_PAD_FX,MIXER_KNOB,
-    MIXER_SELECT,MIXER_NATIVE_MODE,MIXER_SHIFT,MIXER_BANK,MIXER_BANK_NEXT,MIXER_BANK_PREVIOUS};
+    MIXER_SELECT,MIXER_NATIVE_MODE,MIXER_SHIFT,MIXER_BANK,MIXER_BANK_NEXT,MIXER_BANK_PREVIOUS,MIXER_ERASE};
 struct mixer_control;
 /* Transient state belongs exclusively to the UI owner. Input producers must
  * enqueue numeric events/tickets; they must never call this API concurrently.
@@ -39,7 +39,7 @@ int mixer_control_cc(struct mixer_control*,unsigned cc,unsigned value,uint64_t t
 int mixer_control_reset(struct mixer_control*,unsigned cc,uint64_t ticket);
 /* B1 on the Mixer page closed it; the owner then opens native Sample (once). */
 int mixer_control_exit_requested(struct mixer_control*);
-/* Track FX editor behind KNOB FX (tests; the device UI keeps it off for now). */
+/* Track FX editor behind KNOB FX. */
 void mixer_control_set_fx_editing(struct mixer_control*,int on);
 void mixer_control_tick(struct mixer_control*);
 /* Native owner supplies actual occupied sounds, not table assignments. */
@@ -51,9 +51,11 @@ int mixer_control_cursor(const struct mixer_control*,unsigned pad);
  * set_output queues a normal confirmed edit (UI owner only, Mixer open or not). */
 int mixer_control_output(const struct mixer_control*,unsigned sound);
 int mixer_control_set_output(struct mixer_control*,unsigned sound,unsigned output);
+void mixer_control_fx_monitor(struct mixer_control*,const struct mixer_fx_monitor*,uint64_t now_ms);
 void mixer_control_meter(struct mixer_control*,const struct mixer_meter_snapshot*,uint64_t now_ms);
 void mixer_control_view(struct mixer_control*,uint64_t now_ms,struct mixer_view_state*);
 const char*mixer_control_message(const struct mixer_control*);
+uint64_t mixer_control_name_light(const struct mixer_control*,unsigned pad);
 float mixer_fader_db(unsigned value);
 #ifdef __cplusplus
 }

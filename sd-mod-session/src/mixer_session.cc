@@ -112,6 +112,15 @@ extern "C" void mixer_session_ui_tick(mixer_session*s)
     {std::lock_guard<std::mutex>lock(s->mutex);model=s->confirmed;revision=s->revision;rejected=s->rejected;error=s->error;s->rejected=0;}
     if(rejected)mixer_control_reject(s->control,rejected,error);
     mixer_control_confirm(s->control,&model,revision,s->epoch);mixer_control_tick(s->control);
+    mixer_view_state view{};
+    mixer_control_view(s->control,0,&view);
+    unsigned channel=mixer_control_active(s->control)&&view.page==MIXER_KNOB_FX&&view.fx_parameters?
+        (view.master?8:view.primary):9;
+    mixer_fx_monitor signal;
+    if(mixer_live_fx_monitor(s->live,channel,view.fx_slot,&signal)){
+        timespec time{};clock_gettime(CLOCK_MONOTONIC,&time);
+        mixer_control_fx_monitor(s->control,&signal,static_cast<uint64_t>(time.tv_sec)*1000+time.tv_nsec/1000000);
+    }
 }
 extern "C" void mixer_session_destroy(mixer_session*s)
 {

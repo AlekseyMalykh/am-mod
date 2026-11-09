@@ -65,7 +65,7 @@ static _Atomic unsigned pads_shown;      /* Song or Song Export visible: sequenc
 static _Atomic unsigned export_shown;    /* Song Export window visible */
 /* Local Export chooser on SongScreen. Main DATA encoder navigates;
  * B1=Cancel, B3=Do It. Native export starts only on confirmation. */
-static _Atomic unsigned export_choice; /* 0 Mixdown, 1 Sequence, 2 Stems (A-H) */
+static _Atomic unsigned export_choice; /* 0 Mixdown, 1 Sequence, 2 Stems dry, 3 Stems with FX */
 static _Atomic unsigned export_shift; /* Shift still labels Duplicate on Song steps */
 static _Atomic unsigned export_paint_seen; /* vtable callback actually reached */
 static unsigned export_shift_seen;       /* UI thread, to request the repaint */
@@ -77,7 +77,7 @@ static _Atomic unsigned export_menu_active;
 static unsigned export_route_stage,export_route_choice;
 static uint64_t export_route_since;
 static _Alignas(8) unsigned char export_route_template[16];
-/* 0 none, 1 Mixdown naming, 2 Stems naming. Both share the existing
+/* 0 none, 1 Mixdown naming, 2 Dry Stems naming, 3 Wet Stems naming. Both share the existing
  * TextEditor + pad keyboard; Sequence has no stock name dialog. */
 static _Atomic unsigned export_name_kind;
 /* Mixdown and Stems use the same native name editor. Its Shift/B2 mean
@@ -112,6 +112,14 @@ static void repaint(void *p)
 static unsigned button_bit(unsigned code)
 { return code==B2?1u:code==B3?2u:code==PLUS?4u:code==MINUS?8u:code==B1?16u:0u; }
 
+void *song_ui_stems_name_editor(void)
+{
+    if(atomic_load(&stems_name_stage)!=1u||!export_screen||
+       FIELD(export_screen,0,uintptr_t)!=base+EXPORT_VPTR)return NULL;
+    /* SongExportScreen dtor at 169fab4 proves the embedded TextEditor. */
+    void *editor=(char*)export_screen+0xa38;
+    return FIELD(editor,0,uintptr_t)==base+0x6e18e20&&visible(editor)?editor:NULL;
+}
 int song_ui_stems_name_pending(void){return atomic_load(&stems_name_stage)==1u;}
 int song_ui_stems_modal_visible(void){return atomic_load(&stems_modal_visible)!=0u;}
 /* Called from the existing K1 handler on the JUCE/UI thread. */
@@ -137,7 +145,7 @@ void song_ui_stems_name_opened(void)
     atomic_fetch_and(&owned_buttons,~button_bit(B2));
     fprintf(stderr,"SONG_EXPORT NAME_EDITOR_BOUND kind=%u (K1 Encoder/Pads)\n",
         atomic_load(&export_name_kind));
-    if(atomic_load(&export_name_kind)==2u)
+    if(atomic_load(&export_name_kind)>=2u)
         fprintf(stderr,"STEMS NAME_EDITOR_BOUND (K1 Encoder/Pads)\n");
 }
 void song_ui_stems_name_button(unsigned code,int down)
@@ -151,12 +159,12 @@ void song_ui_stems_name_button(unsigned code,int down)
         fprintf(stderr,"SONG_EXPORT NAME_CANCELLED kind=%u\n",atomic_load(&export_name_kind));
     }else if(code==0x0e){ /* Arm only after the user confirms the name. */
 #ifdef MPC_MIXER_LIVE
-        if(atomic_load(&export_name_kind)==2u&&mixer_stems_arm)mixer_stems_arm();
+        if(atomic_load(&export_name_kind)>=2u&&mixer_stems_arm)mixer_stems_arm(atomic_load(&export_name_kind)==3u);
 #endif
         atomic_store(&stems_name_stage,3u);
         fprintf(stderr,"SONG_EXPORT NAME_CONFIRMED kind=%u (native dispatch)\n",
             atomic_load(&export_name_kind));
-        if(atomic_load(&export_name_kind)==2u)
+        if(atomic_load(&export_name_kind)>=2u)
             fprintf(stderr,"STEMS NAME_CONFIRMED (await native dispatch)\n");
     }
 }
@@ -352,7 +360,7 @@ int song_ui_control(void *e)
             int previous=(int)atomic_load(&export_choice);
             int next=previous+delta;
             if(next<0) next=0;
-            if(next>2) next=2;
+            if(next>3) next=3;
             if(next!=previous){
                 atomic_store(&export_choice,(unsigned)next);
                 repaint(screen);
@@ -386,11 +394,11 @@ int song_ui_button(void *e)
         if(code==B3){
             unsigned selected=atomic_load(&export_choice);
 #ifdef MPC_MIXER_LIVE
-            if(selected==2u && (!mixer_stems_available || !mixer_stems_available() || !mixer_stems_arm)){
+            if(selected>=2u && (!mixer_stems_available || !mixer_stems_available() || !mixer_stems_arm)){
                 fprintf(stderr,"SONG_EXPORT STEMS_UNAVAILABLE\n");return 1;
             }
 #else
-            if(selected==2u){fprintf(stderr,"SONG_EXPORT STEMS_UNAVAILABLE\n");return 1;}
+            if(selected>=2u){fprintf(stderr,"SONG_EXPORT STEMS_UNAVAILABLE\n");return 1;}
 #endif
             if(!forward_native)return 1;
             /* Exit our custom menu BEFORE entering the native workflow.
@@ -530,29 +538,29 @@ static void paint(void *p,void *g)
     { struct song_ref pr; if(song_ref(&pr)&&pr.count>=1) probe(p); } /* rows exist only once the song has steps */
     struct song_ref r; int seq,rep;
     char line[128];
-    { struct song_ref pr; if(song_ref(&pr)) paint_rows(p,g,&pr); }
     if(atomic_load(&export_menu_active)){
         /* Paint after SongScreen children. Cover all of the song list/buttons;
          * the old native Cancel/Mixdown/Sequence modal was never entered. */
-        const unsigned selected=atomic_load(&export_choice)%3u;
-        const char *items[3]={"Mixdown","Sequence","Stems (A-H + Master)"};
+        const unsigned selected=atomic_load(&export_choice)%4u;
+        const char *items[]={"Mixdown","Sequence","Stems without FX","Stems with FX"};
         colour(g,0xff000000u);rect(g,0,0,320,240);
-        colour(g,0xffccccccu);text_at(g,"Cancel",0,0,106,36,15.0f,0x24);
-        colour(g,0xffffffffu);text_at(g,"Do It",213,0,107,36,15.0f,0x24);
-        colour(g,0xff777777u);rect(g,22,61,276,1);
-        colour(g,0xffffffffu);text_at(g,"Song Export",26,67,268,23,16.0f,0x21);
-        for(unsigned i=0;i<3;++i){
-            int y=99+(int)i*29;
-            if(i==selected){
-                colour(g,0xff1b4566u);rect(g,22,y,276,27);
-                colour(g,0xff00c7ffu);rect(g,22,y,4,27);
-            }
-            colour(g,0xffffffffu);text_at(g,items[i],35,y,250,27,17.0f,0x21);
+        colour(g,0xffffffffu);text(g,"Back",0,1,106,23,14.0f);
+        colour(g,0xffffc247u);text(g,"Export",213,1,107,23,14.0f);
+        colour(g,0xff252525u);rect(g,4,25,312,1);
+        colour(g,0xffffffffu);text_at(g,"Song Export",14,31,292,28,20.0f,0x21);
+        for(unsigned i=0;i<4;++i){
+            int y=67+(int)i*31;
+            int current=i==selected;
+            colour(g,current?0xff302412u:0xff161616u);rect(g,12,y,296,28);
+            if(current){colour(g,0xffffc247u);rect(g,12,y,3,28);}
+            colour(g,current?0xffffc247u:0xffeeeeeeu);
+            text_at(g,items[i],23,y,283,28,16.0f,0x21);
         }
-        colour(g,0xff777777u);rect(g,22,193,276,1);
-        colour(g,0xffccccccu);text_at(g,"Turn encoder / B3 Do It",26,199,268,20,12.0f,0x21);
+        colour(g,0xff252525u);rect(g,12,198,296,1);
+        colour(g,0xffbbbbbbu);text(g,"Turn DATA to select",12,204,296,22,12.0f);
         return;
     }
+    { struct song_ref pr; if(song_ref(&pr)) paint_rows(p,g,&pr); }
     /* On the Song step list B2=Remove; Shift+B2=Duplicate. This label
      * is distinct from Song Export's Mixdown/Stems, below. */
     if(atomic_load(&export_shift)){
@@ -691,7 +699,7 @@ void song_ui_tick(void)
             unsigned selected=export_route_choice;
             export_route_stage=0u;
             atomic_store(&stems_name_stage,1u);
-            atomic_store(&export_name_kind,selected==2u?2u:1u);
+            atomic_store(&export_name_kind,selected>=2u?selected:1u);
             stems_name_requested_ms=now_ms();
 #ifdef MPC_MIXER_LIVE
             if(mixer_stems_disarm)mixer_stems_disarm();

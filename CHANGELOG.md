@@ -1,5 +1,15 @@
 # Changelog
 
+## r28a — experimental
+
+- Eight-track mixer with Master, groups, sends, track naming, mute/solo feedback and undo/redo.
+- Four insert slots, effect copying and reordering, Graphic EQ and Sidechain Compressor.
+- Song stem export with or without mixer FX, aligned WAVs and silent-bus skipping.
+- Fine global tempo, OptoCat takeover, Tap Tempo lighting and persistent Steps status.
+- Restored the Sample Mix Pad Colour display and dimmed the Mixer FX pads for empty slots and group selections.
+
+[English notes](docs/RELEASE_NOTES-r28a.md) · [Русский](docs/RELEASE_NOTES-r28a.ru.md).
+
 ## r27r — release
 
 - **Recall** (Shift + Sample Record) no longer freezes the MPC: only Stop is serialised with the audio render.

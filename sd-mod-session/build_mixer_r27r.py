@@ -30,7 +30,7 @@ mixer = ['src/mixer_model.c', 'src/mixer_meters.c', 'src/fx_chain.c', 'src/fx_ca
          'src/mixer_fx.cc', 'src/fx_native.cc', 'src/song_ui.c', 'src/mixer_stems.c']
 sources = list(dict.fromkeys(sources + mixer))
 sha = lambda b: hashlib.sha256(b).hexdigest()
-hashes = {s: sha((R / s).read_bytes()) for s in sources + ['build_mixer_r27r.py', 'build/phone_hooks.h']}
+hashes = {s: sha((R / s).read_bytes()) for s in sources + ['build_mixer_r27r.py', 'build/phone_hooks.h', 'src/shift_badge.h', 'src/mod_build.h', 'src/spectrum_plot.h']}
 common = ['-O2', '-g', '-fPIC', '-Wall', '-Wextra', '-Werror', '-Ibuild',
           '-DMPC_RESAMPLE_TRIAL=1', '-DMPC_STOCK_RESAMPLE=1', '-DMPC_EXPERIMENTAL_CHOP_EXPORT=1',
           '-DMPC_PAD_EQ=1', '-DMPC_FAST_RESAMPLE=1', '-DMPC_SEQUENCE_COLOURS=1',
@@ -64,6 +64,7 @@ assert 'PASS real full preload constructor' in p.stdout
 assert 'PITCH_AWARE_OVERWRITE_INSTALLED' in p.stderr
 assert 'VOICE_GUARD RENDER_RELEASE_SERIALISED' in p.stderr
 assert 'VALUES_BIPOLAR CENTRE_BAR_INSTALLED' in p.stderr
+assert 'VALUES_SHIFT_ARROW INSTALLED' in p.stderr
 assert 'TAKEOVER NATIVE_PROCESSORS_PRESERVED' in p.stderr
 assert 'TAKEOVER SCALED_ENDPOINTS_INSTALLED' not in p.stderr
 assert 'SONG_UI INSTALLED' in p.stderr  # SongScreen slots matched the pinned ELF
@@ -74,7 +75,7 @@ route = O / 'check-phone-routes'
 subprocess.run(['aarch64-linux-gnu-gcc', '-std=c11', '-O1', '-g', '-Wall', '-Wextra', '-Werror',
                 '-mbranch-protection=standard', '-ffunction-sections', '-fdata-sections',
                 '-Wl,--gc-sections', '-Ibuild', 'check_mixer_phone_routes.c', 'src/phone_events.c',
-                'src/mixer_input.c', 'src/mixer_control.c', 'src/mixer_model.c', 'src/fx_catalog.c',
+                'src/mixer_input.c', 'src/mixer_control.c', 'src/phone_input.c', 'src/mixer_model.c', 'src/fx_catalog.c',
                 'src/fx_chain.c', 'src/fx_eq.c', 'src/mixer_leds.c', '-lm', '-pthread',
                 '-o', str(route)], cwd=R, check=True)
 routes = subprocess.run(['qemu-aarch64', '-L', sysroot, str(route)], cwd=R,

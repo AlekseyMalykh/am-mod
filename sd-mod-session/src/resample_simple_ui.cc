@@ -1,6 +1,9 @@
 #include "resample_ui.h"
 #include "resample_destination.h"
 #include "resample_stock_backend.h"
+#ifdef MPC_FAST_RESAMPLE
+#include "resample_fault.h"
+#endif
 #include <atomic>
 #include <cstdio>
 #include <cstring>
@@ -47,6 +50,17 @@ static void repaint(){publish_palette();if(root&&!dead.load())reinterpret_cast<v
 extern "C" void resample_ui_init(uintptr_t b){base=b;}
 extern "C" int resample_ui_shutdown_busy(void){return capturing||stop_phase||(session&&resample_stock_backend_busy(session));}
 extern "C" void resample_ui_bind(void*copy){
+#ifdef MPC_FAST_RESAMPLE
+    /* Enable diagnostics before audio startup completes. Previously the
+     * handler was only installed at the first chords_ui_poll()/UI tick,
+     * which the Mix2/3 startup crash did not reach. The signal handler
+     * chains to the app's original action and keeps guard recovery intact. */
+    static std::atomic<bool> attempted{false};
+    if (!attempted.exchange(true)) {
+        int ok = resample_fault_install(base);
+        std::fprintf(stderr, "AUDIO_FAULT_EARLY ready=%d\n", ok);
+    }
+#endif
     auto*next=resample_stock_backend_create(base,copy);auto*old=backend.exchange(next);
     if(old)resample_stock_backend_stop(old);
     bound_copy.store(copy);fault.store(1);ready.store(0);generation.fetch_add(1);

@@ -18,6 +18,8 @@ struct mixer_meter_input {
 struct mixer_meter_snapshot {
     uint64_t epoch,frame_end;
     uint32_t valid_mask,fault_mask,clip_mask;
+    uint32_t return_mask;
+    float return_peak[MIXER_METER_TRACKS];
     float peak[MIXER_METER_BUSES][2]; /* linear PCM peak, not fader gain */
 };
 struct mixer_meters;
@@ -31,6 +33,9 @@ void mixer_meters_destroy(struct mixer_meters*);
  * 0=queue full (telemetry still accumulated), 1=snapshot published. */
 int mixer_meters_push(struct mixer_meters*,uint64_t epoch,unsigned frames,
                       const struct mixer_meter_input[MIXER_METER_BUSES]);
+int mixer_meters_push_returns(struct mixer_meters*,uint64_t epoch,unsigned frames,
+                      const struct mixer_meter_input[MIXER_METER_BUSES],uint32_t return_mask,
+                      const float return_peak[MIXER_METER_TRACKS]);
 /* UI owner: drain at most four snapshots, return latest matching epoch.
  * Missing epoch returns 0 and leaves out untouched. UI must invalidate its
  * cached display on epoch change and expire stale frame counters itself. */

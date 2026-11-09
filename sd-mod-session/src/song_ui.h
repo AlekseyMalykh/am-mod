@@ -27,6 +27,7 @@ void song_ui_shift_event(int down);
 void song_ui_stems_shift_up_forwarded(void);
 /* Native Song Export filename editor handoff, not the parent Export screen. */
 int song_ui_stems_name_pending(void);
+void *song_ui_stems_name_editor(void);
 int song_ui_stems_name_active(void);
 /* Stock-style footer on the full Song Export page while its name modal is open. */
 int song_ui_stems_modal_visible(void);

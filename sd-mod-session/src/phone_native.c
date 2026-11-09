@@ -277,7 +277,7 @@ static void forward_controller(void*event){
 #endif
 }
 enum { TAP_TEMPO_BUTTON = 0x35 };
-static _Atomic unsigned tap_tempo_mod_palette, tap_tempo_hold;
+static _Atomic unsigned tap_tempo_mod_palette, tap_tempo_hold, step_confirm_forwarded, step_confirm_waiting;
 
 static void forward_buttons(void*event){
  unsigned code=FIELD(event,8,unsigned char),down=FIELD(event,9,unsigned char)!=0;
@@ -451,16 +451,23 @@ static void mixer_publish_route(void)
     mixer_control_view(control,now_ms(),&view);
     /* Device report: the Sample pad colours stayed lit in the Mixer. Outside
      * Assign/Inspect the pads select Tracks: pads 1-8 = Track A-H in their
-     * colours (selected bright), pad 16 = Master, the rest off. */
-    if ((state & MIXER_OPEN) && (view.page == MIXER_ASSIGN || view.page == MIXER_INSPECT)) {
-        /* Device feedback: sounds on the selected Track blink white, other
-         * loaded sounds dim white, empty pads off (no Track colours). */
-        int cursor_on = now_ms() % 1000 < 500; /* no music_settings in the route test */
-        for (unsigned i=0;i<16;++i) {
-            int k = mixer_control_cursor(control,i);
-            uint64_t light = k == 2 ? pad_light(0xffffffu, cursor_on ? .95f : .12f)
-                : k == 1 ? pad_light(0xffffffu, .12f) : 0;
-            atomic_store(&mixer_select_lights[i], light);
+     * colours (selected bright), pads 9-12 = FX slots, pad 16 = Master. */
+    if ((state & MIXER_OPEN) && view.name_edit) {
+        for(unsigned i=0;i<16;++i)atomic_store(&mixer_select_lights[i],mixer_control_name_light(control,i));
+        atomic_store(&mixer_select_enabled,1);
+    } else if ((state & MIXER_OPEN) && (view.page == MIXER_ASSIGN || view.page == MIXER_INSPECT)) {
+        /* The sound chooser identifies loaded pads by their Sample hues.
+         * Assigned pads alternate between the white cursor and their hue. */
+        int cursor_on=now_ms()%1000<500;
+        for(unsigned i=0;i<16;++i){
+            int cursor=mixer_control_cursor(control,i);
+            uint32_t hue=music_identity_rgb((unsigned)music_pad_colour(view.bank*16+i));
+            uint64_t light=0;
+            uint32_t status=mixer_sample_status_rgb(mixer_sample_project_gate(view.project,view.bank*16+i));
+            if(cursor>0&&status)light=pad_light(cursor_on?status:hue,.70f);
+            else if(cursor==2)light=cursor_on?pad_light(PAD_SELECT,.95f):pad_light(hue,.70f);
+            else if(cursor==1)light=pad_light(hue,.18f);
+            atomic_store(&mixer_select_lights[i],light);
         }
         atomic_store(&mixer_select_enabled, 1);
         /* Fall through: the routing palette below still claims the pads (and
@@ -471,7 +478,16 @@ static void mixer_publish_route(void)
             uint64_t light = 0;
             if (i < 8) {
                 int on = !view.master && (view.selected & (1u<<i));
-                light = pad_light(view.project->track[i].colour & 0xffffffu, on ? 1.f : .22f);
+                const struct mixer_channel *track=view.project->track+i;
+                uint32_t status=track->mix.mute?MIXER_MUTE_RGB:track->mix.solo?MIXER_SOLO_RGB:0;
+                light=pad_light(status&&view.now_ms%1000<500?status:track->colour,
+                                status||on?1.f:.22f);
+            } else if(i<8+MIXER_FX_SLOTS) {
+                const struct mixer_channel *track=NULL;
+                if(view.master)track=&view.project->master;
+                else if(view.selected&&!(view.selected&(view.selected-1)))track=view.project->track+view.primary;
+                unsigned slot=i-8;
+                light=track&&slot<track->fx.count?pad_light(mixer_fx_slot_rgb(slot),.90f):pad_light(0x808080u,.22f);
             } else if (i == 15) light = pad_light(view.project->master.colour & 0xffffffu, view.master ? .90f : .22f);
             atomic_store(&mixer_select_lights[i], light);
         }
@@ -539,7 +555,10 @@ int mixer_phone_bind_ui(struct mixer_session *session)
     atomic_store(&mixer_project_invalidated,0);
     ++mixer_binding;
     mixer_entry_init(&mixer_entry, MIXER_ENTRY_HOLD_MS);
-    if (session) start_timer();
+    if (session) {
+        mixer_control_set_fx_editing(mixer_session_control(session),1);
+        start_timer();
+    }
     return 1;
 }
 
@@ -794,11 +813,12 @@ static int mixer_dispatch(struct phone_event *e)
         mixer_session_status(mixer_ui_session) != 1;
     if (control && (suppress || blocked)) mixer_close_ui();
     /* Device report: Shift did nothing in the Mixer. Shift itself stays a
-     * native button (it is never queued to the Mixer), so give the control
-     * the current Shift state before each Mixer event: Shift+B1 Mute,
+     * native button (it is never queued to the Mixer). CCs capture Shift at
+     * arrival so a quick release cannot change the gesture. Shift+B1 Mute,
      * Shift+B3 Solo, Shift+B2 FX bypass, Shift+PAD FX Inspect, Shift+Bank. */
     if (control)
         mixer_control_button(control,MIXER_SHIFT,
+            e->kind==PHONE_MIXER_CC ? e->down!=0 :
             atomic_load(&native_shift_requested)||atomic_load(&native_buttons_down[0x31]),
             mixer_control_ticket(control));
     if (e->kind == PHONE_MIXER_ENTRY && e->pad == 0xffu) {
@@ -995,6 +1015,21 @@ static void levels_state_tick(void)
     if(current!=previous){previous=current;if(reports++<32)
         fprintf(stderr,"LEVELS_STATE live=%d enabled=%u mode=%u origin=%u\n",found,enabled,mode,origin);}
 }
+#ifdef MPC_SONG_UI
+static void activate(void *p,size_t editor_offset);
+static void song_name_bind(void)
+{
+    void *candidate=song_ui_stems_name_editor();
+    if(candidate&&(!editor||editor==candidate||!visible())){
+        activate(candidate,0);
+        if(editor==candidate&&visible()){
+            song_ui_stems_name_opened();
+            song_ui_stems_name_modal_attach(editor);
+        }
+    }
+}
+#endif
+
 static void tick(void *unused)
 {
     (void)unused;
@@ -1033,6 +1068,7 @@ static void tick(void *unused)
 #endif
 #ifdef MPC_SONG_UI
     song_ui_tick();
+    song_name_bind();
 #endif
 #ifdef MPC_MIXER_LIVE
     if(mixer_stems_failed){
@@ -1079,7 +1115,7 @@ static void tick(void *unused)
     if(action_batch)atomic_fetch_sub(&ui_dispatching,1);
     if (editor && !visible()) stop();
     if (!editor) {
-        if (!note_running && !music_running && !step_running && !workflow_running && !resample_active && !step_native_active() && !phone_events_pending()
+        if (!note_running && !music_running && !step_running && !workflow_running && !resample_active && !step_native_active() && !phone_events_pending() && !atomic_load(&step_confirm_waiting)
 #ifdef MPC_COMPRESSOR
             && !compressor_running
 #endif
@@ -1679,6 +1715,9 @@ static void controller_ui(void *event,uint64_t route)
 
 static void buttons_ui(void *event,uint64_t route)
 {
+#ifdef MPC_SONG_UI
+    if(on_ui())song_name_bind();
+#endif
 #ifdef MPC_PROJECT_RECOVERY
     if(on_ui()&&project_recovery_save_button(base,screen,event))return;
 #endif
@@ -1847,7 +1886,8 @@ static void controller(void *event)
 #ifdef MPC_MIXER_LIVE
     uint64_t mixer_ticket = mixer_capture_route();
     if (mixer_ticket && ((native_cc >= 0x10 && native_cc <= 0x12) || native_cc == 0x14 || native_cc == 0x64)) {
-        struct phone_event e = {.kind=PHONE_MIXER_CC,.generation=mixer_ticket};
+        struct phone_event e = {.kind=PHONE_MIXER_CC,.generation=mixer_ticket,
+            .down=atomic_load(&native_shift_requested)||atomic_load(&native_buttons_down[0x31])};
         memcpy(e.native,event,16);
         if (!phone_events_push(&e)) mixer_fail_input();
         return;
@@ -1945,6 +1985,10 @@ static void buttons(void *event)
      * mapped in the repo yet), with the 16 Levels/Chop state, 300 presses. */
     {static unsigned logged;if(native_down&&logged<300){++logged;unsigned on=0,mode=0,origin=0;music_lighting_levels_state(&on,&mode,&origin);
         fprintf(stderr,"BUTTON_DOWN code=%02x levels=%u/%u\n",native_code,on,mode);}}
+    if(native_code==0x0e&&(atomic_load(&step_confirm_waiting)||(!native_down&&atomic_load(&step_confirm_forwarded)))){
+        if(queue_native(event,PHONE_BUTTON))return;
+        atomic_store(&step_confirm_forwarded,0);
+    }
     if(native_code==0x51)atomic_store(&stop_requested,native_down);
     if(native_code==0x51&&native_down){pthread_mutex_lock(&stop_template_mutex);memcpy(stop_template,event,16);stop_template_ready=1;pthread_mutex_unlock(&stop_template_mutex);}
 #ifdef MPC_KNOB_RESET
@@ -2034,6 +2078,7 @@ static void buttons(void *event)
         ||rear_ui_owns(PHONE_BUTTON,native_code)
 #endif
 #ifdef MPC_SONG_UI
+        ||((native_code==0x0c||native_code==0x0e)&&song_ui_stems_name_pending())
         ||song_ui_owns(PHONE_BUTTON,native_code,(atomic_load(&native_shift_requested)||atomic_load(&native_buttons_down[0x31])),(int)native_down)
 #endif
         )
@@ -2079,6 +2124,9 @@ static void pad_event(void *event)
     }
 #ifdef MPC_KNOB_RESET
     if((atomic_load(&bank_pad_owned)&bit)||(down&&(knob_reset_ticket()&2)&&!atomic_load(&naming_active)&&!workflow_owns(3,pad)
+#ifdef MPC_MIXER_LIVE
+       &&!(atomic_load(&mixer_route)&MIXER_OPEN)
+#endif
 #ifdef MPC_RESAMPLE_TRIAL
        &&!resample_ui_active()
 #endif
@@ -2174,12 +2222,51 @@ static void pad_event(void *event)
     ORIG(H_PAD,void(*)(void*))(event);
 }
 
+static uint64_t step_confirm_deadline;
+static _Alignas(8) unsigned char step_confirm_event[16];
+static unsigned step_confirm_deferred; /* 1 down, 2 both edges */
+static void step_confirm_tick(void)
+{
+    if(!atomic_load(&step_confirm_waiting))return;
+    if(step_confirm_deferred&&FN(0x10f87a0,void*(*)(int))(0)){
+        unsigned released=step_confirm_deferred==2;
+        step_confirm_deferred=0;
+        atomic_store(&step_confirm_waiting,0);
+        atomic_store(&step_confirm_forwarded,!released);
+        forward_buttons(step_confirm_event);
+        if(released){step_confirm_event[9]=0;forward_buttons(step_confirm_event);}
+    }else if(now_ms()>=step_confirm_deadline){
+        step_confirm_deferred=0;
+        atomic_store(&step_confirm_waiting,0);
+    }
+}
+static int step_confirm_to_native(void*event,unsigned route)
+{
+    unsigned code=FIELD(event,8,unsigned char),down=FIELD(event,9,unsigned char)!=0;
+    if(code!=0x0e)return 0;
+    if(!down&&atomic_exchange(&step_confirm_forwarded,0)){
+        forward_buttons(event);return 1;
+    }
+    if(down&&((route&4u)||atomic_load(&step_confirm_waiting))&&FN(0x10f87a0,void*(*)(int))(0)){
+        /* Native confirmation now owns both B3 edges. */
+        atomic_store(&step_confirm_waiting,0);step_confirm_deferred=0;
+        atomic_store(&step_confirm_forwarded,1);
+        forward_buttons(event);return 1;
+    }
+    if(!atomic_load(&step_confirm_waiting))return 0;
+    /* The native dialog may be posted after the current input batch. */
+    if(down&&!step_confirm_deferred){
+        memcpy(step_confirm_event,event,16);step_confirm_deferred=1;
+    }else if(!down&&step_confirm_deferred==1)step_confirm_deferred=2;
+    return 1;
+}
 static unsigned process_events(void)
 {
     static unsigned seen;
     atomic_fetch_add(&ui_dispatching,1);
     struct phone_event e;
     unsigned budget = PHONE_EVENT_CAPACITY,processed=0;
+    step_confirm_tick();
     while (budget-- && phone_events_pop(&e)) {
         ++processed;
         if(e.kind==PHONE_TAIL_PAD){
@@ -2279,6 +2366,7 @@ static unsigned process_events(void)
                        ) controller_ui(e.native,e.step_ticket);
             else forward_controller(e.native);
         } else if (e.kind == PHONE_BUTTON) {
+            if(step_confirm_to_native(e.native,e.pad))continue;
             if (current && !(seen&2)) { seen|=2; note("FIFO_BUTTON_ON_UI"); }
 #ifdef MPC_SONG_UI
             if(e.pad&256u){if(!song_ui_button(e.native))forward_buttons(e.native);}
@@ -2313,6 +2401,9 @@ static unsigned process_events(void)
             }
             else if (e.pad&2u) music_buttons(e.native);
             else if (current || note_native_active() || music_ui_active() || step_native_active()
+#ifdef MPC_SONG_UI
+                    ||song_ui_stems_name_pending()
+#endif
 #ifdef MPC_COMPRESSOR
                     ||compressor_ui_owns(PHONE_BUTTON,FIELD(e.native,8,unsigned char))
 #endif
@@ -2335,7 +2426,13 @@ static unsigned process_events(void)
             if(e.down)step_native_pad(e.pad,e.step_ticket);else step_native_pad_release(e.pad,e.step_ticket);
         } else if (e.kind==PHONE_STEP_SHORTCUT_PAD && e.pad<16) {
             unsigned bit=1u<<e.pad;
-            if (e.down && !(shortcut_forwarded&bit) && step_native_shortcut(e.step_ticket)) shortcut_forwarded|=bit;
+            if(e.down&&!(shortcut_forwarded&bit)&&step_native_shortcut(e.step_ticket)){
+                shortcut_forwarded|=bit;
+                if(step_native_pad_route(e.step_ticket)==3){
+                    step_confirm_deadline=now_ms()+350;
+                    atomic_store(&step_confirm_waiting,1);
+                }
+            }
             if (shortcut_forwarded&bit) {
                 /* Native Shift events precede this in the same UI FIFO.
                  * Message data is inline; no borrowed buffer is retained. */

@@ -5,6 +5,7 @@
 #include "mixer_stems.h"
 #include "mixer_live.h"
 #include "mixer_archive.h"
+#include "fx_native.h"
 #include <errno.h>
 #include <math.h>
 #include <pthread.h>
@@ -22,6 +23,7 @@ struct stem_writer {FILE*file;uint64_t frames;};
 struct stems_job {
     struct mixer_live*live;
     struct mixer_project project;
+    struct fx_native_context fx;
     unsigned rate;
     uint64_t valid_blocks,missing_blocks,frames;
     struct stem_writer writer[STEM_FILES];
@@ -125,7 +127,15 @@ static int close_job(struct stems_job*j,int success)
     mixer_live_destroy(j->live);free(j);
     return success;
 }
-static void begin(void *context,void *writer,const char *path,unsigned rate)
+/* Stock 2114c00 fills PositionInfo at context+8 before each Song block. */
+static int stem_position(void*user,void*out,uint64_t*block)
+{
+    const struct stems_job*j=user;
+    memcpy(out,(char*)j->context+8,88);
+    *block=j->frames;
+    return 1;
+}
+static void begin(void *context,void *writer,const char *path,unsigned rate,int with_fx)
 {
     if(atomic_load(&job_open))return;
     char full[1024];
@@ -144,14 +154,33 @@ static void begin(void *context,void *writer,const char *path,unsigned rate)
     if(!mixer_archive_snapshot(&j->project,&revision,&mode)||!mixer_project_valid(&j->project)){
         fprintf(stderr,"STEMS MIXER_SNAPSHOT_UNAVAILABLE\n");free(j);return;
     }
-    /* First version: no Track/Master FX offline. */
-    for(unsigned i=0;i<8;++i)j->project.track[i].fx.count=0;
-    j->project.master.fx.count=0;
+    struct fx_backend backend,*processors=NULL;
+    int needs_native=0;
+    for(unsigned i=0;i<=MIXER_TRACKS;++i){
+        struct mixer_channel*ch=i==MIXER_TRACKS?&j->project.master:j->project.track+i;
+        if(!with_fx||ch->fx_bypass)ch->fx.count=0;
+        for(unsigned slot=0;slot<ch->fx.count;++slot){
+            if(ch->fx.stage[slot].kind==FX_STAGE_NATIVE)needs_native=1;
+        }
+    }
+    if(needs_native){
+        if(!fx_native_application_formats(image,&j->fx)){
+            fprintf(stderr,"STEMS FX_CONTEXT_UNAVAILABLE\n");free(j);return;
+        }
+        j->context=context;
+        j->fx.position=stem_position;j->fx.position_user=j;
+        uint64_t block;
+        stem_position(j,j->fx.initial_position,&block);
+        memcpy(&j->fx.bpm,j->fx.initial_position,8);
+        memcpy(&j->fx.numerator,j->fx.initial_position+8,4);
+        memcpy(&j->fx.denominator,j->fx.initial_position+12,4);
+        fx_native_backend(&j->fx,&backend);processors=&backend;
+    }
     j->rate=rate>=8000&&rate<=192000?rate:44100;
     const struct mixer_live_ops*ops=mixer_live_native_ops();
     enum mixer_bus_result error;
     j->live=ops?mixer_live_prepare(&j->project,0,j->rate,OFFLINE_CAPACITY,1,
-                                  (void*)1,(void*)1,ops,NULL,&error):NULL;
+                                  (void*)1,(void*)1,ops,processors,&error):NULL;
     if(!j->live){fprintf(stderr,"STEMS OFFLINE_PREPARE_FAILED\n");free(j);return;}
     snprintf(j->folder,sizeof(j->folder),"%s",full);
     /* Never overwrite a prior export. The whole folder must be new. */
@@ -176,8 +205,10 @@ static void begin(void *context,void *writer,const char *path,unsigned rate)
 void mixer_stems_song_frame(void *context,void *writer,const char *path,unsigned rate)
 {
     song_context=context;
-    if(!writer||!atomic_exchange(&armed,0))return;
-    begin(context,writer,path,rate);
+    if(!writer)return;
+    unsigned request=atomic_exchange(&armed,0);
+    if(!request)return;
+    begin(context,writer,path,rate,request==2);
     if(!atomic_load(&job_open))atomic_fetch_add(&failed_count,1);
 }
 int mixer_stems_available(void){return image!=0;}
@@ -185,7 +216,7 @@ void mixer_stems_disarm(void){
     unsigned was_armed=atomic_exchange_explicit(&armed,0u,memory_order_acq_rel);
     if(was_armed)fprintf(stderr,"STEMS DISARM previous=1\n");
 }
-void mixer_stems_arm(void){if(mixer_stems_available())atomic_store(&armed,1);fprintf(stderr,"STEMS ARMED available=%d\n",mixer_stems_available());}
+void mixer_stems_arm(int with_fx){if(mixer_stems_available())atomic_store(&armed,with_fx?2u:1u);fprintf(stderr,"STEMS ARMED available=%d\n",mixer_stems_available());}
 int mixer_stems_armed(void){return atomic_load(&armed)!=0;}
 const char*mixer_stems_last_folder(void){return last_folder;}
 unsigned mixer_stems_finished(void){return atomic_load(&finished_count);}

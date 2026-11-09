@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include "shift_badge.h"
 #include "rear_native.h"
 #include "music_settings.h"
 #include "music_ui.h"
@@ -43,14 +44,14 @@ static void right(void *g,const char *value,int x,int y,int w,int h,float height
 #define REAR_GREY 0xff8a8a8au
 #define REAR_AMBER 0xffffc247u
 #define REAR_RED 0xffff4040u
-/* Stock K panel: label, value, thin value bar and the S square for Shift. */
+/* Stock K panel: label, value, thin value bar and the Shift arrow. */
 static void panel(void *g,unsigned i,const char *label,const char *value,int badge,int shift,unsigned position,unsigned count){
     int x=i==2?213:(int)i*106,w=i==2?107:106;
     rect(g,x,198,w,42,0xff000000u);
     text(g,label,x+4,200,badge?w-24:w-8,13,12,REAR_WHITE);text(g,value,x+4,214,w-8,19,16,REAR_WHITE);
-    if(badge){/* Native badge (values_ui.S): 10x12 frame with S, red while Shift is held. */
+    if(badge){
         int bx=(int)i*106+94;uint32_t c=shift?0xffff4747u:REAR_WHITE;
-        rect(g,bx,200,10,1,c);rect(g,bx,211,10,1,c);rect(g,bx,200,1,12,c);rect(g,bx+9,200,1,12,c);text(g,"S",bx+1,201,8,10,10,c);}
+        SHIFT_BADGE_COLOURED(rect,g,bx,200,c);}
     if(count>1){rect(g,x+6,235,w-12,2,0xff3b3b3bu);int span=w-12,seg=span/(int)count;if(seg<4)seg=4;
         int at=(int)position*(span-seg)/((int)count-1);rect(g,x+6+at,235,seg,2,REAR_WHITE);}
 }

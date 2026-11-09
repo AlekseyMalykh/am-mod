@@ -1,10 +1,12 @@
 #define _GNU_SOURCE
+#include "shift_badge.h"
 #include "compressor.h"
 #include "phone_events.h"
 #include "music_ui.h"
 #ifdef MPC_CHORDS
 #include "takeover_native.h"
 #endif
+#include <math.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <sys/mman.h>
@@ -21,6 +23,41 @@ static unsigned painted_type=~0u;
 static unsigned opening,repeat_seen,repeat_previous,header_dirty;
 static struct comp_animation animation;
 static double next_frame;
+struct knob_anchor {unsigned valid,physical,picked;float parameter;};
+static struct knob_anchor anchors[3];
+static uint64_t knob_snapshot;
+static unsigned knob_layer,knob_mode;
+static void reset_knob_anchors(void)
+{
+ for(unsigned i=0;i<3;++i)anchors[i].valid=0;
+}
+static float knob_position(const struct comp_config *c,unsigned k,unsigned shifted)
+{
+ if(shifted){
+  if(k==0)return logf(c->attack)/logf(100.f)*127.f;
+  if(k==1)return logf(c->release/100.f)/logf(40.f)*127.f;
+  return c->knee/12.f*127.f;
+ }
+ if(k==0)return (c->threshold+48.f)/48.f*127.f;
+ if(k==1)return (c->ratio-1.f)/7.f*127.f;
+ return (c->gain+6.f)/12.f*127.f;
+}
+enum { TAKEOVER_PICKUP,TAKEOVER_SCALED,TAKEOVER_JUMP };
+static unsigned parameter_takeover(void)
+{
+ /* AC50 -> AudioIO -> core -> AC50SoftTakeoverProperties. The stock
+  * property serializer reads Parameter at +0x1c and Knob FX at +0x3c. */
+ void *app=F((void*)base,0x71e3dc8,void*);
+ if(!app||F(app,0,uintptr_t)!=base+0x6e07288)return TAKEOVER_JUMP;
+ void *audio=F(app,0xd8,void*);
+ if(!audio||F(audio,0,uintptr_t)!=base+0x6e0c430)return TAKEOVER_JUMP;
+ void *core=F(audio,0x148,void*);
+ if(!core||F(core,0,uintptr_t)!=base+0x6e0cf38)return TAKEOVER_JUMP;
+ void *properties=F(core,0x5a0,void*);
+ if(!properties)return TAKEOVER_JUMP;
+ unsigned mode=F(properties,0x1c,unsigned);
+ return mode<=TAKEOVER_JUMP?mode:TAKEOVER_JUMP;
+}
 #define T_SHIFT (UINT64_C(1)<<63)
 #define T_REPEAT (UINT64_C(1)<<62)
 static double seconds(void){struct timespec t;if(clock_gettime(CLOCK_MONOTONIC,&t))return 0;return t.tv_sec+t.tv_nsec*1e-9;}
@@ -42,8 +79,7 @@ static void text(void*g,const char*s,int x,int y,int w,int h,float size){
 static void shift_badge(void*g,int x,int held){
  /* Same 10x12 badge and ink as music_ui.c/native K panels. */
  colour(g,held?0xffff4747:0xffffffff);
- rect(g,x,200,10,1);rect(g,x,211,10,1);rect(g,x,200,1,12);rect(g,x+9,200,1,12);
- text(g,"S",x+1,201,8,10,10);
+ SHIFT_BADGE_RECTS(rect,g,x,200);
 }
 static void bind_master(void){
  if(!root)return;
@@ -57,7 +93,7 @@ int compressor_ui_tick(void){
  if(repeat_seen&&repeat_previous&&!repeat)header_dirty=1;
  repeat_seen=1;repeat_previous=repeat;
  if(show&&!repeat&&header_dirty){header_dirty=0;repaint();}
- if(atomic_exchange(&active,show)!=show){atomic_fetch_add(&epoch,1);opening=show;
+ if(atomic_exchange(&active,show)!=show){atomic_fetch_add(&epoch,1);opening=show;reset_knob_anchors();
 #ifdef MPC_CHORDS
   /* Opto owns K1-K3, so the native bindings never saw those turns. On the
    * way out let the next Scaled binding pick up instead of jumping. */
@@ -69,7 +105,7 @@ int compressor_ui_tick(void){
   if(c.bypass)compressor_select(COMP_DUCK);
   opening=0;
  }
- if(show&&painted_type!=compressor_type()){painted_type=compressor_type();repaint();}
+ if(show&&painted_type!=compressor_type()){painted_type=compressor_type();reset_knob_anchors();repaint();}
  double now=seconds();
  if(show&&compressor_type()==COMP_OPTO&&now>=next_frame){next_frame=now+1./30;repaint();}
  return show!=0;
@@ -89,7 +125,7 @@ int compressor_ui_button(void*e,uint64_t ticket){
  if((ticket&T_REPEAT)&&code>=0x0c&&code<=0x0e)return 0;
  if(!current_ticket(ticket)||!visible())return 1; /* Never replay a stale Type press in another screen. */
  if(!down)return 0;
- if(code==0x0d){compressor_select(compressor_type()==COMP_DUCK?COMP_OPTO:COMP_DUCK);repaint();}
+ if(code==0x0d){compressor_select(compressor_type()==COMP_DUCK?COMP_OPTO:COMP_DUCK);reset_knob_anchors();repaint();}
  else if(compressor_type()==COMP_OPTO&&code==0x0c){compressor_warm();repaint();}
  else return 0;
  atomic_store(&owned[code],1);return 1;
@@ -98,17 +134,53 @@ int compressor_ui_control(void*e,uint64_t ticket){
  if(!current_ticket(ticket)||!visible()||compressor_type()!=COMP_OPTO)return 1;
  unsigned cc=F(e,8,unsigned char),value=F(e,9,unsigned char);
  if(cc<0x10||cc>0x12)return 0;
- if(ticket&T_SHIFT)compressor_shift_knob(cc-0x10,value);else compressor_knob(cc-0x10,value);
+ if(value>127)return 1;
+ unsigned k=cc-0x10,layer=(ticket&T_SHIFT)!=0;
+ unsigned mode=parameter_takeover(),scaled=value;
+ uint64_t snapshot=compressor_project_snapshot();
+ if(layer!=knob_layer||mode!=knob_mode||snapshot!=knob_snapshot){
+  reset_knob_anchors();knob_layer=layer;knob_mode=mode;knob_snapshot=snapshot;
+ }
+ if(mode!=TAKEOVER_JUMP){
+  struct knob_anchor *anchor=anchors+k;
+  if(!anchor->valid){
+   struct comp_config c;
+   compressor_config(&c);
+   *anchor=(struct knob_anchor){1,value,0,knob_position(&c,k,layer)};
+   if(mode==TAKEOVER_SCALED||value!=(unsigned)lroundf(anchor->parameter))return 1;
+   anchor->picked=1;
+  }
+  unsigned previous=anchor->physical;
+  anchor->physical=value;
+  if(mode==TAKEOVER_PICKUP){
+   if(!anchor->picked){
+    unsigned target=(unsigned)lroundf(anchor->parameter);
+    if((previous<target&&value<target)||(previous>target&&value>target))return 1;
+    anchor->picked=1;
+   }
+  }else{
+   if(value==previous)return 1;
+   /* Native Scaled uses the remaining travel in the current direction
+    * and keeps a minimum slope of .15 when reversing near an endpoint. */
+   float span=value>previous?127.f-previous:(float)previous;
+   float room=value>previous?127.f-anchor->parameter:anchor->parameter;
+   anchor->parameter=fmaxf(0,fminf(127,anchor->parameter+
+        ((float)value-previous)*fmaxf(.15f,room/span)));
+   scaled=(unsigned)lroundf(anchor->parameter);
+  }
+ }
+ if(layer)compressor_shift_knob(k,scaled);else compressor_knob(k,scaled);
+ knob_snapshot=compressor_project_snapshot();
  repaint();return 1;
 }
 int compressor_ui_reset_knob(unsigned column,unsigned shifted){
  if(!visible()||music_ui_repeat_active()||compressor_type()!=COMP_OPTO)return 0;
- compressor_reset_knob(column,shifted);repaint();return 1;
+ compressor_reset_knob(column,shifted);reset_knob_anchors();repaint();return 1;
 }
 static void paint(void*p,void*g){
  if(F(p,0,uintptr_t)!=base+SCREEN)return;
  compressor_phone_wake();
- if(root!=p){root=p;opening=1;compressor_animation_init(&animation);atomic_fetch_add(&epoch,1);}
+ if(root!=p){root=p;opening=1;reset_knob_anchors();compressor_animation_init(&animation);atomic_fetch_add(&epoch,1);}
  compressor_ui_tick();if(!visible()||music_ui_repeat_active())return;
  unsigned type=compressor_type();int ready=compressor_ready();
  colour(g,0xff000000);rect(g,106,0,106,29);

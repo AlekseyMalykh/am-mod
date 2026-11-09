@@ -4,7 +4,7 @@
 
 [English](README.md) · **Русский**
 
-[**Скачать r27r**](https://github.com/AlekseyMalykh/am-mod/releases/tag/r27r) (последний релиз) · [Отзывы и помощь](docs/FEEDBACK.ru.md) · [Известные проблемы](docs/KNOWN_ISSUES.ru.md) · [Обсуждения](https://github.com/AlekseyMalykh/am-mod/discussions)
+[**Скачать r27r**](https://github.com/AlekseyMalykh/am-mod/releases/tag/r27r) (стабильный релиз) · [Отзывы и помощь](docs/FEEDBACK.ru.md) · [Известные проблемы](docs/KNOWN_ISSUES.ru.md) · [Обсуждения](https://github.com/AlekseyMalykh/am-mod/discussions)
 
 Am MOD — мод сообщества для Akai MPC Sample (прошивка **1.3.0.12**), который запускается с
 SD-карты. Поверх штатного приложения он добавляет шаговый секвенсор на пэдах, режим
@@ -19,6 +19,12 @@ SD-карты. Поверх штатного приложения он доба�
 > не поддерживается. **В репозитории и пакетах релизов нет прошивки и кода Akai**: мод
 > изменяет копию приложения, которая уже есть на вашем MPC Sample. Используйте на свой
 > риск. См. [NOTICE](NOTICE.md).
+
+## Экспериментальный r28a
+
+В r28a появились микшер с треками A–H и Master, цепочки эффектов, посылы, экспорт стемов из Song и точная настройка темпа проекта. Исправлены индикация Steps, подсветка при удержании Tap Tempo и подхват кнобов OptoCat. **Дизайн ещё будет дорабатываться.**
+
+[Скачать экспериментальный r28a](https://github.com/AlekseyMalykh/am-mod/releases/tag/r28a) · [Что изменилось, как установить и пользоваться r28a](docs/RELEASE_NOTES-r28a.ru.md)
 
 ## Что нового в r27r
 
@@ -43,7 +49,7 @@ SD-карты. Поверх штатного приложения он доба�
 
 | Функция | Где | Статус |
 |---|---|---|
-| **Читаемая панель K1–K3**: названия и значения параметров видны всегда, янтарный фокус, отметки `S` для функций с Shift | все стандартные экраны | подтверждено |
+| **Читаемая панель K1–K3**: названия и значения параметров видны всегда, янтарный фокус, стрелка вверх для функций с Shift в r28a | все стандартные экраны | подтверждено |
 | **Ввод имён пэдами** (телефонная клавиатура: ABC на пэде 14, DEF на 15…, удаление на 16) | Save Project / Save Sample, поиск | подтверждено |
 | **Orig Note** сэмпла, **Key / Scale** проекта | Sample → Tune → Shift+K1; Project → Key/Scale | подтверждено |
 | **Подсветка по ладу** для 16 Levels Tune: Monochrome / Piano / Scale / Degrees, Transpose16 | Sample → Tune/Play/**Scales** | частично подтверждено |
@@ -119,7 +125,7 @@ SD-карты. Поверх штатного приложения он доба�
 ```bash
 python3 installer/mpc_mod_installer.py                 # окно
 python3 installer/mpc_mod_installer.py cards           # список карт
-python3 installer/mpc_mod_installer.py install am-mod-r27r.zip --card E:
+python3 installer/mpc_mod_installer.py install am-mod-r28a.zip --card E:  # экспериментальный пакет
 python3 installer/mpc_mod_installer.py install --latest --card /Volumes/MPC
 python3 installer/mpc_mod_installer.py remove --card E:
 ```

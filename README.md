@@ -4,7 +4,7 @@
 
 **English** · [Русский](README.ru.md)
 
-[**Download r27r**](https://github.com/AlekseyMalykh/am-mod/releases/tag/r27r) (latest) · [Feedback and help](docs/FEEDBACK.md) · [Known issues](docs/KNOWN_ISSUES.md) · [Discussions](https://github.com/AlekseyMalykh/am-mod/discussions)
+[**Download r27r**](https://github.com/AlekseyMalykh/am-mod/releases/tag/r27r) (stable release) · [Feedback and help](docs/FEEDBACK.md) · [Known issues](docs/KNOWN_ISSUES.md) · [Discussions](https://github.com/AlekseyMalykh/am-mod/discussions)
 
 Am MOD is a community mod for the Akai MPC Sample (firmware **1.3.0.12**) that starts from
 the SD card. On top of the stock app it adds a step sequencer on the pads, a chord mode,
@@ -19,6 +19,12 @@ a patched copy of the stock app in RAM, and the stock app starts as usual withou
 > or Akai Professional. **No firmware and no Akai code are in this repository or in the
 > release packages**: the mod patches the copy of the app already on your MPC Sample.
 > Use at your own risk. See [NOTICE](NOTICE.md).
+
+## Experimental r28a
+
+r28a adds the A–H and Master mixer, insert chains, sends, Song stem export and fine project tempo control. It also fixes the Steps status display, Tap Tempo pad lighting and OptoCat knob takeover. **The interface design is still being refined.**
+
+[Download r28a (experimental)](https://github.com/AlekseyMalykh/am-mod/releases/tag/r28a) · [Changes, installation and controls for r28a](docs/RELEASE_NOTES-r28a.md)
 
 ## What's new in r27r
 
@@ -119,7 +125,7 @@ refuses to start on any other version) and a compatible SD card with a supported
 ```bash
 python3 installer/mpc_mod_installer.py                 # window
 python3 installer/mpc_mod_installer.py cards           # list cards
-python3 installer/mpc_mod_installer.py install am-mod-r27r.zip --card E:
+python3 installer/mpc_mod_installer.py install am-mod-r28a.zip --card E:  # experimental package
 python3 installer/mpc_mod_installer.py install --latest --card /Volumes/MPC
 python3 installer/mpc_mod_installer.py remove --card E:
 ```

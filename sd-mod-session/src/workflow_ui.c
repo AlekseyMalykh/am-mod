@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include "shift_badge.h"
 #include "workflow_ui.h"
 #include "phone_input.h"
 #include "batch_copy.h"
@@ -1333,7 +1334,11 @@ static void batch_paint(void*g){
  colour(g,WHITE);text(g,chop_export&&!batch_page?"Page":shift&&batch_page?"Row bank":batch_page?"Auto bank":"Bank",0,201,106,13,12);
  if(chop_export&&!batch_page)snprintf(line,sizeof(line),"%d / %d",slice_page+1,(slice_count+15)/16);else snprintf(line,sizeof(line),"%c",'A'+(batch_page&&!shift?batch_auto_bank:batch_bank));text(g,line,0,216,106,20,18);
  if(batch_page){text(g,"Target",107,201,106,13,12);char b[8];if(!pinned[batch_row])strcpy(b,"Auto");else if(destination[batch_row]<128)pad_name(destination[batch_row],b,sizeof(b));else strcpy(b,"--");text(g,b,107,216,106,20,18);text(g,shift&&!chop_export?"Copy":"Auto",214,201,106,13,12);text(g,shift&&!chop_export?(batch_events?"Snd+events":"Sound only"):batch_layout==0?"First free":batch_layout==1?"Same pad":"Bank free",214,216,106,20,16);}
- if(batch_page){colour(g,shift?RED:WHITE);text(g,"S",91,201,11,12,11);if(!chop_export)text(g,"S",304,201,11,12,11);}
+ if(batch_page){
+  colour(g,shift?RED:WHITE);
+  SHIFT_BADGE_RECTS(rect,g,94,200);
+  if(!chop_export)SHIFT_BADGE_RECTS(rect,g,306,200);
+ }
 
 }
 static void batch_job_paint(void*g){

@@ -23,7 +23,7 @@ enum mixer_result { MIXER_OK, MIXER_INVALID, MIXER_FULL, MIXER_UNSUPPORTED,
 enum mixer_scene_field { MIXER_SCENE_LEVEL=1, MIXER_SCENE_PAN=2,
     MIXER_SCENE_SEND=4, MIXER_SCENE_MUTE=8, MIXER_SCENE_SOLO=16 };
 struct mixer_mix {
-    float level_db,pan,send; /* -inf = Off; pan -1..1, future send 0..1 */
+    float level_db,pan,send; /* -inf = Off; pan -1..1, send 0..1 */
     unsigned mute,solo;
 };
 struct mixer_channel {
@@ -43,6 +43,7 @@ struct mixer_scene {
 struct mixer_project {
     struct mixer_channel track[MIXER_TRACKS],master;
     unsigned char output[MIXER_PADS]; /* 0=Master Direct, 1..8=Track */
+    unsigned char send_to[MIXER_TRACKS]; /* 0=Off, 1..8=return track */
     unsigned scene_count;
     struct mixer_scene scene[MIXER_MAX_SCENES];
 };
@@ -53,6 +54,8 @@ uint32_t mixer_colour_at(unsigned index);
 int mixer_colour_index(uint32_t rgb);
 const char*mixer_colour_name(uint32_t rgb); /* NULL for a custom RGB value. */
 int mixer_project_valid(const struct mixer_project*);
+int mixer_send_order(const unsigned char destination[MIXER_TRACKS],unsigned order[MIXER_TRACKS]);
+int mixer_set_send_to(struct mixer_project*,unsigned track_mask,unsigned destination);
 enum mixer_result mixer_set_output(struct mixer_project*,unsigned pad,unsigned output);
 enum mixer_result mixer_scene_set(struct mixer_project*,const struct mixer_scene*);
 int mixer_scene_remove(struct mixer_project*,uint64_t part_id);

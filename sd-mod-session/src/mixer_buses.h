@@ -9,10 +9,22 @@ enum mixer_bus_result { MIXER_BUS_OK, MIXER_BUS_INVALID, MIXER_BUS_RESOURCE,
     MIXER_BUS_FX_ERROR, MIXER_BUS_UNSUPPORTED, MIXER_BUS_STATE, MIXER_BUS_AUDIO_ERROR };
 struct mixer_buses;
 struct mixer_bus_update;
+#define MIXER_FX_MONITOR_FRAMES 4096u
+struct mixer_fx_monitor {
+    unsigned channel,slot;
+    float input_peak,output_peak,key_peak;
+    float input_pcm[MIXER_FX_MONITOR_FRAMES];
+    float pcm[MIXER_FX_MONITOR_FRAMES];
+};
+/* Audio owner only. The final Master graph may borrow the Track graph's
+ * pre-FX detector levels for this block. */
+void mixer_buses_key_source(struct mixer_buses*,const struct mixer_buses*);
+void mixer_buses_monitor(struct mixer_buses*,unsigned channel,unsigned slot);
+int mixer_buses_take_monitor(struct mixer_buses*,struct mixer_fx_monitor*);
 struct mixer_pcm_view {const float *channel[2];unsigned frames;};
 /* Prepare immutable routing/mix/FX snapshot off RT. part_id chooses an
  * optional Scene. No native source, project, sequencer or UI is changed.
- * Send>0 is rejected until returns/export semantics exist. Independent FX
+ * Track sends feed the destination before its FX. Independent FX
  * instances belong to this graph; chain bypass leaves native config intact. */
 struct mixer_buses *mixer_buses_prepare(const struct mixer_project*,uint64_t part_id,
     double rate,unsigned max_frames,const struct fx_backend*,enum mixer_bus_result*error);
@@ -29,6 +41,7 @@ enum mixer_bus_result mixer_buses_finish(struct mixer_buses*,struct mixer_meters
 /* Read on the same owner before next begin/destroy. Index 0..7 Track,
  * 8 Master Direct (post Solo), 9 final Master. No unfinished/error output. */
 int mixer_buses_view(const struct mixer_buses*,unsigned bus,struct mixer_pcm_view*);
+uint32_t mixer_buses_return_peaks(const struct mixer_buses*,float out[MIXER_TRACKS]);
 size_t mixer_buses_pcm_bytes(const struct mixer_buses*);
 /* One control producer prepares complete updates off RT and publishes at most
  * one pending update. Ownership transfers only on OK. Revisions increase;

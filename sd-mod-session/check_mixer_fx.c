@@ -112,9 +112,10 @@ int main(int argc,char**argv)
     mixer_fx_fixture_position(epoch,123,7,8,0,0,0);mixer_runtime_ui_tick();assert(automatic);
     real_block(epoch,123,7,8,0,0,0);mixer_session_ui_tick(automatic);assert(mixer_session_status(automatic)==1);
     struct mixer_control*c=mixer_session_control(automatic);assert(mixer_control_open(c,1,0));uint64_t ticket=mixer_control_ticket(c);
-    mixer_control_set_fx_editing(c,1); /* the device UI keeps Track FX editing off for now */
+    mixer_control_set_fx_editing(c,1);
     float dry[N];memcpy(dry,root_pcm[0],sizeof(dry));
     assert(mixer_control_button(c,MIXER_KNOB,1,ticket)&&mixer_control_button(c,MIXER_KNOB,0,ticket));
+    key(c,MIXER_SELECT,ticket);
     assert(mixer_control_cc(c,0x10,127,ticket));mixer_session_ui_tick(automatic);mixer_runtime_ui_tick();
     assert(mixer_archive_snapshot(&saved,&revision,&mode)&&saved.track[0].fx.stage[0].parameter[0]==0);
     real_block(epoch,137,6,8,48000,1,2.0);mixer_runtime_ui_tick();mixer_session_ui_tick(automatic);
@@ -124,21 +125,29 @@ int main(int argc,char**argv)
      * each real callback still starts at offset zero in every native FX. */
     for(unsigned i=0;i<4;++i)real_block(epoch,97,3,4,1234,1,7.25);
     for(unsigned i=0;i<3;++i)real_block(epoch,97,3,4,1234,0,7.25);
+    struct mixer_fx_monitor signal;
+    assert(mixer_live_fx_monitor(mixer_session_live(automatic),0,0,&signal));
+    assert(signal.input_peak>0&&signal.output_peak>0);
     /* Every supported native catalog entry runs through the same live graph,
      * Track and Master together. Factories/delete/imports are guarded on RT. */
     for(unsigned i=1;i<fx_catalog_count();++i){
       const struct fx_catalog_entry *entry=fx_catalog_at(i);
       for(unsigned variant=0;variant<3;++variant){
-        mixer_control_button(c,MIXER_SHIFT,1,ticket);key(c,MIXER_SELECT,ticket);mixer_control_button(c,MIXER_SHIFT,0,ticket);
-        assert(mixer_control_cc(c,0x10,(i*128+fx_catalog_count()-1)/fx_catalog_count(),ticket));key(c,MIXER_SELECT,ticket);
+        key(c,MIXER_B1,ticket);
+        key(c,MIXER_ERASE,ticket);key(c,MIXER_B3,ticket);
+        key(c,MIXER_SELECT,ticket);
+        assert(mixer_control_cc(c,0x64,i,ticket));key(c,MIXER_SELECT,ticket);
+        key(c,MIXER_SELECT,ticket);
         /* Exercise both normalized boundaries through the actual paged UI,
          * then factory defaults. This includes first process after prepare. */
         if(variant<2){
             unsigned named=0;
             for(unsigned p=0;p<entry->count;++p)if(entry->parameter[p]&&*entry->parameter[p]){
-                if(named&&named%3==0)assert(mixer_control_cc(c,0x64,1,ticket));
+                if(named&&named%6==0)assert(mixer_control_cc(c,0x64,1,ticket));
+                mixer_control_button(c,MIXER_SHIFT,named%6>=3,ticket);
                 assert(mixer_control_cc(c,0x10+named%3,variant?127:0,ticket));++named;
             }
+            mixer_control_button(c,MIXER_SHIFT,0,ticket);
         }
         mixer_session_ui_tick(automatic);mixer_runtime_ui_tick();
         for(unsigned j=0;j<4;++j)real_block(epoch,137,6,8,(int64_t)j*N,1,j*N/48000.*137/60.);
@@ -170,7 +179,7 @@ int main(int argc,char**argv)
     mixer_runtime_ui_tick();mixer_session_ui_tick(automatic);
     unsigned after_create,after_delete,after_process;mixer_fx_fixture_counts(&after_create,&after_delete,&after_process);
     assert(after_create==before_create&&after_process>before_process);
-    key(c,MIXER_KNOB,ticket);
+    key(c,MIXER_KNOB,ticket);key(c,MIXER_SELECT,ticket);
     mixer_fx_fixture_factory_ready(1);real_block(epoch,97,3,4,0,1,0);
     assert(mixer_control_cc(c,0x10,127,ticket));mixer_session_ui_tick(automatic);mixer_runtime_ui_tick();
     real_block(epoch,97,3,4,N,1,N/48000.*97/60.);mixer_runtime_ui_tick();mixer_session_ui_tick(automatic);
@@ -186,6 +195,7 @@ int main(int argc,char**argv)
     mixer_runtime_ui_tick();assert(!automatic);
     mixer_fx_fixture_clock_ready(1);real_block(epoch,97,3,4,0,1,0);mixer_runtime_ui_tick();assert(automatic);
     real_block(epoch,97,3,4,0,1,0);mixer_session_ui_tick(automatic);c=mixer_session_control(automatic);assert(mixer_control_open(c,1,0));ticket=mixer_control_ticket(c);
+    mixer_control_set_fx_editing(c,1);key(c,MIXER_KNOB,ticket);
     mixer_control_button(c,MIXER_SHIFT,1,ticket);key(c,MIXER_B2,ticket);mixer_control_button(c,MIXER_SHIFT,0,ticket);
     assert(mixer_control_pad(c,15,1,ticket)&&mixer_control_pad(c,15,0,ticket));
     mixer_control_button(c,MIXER_SHIFT,1,ticket);key(c,MIXER_B2,ticket);mixer_control_button(c,MIXER_SHIFT,0,ticket);

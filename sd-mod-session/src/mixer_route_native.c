@@ -282,7 +282,9 @@ int mixer_route_meters_push(struct mixer_route_native*a,struct mixer_meters*m,ui
             }
         }
     }
-    int result=mixer_meters_push(m,epoch,a->frames,taps);
+    float returns[MIXER_TRACKS]={0};
+    unsigned mask=a->result==MIXER_ROUTE_APPLIED?mixer_buses_return_peaks(a->buses,returns):0;
+    int result=mixer_meters_push_returns(m,epoch,a->frames,taps,mask,returns);
     if(result>=0)a->meter_pushed=1;
     return result;
 }

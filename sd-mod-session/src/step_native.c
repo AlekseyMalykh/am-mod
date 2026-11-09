@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include "shift_badge.h"
 #include "step_native.h"
 #include "ui_caption.h"
 #include "workflow_ui.h"
@@ -209,10 +210,15 @@ static void sample_palette_publish(void *things,void *program,int bank,int enabl
   }
 #ifdef MPC_MIXER_LIVE
   enum mixer_sample_gate gate=used?mixer_phone_sample_gate(n):MIXER_SAMPLE_AUDIBLE;
-  if(gate!=MIXER_SAMPLE_AUDIBLE){
-   uint32_t hue=muted||gate==MIXER_SAMPLE_MUTED?PAD_MUTED:music_identity_rgb((unsigned)music_pad_colour(n));
-   float brightness=hue==PAD_MUTED?.24f:.12f;
-   uint64_t light=(int)n==focus?pad_focus_light(hue,brightness,now-sample_focus_since):pad_light(hue,brightness);
+  uint32_t status=mixer_sample_status_rgb(gate);
+  if(status){
+   uint32_t hue=now%1000<500?status:music_identity_rgb((unsigned)music_pad_colour(n));
+   atomic_store(&sample_palette[i],pad_light(hue,now<playback_until[i]?1.f:.70f));
+   continue;
+  }
+  if(gate==MIXER_SAMPLE_SOLO_EXCLUDED){
+   uint32_t hue=muted?PAD_MUTED:music_identity_rgb((unsigned)music_pad_colour(n));
+   uint64_t light=(int)n==focus?pad_focus_light(hue,.12f,now-sample_focus_since):pad_light(hue,.12f);
    atomic_store(&sample_palette[i],light);
    continue;
   }
@@ -1279,7 +1285,7 @@ int step_native_tick(void)
     unsigned serial=atomic_load(&clock_serial);
     if (serial!=last_clock_serial) last_clock_serial=serial;
     play_tick=(int64_t)atomic_load(&clock_tick);
-    if (!atomic_load(&clock_valid) || play_tick<0) was_playing=0;
+    if (!atomic_load(&clock_valid) || play_tick<0) {was_playing=0;play_tick=0;}
     if (play_tick>=length) play_tick%=length;
     if (steps) {
         int bank=native_bank();
@@ -1306,7 +1312,7 @@ int step_native_tick(void)
     atomic_store(&event_edit_mask,category_buttons(categories));
     publish();
     uint64_t visual=(uint64_t)(unsigned)page|((uint64_t)(unsigned)cursor<<16)
-        |((uint64_t)(unsigned)(play_tick/grid_ticks[grid])<<32)|((uint64_t)(unsigned)shift<<60)
+        |((uint64_t)(unsigned)play_tick<<32)|((uint64_t)(unsigned)shift<<60)
         |((uint64_t)(unsigned)was_playing<<61)
         |((uint64_t)atomic_load(&requested_sound)<<59)|((uint64_t)atomic_load(&requested_erase)<<58)
         |((uint64_t)atomic_load(&write_armed)<<57)|((uint64_t)atomic_load(&mute_active)<<56)
@@ -1651,13 +1657,10 @@ static void text_align(void *g,const char *s,int x,int y,int w,int h,float heigh
     FN(0x1070d60,void(*)(uint64_t*))(&font);FN(0xf0a290,void(*)(uint64_t*))(&string);
 }
 static void text(void*g,const char*s,int x,int y,int w,int h,float height){text_align(g,s,x,y,w,h,height,0x24);}
-/* Shift badge as the native K panel draws it (values_ui.S): a 10x12 frame
- * with "S", white, red while Shift is held. bx = column*106+94, top = y. */
 static void shift_badge(void *g,int bx,int top,int on)
 {
     colour(g,on ? 0xffff4747 : 0xffffffff);
-    rect(g,bx,top,10,1); rect(g,bx,top+11,10,1); rect(g,bx,top,1,12); rect(g,bx+9,top,1,12);
-    text(g,"S",bx+1,top+1,8,10,10.0f);
+    SHIFT_BADGE_RECTS(rect,g,bx,top);
 }
 static void left_text(void*g,const char*s,int x,int y,int w,int h,float height){text_align(g,s,x,y,w,h,height,0x21);}
 static void right_text(void*g,const char*s,int x,int y,int w,int h,float height){text_align(g,s,x,y,w,h,height,0x22);}
@@ -1679,7 +1682,7 @@ static void steps_grid_paint(void*g)
      * chronological indices. Convert at this boundary just as palette()
      * does, so the outline and fill identify the same physical pad. */
     for(int row=0;row<4;++row)for(int col=0;col<4;++col){
-        int i=(3-row)*4+col,x=4+col*79,y=82+row*28,w=75,h=25;
+        int i=(3-row)*4+col,x=4+col*79,y=86+row*25,w=75,h=22;
         int slot=pad_step((unsigned)i);
         uint64_t light=atomic_load(&lights[i]);uint32_t rgb=(uint32_t)light;float bright;uint32_t bits=(uint32_t)(light>>32);memcpy(&bright,&bits,4);
         if(!(bright>=0.f&&bright<=1.f))bright=0.f;
@@ -1722,22 +1725,24 @@ void step_native_paint(void *p,void *g)
         char s[64],name[8];pad_name(sound,name);
         /* Info: sound and sample, mode on the right; then step, positions. */
         int pad_colour=music_pad_colour((unsigned)sound);
-        colour(g,pad_colour?0xff000000u|music_identity_rgb(pad_colour):AMBER);left_text(g,name,6,35,40,22,17);
-        ui_caption(s,sizeof(s),sample_name,18);colour(g,!strcmp(sample_name,"Empty") ? GREY : WHITE);left_text(g,s,46,35,170,22,15);
+        colour(g,pad_colour?0xff000000u|music_identity_rgb(pad_colour):AMBER);left_text(g,name,6,34,40,20,17);
+        ui_caption(s,sizeof(s),sample_name,18);colour(g,!strcmp(sample_name,"Empty") ? GREY : WHITE);left_text(g,s,46,34,170,20,15);
         colour(g,atomic_load(&requested_erase)?0xffff8000:atomic_load(&mute_active)?RED:atomic_load(&toggle_armed)?AMBER:atomic_load(&write_armed) ? RED : GREY);
-        right_text(g,atomic_load(&requested_erase)?"ERASE":atomic_load(&mute_active)?"MUTE":atomic_load(&toggle_armed)?"TOGGLE":atomic_load(&write_armed)?"WRITE ON":"WRITE OFF",216,35,98,22,13);
+        right_text(g,atomic_load(&requested_erase)?"ERASE":atomic_load(&mute_active)?"MUTE":atomic_load(&toggle_armed)?"TOGGLE":atomic_load(&write_armed)?"WRITE ON":"WRITE OFF",216,34,98,20,13);
         struct bbt e=position(edit_tick),play=position(play_tick<0 ? 0 : play_tick);
         unsigned kinds=atomic_load(&event_edit_mask);
         int cursor_muted=scan_ok&&cursor/16==page&&slots[cursor%16].muted;
-        if(message[0]&&milliseconds()<message_until){colour(g,AMBER);ui_caption(s,sizeof(s),message,39);left_text(g,s,6,58,308,20,13);}
-        else{
-            colour(g,AMBER);snprintf(s,sizeof(s),"Step %d%s%s  %d.%d.%03d",cursor+1,kinds&2u?" C":"",kinds&1u?" L":"",e.bar+1,e.beat+1,e.tick);left_text(g,s,6,58,150,20,15);
-            colour(g,cursor_muted?RED:GREY);snprintf(s,sizeof(s),"%s%s",follow?"Follow":"Hold",cursor_muted?" M":"");text(g,s,156,58,60,20,13);
-            colour(g,was_playing?CYAN:GREY);
-            if(was_playing)snprintf(s,sizeof(s),"%d.%d.%03d",play.bar+1,play.beat+1,play.tick);else snprintf(s,sizeof(s),"Page %d/%d",page+1,pages());
-            right_text(g,s,216,58,98,20,14);
-        }
+        colour(g,WHITE);snprintf(s,sizeof(s),"Step %d%s%s  %d.%d.%03d",cursor+1,kinds&2u?" C":"",kinds&1u?" L":"",e.bar+1,e.beat+1,e.tick);
+        left_text(g,s,6,55,230,14,13);
+        colour(g,cursor_muted?RED:follow?CYAN:WHITE);
+        snprintf(s,sizeof(s),"%s%s",follow?"Follow":"Hold",cursor_muted?" M":"");right_text(g,s,236,55,78,14,13);
+        colour(g,AMBER);snprintf(s,sizeof(s),"Page %d/%d",page+1,pages());left_text(g,s,6,68,147,16,16);
+        colour(g,was_playing?CYAN:GREY);snprintf(s,sizeof(s),"Play %d.%d.%03d",play.bar+1,play.beat+1,play.tick);
+        right_text(g,s,155,68,159,16,13);
         steps_grid_paint(g);
+        if(message[0]&&milliseconds()<message_until){
+            colour(g,AMBER);ui_caption(s,sizeof(s),message,39);text(g,s,6,185,308,13,12);
+        }
         char value[24];
         int bars=clamp(sequence?FIELD(sequence,0x200,int):1,1,128);
         if(shift)snprintf(value,sizeof(value),"--");else snprintf(value,sizeof(value),"%d",bars);

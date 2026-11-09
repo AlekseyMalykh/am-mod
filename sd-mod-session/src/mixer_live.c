@@ -116,6 +116,18 @@ uint64_t mixer_live_applied_revision(const struct mixer_live*s)
 }
 void mixer_live_rebind(struct mixer_live*s,void*engine,void*program){if(s){s->engine=engine;s->program=program;}}
 int mixer_live_bus_view(const struct mixer_live*s,unsigned bus,struct mixer_pcm_view*out){return s&&mixer_route_view(s->track,bus,out);}
+int mixer_live_fx_monitor(struct mixer_live*s,unsigned channel,unsigned slot,struct mixer_fx_monitor*out)
+{
+    struct mixer_buses*track=mixer_route_buses(s->track);
+    mixer_buses_monitor(track,channel<8?channel:9,slot);
+    mixer_buses_monitor(s->master,channel==8?8:9,slot);
+    struct mixer_fx_monitor track_packet,master_packet;
+    int t=mixer_buses_take_monitor(track,&track_packet);
+    int m=mixer_buses_take_monitor(s->master,&master_packet);
+    if(channel<8&&t&&track_packet.channel==channel&&track_packet.slot==slot){*out=track_packet;return 1;}
+    if(channel==8&&m&&master_packet.slot==slot){*out=master_packet;return 1;}
+    return 0;
+}
 int mixer_live_take_meter(struct mixer_live*s,struct mixer_meter_snapshot*out){return s&&mixer_meters_take(s->meters,s->epoch,out);}
 static _Thread_local uintptr_t offline_kit_vptr;
 void mixer_live_program(const struct mixer_route_ops*ops,void*p,void*clock,unsigned frames)
@@ -163,6 +175,7 @@ int mixer_live_render(struct mixer_live*s,void*engine,void*clock,unsigned frames
     void*out=s->ops.final_output(engine);int success=0;
     if(out&&integer(out,0)==2&&integer(out,4)>=frames){float**pcm=pointer(out,16);unsigned clear=*((unsigned char*)out+0x128);
         if(pcm&&pcm[0]&&pcm[1]&&clear<=1&&mixer_buses_begin(s->master,frames)==MIXER_BUS_OK){
+            mixer_buses_key_source(s->master,s->block_result==MIXER_ROUTE_APPLIED?mixer_route_buses(s->track):NULL);
             mixer_buses_accumulate(s->master,0,pcm[0],pcm[1],2,clear);
             if(mixer_buses_finish(s->master,NULL,0)==MIXER_BUS_OK){
                 struct mixer_pcm_view v;if(mixer_buses_view(s->master,9,&v)){unsigned silent=1;
@@ -174,7 +187,10 @@ int mixer_live_render(struct mixer_live*s,void*engine,void*clock,unsigned frames
             }
         }
     }
-    mixer_meters_push(s->meters,s->epoch,frames,taps);return success;
+    float returns[MIXER_TRACKS]={0};
+    uint32_t return_mask=s->block_result==MIXER_ROUTE_APPLIED?
+        mixer_buses_return_peaks(mixer_route_buses(s->track),returns):0;
+    mixer_meters_push_returns(s->meters,s->epoch,frames,taps,return_mask,returns);return success;
 }
 
 int mixer_live_render_offline(struct mixer_live *live,void *engine,void *clock,

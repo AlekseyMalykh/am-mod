@@ -1,4 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
+#include "shift_badge.h"
 #include "chords_ui.h"
 #include "voice_guard.h"
 #include "chords.h"
@@ -228,13 +229,10 @@ static void text(void*g,const char*s,int x,int y,int w,int h,float height){
  FN(0x10817b0,void(*)(void*,const uint64_t*,int,int,int,int,int,int,float))(g,&string,x,y,w,h,0x24,1,.7f);
  FN(0x1070d60,void(*)(uint64_t*))(&font);FN(0xf0a290,void(*)(uint64_t*))(&string);
 }
-/* Shift badge as the native K panel draws it (values_ui.S): a 10x12 frame
- * with "S", white, red while Shift is held. bx = column*106+94, top = y. */
 static void shift_badge(void *g,int bx,int top,int on)
 {
     colour(g,on ? 0xffff4747 : 0xffffffff);
-    rect(g,bx,top,10,1); rect(g,bx,top+11,10,1); rect(g,bx,top,1,12); rect(g,bx+9,top,1,12);
-    text(g,"S",bx+1,top+1,8,10,10.0f);
+    SHIFT_BADGE_RECTS(rect,g,bx,top);
 }
 int chords_ui_paint(void*root,void*g){
  if(!chords_active())return 0;

@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include "shift_badge.h"
 #include "music_ui.h"
 #include "sample_mute.h"
 #ifdef MPC_MIXER_LIVE
@@ -35,6 +36,7 @@ static void eq_close(void){if(eq_page){pad_eq_native_report();
 static void eq_paint(void*,unsigned);
 static int choice(unsigned,int,int,int,int);
 #endif
+#include <math.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
@@ -329,13 +331,10 @@ static void text(void *g,const char *s,int x,int y,int w,int h,float height)
     FN(0x1070d60,void(*)(uint64_t*))(&font);
     FN(0xf0a290,void(*)(uint64_t*))(&string);
 }
-/* Shift badge as the native K panel draws it (values_ui.S): a 10x12 frame
- * with "S", white, red while Shift is held. bx = column*106+94, top = y. */
 static void shift_badge(void *g,int bx,int top,int on)
 {
     colour(g,on ? 0xffff4747 : 0xffffffff);
-    rect(g,bx,top,10,1); rect(g,bx,top+11,10,1); rect(g,bx,top,1,12); rect(g,bx+9,top,1,12);
-    text(g,"S",bx+1,top+1,8,10,10.0f);
+    SHIFT_BADGE_RECTS(rect,g,bx,top);
 }
 extern void step_pad_string(void*,uint64_t*,uintptr_t);
 static int header_toggled(void *button){
@@ -484,7 +483,7 @@ static void sequence_paint(void*p,void*g){
         colour(g,0xff000000|music_identity_rgb(c));rect(g,6,218,11,11);
         colour(g,0xffffc247);text(g,music_identity_name((unsigned)c),18,214,84,19,16);
         focus=saved;
-    }
+    }else shift_badge(g,94,200,0);
 }
 #ifdef MPC_PAD_EQ
 static void eq_rect(void*g,int x,int y,int w,int h,uint32_t ink){colour(g,ink);rect(g,x,y,w,h);}
@@ -740,6 +739,24 @@ static void mod_settings_paint(void*g){
  colour(g,0xffa0a0a0);
  text_aligned(g,mod_row==mod_rows()?"Press: review":mod_edit?"Turn: change   Press: done":"Turn: row   Press: edit",116,206,196,20,13,0x21);
 }
+/* AC50Core constructs the stock TempoController at +0x588. Its master
+ * tempo property belongs to the sequencer and is saved by the native project. */
+static void *project_tempo(float *bpm)
+{
+    if(!base)return NULL;
+    void *app=FIELD(base,0x71e3dc8,void*);
+    if(!app||FIELD(app,0,uintptr_t)!=base+0x6e07288)return NULL;
+    void *audio=FIELD(app,0xd8,void*);
+    if(!audio||FIELD(audio,0,uintptr_t)!=base+0x6e0c430)return NULL;
+    void *core=FIELD(audio,0x148,void*);
+    if(!core||FIELD(core,0,uintptr_t)!=base+0x6e0cf38)return NULL;
+    void *controller=FIELD(core,0x588,void*);
+    if(!controller||FIELD(controller,0,uintptr_t)!=base+0x6d95318)return NULL;
+    void *sequencer=FIELD(controller,0x28,void*);
+    if(!sequencer)return NULL;
+    *bpm=FIELD(sequencer,0xac0,float);
+    return isfinite(*bpm)&&*bpm>0?controller:NULL;
+}
 void music_ui_project(void *p,void *g)
 {
     if (FIELD(p,0,uintptr_t)!=base+PROJECT_VPTR) return;
@@ -747,7 +764,7 @@ void music_ui_project(void *p,void *g)
     if (project!=p) { project=p; key_page=0; atomic_store(&project_id,(uintptr_t)p); report("PROJECT_ROOT_OBSERVED"); }
     music_ui_tick();
     if (!visible(p)) return;
-    if(!key_page)return; /* Six native rows: four stock commands, Key / Scale and Mod Settings. */
+    if(!key_page)return; /* Six native rows: four stock commands, Key / Scale / Tempo and Mod Settings. */
     if(key_page==5){
         mod_settings_paint(g);return;
     }
@@ -777,7 +794,7 @@ void music_ui_project(void *p,void *g)
     }
     int tonic,scale; music_get_key(&tonic,&scale);
     colour(g,0xff000000); rect(g,0,0,320,240);
-    colour(g,0xffffffff); text(g,"Back",4,1,98,22,14); text(g,"Key / Scale",30,55,260,28,22);
+    colour(g,0xffffffff); text(g,"Back",4,1,98,22,14); text(g,"Key / Scale / Tempo",20,55,280,28,20);
     char key[48]; music_key_text(tonic,scale,key,sizeof(key));
     colour(g,0xffffc247); text(g,key,10,95,300,26,20);
     colour(g,0xffffffff); text(g,"Default for pad layouts",10,137,300,18,13);
@@ -787,7 +804,12 @@ void music_ui_project(void *p,void *g)
     }
     cell(g,0,"Tonic",music_note_names[tonic],0,0,1,tonic,12);
     cell(g,1,"Scale",music_scale_names[scale],0,0,1,scale,8);
-    cell(g,2,"","",0,0,0,0,0);
+    char tempo[24]="Unavailable";
+    float bpm;
+    int available=project_tempo(&bpm)!=NULL;
+    if(available)snprintf(tempo,sizeof(tempo),"%.2f BPM",bpm);
+    int fine=shifted(p,1);
+    cell(g,2,fine?"Tempo Fine":"Tempo",tempo,fine,1,available,0,0);
 }
 static int choice(unsigned value,int current,int lo,int hi,int relative)
 {
@@ -821,7 +843,25 @@ int music_ui_control_at(void *event,unsigned event_shift)
     int rel=cc==0x64;
     if (!rel) focus=(int)cc-0x10;
     if (key_page) {
-        if (focus==2) return 1;
+        if(focus==2){
+            float bpm;
+            void *controller=project_tempo(&bpm);
+            if(controller){
+                int cents=(int)lroundf(bpm*100);
+                int delta=v>64?(int)v-128:v==64?0:(int)v;
+                int fine=event_shift!=0;
+                if(rel)cents+=delta*(fine?1:100);
+                else if(fine)cents=cents/100*100+(int)(v*100/128);
+                else cents=(20+(int)(v*281/128))*100+cents%100;
+                if(cents<2000)cents=2000;
+                if(cents>30000)cents=30000;
+                float next=cents/100.f;
+                /* SetMasterTempoCommand, including undo. Keep the current
+                 * Master/Sequence tempo source selected by the user. */
+                if(next!=bpm)FN(0x1956f00,void(*)(void*,float))(controller,next);
+            }
+            repaint(project);return 1;
+        }
         int tonic,scale; music_get_key(&tonic,&scale);
         if (focus==0) tonic=choice(v,tonic,0,11,rel);
         if (focus==1) scale=choice(v,scale,0,7,rel);
@@ -939,7 +979,7 @@ int music_ui_button(void *event)
     }
     if (atomic_load(&custom) && code==0x6f) {
         int shift=shifted(key_page ? project : sample,key_page);
-        int count=key_page ? 2 : 3;
+        int count=3;
         if (!key_page && shift
 #ifdef MPC_PAD_EQ
             && !eq_page

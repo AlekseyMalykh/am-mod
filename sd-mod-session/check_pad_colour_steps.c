@@ -148,23 +148,28 @@ static void mixer_sample_feedback_checks(void)
  uint32_t hue=music_identity_rgb(music_pad_colour(1));
  uint64_t light;
  sample_palette_publish(things,sample_program,0,1,0,60000);
- assert(step_native_light(0,&light)&&light==pad_focus_light(PAD_MUTED,.24f,0));
+ assert(step_native_light(0,&light)&&light==pad_light(MIXER_MUTE_RGB,1.f));
  for(unsigned now=60100;now<=60500;now+=400){
   sample_palette_publish(things,sample_program,0,1,0,now);
-  assert(step_native_light(0,&light)&&light==pad_focus_light(PAD_MUTED,.24f,now-60000));
+  uint32_t mute_phase=now%1000<500?MIXER_MUTE_RGB:music_identity_rgb(music_pad_colour(0));
+  assert(step_native_light(0,&light)&&light==pad_light(mute_phase,1.f));
   assert(step_native_light(1,&light)&&light==pad_light(hue,.12f));
   assert(step_native_light(2,&light)&&light==pad_light(music_identity_rgb(music_pad_colour(2)),.12f));
   /* Empty slots keep their existing event indication and can never acquire a Mixer mute colour. */
   assert(step_native_light(3,&light)&&light==pad_light(music_identity_rgb(music_pad_colour(3)),.80f));
  }
  sample_mix.track[0].mix.mute=0;
- assert(mixer_phone_sample_gate(0)==MIXER_SAMPLE_AUDIBLE);
+ assert(mixer_phone_sample_gate(0)==MIXER_SAMPLE_SOLO_ACTIVE);
+ sample_palette_publish(things,sample_program,0,1,0,61000);
+ assert(step_native_light(0,&light)&&light==pad_light(MIXER_SOLO_RGB,.70f));
+ sample_palette_publish(things,sample_program,0,1,0,61500);
+ assert(step_native_light(0,&light)&&light==pad_light(music_identity_rgb(music_pad_colour(0)),.70f));
  sample_mix.track[1].mix.solo=1;
- assert(mixer_phone_sample_gate(1)==MIXER_SAMPLE_AUDIBLE);
+ assert(mixer_phone_sample_gate(1)==MIXER_SAMPLE_SOLO_ACTIVE);
  sample_mix=(struct mixer_project){0};
  for(unsigned i=0;i<4;++i){active_voices[i]=0;playback_until[i]=0;step_native_observe_rgb(i,0);}
  sample_palette_publish(NULL,NULL,0,0,0,62000);
- puts("PASS Sample Mixer Mute and Solo suppress activity flashes, keep cursor, preserve empty-pad events and gate Master Direct");
+ puts("PASS Sample Mixer Mute and Solo alternate with pad hue, preserve empty-pad events and gate Master Direct");
 }
 int main(void){
  void*p=mmap(NULL,0x7500000,7,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);assert(p!=MAP_FAILED);base=(uintptr_t)p;

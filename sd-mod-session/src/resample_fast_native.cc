@@ -118,6 +118,7 @@ void frame(void*engine,void*clock){
     void*context=static_cast<char*>(clock)-8;
     if(writer_trace.context!=context||F(context,0x9f0,uint64_t)==0){writer_trace=WriterTrace{};writer_trace.context=context;}
     ++writer_trace.blocks;
+    reinterpret_cast<void(*)(void*,void*)>(image+0x2114c00)(engine,clock);
 #ifdef MPC_MIXER_LIVE
     if(!mini&&mixer_stems_armed&&mixer_stems_song_frame&&mixer_stems_armed()&&
        F(context,0x3f0,unsigned)==0&&F(context,0x9f0,uint64_t)==0){
@@ -125,7 +126,6 @@ void frame(void*engine,void*clock){
         if(writer)mixer_stems_song_frame(context,writer,F(writer,0xd8,const char*),F(writer,12,unsigned));
     }
 #endif
-    reinterpret_cast<void(*)(void*,void*)>(image+0x2114c00)(engine,clock);
     if(!mini||mini->engine!=engine||mini->failed)return;
     auto&m=*mini;
     ++m.blocks;

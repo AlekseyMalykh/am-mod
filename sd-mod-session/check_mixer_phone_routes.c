@@ -1,6 +1,7 @@
 #define PHONE_RGB_TEST 1
 #define MPC_MIXER_LIVE 1
 #include "src/phone_native.c"
+#include "src/fx_catalog.h"
 #include <assert.h>
 #include <unistd.h>
 
@@ -14,6 +15,10 @@ void note_native_repaint_sample_region(unsigned x,unsigned y,unsigned w,unsigned
 int note_native_sample_visible(void) { return 1; }
 int workflow_blocks_sample_controls(void) { return 0; }
 int note_native_active(void) { return 0; }
+int music_pad_lighting_mode(void) { return 1; }
+int music_pad_colour(unsigned pad) { return (int)(pad%16); }
+uint32_t music_user_rgb(unsigned raw) { return 0x102030u+raw; }
+uint32_t music_service_rgb(unsigned role) { (void)role; return 0xffffffu; }
 int music_ui_active(void) { return 0; }
 int music_ui_knob_fx_active(void) { return 0; }
 int music_lighting_levels_state(unsigned *e,unsigned *m,unsigned *o) { *e=*m=*o=0; return 0; }
@@ -55,7 +60,8 @@ static void receive_pad(void *e)
     ++stock_pad[down];
 }
 static void receive_cc(void *e) { (void)e; ++stock_cc; }
-static void *top_modal(int i) { assert(!i); return NULL; }
+static int modal_open;
+static void *top_modal(int i) { assert(!i); return modal_open?(void*)1:NULL; }
 static int midi_down(void *e,int z) { assert(!z); return FIELD(e,0,unsigned char)==1; }
 static int midi_up(void *e,int one) { assert(one==1); return FIELD(e,0,unsigned char)==0; }
 static void stub(uintptr_t offset,void *fn)
@@ -102,6 +108,21 @@ int main(void)
     stub(0xddff20,midi_up);
     __builtin___clear_cache(image,(char*)image+0x7500000);
 
+    _Alignas(8) unsigned char confirm[16]={0};confirm[8]=0x0e;confirm[9]=1;
+    assert(!step_confirm_to_native(confirm,4));
+    modal_open=1;assert(step_confirm_to_native(confirm,4)&&stock_down[0x0e]==1);
+    modal_open=0;confirm[9]=0;
+    assert(step_confirm_to_native(confirm,0)&&stock_up[0x0e]==1);
+    assert(!step_confirm_to_native(confirm,0));
+    step_confirm_deadline=now_ms()+350;
+    atomic_store(&step_confirm_waiting,1);
+    confirm[9]=1;assert(step_confirm_to_native(confirm,4));
+    confirm[9]=0;assert(step_confirm_to_native(confirm,4));
+    assert(stock_down[0x0e]==1&&stock_up[0x0e]==1);
+    modal_open=1;step_confirm_tick();modal_open=0;
+    assert(stock_down[0x0e]==2&&stock_up[0x0e]==2);
+
+
     struct mixer_project project;
     mixer_defaults(&project);
     struct mixer_control_ops ops={NULL,submit};
@@ -126,16 +147,35 @@ int main(void)
     struct mixer_view_state view;
     mixer_control_view(session.control,0,&view);
     assert(view.page==MIXER_OVERVIEW && view.primary==4 && !stock_pad[0] && !stock_pad[1]);
+    uint64_t empty_fx=pad_light(0x808080u,.22f);
+    for(unsigned i=8;i<12;++i)assert(atomic_load(&mixer_select_lights[i])==empty_fx);
+    for(unsigned i=0;i<3;++i){
+        assert(fx_catalog_stage(0,48000,&project.track[4].fx.stage[i]));
+        project.track[4].fx.count=i+1;
+        assert(mixer_control_confirm(session.control,&project,2+i,1));
+        mixer_publish_route();
+        for(unsigned slot=0;slot<4;++slot)
+            assert(atomic_load(&mixer_select_lights[8+slot])==(slot<=i?pad_light(mixer_fx_slot_rgb(slot),.90f):empty_fx));
+    }
+    pad(4,1);pad(5,1);pad(5,0);pad(4,0);drain();
+    for(unsigned i=8;i<12;++i)assert(atomic_load(&mixer_select_lights[i])==empty_fx);
+    pad(4,1);pad(4,0);drain();
+    assert(atomic_load(&mixer_select_lights[8])==pad_light(mixer_fx_slot_rgb(0),.90f));
     button(0x23,1);button(0x23,0);drain();
-    assert(stock_down[0x23]==1&&stock_up[0x23]==1); /* Native outside Assign. */
+    assert(stock_down[0x23]==0&&stock_up[0x23]==0); /* Mixer overview does not change the native bank. */
     button(1,1);button(1,0);drain();
     button(0x23,1);button(0x23,0);drain();
     mixer_control_view(session.control,0,&view);
     assert(view.page==MIXER_ASSIGN&&view.bank==6&&view.primary==4);
     assert(step_native_browser_bank(-1)==6);
+    mixer_control_presence(session.control,0,UINT64_C(3)<<32,6);
+    mixer_publish_route();
+    assert(atomic_load(&mixer_select_lights[0])==pad_light(0x102030u,.18f));
+    assert(atomic_load(&mixer_select_lights[1])==pad_light(0x102031u,.18f));
+    assert(atomic_load(&mixer_select_lights[2])==0);
     uint64_t colour;
     assert(mixer_leds_light(0,0x123456,&colour)); /* Palette owns unknown/native fallback too. */
-    assert(stock_down[0x23]==1&&stock_up[0x23]==1);
+    assert(stock_down[0x23]==0&&stock_up[0x23]==0);
     button(0x36,1);drain();
     button(1,1);button(1,0);drain(); /* Return while + is held. */
     button(0x36,0);drain();

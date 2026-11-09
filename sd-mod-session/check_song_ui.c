@@ -26,6 +26,7 @@ static void stub(uintptr_t offset,void *fn)
 static int steps[64][2],step_count,row;
 static unsigned char screen_obj[0x1000],controller_obj[0x400],sequencer_obj[0x1400],song_obj[0x100];
 static unsigned char sequences[16][0x210];
+static _Alignas(8) unsigned char export_obj[0xd80];
 static void *songs[1];
 static int ops,last_op,last_step,last_seq,last_rep;
 static void sync_song(void)
@@ -155,6 +156,18 @@ int main(int argc,char **argv)
 
     phase="end-of-song row and empty selection are ignored";
     row=step_count;before=ops;knob(64);knob(90);song_ui_owns(PHONE_BUTTON,B3,1,1);button(B3,1);button(B3,0);assert(ops==before);
+
+    phase="Song Export binds its name editor before TextEditor paint";
+    FIELD(export_obj,0,uintptr_t)=elf_image+EXPORT_VPTR;
+    export_paint(export_obj,NULL);
+    atomic_store(&stems_name_stage,1);
+    assert(!song_ui_stems_name_editor());
+    FIELD(export_obj,0xa38,uintptr_t)=elf_image+0x6e18e20;
+    assert(song_ui_stems_name_editor()==export_obj+0xa38);
+    song_ui_stems_name_opened();
+    assert(!song_ui_stems_name_editor());
+    song_ui_stems_name_closed();
+    export_forget(export_obj);
 
     phase="screen destruction";
     forget(screen_obj);assert(!song_ui_active()&&!screen);

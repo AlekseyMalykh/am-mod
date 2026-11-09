@@ -54,6 +54,33 @@ void mixer_defaults(struct mixer_project*p)
     for(unsigned i=0;i<MIXER_TRACKS;++i){snprintf(p->track[i].name,MIXER_NAME_BYTES,"Track %c",'A'+i);p->track[i].colour=mixer_colour_at(default_colours[i]);}
     memcpy(p->master.name,"Master",7);p->master.colour=0x00c700; /* Master green */
 }
+int mixer_send_order(const unsigned char destination[MIXER_TRACKS],unsigned order[MIXER_TRACKS])
+{
+    unsigned remaining=(1u<<MIXER_TRACKS)-1;
+    unsigned incoming[MIXER_TRACKS]={0};
+    for(unsigned i=0;i<MIXER_TRACKS;++i){
+        if(destination[i]>MIXER_TRACKS)return 0;
+        if(destination[i])++incoming[destination[i]-1];
+    }
+    for(unsigned n=0;n<MIXER_TRACKS;++n){
+        unsigned i=0;
+        while(i<MIXER_TRACKS&&(!(remaining&(1u<<i))||incoming[i]))++i;
+        if(i==MIXER_TRACKS)return 0;
+        order[n]=i;remaining&=~(1u<<i);
+        if(destination[i])--incoming[destination[i]-1];
+    }
+    return 1;
+}
+int mixer_set_send_to(struct mixer_project*p,unsigned mask,unsigned destination)
+{
+    if(!p||!mask||destination>MIXER_TRACKS)return 0;
+    unsigned char route[MIXER_TRACKS];
+    unsigned order[MIXER_TRACKS];
+    memcpy(route,p->send_to,sizeof(route));
+    for(unsigned i=0;i<MIXER_TRACKS;++i)if(mask&(1u<<i))route[i]=(unsigned char)destination;
+    if(!mixer_send_order(route,order))return 0;
+    memcpy(p->send_to,route,sizeof(route));return 1;
+}
 int mixer_project_valid(const struct mixer_project*p)
 {
     if(!p||p->scene_count>MIXER_MAX_SCENES)return 0;
@@ -63,6 +90,8 @@ int mixer_project_valid(const struct mixer_project*p)
         if(!name_valid(c->name)||c->colour>0xffffff||!mix_valid(&c->mix)||c->fx_bypass>1||!fx_chain_valid(&c->fx,192000))return 0;
     }
     if(p->master.mix.mute||p->master.mix.solo)return 0;
+    unsigned order[MIXER_TRACKS];
+    if(!mixer_send_order(p->send_to,order))return 0;
     for(unsigned i=0;i<MIXER_PADS;++i)if(p->output[i]>MIXER_TRACKS)return 0;
     for(unsigned i=0;i<p->scene_count;++i){
         if(!scene_valid(p->scene+i))return 0;
@@ -146,13 +175,13 @@ static void emit_channel(struct writer*w,const struct mixer_channel*c)
     unsigned n=(unsigned)strlen(c->name);byte(w,n);for(unsigned i=0;i<n;++i)byte(w,(unsigned char)c->name[i]);
     integer(w,c->colour,4);emit_mix(w,&c->mix,ALL_FIELDS);byte(w,c->fx_bypass);byte(w,c->fx.count);
     for(unsigned i=0;i<c->fx.count;++i){const struct fx_stage*s=c->fx.stage+i;byte(w,s->kind);byte(w,s->bypass);
-        if(s->kind==FX_STAGE_NATIVE){integer(w,s->native_id,4);for(unsigned j=0;j<FX_CHAIN_PARAMETERS;++j)number(w,s->parameter[j]);}
+        if(s->kind!=FX_STAGE_EQ){integer(w,s->native_id,4);for(unsigned j=0;j<FX_CHAIN_PARAMETERS;++j)number(w,s->parameter[j]);}
         else {byte(w,s->eq.count);byte(w,s->eq.bypass);real(w,s->eq.output_db);
             for(unsigned j=0;j<s->eq.count;++j){const struct fx_eq_band*b=s->eq.band+j;real(w,b->hz);real(w,b->gain_db);real(w,b->q);byte(w,b->type);byte(w,b->enabled);}
         }
     }
 }
-static void emit_project(struct writer*w,const struct mixer_project*p)
+static void emit_project(struct writer*w,const struct mixer_project*p,unsigned version)
 {
     for(unsigned i=0;i<MIXER_TRACKS;++i)emit_channel(w,p->track+i);
     emit_channel(w,&p->master);
@@ -161,19 +190,27 @@ static void emit_project(struct writer*w,const struct mixer_project*p)
     for(unsigned i=0;i<p->scene_count;++i){const struct mixer_scene*s=p->scene+i;integer(w,s->part_id,8);
         for(unsigned j=0;j<MIXER_TRACKS;++j){byte(w,s->fields[j]);emit_mix(w,s->track+j,s->fields[j]);}
     }
+    if(version>=2)for(unsigned i=0;i<MIXER_TRACKS;++i)byte(w,p->send_to[i]);
 }
 enum mixer_result mixer_encode(const struct mixer_project*p,char*out,size_t capacity,size_t*needed)
 {
     if(!mixer_project_valid(p))return MIXER_INVALID;
-    struct writer count={0};emit_project(&count,p);
+    unsigned version=MIXER_MODEL_VERSION;
+    for(unsigned i=0;i<MIXER_TRACKS;++i)if(p->send_to[i])version=2;
+    for(unsigned i=0;i<=MIXER_TRACKS;++i){
+        const struct mixer_channel*c=i==MIXER_TRACKS?&p->master:p->track+i;
+        for(unsigned slot=0;slot<c->fx.count;++slot)
+            if(c->fx.stage[slot].kind==FX_STAGE_SIDECHAIN)version=3;
+    }
+    struct writer count={0};emit_project(&count,p,version);
     size_t n=5+2*(8+count.count+4);
     if(n+1>MIXER_PAYLOAD_BYTES)return MIXER_FULL;
     if(needed)*needed=n;
     if(!out)return capacity?MIXER_INVALID:MIXER_OK;
     if(capacity<n+1)return MIXER_SHORT_BUFFER;
     memcpy(out,prefix,5);struct writer w={out,0,UINT32_MAX};
-    integer(&w,MIXER_MODEL_VERSION,2);integer(&w,0,2);integer(&w,count.count,4);
-    emit_project(&w,p);uint32_t checksum=~w.crc;integer(&w,checksum,4);
+    integer(&w,version,2);integer(&w,0,2);integer(&w,count.count,4);
+    emit_project(&w,p,version);uint32_t checksum=~w.crc;integer(&w,checksum,4);
     out[n]=0;return MIXER_OK;
 }
 struct reader {const char*in;size_t count,position;int failed;};
@@ -195,14 +232,14 @@ static void read_mix(struct reader*r,struct mixer_mix*m,unsigned fields)
     if(fields&MIXER_SCENE_MUTE)m->mute=read_byte(r);
     if(fields&MIXER_SCENE_SOLO)m->solo=read_byte(r);
 }
-static int read_channel(struct reader*r,struct mixer_channel*c)
+static int read_channel(struct reader*r,struct mixer_channel*c,unsigned version)
 {
     unsigned n=read_byte(r);if(!n||n>=MIXER_NAME_BYTES)return 0;
     for(unsigned i=0;i<n;++i){c->name[i]=(char)read_byte(r);if(!c->name[i])return 0;}
     c->name[n]=0;c->colour=(uint32_t)read_integer(r,4);read_mix(r,&c->mix,ALL_FIELDS);
     c->fx_bypass=read_byte(r);c->fx.count=read_byte(r);if(c->fx.count>FX_CHAIN_MAX)return 0;
     for(unsigned i=0;i<c->fx.count;++i){struct fx_stage*s=c->fx.stage+i;s->kind=read_byte(r);s->bypass=read_byte(r);
-        if(s->kind==FX_STAGE_NATIVE){s->native_id=(uint32_t)read_integer(r,4);for(unsigned j=0;j<FX_CHAIN_PARAMETERS;++j)s->parameter[j]=read_number(r);}
+        if(s->kind==FX_STAGE_NATIVE||(version>=3&&s->kind==FX_STAGE_SIDECHAIN)){s->native_id=(uint32_t)read_integer(r,4);for(unsigned j=0;j<FX_CHAIN_PARAMETERS;++j)s->parameter[j]=read_number(r);}
         else if(s->kind==FX_STAGE_EQ){s->eq.count=read_byte(r);s->eq.bypass=read_byte(r);s->eq.output_db=read_real(r);if(s->eq.count>FX_EQ_MAX_BANDS)return 0;
             for(unsigned j=0;j<s->eq.count;++j){struct fx_eq_band*b=s->eq.band+j;b->hz=read_real(r);b->gain_db=read_real(r);b->q=read_real(r);b->type=read_byte(r);b->enabled=read_byte(r);}
         }else return 0;
@@ -220,15 +257,16 @@ enum mixer_result mixer_decode(const char*in,size_t size,struct mixer_project*ou
     r.position=0;unsigned version=(unsigned)read_integer(&r,2),flags=(unsigned)read_integer(&r,2);
     size_t bytes=(size_t)read_integer(&r,4);
     if(bytes!=r.count-12)return MIXER_CORRUPT;
-    if(version!=MIXER_MODEL_VERSION||flags)return MIXER_UNSUPPORTED;
+    if(version<MIXER_MODEL_VERSION||version>3||flags)return MIXER_UNSUPPORTED;
     r.count-=4;struct mixer_project pending;memset(&pending,0,sizeof(pending));
-    for(unsigned i=0;i<MIXER_TRACKS;++i)if(!read_channel(&r,pending.track+i))return MIXER_CORRUPT;
-    if(!read_channel(&r,&pending.master))return MIXER_CORRUPT;
+    for(unsigned i=0;i<MIXER_TRACKS;++i)if(!read_channel(&r,pending.track+i,version))return MIXER_CORRUPT;
+    if(!read_channel(&r,&pending.master,version))return MIXER_CORRUPT;
     for(unsigned i=0;i<MIXER_PADS;++i)pending.output[i]=(unsigned char)read_byte(&r);
     pending.scene_count=(unsigned)read_integer(&r,2);if(pending.scene_count>MIXER_MAX_SCENES)return MIXER_CORRUPT;
     for(unsigned i=0;i<pending.scene_count;++i){struct mixer_scene*s=pending.scene+i;s->part_id=read_integer(&r,8);
         for(unsigned j=0;j<MIXER_TRACKS;++j){s->fields[j]=(unsigned char)read_byte(&r);if(s->fields[j]&~ALL_FIELDS)return MIXER_UNSUPPORTED;read_mix(&r,s->track+j,s->fields[j]);}
     }
+    if(version>=2)for(unsigned i=0;i<MIXER_TRACKS;++i)pending.send_to[i]=read_byte(&r);
     if(r.failed||r.position!=r.count||!mixer_project_valid(&pending))return MIXER_CORRUPT;
     *out=pending;return MIXER_OK;
 }

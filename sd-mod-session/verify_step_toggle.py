@@ -1,6 +1,7 @@
 """Current Steps WRITE/TOGGLE ARM contracts, without repackaging frozen releases."""
 from pathlib import Path
-import hashlib,json,subprocess
+import hashlib,json,subprocess,sys
+status_only=sys.argv[1:]==['--status-only']
 R=Path(__file__).resolve().parent;O=R/'build/step-toggle';O.mkdir(exist_ok=True)
 sources=['check_steps.c','check_steps_support.cc','check_steps_support.S','src/step_abi.S',
          'src/step_native.c','src/step_native.h','src/step_exceptions.cc','src/step_mute.cc',
@@ -18,9 +19,16 @@ for mode,extra in [('normal',[]),('ubsan',['-fsanitize=undefined','-static-libub
   subprocess.run(['aarch64-linux-gnu-g++','-std=c++11',*common,'-c',source,'-o',str(obj)],cwd=R,check=True)
  target=O/mode
  subprocess.run(['aarch64-linux-gnu-gcc',*common,'-Ibuild','-DSTEP_BRIDGE_PATH="build/pad-colour-workflows/phone-bridges.bin"','check_steps.c','check_steps_support.S','src/step_abi.S',*objects,'-lstdc++','-ldl','-lpthread','-lm','-o',str(target)],cwd=R,check=True)
- p=subprocess.run(['qemu-aarch64','-L','/home/user/mpc-rootfs-user-20260808',str(target),str(stock),str(O/(mode+'-draw.txt'))],cwd=R,capture_output=True,text=True,timeout=45)
+ p=subprocess.run(['qemu-aarch64','-L','/home/user/mpc-rootfs-user-20260808',str(target),str(stock),str(O/(mode+'-draw.txt')),*(['status-only'] if status_only else [])],cwd=R,capture_output=True,text=True,timeout=45)
  (O/(mode+'.log')).write_text(p.stdout+p.stderr);p.check_returncode()
- assert 'PASS SAMPLE RECORD toggles a step on/off' in p.stdout
+ if status_only:
+  frames=(O/(mode+'-draw.txt')).read_text().split(' Status test')
+  assert len(frames)==3
+  for frame,mode_label in zip(frames[:2],('Follow','Hold')):
+   assert ' Page ' in frame and ' Play 1.1.123' in frame and f' {mode_label}\n' in frame
+  print(f'PASS {mode}: Page, Play and Follow/Hold remain visible with a message',flush=True)
+ else:
+  assert 'PASS SAMPLE RECORD toggles a step on/off' in p.stdout
  print(p.stdout[-1500:],end='',flush=True)
 assert before=={n:sha(R/n) for n in sources}
-(O/'verification.json').write_text(json.dumps(dict(passed=True,ubsan=True,write_toggle_exclusive_verified=True,sources_sha256=before,hardware_tested=False,native_gui_and_executor='fixtures'),indent=2)+'\n')
+(O/('status-verification.json' if status_only else 'verification.json')).write_text(json.dumps(dict(passed=True,ubsan=True,write_toggle_exclusive_verified=not status_only,sources_sha256=before,hardware_tested=False,native_gui_and_executor='fixtures'),indent=2)+'\n')

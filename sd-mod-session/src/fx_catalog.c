@@ -31,9 +31,33 @@ static const struct fx_catalog_entry entries[]={
  {0x56456678,"Vinyl","Emulator",3,{"Tone","Crackle","Pitch"},{0.5f,0.0f,0.0f}},
  {0x54456678,"Tape","Emulator",3,{"Wow","Noise","Pitch"},{0.0f,0.0f,0.0f}},
 };
+unsigned fx_catalog_parameter_count(const struct fx_catalog_entry*e)
+{
+    unsigned n=0;
+    if(e)for(unsigned i=0;i<e->count;++i)if(e->parameter[i]&&*e->parameter[i])++n;
+    return n;
+}
+int fx_catalog_parameter_index(const struct fx_catalog_entry*e,unsigned position)
+{
+    if(e)for(unsigned i=0;i<e->count;++i)
+        if(e->parameter[i]&&*e->parameter[i]&&position--==0)return (int)i;
+    return -1;
+}
+static const struct fx_catalog_entry sidechain={FX_SIDECHAIN_ID,"Sidechain Compressor","Dynamics",6,
+    {"Key Track","Threshold","Ratio","Attack","Release","Mix"},{0,.60f,.158f,.25f,.5f,1}};
+unsigned fx_mixer_catalog_count(void){return fx_catalog_count()+1;}
+const struct fx_catalog_entry *fx_mixer_catalog_at(unsigned i)
+{return i==fx_catalog_count()?&sidechain:fx_catalog_at(i);}
+int fx_mixer_catalog_stage(unsigned i,double rate,struct fx_stage*out)
+{
+    if(i!=fx_catalog_count())return fx_catalog_stage(i,rate,out);
+    if(!out||rate<8000||rate>192000)return 0;
+    memset(out,0,sizeof(*out));out->kind=FX_STAGE_SIDECHAIN;out->native_id=FX_SIDECHAIN_ID;
+    memcpy(out->parameter,sidechain.defaults,sizeof(out->parameter));return 1;
+}
 unsigned fx_catalog_count(void){return sizeof(entries)/sizeof(entries[0]);}
 const struct fx_catalog_entry*fx_catalog_at(unsigned i){return i<fx_catalog_count()?entries+i:0;}
-const struct fx_catalog_entry*fx_catalog_find(uint32_t id){for(unsigned i=0;i<fx_catalog_count();++i)if(entries[i].id==id)return entries+i;return 0;}
+const struct fx_catalog_entry*fx_catalog_find(uint32_t id){if(id==FX_SIDECHAIN_ID)return &sidechain;for(unsigned i=0;i<fx_catalog_count();++i)if(entries[i].id==id)return entries+i;return 0;}
 const char*fx_catalog_stage_name(const struct fx_stage*s){const struct fx_catalog_entry*e=s?fx_catalog_find(s->kind==FX_STAGE_EQ?0:s->native_id):0;return e?e->name:"Unknown effect";}
 int fx_catalog_stage(unsigned i,double rate,struct fx_stage*out){const struct fx_catalog_entry*e=fx_catalog_at(i);if(!e||!out||rate<8000||rate>192000)return 0;
  memset(out,0,sizeof(*out));if(!e->id){out->kind=FX_STAGE_EQ;fx_eq_default(&out->eq);for(unsigned b=0;b<out->eq.count;++b)out->eq.band[b].hz=fmin(out->eq.band[b].hz,rate*.45);}

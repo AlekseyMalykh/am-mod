@@ -110,6 +110,14 @@ static void codec(void)
     }
     assert(mixer_encode(&project,again,sizeof(again),&needed)==MIXER_OK&&needed+1<=MIXER_PAYLOAD_BYTES);
     assert(mixer_decode(again,needed,&decoded)==MIXER_OK);
+    assert(mixer_set_send_to(&project,1,2));
+    assert(!mixer_set_send_to(&project,2,1));
+    assert(mixer_encode(&project,again,sizeof(again),&needed)==MIXER_OK);
+    assert(mixer_decode(again,needed,&decoded)==MIXER_OK&&decoded.send_to[0]==2);
+    project.track[0].fx.stage[0]=(struct fx_stage){.kind=FX_STAGE_SIDECHAIN,.native_id=FX_SIDECHAIN_ID,.parameter={.3f,.6f,.2f,.25f,.5f,1}};
+    assert(mixer_encode(&project,again,sizeof(again),&needed)==MIXER_OK);
+    assert(mixer_decode(again,needed,&decoded)==MIXER_OK);
+    assert(decoded.track[0].fx.stage[0].kind==FX_STAGE_SIDECHAIN&&decoded.track[0].fx.stage[0].parameter[0]==.3f);
     printf("PASS exact-size transactional codec, UTF-8, IEEE Off, all 32 FX parameters, EQ8 and largest V1 payload (%zu bytes)\n",needed);
 }
 static void invalid_payloads(void)
@@ -118,7 +126,7 @@ static void invalid_payloads(void)
     saved=project;
     for(size_t cut=0;cut<n;++cut){assert(mixer_decode(encoded,cut,&project)!=MIXER_OK);assert(!memcmp(&project,&saved,sizeof(project)));}
     memcpy(damaged,encoded,n+1);damaged[20]='z';assert(mixer_decode(damaged,n,&project)==MIXER_CORRUPT);
-    memcpy(damaged,encoded,n+1);set_byte(damaged,0,2);repair_crc(damaged,n);
+    memcpy(damaged,encoded,n+1);set_byte(damaged,0,4);repair_crc(damaged,n);
     assert(mixer_decode(damaged,n,&project)==MIXER_UNSUPPORTED&&!memcmp(&project,&saved,sizeof(project)));
     memcpy(damaged,encoded,n+1);set_byte(damaged,2,1);repair_crc(damaged,n);
     assert(mixer_decode(damaged,n,&project)==MIXER_UNSUPPORTED);

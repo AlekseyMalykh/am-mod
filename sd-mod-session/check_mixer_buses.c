@@ -38,7 +38,7 @@ static void routing(void)
     assert(mixer_buses_finish(b,NULL,0)==MIXER_BUS_OK);
     compare(value(b,0,0,0),.5f);compare(value(b,MIXER_METER_DIRECT,0,0),0);
     compare(value(b,MIXER_METER_MASTER,0,0),.5f);
-    assert(mixer_buses_pcm_bytes(b)==128*22*sizeof(float));
+    assert(mixer_buses_pcm_bytes(b)==128*(22+FX_SIDECHAIN_KEYS+2*MIXER_TRACKS)*sizeof(float));
     mixer_meters_destroy(m);mixer_buses_destroy(b);
     puts("PASS all eight independent stereo Tracks, all-bank Pad mapping, polyphonic accumulation, Direct isolation, final sum and real bus meter taps");
 }
@@ -106,11 +106,83 @@ static void effects(void)
     compare(value(b,0,0,0),.125f);compare(value(b,1,0,0),0);mixer_buses_destroy(b);assert(creates==destroys&&processes>0);
     puts("PASS per-Track FX order, independent state/tails, Master FX placement, bypass and partial preparation cleanup");
 }
+static void sends(void)
+{
+    mixer_defaults(&project);
+    project.output[0]=2;project.track[1].mix.send=.5f;
+    project.output[1]=3;project.track[2].mix.send=.5f;
+    project.output[2]=1;
+    assert(mixer_set_send_to(&project,6,1)&&!mixer_set_send_to(&project,1,2));
+    struct mixer_buses*b=prepare();
+    struct mixer_meters*m=mixer_meters_create(48000);assert(m);
+    float pcm[]={.5f},inverse[]={-.5f},dry[]={.125f};
+    assert(mixer_buses_begin(b,1)==MIXER_BUS_OK);
+    assert(mixer_buses_accumulate(b,0,pcm,NULL,1,0)==MIXER_BUS_OK);
+    assert(mixer_buses_accumulate(b,2,dry,NULL,1,0)==MIXER_BUS_OK);
+    assert(mixer_buses_finish(b,m,1)==MIXER_BUS_OK);
+    compare(value(b,1,0,0),.5f);compare(value(b,0,0,0),.375f);compare(value(b,9,0,0),.875f);
+    struct mixer_meter_snapshot snapshot;
+    assert(mixer_meters_take(m,1,&snapshot)&&snapshot.return_mask==1);
+    compare(snapshot.return_peak[0],.25f);
+    assert(mixer_buses_begin(b,1)==MIXER_BUS_OK);
+    assert(mixer_buses_accumulate(b,0,pcm,NULL,1,0)==MIXER_BUS_OK);
+    assert(mixer_buses_accumulate(b,1,inverse,NULL,1,0)==MIXER_BUS_OK);
+    assert(mixer_buses_accumulate(b,2,dry,NULL,1,0)==MIXER_BUS_OK);
+    assert(mixer_buses_finish(b,NULL,0)==MIXER_BUS_OK);
+    float returns[MIXER_TRACKS];
+    assert(mixer_buses_return_peaks(b,returns)==1);
+    compare(returns[0],0);compare(value(b,0,0,0),.125f);
+    mixer_meters_destroy(m);mixer_buses_destroy(b);
+}
+static void sidechain(void)
+{
+    mixer_defaults(&project);
+    project.output[0]=1;project.output[1]=2;
+    project.track[1].mix.mute=1;
+    project.track[0].fx.count=1;
+    project.track[0].fx.stage[0]=(struct fx_stage){
+        .kind=FX_STAGE_SIDECHAIN,.native_id=FX_SIDECHAIN_ID,.parameter={.25f,.5f,1,0,0,1}};
+    enum mixer_bus_result error;
+    struct mixer_buses*b=mixer_buses_prepare(&project,0,8000,128,NULL,&error);
+    assert(b);
+    float tone[128],kick[128];
+    for(unsigned i=0;i<128;++i){tone[i]=.5f;kick[i]=1.f;}
+    for(unsigned block=0;block<5;++block){
+        assert(mixer_buses_begin(b,128)==MIXER_BUS_OK);
+        assert(mixer_buses_accumulate(b,0,tone,NULL,1,0)==MIXER_BUS_OK);
+        if(block==1)assert(mixer_buses_accumulate(b,1,kick,NULL,1,0)==MIXER_BUS_OK);
+        assert(mixer_buses_finish(b,NULL,0)==MIXER_BUS_OK);
+        float actual=value(b,0,0,127);
+        if(block==0)compare(actual,.5f);
+        if(block==1)assert(actual<.05f);
+        if(block==4)assert(actual>.48f);
+        compare(value(b,1,0,127),0);
+        compare(value(b,9,0,127),actual);
+    }
+    mixer_buses_destroy(b);
+    b=mixer_buses_prepare(&project,0,8000,128,NULL,&error);assert(b);
+    mixer_buses_monitor(b,0,0);
+    struct mixer_fx_monitor monitor;
+    for(unsigned block=0;block<2*MIXER_FX_MONITOR_FRAMES/128;++block){
+        assert(mixer_buses_begin(b,128)==MIXER_BUS_OK);
+        assert(mixer_buses_accumulate(b,0,tone,NULL,1,0)==MIXER_BUS_OK);
+        if(block==0)assert(mixer_buses_accumulate(b,1,kick,NULL,1,0)==MIXER_BUS_OK);
+        assert(mixer_buses_finish(b,NULL,0)==MIXER_BUS_OK);
+        if((block+1)*128%MIXER_FX_MONITOR_FRAMES==0){
+            assert(mixer_buses_take_monitor(b,&monitor));
+            compare(monitor.input_pcm[0],.5f);
+            compare(monitor.key_peak,block<MIXER_FX_MONITOR_FRAMES/128?1:0);
+            if(block<MIXER_FX_MONITOR_FRAMES/128)assert(monitor.pcm[127]<.05f);
+        }
+    }
+    mixer_buses_destroy(b);
+    puts("PASS Sidechain key from muted Track B ducks Track A, stays out of the mix and reaches the FX detector meter");
+}
 static void failures(void)
 {
-    mixer_defaults(&project);enum mixer_bus_result error;project.track[0].mix.send=.5f;
+    mixer_defaults(&project);enum mixer_bus_result error;project.master.mix.send=.5f;
     assert(!mixer_buses_prepare(&project,0,48000,8,NULL,&error)&&error==MIXER_BUS_UNSUPPORTED);
-    project.track[0].mix.send=0;struct mixer_buses*b=prepare();float bad[]={NAN},good[]={.25f};struct mixer_pcm_view out;
+    project.master.mix.send=0;struct mixer_buses*b=prepare();float bad[]={NAN},good[]={.25f};struct mixer_pcm_view out;
     assert(mixer_buses_accumulate(b,0,good,NULL,1,0)==MIXER_BUS_STATE);
     assert(mixer_buses_begin(b,1)==MIXER_BUS_OK&&mixer_buses_begin(b,1)==MIXER_BUS_STATE);
     assert(mixer_buses_accumulate(b,0,bad,NULL,1,0)==MIXER_BUS_AUDIO_ERROR);
@@ -129,4 +201,4 @@ static void failures(void)
     mixer_buses_destroy(b);assert(creates==destroys);
     puts("PASS invalid PCM/overflow/FX fault blocks incomplete output; explicit clear silence and unsupported Send rejection");
 }
-int main(void){routing();controls();effects();failures();puts("PASS real PCM eight-bus core (native Pad adapter not installed)");return 0;}
+int main(void){routing();controls();effects();sends();sidechain();failures();puts("PASS real PCM eight-bus core (native Pad adapter not installed)");return 0;}
