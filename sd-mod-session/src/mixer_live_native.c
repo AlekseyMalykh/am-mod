@@ -25,6 +25,9 @@ static _Thread_local uint64_t clock_scope,clock_epoch;
 static _Thread_local void *block_kit;
 static _Thread_local unsigned block_kits;
 static void *kit;
+static _Atomic uintptr_t kit_vptr;
+/* Optional offline export through the Mixer (mixer_stems.c). */
+__attribute__((weak)) int mixer_stems_offline_block(void*engine,void*clock,unsigned frames,uintptr_t program_vptr);
 static void note_program(void *p)
 {
     if(!clock_scope||!p||*(uintptr_t*)p==image+0x6e3abc8)return;
@@ -111,16 +114,23 @@ static void engine(void*p,void*c,unsigned n)
     clock_epoch=atomic_load(&binding_epoch);
     void *previous_kit=block_kit;unsigned previous_kits=block_kits;
     block_kit=NULL;block_kits=0;
-    if (s && expected) {
-        struct mixer_native_binding current = observe(p,n);
-        if (caller != image + 0x18dc010 || !same_binding(&current,&attached_binding) ||
-            expected != atomic_load_explicit(&binding_epoch,memory_order_acquire)) s = NULL;
+    if(s&&expected){
+        if(caller!=image+0x18dc010)s=NULL;
+        else{
+            struct mixer_native_binding current=observe(p,n);
+            if(!same_binding(&current,&attached_binding) ||
+               expected!=atomic_load_explicit(&binding_epoch,memory_order_acquire))s=NULL;
+        }
     }
+    if (!s && mixer_stems_offline_block && caller == image + 0x18b98c0 &&
+        mixer_stems_offline_block(p,c,n,atomic_load(&kit_vptr))) goto finished;
     if(s)mixer_live_render(s,p,c,n);else ops.engine(p,c,n);
+finished:
     /* Only the real live callsite may discover a session. Offline renderers
      * call the same entry from18b556c/18b98bc and have independent lifetimes. */
     if (caller == image + 0x18dc010) {
         kit=block_kits==1?block_kit:NULL;
+        if(kit)atomic_store(&kit_vptr,*(uintptr_t*)kit);
         struct mixer_native_binding current = observe(p,n);
         current.clock_valid=position(current.position);
         publish_binding(&current);

@@ -1,5 +1,11 @@
 #define _GNU_SOURCE
 #include "song_ui.h"
+#ifdef MPC_MIXER_LIVE
+#include "mixer_stems.h"
+#pragma weak mixer_stems_arm
+#pragma weak mixer_stems_available
+#pragma weak mixer_stems_disarm
+#endif
 #include "phone_events.h"
 #include "music_settings.h"
 #include <pthread.h>
@@ -42,7 +48,7 @@
 #define FIELD(p,off,type) (*(type *)((char *)(p)+(off)))
 #define FN(off,type) ((type)(base+(off)))
 
-enum { B2=0x0d, B3=0x0e, PLUS=0x36, MINUS=0x37, K1=0x10 };
+enum { B1=0x0c, B2=0x0d, B3=0x0e, PLUS=0x36, MINUS=0x37, K1=0x10, DATA_ENCODER=0x64 };
 
 static uintptr_t base;
 static void *screen;                     /* UI thread only */
@@ -50,7 +56,43 @@ static _Atomic unsigned shown;           /* producer reads */
 static _Atomic unsigned owned_buttons;   /* bit per claimed button down */
 static _Atomic int selected_sequence=-1; /* published by the UI Timer for the RGB layer */
 static void *export_screen;              /* UI thread only */
+/* Owner of the native Stems naming modal (JUCE UI thread only).
+ * Its paintOverChildren runs after the name editor; ExportScreen painting
+ * runs behind the modal and cannot display this footer reliably. */
+static void *stems_modal_root;
+static unsigned stems_modal_scan_logs;
 static _Atomic unsigned pads_shown;      /* Song or Song Export visible: sequence pad colours */
+static _Atomic unsigned export_shown;    /* Song Export window visible */
+/* Local Export chooser on SongScreen. Main DATA encoder navigates;
+ * B1=Cancel, B3=Do It. Native export starts only on confirmation. */
+static _Atomic unsigned export_choice; /* 0 Mixdown, 1 Sequence, 2 Stems (A-H) */
+static _Atomic unsigned export_shift; /* Shift still labels Duplicate on Song steps */
+static _Atomic unsigned export_paint_seen; /* vtable callback actually reached */
+static unsigned export_shift_seen;       /* UI thread, to request the repaint */
+/* Mix9: the choice screen is painted on SongScreen BEFORE any native B1.
+ * The stock question is entered only after a confirmed choice, when we can
+ * route to the pinned native actions. UI-thread-only transition state:
+ * 0 idle, 1 waiting for the old question, 2 waiting for native ExportScreen. */
+static _Atomic unsigned export_menu_active;
+static unsigned export_route_stage,export_route_choice;
+static uint64_t export_route_since;
+static _Alignas(8) unsigned char export_route_template[16];
+/* 0 none, 1 Mixdown naming, 2 Stems naming. Both share the existing
+ * TextEditor + pad keyboard; Sequence has no stock name dialog. */
+static _Atomic unsigned export_name_kind;
+/* Mixdown and Stems use the same native name editor. Its Shift/B2 mean
+ * case/Erase. 0=idle, 1=opening, 2=open, 3=Do It. */
+static _Atomic unsigned stems_name_stage;
+/* The stock naming modal is separate from SongScreen. K1 footer is painted
+ * over the modal itself; keep it until TextEditor destruction. */
+static _Atomic unsigned stems_modal_visible;
+static _Atomic unsigned stems_modal_pads;
+static uint64_t stems_name_requested_ms; /* UI thread only */
+void song_ui_shift_event(int down){atomic_store(&export_shift,down!=0);}
+/* Compatibility with the native Shift input hook: Stems no longer uses it. */
+void song_ui_stems_shift_up_forwarded(void){}
+static void (*forward_native)(void*);
+void song_ui_set_forward(void(*forward)(void*)){forward_native=forward;}
 static int knob_last=-1;                 /* K1 relative baseline */
 static int knob_accum;
 static char toast[48];
@@ -68,7 +110,71 @@ static int visible(void *p)
 static void repaint(void *p)
 { if (p) FN(0x1149880,void(*)(void*,uint64_t,uint64_t))(p,0,FIELD(p,0x28,uint64_t)); }
 static unsigned button_bit(unsigned code)
-{ return code==B2?1u:code==B3?2u:code==PLUS?4u:code==MINUS?8u:0u; }
+{ return code==B2?1u:code==B3?2u:code==PLUS?4u:code==MINUS?8u:code==B1?16u:0u; }
+
+int song_ui_stems_name_pending(void){return atomic_load(&stems_name_stage)==1u;}
+int song_ui_stems_modal_visible(void){return atomic_load(&stems_modal_visible)!=0u;}
+/* Called from the existing K1 handler on the JUCE/UI thread. */
+void song_ui_stems_input_mode(int pads)
+{
+    if(!atomic_load(&stems_modal_visible))return;
+    unsigned next=pads!=0;
+    if(atomic_exchange(&stems_modal_pads,next)!=next && stems_modal_root)
+        repaint(stems_modal_root);
+}
+int song_ui_stems_name_active(void){unsigned s=atomic_load(&stems_name_stage);return s==2u||s==3u;}
+void song_ui_stems_name_opened(void)
+{
+    if(atomic_load(&stems_name_stage)!=1u)return;
+    atomic_store(&stems_name_stage,2u);
+    atomic_store(&stems_modal_pads,0u);
+    atomic_store(&stems_modal_visible,1u);
+    /* The TextEditor painter will attach a guarded modal-root footer. */
+    stems_modal_root=NULL;
+    stems_modal_scan_logs=0;
+    /* A B2-up may have reached the native modal before the input FIFO did.
+     * It must not leave an owned bit which would swallow later stock Mixdown. */
+    atomic_fetch_and(&owned_buttons,~button_bit(B2));
+    fprintf(stderr,"SONG_EXPORT NAME_EDITOR_BOUND kind=%u (K1 Encoder/Pads)\n",
+        atomic_load(&export_name_kind));
+    if(atomic_load(&export_name_kind)==2u)
+        fprintf(stderr,"STEMS NAME_EDITOR_BOUND (K1 Encoder/Pads)\n");
+}
+void song_ui_stems_name_button(unsigned code,int down)
+{
+    if(!down||atomic_load(&stems_name_stage)!=2u)return;
+    if(code==0x0c){ /* Cancel: never arm a later ordinary Mixdown. */
+#ifdef MPC_MIXER_LIVE
+        if(mixer_stems_disarm)mixer_stems_disarm();
+#endif
+        atomic_store(&stems_name_stage,0u);
+        fprintf(stderr,"SONG_EXPORT NAME_CANCELLED kind=%u\n",atomic_load(&export_name_kind));
+    }else if(code==0x0e){ /* Arm only after the user confirms the name. */
+#ifdef MPC_MIXER_LIVE
+        if(atomic_load(&export_name_kind)==2u&&mixer_stems_arm)mixer_stems_arm();
+#endif
+        atomic_store(&stems_name_stage,3u);
+        fprintf(stderr,"SONG_EXPORT NAME_CONFIRMED kind=%u (native dispatch)\n",
+            atomic_load(&export_name_kind));
+        if(atomic_load(&export_name_kind)==2u)
+            fprintf(stderr,"STEMS NAME_CONFIRMED (await native dispatch)\n");
+    }
+}
+void song_ui_stems_name_closed(void)
+{
+    unsigned prev=atomic_exchange(&stems_name_stage,0u);
+    atomic_store(&stems_modal_visible,0u);
+    atomic_store(&stems_modal_pads,0u);
+    /* Do not dereference a modal being destroyed. The class hook stays
+     * installed, but paints nothing for unrelated native dialogs. */
+    stems_modal_root=NULL;
+#ifdef MPC_MIXER_LIVE
+    if(prev==1u||prev==2u){if(mixer_stems_disarm)mixer_stems_disarm();}
+#endif
+    if(prev)fprintf(stderr,"SONG_EXPORT NAME_CLOSED kind=%u stage=%u\n",
+        atomic_load(&export_name_kind),prev);
+    atomic_store(&export_name_kind,0u);
+}
 
 void song_ui_init(uintptr_t b){ base=b; }
 int song_ui_active(void){ return atomic_load(&shown)!=0; }
@@ -77,11 +183,36 @@ int song_ui_pads_active(void){ return atomic_load(&pads_shown)!=0; }
 
 int song_ui_owns(unsigned kind,unsigned code,int shift,int down)
 {
-    if(kind==PHONE_CONTROLLER) return atomic_load(&shown) && code==K1;
+    if(kind==PHONE_CONTROLLER){
+        if(atomic_load(&shown) && code==K1) return 1;
+        /* The main DATA encoder (not K1) scrolls Export choices only when
+         * our menu is active. The native name dialog keeps its own encoder. */
+        return code==DATA_ENCODER && atomic_load(&export_menu_active);
+    }
     if(kind!=PHONE_BUTTON) return 0;
     unsigned bit=button_bit(code);
     if(!bit) return 0;
     if(!down) return (atomic_load(&owned_buttons)&bit)!=0;
+    /* Bounded diagnostic of the exact context seen by the input thread.
+     * It is intentionally passive: never claim/export based on a guess. */
+    if(code==B2){
+        static _Atomic unsigned b2_reports;
+        if(atomic_fetch_add(&b2_reports,1)<32)
+            fprintf(stderr,"SONG_UI B2_ROUTE shift=%d song=%u export=%u captured=%u held=%u\n",
+                shift,atomic_load(&shown),atomic_load(&export_shown),
+                atomic_load(&export_paint_seen),atomic_load(&export_shift));
+    }
+    /* Export chooser is on SongScreen, so the native B1 popup is NOT
+     * opened yet. Capture B1=Cancel, B2=no action, B3=Confirm. */
+    if(atomic_load(&export_menu_active) &&
+       (code==B1||code==B2||code==B3)){
+        atomic_fetch_or(&owned_buttons,bit);return 1;
+    }
+    if(code==B1 && atomic_load(&shown) && !shift &&
+       !atomic_load(&stems_name_stage) && !atomic_load(&stems_modal_visible)){
+        atomic_fetch_or(&owned_buttons,bit);return 1;
+    }
+    if(code==B1) return 0; /* Shift+B1 remains a stock action. */
     if(!atomic_load(&shown)||!shift) return (atomic_load(&owned_buttons)&bit)!=0;
     atomic_fetch_or(&owned_buttons,bit);
     return 1;
@@ -213,6 +344,23 @@ static int move_step(int direction)
 int song_ui_control(void *e)
 {
     unsigned cc=FIELD(e,8,unsigned char); int value=FIELD(e,9,unsigned char);
+    if(cc==DATA_ENCODER && atomic_load(&export_menu_active)){
+        /* Native DATA encoder is relative: 1..63=clockwise,
+         * 65..127=counterclockwise (127 is -1). Clamp at each end. */
+        int delta=value>64?value-128:value;
+        if(delta && delta!=64){
+            int previous=(int)atomic_load(&export_choice);
+            int next=previous+delta;
+            if(next<0) next=0;
+            if(next>2) next=2;
+            if(next!=previous){
+                atomic_store(&export_choice,(unsigned)next);
+                repaint(screen);
+                fprintf(stderr,"SONG_EXPORT ENCODER selected=%d delta=%d\n",next,delta);
+            }
+        }
+        return 1;
+    }
     if(cc!=K1||!screen||!atomic_load(&shown)) return 0;
     /* K1 is an absolute knob: count movement, 4 positions per repeat.
      * The baseline resets when the Song screen appears, never on a timer. */
@@ -227,6 +375,50 @@ int song_ui_button(void *e)
     unsigned code=FIELD(e,8,unsigned char),down=FIELD(e,9,unsigned char)!=0,bit=button_bit(code);
     if(!bit) return 0;
     if(!down){ atomic_fetch_and(&owned_buttons,~bit); return 1; }
+    if(atomic_load(&export_menu_active)){
+        if(code==B1){
+            atomic_store(&export_menu_active,0u);
+            repaint(screen);
+            fprintf(stderr,"SONG_EXPORT MENU_CANCEL\n");
+            return 1;
+        }
+        if(code==B2)return 1;
+        if(code==B3){
+            unsigned selected=atomic_load(&export_choice);
+#ifdef MPC_MIXER_LIVE
+            if(selected==2u && (!mixer_stems_available || !mixer_stems_available() || !mixer_stems_arm)){
+                fprintf(stderr,"SONG_EXPORT STEMS_UNAVAILABLE\n");return 1;
+            }
+#else
+            if(selected==2u){fprintf(stderr,"SONG_EXPORT STEMS_UNAVAILABLE\n");return 1;}
+#endif
+            if(!forward_native)return 1;
+            /* Exit our custom menu BEFORE entering the native workflow.
+             * Sequence will use its original native handler (no naming modal). */
+            atomic_store(&export_menu_active,0u);
+            export_route_choice=selected;
+            export_route_stage=1u;
+            export_route_since=now_ms();
+            memcpy(export_route_template,e,sizeof(export_route_template));
+            /* Pin both edges. Unlike Mix7, native B1 is NOT sent on Export. */
+            _Alignas(8) unsigned char ev[16];
+            memcpy(ev,e,sizeof(ev));
+            ev[8]=B1;ev[9]=1;forward_native(ev);
+            ev[9]=0;forward_native(ev);
+            fprintf(stderr,"SONG_EXPORT MENU_CONFIRMED selected=%u route=1\n",selected);
+            return 1;
+        }
+    }
+    if(code==B1 && atomic_load(&shown) &&
+       !atomic_load(&stems_name_stage) && !atomic_load(&stems_modal_visible)){
+        /* Song B1 opens our menu ONLY. No native dialog = no initial flash. */
+        if(export_route_stage)return 1;
+        atomic_store(&export_choice,0u);
+        atomic_store(&export_menu_active,1u);
+        repaint(screen);
+        fprintf(stderr,"SONG_EXPORT MENU_OPEN\n");
+        return 1;
+    }
     if(!screen||!atomic_load(&shown)) return 1;
     if(code==B3) replace_step();
     else if(code==B2) duplicate_step();
@@ -339,6 +531,34 @@ static void paint(void *p,void *g)
     struct song_ref r; int seq,rep;
     char line[128];
     { struct song_ref pr; if(song_ref(&pr)) paint_rows(p,g,&pr); }
+    if(atomic_load(&export_menu_active)){
+        /* Paint after SongScreen children. Cover all of the song list/buttons;
+         * the old native Cancel/Mixdown/Sequence modal was never entered. */
+        const unsigned selected=atomic_load(&export_choice)%3u;
+        const char *items[3]={"Mixdown","Sequence","Stems (A-H + Master)"};
+        colour(g,0xff000000u);rect(g,0,0,320,240);
+        colour(g,0xffccccccu);text_at(g,"Cancel",0,0,106,36,15.0f,0x24);
+        colour(g,0xffffffffu);text_at(g,"Do It",213,0,107,36,15.0f,0x24);
+        colour(g,0xff777777u);rect(g,22,61,276,1);
+        colour(g,0xffffffffu);text_at(g,"Song Export",26,67,268,23,16.0f,0x21);
+        for(unsigned i=0;i<3;++i){
+            int y=99+(int)i*29;
+            if(i==selected){
+                colour(g,0xff1b4566u);rect(g,22,y,276,27);
+                colour(g,0xff00c7ffu);rect(g,22,y,4,27);
+            }
+            colour(g,0xffffffffu);text_at(g,items[i],35,y,250,27,17.0f,0x21);
+        }
+        colour(g,0xff777777u);rect(g,22,193,276,1);
+        colour(g,0xffccccccu);text_at(g,"Turn encoder / B3 Do It",26,199,268,20,12.0f,0x21);
+        return;
+    }
+    /* On the Song step list B2=Remove; Shift+B2=Duplicate. This label
+     * is distinct from Song Export's Mixdown/Stems, below. */
+    if(atomic_load(&export_shift)){
+        colour(g,0xff000000u); rect(g,109,2,103,34);
+        colour(g,0xff00baffu); text_at(g,"Duplicate",109,2,103,34,15.0f,0x24);
+    }
     if(!(toast_until&&now_ms()<toast_until)) return;
     if(song_ref(&r)&&step_at(&r,r.row,&seq,&rep))
         snprintf(line,sizeof(line),"%.47s   Step %d/%d x%d",toast,r.row+1,r.count,rep);
@@ -348,7 +568,80 @@ static void paint(void *p,void *g)
     colour(g,0xffffc247); text(g,line,4,224,312,16,12.0f);
 }
 static void forget(void *p){ if(screen==p){ screen=NULL; atomic_store(&shown,0); } }
-static void export_paint(void *p,void *g){ (void)g; if(FIELD(p,0,uintptr_t)==base+EXPORT_VPTR) export_screen=p; }
+/* The native Create name dialog is a separate JUCE component tree.
+ * Attach only to an ancestor whose paintOverChildren is the pinned native
+ * no-op. A different firmware/class or an already-hooked slot is untouched.
+ * The callback runs after the dialog's children, unlike ExportScreen paint. */
+static void stems_modal_footer_paint(void *p,void *g)
+{
+    if(p!=stems_modal_root||!atomic_load(&stems_modal_visible))return;
+    int w=FIELD(p,0x28,int),h=FIELD(p,0x2c,int);
+    if(w<200||w>320||h<150||h>240)return;
+    /* Align the panel with the native dialog's bottom-left, not the text
+     * entry rectangle. Leave the stock Save-to-Internal control untouched. */
+    const int x=(w>=300)?38:8;
+    const int y=(h>=230)?180:h-44;
+    const unsigned pads=atomic_load(&stems_modal_pads);
+    colour(g,0xff000000u);rect(g,x,y,75,43);
+    colour(g,0xffffffffu);
+    text_at(g,"Input",x,y+3,75,13,12.0f,0x24);
+    text_at(g,pads?"Pads":"Encoder",x,y+17,75,19,17.0f,0x24);
+    colour(g,0xff3b3b3bu);rect(g,x+7,y+39,61,2);
+    colour(g,0xffffffffu);rect(g,x+7+(pads?30:0),y+39,31,2);
+}
+
+/* Called only from the existing TextEditor::paint hook on the JUCE thread.
+ * Component::parentComponent is +0x18, bounds are +0x28/+0x2c. Limit the
+ * walk, validate the native vptr and never patch non-noop callbacks. */
+void song_ui_stems_name_modal_attach(void *editor)
+{
+    if(!editor||!atomic_load(&stems_modal_visible)||stems_modal_root)return;
+    void *candidate=FIELD(editor,0x18,void*);
+    for(unsigned depth=0;candidate&&depth<12;depth++){
+        int w=FIELD(candidate,0x28,int),h=FIELD(candidate,0x2c,int);
+        uintptr_t vp=FIELD(candidate,0,uintptr_t);
+        if(w>=200&&w<=320&&h>=150&&h<=240&&
+           vp>=base+0x6000000u&&vp<base+0x8000000u){
+            uintptr_t *slot=(uintptr_t*)(vp+SLOT_PAINT);
+            uintptr_t orig=*slot;
+            if(stems_modal_scan_logs<4){
+                fprintf(stderr,"STEMS MODAL_CANDIDATE depth=%u wh=%dx%d vptr=%lx paint=%lx\n",
+                    depth,w,h,(unsigned long)(vp-base),(unsigned long)(orig-base));
+                ++stems_modal_scan_logs;
+            }
+            if(orig==base+NATIVE_NOOP||orig==(uintptr_t)stems_modal_footer_paint){
+                if(orig==base+NATIVE_NOOP){
+                    if(sysconf(_SC_PAGESIZE)!=4096)return;
+                    void *page=(void*)((uintptr_t)slot&~(uintptr_t)4095);
+                    if(mprotect(page,4096,PROT_READ|PROT_WRITE))return;
+                    *slot=(uintptr_t)stems_modal_footer_paint;
+                    if(mprotect(page,4096,PROT_READ))_exit(121);
+                }
+                stems_modal_root=candidate;
+                fprintf(stderr,"STEMS MODAL_FOOTER_ATTACHED depth=%u wh=%dx%d\n",depth,w,h);
+                repaint(stems_modal_root);
+                return;
+            }
+        }
+        void *parent=FIELD(candidate,0x18,void*);
+        if(parent==candidate)break;
+        candidate=parent;
+    }
+    if(stems_modal_scan_logs<5){
+        fprintf(stderr,"STEMS MODAL_FOOTER_UNAVAILABLE (no verified native modal painter)\n");
+        stems_modal_scan_logs=5;
+    }
+}
+
+static void export_paint(void *p,void *g)
+{
+    (void)g;
+    /* Native ExportScreen is now a hidden routing step, not our chooser. */
+    if(FIELD(p,0,uintptr_t)!=base+EXPORT_VPTR)return;
+    export_screen=p;
+    if(!atomic_exchange(&export_paint_seen,1u))
+        fprintf(stderr,"SONG_UI EXPORT_PAINT_SEEN\n");
+}
 static void export_forget(void *p){ if(export_screen==p) export_screen=NULL; }
 static void export_destroy(void *p){ export_forget(p); FN(EXPORT_DTOR,void(*)(void*))(p); }
 static void export_delete(void *p){ export_forget(p); FN(EXPORT_DELETE,void(*)(void*))(p); }
@@ -358,7 +651,81 @@ static void destroy_delete(void *p){ forget(p); FN(NATIVE_DELETE,void(*)(void*))
 void song_ui_tick(void)
 {
     int v=visible(screen);
-    atomic_store(&pads_shown,(unsigned)(v||visible(export_screen)));
+    int exporting=visible(export_screen);
+    unsigned shift=atomic_load(&export_shift);
+    /* Log transitions only. If the Export screen is visible but this
+     * predicate stays zero, the resulting trace shows the exact failure. */
+    static int last_exporting=-1,last_song=-1,last_capture=-1;
+    int captured=(int)atomic_load(&export_paint_seen);
+    if(exporting!=last_exporting||v!=last_song||captured!=last_capture){
+        fprintf(stderr,"SONG_UI VISIBLE song=%d export=%d paint_seen=%d\n",v,exporting,captured);
+        last_exporting=exporting;last_song=v;last_capture=captured;
+    }
+    /* Shift edges are received on the MIDI/input thread. Schedule the
+     * safe on-UI repaint here, including when Shift is released. */
+    if(shift!=export_shift_seen && v)repaint(screen);
+    export_shift_seen=shift;
+    /* Native export routing begins ONLY after our Song-screen chooser is
+     * confirmed. Never synthesize B2 while Song is still visible. */
+    if(export_route_stage){
+        uint64_t elapsed=now_ms()-export_route_since;
+        if(elapsed>5000u){
+            fprintf(stderr,"SONG_EXPORT ROUTE_TIMEOUT stage=%u song=%d export=%d\n",
+                export_route_stage,v,exporting);
+            export_route_stage=0;
+        }else if(export_route_stage==1u && !v && elapsed>=120u && forward_native){
+            unsigned selected=export_route_choice;
+            /* The first native B1 created its original question. The native
+             * B2/B3 below is the real action for that question. */
+            export_route_stage=(selected==1u)?0u:2u;
+            export_route_since=now_ms();
+            _Alignas(8) unsigned char ev[16];
+            memcpy(ev,export_route_template,sizeof(ev));
+            ev[8]=(unsigned char)(selected==1u?B3:B2);
+            ev[9]=1;forward_native(ev);
+            ev[9]=0;forward_native(ev);
+            fprintf(stderr,"SONG_EXPORT ROUTE_NATIVE selected=%u code=%02x\n",selected,ev[8]);
+            if(selected==1u)
+                fprintf(stderr,"SONG_EXPORT SEQUENCE_USES_NATIVE_SONG_NAME (no editor)\n");
+        }else if(export_route_stage==2u && exporting && forward_native){
+            unsigned selected=export_route_choice;
+            export_route_stage=0u;
+            atomic_store(&stems_name_stage,1u);
+            atomic_store(&export_name_kind,selected==2u?2u:1u);
+            stems_name_requested_ms=now_ms();
+#ifdef MPC_MIXER_LIVE
+            if(mixer_stems_disarm)mixer_stems_disarm();
+#endif
+            /* Second native B2 enters the same stock Create name dialog for
+             * both Mixdown and Stems. The existing phone pad bridge is
+             * activated by song_ui_stems_name_pending() for either type. */
+            _Alignas(8) unsigned char ev[16];
+            memcpy(ev,export_route_template,sizeof(ev));
+            ev[8]=B2;
+            ev[9]=1;forward_native(ev);
+            ev[9]=0;forward_native(ev);
+            fprintf(stderr,"SONG_EXPORT NAME_REQUESTED kind=%u\n",atomic_load(&export_name_kind));
+        }
+    }
+    unsigned stage=atomic_load(&stems_name_stage);
+    if(stage==1u && now_ms()-stems_name_requested_ms>20000u){
+        /* If native Mixdown failed to open a name dialog, don't leave an
+         * armed export waiting to steal the user's next normal Mixdown. */
+#ifdef MPC_MIXER_LIVE
+        if(mixer_stems_disarm)mixer_stems_disarm();
+#endif
+        atomic_store(&stems_name_stage,0u);
+        atomic_fetch_and(&owned_buttons,~button_bit(B2));
+        if(exporting)repaint(export_screen);
+        fprintf(stderr,"SONG_EXPORT NAME_OPEN_TIMEOUT kind=%u stage=%u\n",
+            atomic_load(&export_name_kind),stage);
+        atomic_store(&export_name_kind,0u);
+    }
+    atomic_store(&export_shown,(unsigned)exporting);
+    atomic_store(&pads_shown,(unsigned)(v||exporting));
+    /* If the Song page was closed externally while our local selector was
+     * open, discard the selector rather than drawing it on a stale screen. */
+    if(!v && atomic_load(&export_menu_active))atomic_store(&export_menu_active,0u);
     if(v!=(int)atomic_load(&shown)){ atomic_store(&shown,(unsigned)v); knob_last=-1; if(v)report("SONG_SCREEN_VISIBLE"); }
     if(toast_until&&now_ms()>=toast_until){ toast_until=0; repaint(screen); }
     if(!v){ pending_row=-1; last_row=-1; return; } /* keep the last selection for Song Export */

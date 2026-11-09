@@ -3,6 +3,11 @@
 #include "resample_fault.h"
 #include "resample_file_probe.h"
 #include "resample_output_file.h"
+#ifdef MPC_MIXER_LIVE
+#include "mixer_stems.h"
+#pragma weak mixer_stems_armed
+#pragma weak mixer_stems_song_frame
+#endif
 #include <atomic>
 #include <cmath>
 #include <cstdio>
@@ -113,6 +118,13 @@ void frame(void*engine,void*clock){
     void*context=static_cast<char*>(clock)-8;
     if(writer_trace.context!=context||F(context,0x9f0,uint64_t)==0){writer_trace=WriterTrace{};writer_trace.context=context;}
     ++writer_trace.blocks;
+#ifdef MPC_MIXER_LIVE
+    if(!mini&&mixer_stems_armed&&mixer_stems_song_frame&&mixer_stems_armed()&&
+       F(context,0x3f0,unsigned)==0&&F(context,0x9f0,uint64_t)==0){
+        void *writer=F(context,0xa38,void*);
+        if(writer)mixer_stems_song_frame(context,writer,F(writer,0xd8,const char*),F(writer,12,unsigned));
+    }
+#endif
     reinterpret_cast<void(*)(void*,void*)>(image+0x2114c00)(engine,clock);
     if(!mini||mini->engine!=engine||mini->failed)return;
     auto&m=*mini;

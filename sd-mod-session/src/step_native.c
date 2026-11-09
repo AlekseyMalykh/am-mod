@@ -15,6 +15,9 @@
 #include <unistd.h>
 #include "pad_palette.h"
 #include "sample_mute.h"
+#ifdef MPC_MIXER_LIVE
+#include "mixer_sample_feedback.h"
+#endif
 #ifdef MPC_LOOP_FEEDBACK
 #include "sample_playing.h"
 #endif
@@ -204,6 +207,16 @@ static void sample_palette_publish(void *things,void *program,int bank,int enabl
    atomic_store(&sample_palette[i],light);
    continue;
   }
+#ifdef MPC_MIXER_LIVE
+  enum mixer_sample_gate gate=used?mixer_phone_sample_gate(n):MIXER_SAMPLE_AUDIBLE;
+  if(gate!=MIXER_SAMPLE_AUDIBLE){
+   uint32_t hue=muted||gate==MIXER_SAMPLE_MUTED?PAD_MUTED:music_identity_rgb((unsigned)music_pad_colour(n));
+   float brightness=hue==PAD_MUTED?.24f:.12f;
+   uint64_t light=(int)n==focus?pad_focus_light(hue,brightness,now-sample_focus_since):pad_light(hue,brightness);
+   atomic_store(&sample_palette[i],light);
+   continue;
+  }
+#endif
   uint32_t rgb=muted?PAD_MUTED:used?music_identity_rgb((unsigned)music_pad_colour(n)):0;
   /* Agreed: loaded pads dimmer at rest, clearly brighter while pressed or
    * playing (each held pad, several at once). Native selection orange

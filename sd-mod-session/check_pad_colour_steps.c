@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #define MPC_LOOP_FEEDBACK 1
+#define MPC_MIXER_LIVE 1
 /* Production Steps palette and Events row wrapper; capture the original
  * painter's inputs rather than run a display/audio service. */
 #include "src/step_native.c"
@@ -47,6 +48,9 @@ static void stub(uintptr_t off,void*fn,int string_result){
 static unsigned char sample_instruments[128][0x80],sample_used[128],sample_program[8];
 static unsigned active_voices[128];
 int sample_playing_active(const void*p,unsigned pad){assert(p==sample_program&&pad<128);return active_voices[pad];}
+static struct mixer_project sample_mix;
+enum mixer_sample_gate mixer_phone_sample_gate(unsigned pad)
+{return mixer_sample_project_gate(&sample_mix,pad);}
 static void*sample_instrument(void*p,int n){assert(p==sample_program&&n>=0&&n<128);return sample_used[n]?sample_instruments[n]:NULL;}
 static int sample_has_audio(void*p){for(unsigned n=0;n<128;++n)if(p==sample_instruments[n])return sample_used[n];assert(0);return 0;}
 static void empty_sample_cursor_checks(void){
@@ -126,6 +130,41 @@ static void sample_playing_checks(void){
  FIELD(sample_instruments[0],0x78,unsigned char)=0;
  active_voices[0]=0;sample_palette_publish(NULL,NULL,0,0,0,50500);
  puts("PASS active Sample/Loop voices blink assigned hue/OFF across128 pads/eight banks/eight colours with transport stopped; moving selection keeps the playing pad blinking, stop restores content; selected white cursor keeps priority");
+}
+static void mixer_sample_feedback_checks(void)
+{
+ unsigned char things[0x700]={0};
+ FIELD(things,0x5f8,unsigned)=0;
+ for(unsigned i=0;i<4;++i){
+  sample_used[i]=i!=3;
+  active_voices[i]=1;
+  playback_until[i]=60900;
+  step_native_observe_rgb(i,0xffffffu);
+ }
+ sample_mix.output[0]=1;
+ sample_mix.output[1]=2;
+ sample_mix.track[0].mix.mute=1;
+ sample_mix.track[0].mix.solo=1;
+ uint32_t hue=music_identity_rgb(music_pad_colour(1));
+ uint64_t light;
+ sample_palette_publish(things,sample_program,0,1,0,60000);
+ assert(step_native_light(0,&light)&&light==pad_focus_light(PAD_MUTED,.24f,0));
+ for(unsigned now=60100;now<=60500;now+=400){
+  sample_palette_publish(things,sample_program,0,1,0,now);
+  assert(step_native_light(0,&light)&&light==pad_focus_light(PAD_MUTED,.24f,now-60000));
+  assert(step_native_light(1,&light)&&light==pad_light(hue,.12f));
+  assert(step_native_light(2,&light)&&light==pad_light(music_identity_rgb(music_pad_colour(2)),.12f));
+  /* Empty slots keep their existing event indication and can never acquire a Mixer mute colour. */
+  assert(step_native_light(3,&light)&&light==pad_light(music_identity_rgb(music_pad_colour(3)),.80f));
+ }
+ sample_mix.track[0].mix.mute=0;
+ assert(mixer_phone_sample_gate(0)==MIXER_SAMPLE_AUDIBLE);
+ sample_mix.track[1].mix.solo=1;
+ assert(mixer_phone_sample_gate(1)==MIXER_SAMPLE_AUDIBLE);
+ sample_mix=(struct mixer_project){0};
+ for(unsigned i=0;i<4;++i){active_voices[i]=0;playback_until[i]=0;step_native_observe_rgb(i,0);}
+ sample_palette_publish(NULL,NULL,0,0,0,62000);
+ puts("PASS Sample Mixer Mute and Solo suppress activity flashes, keep cursor, preserve empty-pad events and gate Master Direct");
 }
 int main(void){
  void*p=mmap(NULL,0x7500000,7,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);assert(p!=MAP_FAILED);base=(uintptr_t)p;
@@ -261,5 +300,6 @@ int main(void){
  puts("PASS Standard fixed Steps colours and native Sample pass-through; identity settings retained");
  empty_sample_cursor_checks();
  sample_playing_checks();
+ mixer_sample_feedback_checks();
  return 0;
 }

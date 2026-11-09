@@ -1,6 +1,9 @@
 #define _GNU_SOURCE
 #include "music_ui.h"
 #include "sample_mute.h"
+#ifdef MPC_MIXER_LIVE
+#include "mixer_sample_feedback.h"
+#endif
 #include "music_settings.h"
 #include "mod_build.h"
 #ifdef MPC_PROJECT_RECOVERY
@@ -154,10 +157,26 @@ static int sample_pad_muted(unsigned pad)
     void *instrument=program&&pad<128?FN(0x286bbe0,void*(*)(void*,int))(program,(int)pad):NULL;
     return sample_instrument_muted(instrument);
 }
+static int sample_feedback(unsigned pad)
+{
+    if(sample_pad_muted(pad))return 1;
+#ifdef MPC_MIXER_LIVE
+    if(music_pad_lighting_mode())return mixer_phone_sample_gate(pad);
+#endif
+    return 0;
+}
 int music_ui_waveform_tint(uint32_t*rgb){
  unsigned pad;
  if(!rgb||!note_native_pad_index(&pad))return 0;
- if(sample_pad_muted(pad)){*rgb=SAMPLE_MUTED_TINT;return 1;}
+ int feedback=sample_feedback(pad);
+ if(feedback==1){*rgb=SAMPLE_MUTED_TINT;return 1;}
+#ifdef MPC_MIXER_LIVE
+ if(feedback==MIXER_SAMPLE_SOLO_EXCLUDED){
+    uint32_t hue=music_identity_rgb((unsigned)music_pad_colour(pad));
+    *rgb=(hue&0xfefefeu)>>1;
+    return 1;
+ }
+#endif
  if(!music_pad_lighting_mode()||!music_mod_setting(MUSIC_SETTING_WAVE))return 0;
  *rgb=music_identity_rgb((unsigned)music_pad_colour(pad));return 1;
 }
@@ -226,10 +245,10 @@ int music_ui_tick(void)
     /* Project is a native overlay; underlying Sample can remain showing.
      * Its hidden Lights controls must not consume the menu's encoder click. */
     if(pv)sv=0;
-    static int last_mute;
+    static int last_feedback;
     unsigned edited_pad;
-    int muted=sv&&note_native_pad_index(&edited_pad)&&sample_pad_muted(edited_pad);
-    if(muted!=last_mute){last_mute=muted;if(sv)repaint(sample);}
+    int feedback=sv&&note_native_pad_index(&edited_pad)?sample_feedback(edited_pad):0;
+    if(feedback!=last_feedback){last_feedback=feedback;if(sv)repaint(sample);}
     atomic_store(&seq_active,!pv&&visible(seq_screen)&&!music_ui_repeat_active());
     if (!sv) lights=0;
 #ifdef MPC_PAD_EQ

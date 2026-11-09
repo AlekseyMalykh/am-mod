@@ -114,13 +114,17 @@ uint64_t mixer_live_applied_revision(const struct mixer_live*s)
     uint64_t t=mixer_buses_applied_revision(mixer_route_buses(s->track)),m=mixer_buses_applied_revision(s->master);
     return t<m?t:m;
 }
+void mixer_live_rebind(struct mixer_live*s,void*engine,void*program){if(s){s->engine=engine;s->program=program;}}
+int mixer_live_bus_view(const struct mixer_live*s,unsigned bus,struct mixer_pcm_view*out){return s&&mixer_route_view(s->track,bus,out);}
 int mixer_live_take_meter(struct mixer_live*s,struct mixer_meter_snapshot*out){return s&&mixer_meters_take(s->meters,s->epoch,out);}
+static _Thread_local uintptr_t offline_kit_vptr;
 void mixer_live_program(const struct mixer_route_ops*ops,void*p,void*clock,unsigned frames)
 {
     struct mixer_live*s=live_scope;
     atomic_fetch_add_explicit(&diag_program_calls,1,memory_order_relaxed);
     if(!s&&atomic_load_explicit(&diag_engine_active,memory_order_relaxed))
         atomic_fetch_add_explicit(&diag_program_other_thread,1,memory_order_relaxed);
+    if(s&&offline_kit_vptr&&*(uintptr_t*)p==offline_kit_vptr)s->program=p;
     if(s){atomic_fetch_add_explicit(&diag_program_scoped,1,memory_order_relaxed);
         if(s->program!=p){atomic_fetch_add_explicit(&diag_program_other_object,1,memory_order_relaxed);
             for(unsigned i=0;i<4;++i){uintptr_t expected=0,v=(uintptr_t)p;
@@ -171,4 +175,14 @@ int mixer_live_render(struct mixer_live*s,void*engine,void*clock,unsigned frames
         }
     }
     mixer_meters_push(s->meters,s->epoch,frames,taps);return success;
+}
+
+int mixer_live_render_offline(struct mixer_live *live,void *engine,void *clock,
+                              unsigned frames,uintptr_t program_vptr)
+{
+    uintptr_t previous=offline_kit_vptr;
+    offline_kit_vptr=program_vptr;
+    int applied=mixer_live_render(live,engine,clock,frames);
+    offline_kit_vptr=previous;
+    return applied;
 }

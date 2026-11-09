@@ -17,4 +17,23 @@ int song_ui_owns(unsigned kind,unsigned code,int shift,int down);
 /* Consumer side (UI thread): 1 = handled. */
 int song_ui_control(void *event);
 int song_ui_button(void *event);
+/* Native button sink for gestures that replay stock presses (Song Export Shift+B2 Stems). */
+void song_ui_set_forward(void(*forward)(void*));
+/* Hardware Shift edge, delivered by the native button hook. No JUCE access
+ * on the producer thread: the Song UI timer handles repainting. */
+void song_ui_shift_event(int down);
+/* Notify after the actual native Shift-UP has been processed, never before.
+ * B2 replay is deferred to the subsequent UI tick. */
+void song_ui_stems_shift_up_forwarded(void);
+/* Native Song Export filename editor handoff, not the parent Export screen. */
+int song_ui_stems_name_pending(void);
+int song_ui_stems_name_active(void);
+/* Stock-style footer on the full Song Export page while its name modal is open. */
+int song_ui_stems_modal_visible(void);
+void song_ui_stems_input_mode(int pads);
+void song_ui_stems_name_opened(void);
+/* Attach a guarded native modal paintOverChildren footer from TextEditor::paint. */
+void song_ui_stems_name_modal_attach(void *editor);
+void song_ui_stems_name_button(unsigned code,int down);
+void song_ui_stems_name_closed(void);
 #endif

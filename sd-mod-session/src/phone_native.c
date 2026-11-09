@@ -32,8 +32,15 @@ static _Atomic unsigned consumed_rear;
 #endif
 #ifdef MPC_MIXER_LIVE
 #include "mixer_live.h"
+#include "mixer_stems.h"
+/* Optional in test harnesses that link only part of the Mixer. */
+#pragma weak mixer_stems_install
+#pragma weak mixer_stems_finished
+#pragma weak mixer_stems_failed
+#pragma weak mixer_stems_last_folder
 #include "mixer_input.h"
 #include "mixer_session.h"
+#include "mixer_sample_feedback.h"
 #include "mixer_leds.h"
 #ifdef MPC_MIXER_AUTOBIND
 #include "mixer_runtime.h"
@@ -269,6 +276,9 @@ static void forward_controller(void*event){
  ORIG(H_CONTROLLER,void(*)(void*))(event);
 #endif
 }
+enum { TAP_TEMPO_BUTTON = 0x35 };
+static _Atomic unsigned tap_tempo_mod_palette, tap_tempo_hold;
+
 static void forward_buttons(void*event){
  unsigned code=FIELD(event,8,unsigned char),down=FIELD(event,9,unsigned char)!=0;
  if((code==0x51||code==0x52)&&down)workflow_button(event,0);
@@ -293,7 +303,12 @@ static void forward_buttons(void*event){
 #ifdef MPC_CHORDS
  int guard=on_ui()&&code==0x51;if(guard)voice_guard_lock();
 #endif
+ /* Latch the pre-press layout before native Tap Tempo can repaint it. */
+ if(code==TAP_TEMPO_BUTTON&&down&&atomic_load(&tap_tempo_mod_palette))
+     atomic_store(&tap_tempo_hold,1);
  ORIG(H_BUTTONS,void(*)(void*))(event);
+ if(code==TAP_TEMPO_BUTTON&&!down&&atomic_exchange(&tap_tempo_hold,0))
+     music_lighting_request_refresh();
 #ifdef MPC_CHORDS
  if(guard)voice_guard_unlock();
 #endif
@@ -481,6 +496,15 @@ static void mixer_publish_route(void)
         }
     }
     mixer_leds_disable();
+}
+
+enum mixer_sample_gate mixer_phone_sample_gate(unsigned pad)
+{
+    if(atomic_load(&mixer_project_invalidated)||mixer_session_status(mixer_ui_session)!=1)
+        return MIXER_SAMPLE_AUDIBLE;
+    struct mixer_view_state view={0};
+    mixer_control_view(mixer_session_control(mixer_ui_session),0,&view);
+    return mixer_sample_project_gate(view.project,pad);
 }
 
 /* UI owner: per-Pad Output from the Sample Mix page (Shift+K1). */
@@ -943,6 +967,9 @@ static void lights(void)
 
 static void stop(void)
 {
+#ifdef MPC_SONG_UI
+    if(song_ui_stems_modal_visible()||song_ui_stems_name_active())song_ui_stems_name_closed();
+#endif
     atomic_store(&naming_active,0);
     atomic_store(&requested_pads,0);
     atomic_fetch_add(&generation,1);
@@ -1006,6 +1033,15 @@ static void tick(void *unused)
 #endif
 #ifdef MPC_SONG_UI
     song_ui_tick();
+#endif
+#ifdef MPC_MIXER_LIVE
+    if(mixer_stems_failed){
+        static unsigned shown_failures;
+        unsigned failures=mixer_stems_failed();
+        if(failures!=shown_failures){shown_failures=failures;note("STEMS export incomplete");}
+    }
+    if(mixer_stems_finished){static unsigned shown_stems;unsigned done=mixer_stems_finished();
+     if(done!=shown_stems){shown_stems=done;char m[200];snprintf(m,sizeof(m),"STEMS saved %.160s",mixer_stems_last_folder());note(m);}}
 #endif
 #ifdef MPC_RESAMPLE_TRIAL
     /* music_ui_active is true on the ordinary Sample screen too, so it is
@@ -1447,8 +1483,25 @@ static void paint_mode(void *p, void *g, size_t editor_offset)
 }
 static void name_cursor_paint(void*p,void*g){
     FN(0x1134ad0,void(*)(void*,void*))(p,g);
-    if(!on_ui()||p!=editor||!state.enabled||!visible())return;
+#ifdef MPC_SONG_UI
+    /* TextEditor::paint is shared by all native naming dialogs. For a
+     * Stems request, bind the very same encoder/pad bridge used by Sample
+     * and Project names, rather than treating Export's parent as the editor. */
+    if(on_ui()&&song_ui_stems_name_pending()&&valid_editor(p)
+        &&(!editor||editor==p||!visible())){
+        activate(p,0);
+        if(editor==p)song_ui_stems_name_opened();
+    }
+    if(on_ui()&&p==editor&&song_ui_stems_modal_visible())
+        song_ui_stems_name_modal_attach(p);
+#endif
+    if(!on_ui()||p!=editor||!visible())return;
     int w=FIELD(p,0x28,int),h=FIELD(p,0x2c,int);
+    if(!state.enabled
+#ifdef MPC_SONG_UI
+        &&!song_ui_stems_modal_visible()
+#endif
+        )return;
     if(w<24||w>320||h<12||h>100)return;
     /* Same size as the stock name field (about 0.86 of its height). The
      * window of characters is sized from the monospace advance (~0.46 of the
@@ -1522,7 +1575,20 @@ WRAP1(right_action,H_RIGHT)
     int b=before_native(p); ++internal; ORIG(id,void(*)(void*))(p); \
     --internal; after_native(b); }
 WRAP0(clear_action,H_CLEAR)
-WRAP0(erase_action,H_ERASE)
+static void erase_action(void *p)
+{
+#ifdef MPC_SONG_UI
+    /* The synthetic B2 that opens Song naming can reach the new editor
+     * after its first paint. Physical B2 is handled in buttons_ui. */
+    if(valid_editor(p)&&(song_ui_stems_name_pending()||
+       (p==editor&&song_ui_stems_modal_visible())))return;
+#endif
+    int boundary=before_native(p);
+    ++internal;
+    ORIG(H_ERASE,void(*)(void*))(p);
+    --internal;
+    after_native(boundary);
+}
 static void case_change(void *p,int a)
 {
     int b=before_native(p); ++internal;
@@ -1581,6 +1647,9 @@ static void controller_ui(void *event,uint64_t route)
             if (enable != state.enabled) {
                 if (!read_native()) { enable = 0; queue_failed(); }
                 phone_enable(&state,enable);
+#ifdef MPC_SONG_UI
+                song_ui_stems_input_mode(state.enabled);
+#endif
                 lights(); repaint();
                 note(enable ? "PADS_ON" : "PADS_OFF");
                 if (enable && !atomic_load(&sender)) note("RGB_SENDER_NOT_CAPTURED");
@@ -1618,7 +1687,14 @@ static void buttons_ui(void *event,uint64_t route)
     if(!naming&&on_ui()&&rear_ui_button(event))return;
 #endif
     unsigned code=FIELD(event,8,unsigned char),down=FIELD(event,9,unsigned char)!=0;
-    if(naming&&code==0x09){
+#ifdef MPC_SONG_UI
+    if(naming)song_ui_stems_name_button(code,(int)down);
+#endif
+    if(naming&&(code==0x09
+#ifdef MPC_SONG_UI
+       ||(code==0x0d&&song_ui_stems_modal_visible())
+#endif
+       )){
         /* Erase deletes in both input modes: before the cursor with pads, the
          * selected character with the encoder. Both edges are consumed. */
         if(down&&(state.enabled||read_native())){
@@ -1651,6 +1727,9 @@ static void buttons_ui(void *event,uint64_t route)
     struct phone_input saved_text;
     if(keep_pad_text)saved_text=state;
     forward_buttons(event);
+#ifdef MPC_SONG_UI
+    if(shift_event&&!down)song_ui_stems_shift_up_forwarded();
+#endif
     /* Native Shift also changes naming cursor/case presentation. Rebuild
      * the glyph model from the exact text after BOTH edges, then restore
      * the pad keyboard's cursor. Never run Sample/Lights actions over a
@@ -1892,7 +1971,12 @@ static void buttons(void *event)
         return;
     }
 #endif
-    if(native_code==0x31)atomic_store(&native_shift_requested,native_down);
+    if(native_code==0x31){
+        atomic_store(&native_shift_requested,native_down);
+#ifdef MPC_SONG_UI
+        song_ui_shift_event((int)native_down);
+#endif
+    }
 #ifdef MPC_MIXER_LIVE
     if (native_code <= 1 && mixer_fx_combo(event,native_code,native_down)) return;
     if (native_code < 112 && native_code != 0x31) {
@@ -1955,6 +2039,11 @@ static void buttons(void *event)
         )
         && queue_native(event,PHONE_BUTTON)) return;
     forward_buttons(event);
+#ifdef MPC_SONG_UI
+    /* In the fast path Shift-UP is not queued, but it still must be
+     * delivered to stock BEFORE a Stems naming dialog can be opened. */
+    if(native_code==0x31&&!native_down)song_ui_stems_shift_up_forwarded();
+#endif
 }
 
 static void pad_event(void *event)
@@ -2520,6 +2609,7 @@ static int mixer_light(unsigned pad,uint64_t *out)
 static void rgb(void *s,uint32_t colour,unsigned pad)
 {
     if (pad < 16) {
+        if(atomic_load(&tap_tempo_hold))return;
         atomic_store(&sender,(uintptr_t)s);
         atomic_store(&original_lights[pad],colour);
         step_native_observe_rgb(pad,colour);
@@ -2540,6 +2630,12 @@ static void rgb(void *s,uint32_t colour,unsigned pad)
 #endif
 #ifdef MPC_STOCK_RESAMPLE
         if(resample_ui_light(pad,&workflow_colour)){
+            uint32_t packed=FN(0x23b00c0,uint32_t(*)(const uint64_t*))(&workflow_colour);
+            send_pad_rgb(s,packed,pad);return;
+        }
+#endif
+#if defined(MPC_SONG_UI)&&defined(MPC_SEQUENCE_COLOURS)
+        if(song_ui_pads_active()&&sequence_light(pad,&workflow_colour)){
             uint32_t packed=FN(0x23b00c0,uint32_t(*)(const uint64_t*))(&workflow_colour);
             send_pad_rgb(s,packed,pad);return;
         }
@@ -2618,6 +2714,9 @@ static void lights_diagnostic(void){
 }
 static void send_step_lights(void)
 {
+    if(atomic_load(&tap_tempo_hold))return;
+    atomic_store(&tap_tempo_mod_palette,music_pad_lighting_mode() &&
+        (note_native_sample_visible() || music_ui_sequence_visible()));
     {static uint64_t bank_since;uint64_t t=now_ms();
      if(atomic_load(&native_buttons_down[0x23])){if(!bank_since)bank_since=t;}else bank_since=0;
      atomic_store(&pad_bank_held_long,bank_since&&t-bank_since>=300);}
@@ -2745,6 +2844,11 @@ static void send_step_lights(void)
 #ifdef MPC_STOCK_RESAMPLE
             resample_ui_light(i,&light) ||
 #endif
+#if defined(MPC_SONG_UI)&&defined(MPC_SEQUENCE_COLOURS)
+            /* Song / Song Export: sequence colours win over the browser-style
+             * occupancy layers (device report: Export lit them stock green). */
+            (song_ui_pads_active()&&sequence_light(i,&light)) ||
+#endif
             workflow_light(i,&light)
             ||(atomic_load(&pad_colour_native_workflow)&&pad_colour_light(i,&light))
 #ifdef MPC_MIXER_LIVE
@@ -2845,6 +2949,7 @@ static void load(void)
     base=found;
 #ifdef MPC_SONG_UI
     song_ui_init(base);
+    song_ui_set_forward(forward_buttons);
 #endif
 #ifdef MPC_COMPRESSOR
     compressor_ui_init(base);
@@ -2949,6 +3054,7 @@ static void load(void)
 #ifdef MPC_MIXER_LIVE
     if (!mixer_live_native_install(base)) _exit(121);
     if (!mixer_leds_install(base)) _exit(121);
+    if (mixer_stems_install && !mixer_stems_install(base)) note("MIXER_STEMS NOT_INSTALLED");
 #endif
     for (unsigned i=0;i<H_COUNT;++i) FIELD(table,64+i*16+8,uintptr_t)=(uintptr_t)callbacks[i];
     if (mprotect(table,4096,PROT_READ|PROT_EXEC)) _exit(120);

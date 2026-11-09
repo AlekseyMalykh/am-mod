@@ -18,6 +18,11 @@ struct mixer_live*mixer_live_prepare(const struct mixer_project*,uint64_t part,d
     unsigned capacity,uint64_t epoch,void*engine,void*program,const struct mixer_live_ops*,
     const struct fx_backend*,enum mixer_bus_result*);
 void mixer_live_destroy(struct mixer_live*);
+/* Offline owner only (export worker): bind engine/Program identities, and
+ * read a Track/Direct bus of the last applied block. */
+int mixer_live_render_offline(struct mixer_live*,void*,void*,unsigned,uintptr_t);
+void mixer_live_rebind(struct mixer_live*,void*engine,void*program);
+int mixer_live_bus_view(const struct mixer_live*,unsigned bus,struct mixer_pcm_view*);
 /* Control producer, complete absolute snapshot; OK queues ownership internally.
  * Busy returns STATE, so caller can coalesce edits and retry from latest model. */
 enum mixer_bus_result mixer_live_publish(struct mixer_live*,const struct mixer_project*,uint64_t part,uint64_t revision);
