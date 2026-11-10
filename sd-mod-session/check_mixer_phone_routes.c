@@ -20,8 +20,12 @@ int music_pad_colour(unsigned pad) { return (int)(pad%16); }
 uint32_t music_user_rgb(unsigned raw) { return 0x102030u+raw; }
 uint32_t music_service_rgb(unsigned role) { (void)role; return 0xffffffu; }
 int music_ui_active(void) { return 0; }
+static uint64_t fixture_palette_ticket;
+uint64_t music_ui_palette_ticket(void) { return fixture_palette_ticket; }
 int music_ui_knob_fx_active(void) { return 0; }
-int music_lighting_levels_state(unsigned *e,unsigned *m,unsigned *o) { *e=*m=*o=0; return 0; }
+static unsigned fixture_levels,fixture_levels_mode;
+int music_lighting_levels_state(unsigned *e,unsigned *m,unsigned *o)
+{ *e=fixture_levels;*m=fixture_levels_mode;*o=3;return 1; }
 int step_native_active(void) { return 0; }
 int step_native_browser_bank(int bank) { static int current=5;if(bank>=0)current=bank;return current; }
 int mixer_live_native_binding(struct mixer_native_binding *binding)
@@ -247,6 +251,28 @@ int main(void)
     button(0x31,0);
     drain();
     assert(stock_pad[0]==1 && !atomic_load(&native_buttons_down[0x31]));
+
+    fixture_palette_ticket=9;
+    pad(14,1);pad(14,1); /* duplicate down must not reserve another up */
+    fixture_palette_ticket=0;
+    pad(14,0);
+    struct phone_event colour_event;
+    assert(phone_events_pop(&colour_event)&&colour_event.kind==PHONE_PALETTE_PAD&&
+           colour_event.pad==14&&colour_event.down&&colour_event.workflow_ticket==9);
+    assert(phone_events_pop(&colour_event)&&colour_event.kind==PHONE_PALETTE_PAD&&
+           colour_event.pad==14&&!colour_event.down&&colour_event.workflow_ticket==9);
+    assert(!phone_events_pop(&colour_event)&&!palette_pad_pairs[14]);
+
+    fixture_levels=1;fixture_levels_mode=1;
+    button(SAMPLE_MODE_BUTTON,1);button(SAMPLE_MODE_BUTTON,1);button(SAMPLE_MODE_BUTTON,0);
+    assert(stock_down[LEVELS_MODE_BUTTON]==1&&stock_up[LEVELS_MODE_BUTTON]==1);
+    fixture_levels_mode=8;
+    button(SAMPLE_MODE_BUTTON,1);button(SAMPLE_MODE_BUTTON,0);
+    assert(stock_down[CHOP_MODE_BUTTON]==1&&stock_up[CHOP_MODE_BUTTON]==1);
+    modal_open=1;button(SAMPLE_MODE_BUTTON,1);button(SAMPLE_MODE_BUTTON,0);modal_open=0;
+    button(SEQ_MODE_BUTTON,1);button(SAMPLE_MODE_BUTTON,1);button(SAMPLE_MODE_BUTTON,0);button(SEQ_MODE_BUTTON,0);
+    assert(stock_down[CHOP_MODE_BUTTON]==1&&stock_up[CHOP_MODE_BUTTON]==1);
+    fixture_levels=0;
 
     /* Project change revokes the route. */
     mixer_project_changing();

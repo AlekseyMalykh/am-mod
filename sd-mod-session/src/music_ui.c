@@ -6,6 +6,9 @@
 #include "mixer_sample_feedback.h"
 #endif
 #include "music_settings.h"
+#include "screen_mirror_frame.h"
+#include "phone_input.h"
+#include "pad_palette.h"
 #include "mod_build.h"
 #ifdef MPC_PROJECT_RECOVERY
 #include "project_recovery.h"
@@ -63,8 +66,12 @@ static _Atomic unsigned seq_active,global_shift;
 static _Atomic unsigned exit_blocked;
 static int exit_presented,exit_started,lighting_save_error;
 static unsigned mod_tab,mod_row,mod_edit,mod_reset_confirm,palette_edit,palette_index;
-static uint32_t palette_draft;
-static int palette_save_first;
+static struct music_palette_edit palette_drafts[MUSIC_PALETTE_SLOTS];
+static unsigned palette_changes;
+static int palette_naming;
+static struct phone_input palette_input;
+static _Atomic uint64_t palette_pad_ticket,palette_lights[16];
+static uint64_t palette_ticket;
 enum { MOD_ABOUT_TAB=4, MOD_TAB_COUNT=5 };
 static char exit_error[160];
 int music_ui_exit_saving(void){return atomic_load(&exit_blocked)!=0;}
@@ -212,11 +219,31 @@ void music_ui_destroyed(void *p)
     }
     if ((uintptr_t)p==atomic_load(&project_id)) {
         atomic_store(&project_id,0); atomic_store(&dead_project,1);
+        atomic_store(&palette_pad_ticket,0);
         atomic_store(&active,0); atomic_store(&custom,0);
     }
 }
 void music_ui_request_project(void *p)
 { atomic_store(&request,(uintptr_t)p); }
+uint64_t music_ui_palette_ticket(void){return atomic_load(&palette_pad_ticket);}
+int music_ui_palette_light(unsigned pad,uint64_t *out){
+ if(pad>=16||!music_ui_palette_ticket())return 0;
+ *out=atomic_load(&palette_lights[pad]);return 1;
+}
+static int palette_cell_visible(unsigned index){
+ if(!(palette_changes&(1u<<index)))return music_palette_present(index);
+ return !palette_drafts[index].reset||index<MUSIC_PALETTE_SIZE;
+}
+static void palette_publish(void){
+ if(key_page!=5||!palette_edit){atomic_store(&palette_pad_ticket,0);return;}
+ for(unsigned i=0;i<MUSIC_PALETTE_SLOTS;++i){
+  uint64_t light=0;
+  if(palette_naming)light=palette_input.enabled?phone_light(&palette_input,i+1):0;
+  else if(palette_cell_visible(i))light=pad_light(palette_drafts[i].rgb,i==palette_index?1.f:.65f);
+  atomic_store(&palette_lights[i],light);
+ }
+ atomic_store(&palette_pad_ticket,palette_ticket);
+}
 int music_ui_tick(void)
 {
     atomic_store(&knob_fx_visible,visible(knob_fx_root));
@@ -265,6 +292,7 @@ int music_ui_tick(void)
     else pad_eq_spectrum_watch(-1);
 #endif
     if (!pv&&(key_page<3||key_page==5)) key_page=0;
+    palette_publish();
     if(key_page==3&&exit_presented){
         if(!exit_started){
             exit_started=1;
@@ -480,7 +508,7 @@ static void sequence_paint(void*p,void*g){
     colour(g,0xff000000|music_identity_rgb(c));rect(g,304,43,7,24);
     if(atomic_load(&global_shift)){
         int saved=focus;focus=0;
-        cell(g,0,"Seq Colour","",1,1,1,(int)music_colour_choice_index((unsigned)c),MUSIC_IDENTITY_CHOICES);
+        cell(g,0,"Seq Colour","",1,1,1,(int)music_identity_index((unsigned)c),(int)music_identity_count());
         /* Swatch beside the name, as in Pad Colour. */
         colour(g,0xff000000|music_identity_rgb(c));rect(g,6,218,11,11);
         colour(g,0xffffc247);text(g,music_identity_name((unsigned)c),18,214,84,19,16);
@@ -658,15 +686,30 @@ void music_ui_sample(void *p,void *g)
         text(g,"Set Orig Note: Tune > Shift+K1",2,180,316,15,11);
     }
 }
-static unsigned mod_rows(void){return mod_tab==MOD_ABOUT_TAB?0:mod_tab==2?MUSIC_SERVICE_COUNT:mod_tab==1?3:1;}
+static int mirror_row(unsigned row){return mod_tab==0&&row==1;}
+static int mirror_enabled(void){return access(SCREEN_MIRROR_FLAG,F_OK)==0;}
+static int mirror_set(int enabled){
+ if(!enabled)return !mirror_enabled()||unlink(SCREEN_MIRROR_FLAG)==0;
+ if(mirror_enabled())return 1;
+ unlink(SCREEN_MIRROR_FRAME);
+ int fd=open(SCREEN_MIRROR_FLAG,O_WRONLY|O_CREAT|O_NOFOLLOW|O_CLOEXEC,0600);
+ if(fd<0)return 0;
+ return close(fd)==0;
+}
+static unsigned mod_rows(void){return mod_tab==MOD_ABOUT_TAB?0:mod_tab==2?MUSIC_SERVICE_COUNT+1:mod_tab==1?3:mod_tab==0?2:1;}
 static unsigned mod_field(unsigned row){return mod_tab==1?(row==2?MUSIC_SETTING_TAIL:MUSIC_SETTING_WAVE+row):mod_tab==3?MUSIC_SETTING_BLINK:MUSIC_SETTING_LIGHTING;}
-static unsigned mod_value(void){return mod_tab==2?music_service_colour(mod_row):(unsigned)music_mod_setting(mod_field(mod_row));}
+static int palette_row(unsigned row){return mod_tab==2&&row==0;}
+static unsigned mod_value(void){return mod_tab==2?music_service_colour(mod_row-1):(unsigned)music_mod_setting(mod_field(mod_row));}
 static void mod_change(unsigned value,int relative){
- if(mod_tab==MOD_ABOUT_TAB||mod_row==mod_rows())return;
+ if(mod_tab==MOD_ABOUT_TAB||palette_row(mod_row)||mod_row==mod_rows())return;
+ if(mirror_row(mod_row)){
+  lighting_save_error=!mirror_set(choice(value,mirror_enabled(),0,1,relative));
+  repaint(project);return;
+ }
  unsigned field=mod_field(mod_row);
  unsigned hi=mod_tab==2?MUSIC_PALETTE_SIZE-1:field==MUSIC_SETTING_TAIL?MUSIC_TAIL_CHOICES-1:mod_tab==3?3:1;
  unsigned next=(unsigned)choice(value,(int)mod_value(),0,(int)hi,relative);
- lighting_save_error=!(mod_tab==2?music_set_service_colour(mod_row,next):music_set_mod_setting(field,next));
+ lighting_save_error=!(mod_tab==2?music_set_service_colour(mod_row-1,next):music_set_mod_setting(field,next));
  repaint(project);
 }
 static void text_aligned(void *g,const char *s,int x,int y,int w,int h,float height,int align)
@@ -682,27 +725,54 @@ static void text_aligned(void *g,const char *s,int x,int y,int w,int h,float hei
 }
 /* Mod Settings uses the stock list style of Project / Input Config: label on
  * the left, value on the right, grey fill on the selected row. */
+static void palette_load(unsigned index){
+ for(unsigned i=0;i<MUSIC_PALETTE_SLOTS;++i){
+  palette_drafts[i].rgb=music_palette_rgb(i);
+  palette_drafts[i].reset=0;
+  snprintf(palette_drafts[i].name,sizeof(palette_drafts[i].name),"%s",music_palette_name(i));
+ }
+ palette_index=index;
+ palette_changes=0;
+ lighting_save_error=0;
+}
+void music_ui_palette_pad(unsigned pad,int down,int shift,uint64_t when,uint64_t ticket){
+ if(!ticket||ticket!=music_ui_palette_ticket()||pad>=MUSIC_PALETTE_SLOTS)return;
+ if(palette_naming){
+  palette_input.shift=shift;
+  phone_pad(&palette_input,pad+1,down,when);
+ }else if(down)palette_index=pad;
+ palette_publish();repaint(project);
+}
 static void palette_paint(void*g){
  colour(g,0xff000000u);rect(g,0,0,320,240);
- colour(g,0xffffffffu);text(g,"Cancel",0,6,106,23,14);text(g,"Default",107,6,106,23,14);
- colour(g,0xffffc247u);text(g,"Save",214,6,106,23,14);
- colour(g,0xffffffffu);text_aligned(g,"Palette Editor",12,34,190,22,17,0x21);
- text_aligned(g,music_palette_name(palette_index),206,34,102,22,14,0x22);
- for(unsigned i=0;i<MUSIC_PALETTE_SIZE;++i){
-  int x=12+(int)(i%7)*43,y=64+(int)(i/7)*29;
-  colour(g,i==palette_index?0xffffffffu:0xff303030u);rect(g,x,y,38,24);
-  colour(g,0xff000000u|(i==palette_index?palette_draft:music_palette_rgb(i)));rect(g,x+2,y+2,34,20);
+ colour(g,0xffffffffu);text(g,palette_naming||palette_changes?"Cancel":"Back",0,6,106,23,14);
+ text(g,palette_naming?"Delete":music_ui_shift_active()?"Reset":"Name",107,6,106,23,14);
+ colour(g,0xffffc247u);text(g,palette_naming?"Done":"Save",214,6,106,23,14);
+ if(palette_naming){
+  char preview[96];phone_view(&palette_input,15,preview,sizeof(preview));
+  text(g,"Colour name",12,37,296,28,19);
+  colour(g,0xff292929u);rect(g,12,78,296,42);
+  colour(g,0xffffffffu);text(g,preview,17,79,286,40,18);
+  text(g,palette_input.enabled?"Pads type   /   DATA moves":"Turn DATA to edit   /   Press to advance",12,144,296,24,13);
+  cell(g,0,"Input",palette_input.enabled?"Pads":"Encoder",0,0,1,0,0);
+  return;
  }
- char hex[8];snprintf(hex,sizeof(hex),"#%06X",(unsigned)(palette_draft&0xffffffu));
- colour(g,0xff333333u);rect(g,12,127,74,27);
- colour(g,0xff000000u|palette_draft);rect(g,13,128,72,25);
- colour(g,0xffffffffu);text_aligned(g,hex,97,126,80,28,16,0x21);
- colour(g,0xffaaaaaau);text_aligned(g,"DATA: choose colour",180,127,128,25,11,0x22);
+ colour(g,0xffffffffu);text_aligned(g,"RGB Palette",12,34,126,22,17,0x21);
+ text_aligned(g,palette_drafts[palette_index].name,143,34,165,22,14,0x22);
+ for(unsigned i=0;i<MUSIC_PALETTE_SLOTS;++i){
+  int x=12+(int)(i%4)*75,y=62+(3-(int)(i/4))*26;
+  int present=palette_cell_visible(i);
+  colour(g,i==palette_index?0xffffc247u:0xff303030u);rect(g,x,y,71,22);
+  colour(g,present?0xff000000u|(palette_drafts[i].rgb):0xff111111u);
+  rect(g,x+2,y+2,67,18);
+ }
+ char hex[8];snprintf(hex,sizeof(hex),"#%06X",(unsigned)(palette_drafts[palette_index].rgb&0xffffffu));
+ colour(g,0xffffffffu);text_aligned(g,hex,12,171,78,21,15,0x21);
  colour(g,lighting_save_error?0xffff4040u:0xffaaaaaau);
- text(g,lighting_save_error?"Could not save palette":palette_save_first?"Save or cancel this colour first":music_lighting_preferences_durable()?"Save keeps this palette on the SD card":"Palette available for this session",12,173,296,19,12);
+ text_aligned(g,lighting_save_error?"Could not save palette":palette_changes?"B3 Save applies all changes":"DATA or pad to select",91,171,217,21,11,0x22);
  static const char*const labels[]={"Red","Green","Blue"};
  for(unsigned k=0;k<3;++k){
-  unsigned channel=(palette_draft>>(16-8*k))&255u;
+  unsigned channel=(palette_drafts[palette_index].rgb>>(16-8*k))&255u;
   char value[5];snprintf(value,sizeof(value),"%u",channel);
   cell(g,(int)k,labels[k],value,0,0,1,(int)channel,0);
  }
@@ -721,7 +791,7 @@ static void mod_settings_paint(void*g){
   colour(g,0xffffffff);rect(g,6,51,308,145);colour(g,0xff000000);rect(g,7,52,306,143);
   colour(g,0xffffffff);text_aligned(g,"Restore recommended",24,66,272,26,18,0x21);rect(g,24,100,272,1);
   colour(g,0xffffc247);text_aligned(g,titles[mod_tab],24,112,272,24,18,0x21);
-  colour(g,0xffffffff);text_aligned(g,mod_tab==2?"The whole palette is reset.":"Only this section is reset.",24,144,272,20,13,0x21);
+  colour(g,0xffffffff);text_aligned(g,mod_tab==2?"Default colour roles are restored.":"Only this section is reset.",24,144,272,20,13,0x21);
   return;
  }
  char prev[24],next[24];
@@ -741,18 +811,23 @@ static void mod_settings_paint(void*g){
  for(unsigned i=first;i<=mod_rows()&&i<first+5;++i){
   int y=62+22*(int)(i-first),current=i==mod_row;
   if(current){colour(g,0xff2c2c2c);rect(g,6,y,308,21);if(mod_edit){colour(g,0xffffc247);rect(g,6,y,3,21);}}
+  if(palette_row(i)){
+   colour(g,0xffffc247);text_aligned(g,"RGB Palette Editor",14,y,220,21,13,0x21);
+   colour(g,0xffa0a0a0);text_aligned(g,"Open",240,y,66,21,12,0x22);
+   continue;
+  }
   if(i==mod_rows()){
    colour(g,current?0xffffffff:0xffa0a0a0);text_aligned(g,"Restore recommended",14,y,220,21,13,0x21);
    colour(g,0xffa0a0a0);text_aligned(g,"Press",240,y,66,21,12,0x22);
    if(current){k1_label="Restore";k1_value="Press";}
    continue;
   }
-  const char*label=mod_tab==0?"Pad lighting":mod_tab==1?sample_labels[i]:mod_tab==2?services[i]:"Cursor pulse";
+  const char*label=mod_tab==0?(mirror_row(i)?"Screen Mirror":"Pad lighting"):mod_tab==1?sample_labels[i]:mod_tab==2?services[i-1]:"Cursor pulse";
   unsigned field=mod_field(i);
-  unsigned value=mod_tab==2?music_service_colour(i):(unsigned)music_mod_setting(field);
+  unsigned value=mod_tab==2?music_service_colour(i-1):(unsigned)music_mod_setting(field);
   char duration[16];
   if(field==MUSIC_SETTING_TAIL){if(music_tail_ms(value))snprintf(duration,sizeof(duration),"%u ms",music_tail_ms(value));else snprintf(duration,sizeof(duration),"Off");}
-  const char*name=mod_tab==0?(value?"Am MOD":"Standard"):field==MUSIC_SETTING_TAIL?duration:mod_tab==1?(value?"Pad colour":"Original"):mod_tab==2?music_palette_name(value):speeds[value];
+  const char*name=mod_tab==0?(mirror_row(i)?(mirror_enabled()?"On":"Off"):(value?"Am MOD":"Standard")):field==MUSIC_SETTING_TAIL?duration:mod_tab==1?(value?"Pad colour":"Original"):mod_tab==2?music_palette_name(value):speeds[value];
   colour(g,0xffffffff);text_aligned(g,label,14,y,190,21,13,0x21);
   int value_width=110;
   if(mod_tab==2){
@@ -763,14 +838,14 @@ static void mod_settings_paint(void*g){
   if(current){k1_label=label;snprintf(value_text,sizeof(value_text),"%s",name);k1_value=value_text;}
  }
  colour(g,0xffa0a0a0);
- text_aligned(g,mod_tab==2?"Shift + B2: edit RGB palette":mod_tab==1?"Hold STOP and tap a pad to hear its end":mod_tab==3?"Sequence pulses still follow tempo":"Standard keeps Piano, Scale and Degrees",12,172,300,13,11,0x21);
+ text_aligned(g,mod_tab==2?"Shift + B2: edit RGB palette":mod_tab==1?"Hold STOP and tap a pad to hear its end":mod_tab==3?"Sequence pulses still follow tempo":mirror_row(mod_row)?"USB: http://192.168.155.1:8080":"Standard keeps Piano, Scale and Degrees",12,172,300,13,11,0x21);
  colour(g,lighting_save_error?0xffff4040:0xffa0a0a0);
- text_aligned(g,lighting_save_error?"Could not save settings":"Saved in the project and as card default",12,185,300,13,11,0x21);
+ text_aligned(g,lighting_save_error?"Could not change setting":mirror_row(mod_row)?"Turns off when the mod restarts":"Saved in the project and as card default",12,185,300,13,11,0x21);
  /* K1 changes the selected row directly; the encoder selects and edits. */
  colour(g,0xff000000);rect(g,0,198,320,42);
  colour(g,mod_edit?0xffffc247:0xffffffff);text(g,k1_label,4,200,98,12,12);text(g,k1_value,4,214,98,19,16);
  colour(g,0xffa0a0a0);
- text_aligned(g,mod_row==mod_rows()?"Press: review":mod_edit?"Turn: change   Press: done":"Turn: row   Press: edit",116,206,196,20,13,0x21);
+ text_aligned(g,palette_row(mod_row)?"Press: open RGB editor":mod_row==mod_rows()?"Press: review":mod_edit?"Turn: change   Press: done":"Turn: row   Press: edit",116,206,196,20,13,0x21);
 }
 /* AC50Core constructs the stock TempoController at +0x588. Its master
  * tempo property belongs to the sequencer and is saved by the native project. */
@@ -855,7 +930,7 @@ int music_ui_control_at(void *event,unsigned event_shift)
 {
     music_ui_tick();
     if(music_pad_lighting_mode()&&atomic_load(&seq_active)&&event_shift&&FIELD(event,8,unsigned char)==0x10){
-        int index=sequence_index();if(index>=0)music_set_sequence_colour((unsigned)index,music_colour_choice(FIELD(event,9,unsigned char)*MUSIC_IDENTITY_CHOICES/128u));
+        int index=sequence_index();if(index>=0)music_set_sequence_colour((unsigned)index,music_identity_choice(FIELD(event,9,unsigned char)*music_identity_count()/128u));
         repaint(seq_screen);return 1;
     }
     if (!atomic_load(&custom)) return 0;
@@ -864,19 +939,22 @@ int music_ui_control_at(void *event,unsigned event_shift)
         if(mod_reset_confirm)return 1;
         unsigned cc=FIELD(event,8,unsigned char),value=FIELD(event,9,unsigned char);
         if(palette_edit){
-            if(cc==0x64){
-                unsigned next=(unsigned)choice(value,(int)palette_index,0,MUSIC_PALETTE_SIZE-1,1);
-                if(next!=palette_index){
-                    if(palette_draft==music_palette_rgb(palette_index)){
-                        palette_index=next;palette_draft=music_palette_rgb(next);palette_save_first=0;
-                    }else palette_save_first=1;
+            if(palette_naming){
+                if(cc==0x10&&value<=127&&palette_input.enabled!=(value>=64))phone_enable(&palette_input,value>=64);
+                if(cc==0x64){
+                    int delta=value>64?(int)value-128:value==64?0:(int)value;
+                    if(palette_input.enabled||event_shift)phone_move(&palette_input,delta);
+                    else phone_turn_character(&palette_input,delta);
                 }
+            }else if(cc==0x64){
+                palette_index=(unsigned)choice(value,(int)palette_index,0,MUSIC_PALETTE_SLOTS-1,1);
             }else if(cc>=0x10&&cc<=0x12&&value<=127){
                 unsigned bits=16-8*(cc-0x10),channel=(value*255+63)/127;
-                palette_draft=(palette_draft&~(255u<<bits))|(channel<<bits);
-                palette_save_first=lighting_save_error=0;
+                struct music_palette_edit *draft=&palette_drafts[palette_index];
+                draft->rgb=(draft->rgb&~(255u<<bits))|(channel<<bits);
+                draft->reset=0;palette_changes|=1u<<palette_index;lighting_save_error=0;
             }
-            repaint(project);return 1;
+            palette_publish();repaint(project);return 1;
         }
         if(cc==0x10||(cc==0x64&&mod_edit))mod_change(value,cc==0x64);
         else if(cc==0x64){mod_row=(unsigned)choice(value,(int)mod_row,0,(int)mod_rows(),1);repaint(project);}
@@ -1007,18 +1085,43 @@ int music_ui_button(void *event)
     if(key_page==5&&visible(project)){
         if(code==0x31)return 0;
         if(palette_edit){
-            if(code==0x0c){palette_edit=0;lighting_save_error=0;}
-            else if(code==0x0d){palette_draft=music_palette_default_rgb(palette_index);palette_save_first=lighting_save_error=0;}
-            else if(code==0x0e){
-                lighting_save_error=!music_palette_set_rgb(palette_index,palette_draft);
-                if(!lighting_save_error)palette_edit=0;
+            struct music_palette_edit *draft=&palette_drafts[palette_index];
+            if(palette_naming){
+                if(code==0x0c){palette_naming=0;++palette_ticket;}
+                else if(code==0x0d)phone_delete(&palette_input,!palette_input.enabled&&palette_input.cursor<palette_input.length);
+                else if(code==0x6f)phone_move(&palette_input,1);
+                else if(code==0x0e){
+                    char name[MUSIC_COLOUR_NAME_BYTES];
+                    phone_commit(&palette_input);
+                    if(phone_utf8(&palette_input,name,sizeof(name))){
+                        snprintf(draft->name,sizeof(draft->name),"%s",name);
+                        draft->reset=0;palette_changes|=1u<<palette_index;
+                        palette_naming=0;++palette_ticket;
+                    }
+                }
+            }else if(code==0x0c){
+                palette_edit=0;lighting_save_error=0;
+            }else if(code==0x0d&&music_ui_shift_active()){
+                draft->rgb=music_palette_default_rgb(palette_index);
+                draft->reset=1;palette_changes|=1u<<palette_index;lighting_save_error=0;
+            }else if(code==0x0d){
+                phone_init(&palette_input,MUSIC_COLOUR_NAME_BYTES-1);
+                const char *name=music_palette_present(palette_index)||strcmp(draft->name,music_palette_name(palette_index))?draft->name:"";
+                if(phone_sync(&palette_input,name,0)){palette_naming=1;++palette_ticket;}
+            }else if(code==0x0e){
+                if(palette_changes){
+                    int saved=music_palette_apply(palette_drafts,palette_changes);
+                    if(saved)palette_load(palette_index);
+                    else lighting_save_error=1;
+                }
             }
-            repaint(project);
+            palette_publish();repaint(project);
         }
-        else if(mod_tab==2&&code==0x0d&&music_ui_shift_active()&&!mod_reset_confirm){
-            palette_edit=1;lighting_save_error=palette_save_first=0;
-            palette_index=mod_row<mod_rows()?music_service_colour(mod_row):0;
-            palette_draft=music_palette_rgb(palette_index);repaint(project);
+        else if(!mod_reset_confirm&&((code==0x6f&&palette_row(mod_row))||
+                (mod_tab==2&&code==0x0d&&music_ui_shift_active()))){
+            palette_edit=1;palette_naming=0;++palette_ticket;
+            palette_load(mod_row<mod_rows()?music_service_colour(mod_row?mod_row-1:0):0);
+            palette_publish();repaint(project);
         }
         else if(mod_reset_confirm){
             if(code==0x0c)mod_reset_confirm=0;
@@ -1027,7 +1130,7 @@ int music_ui_button(void *event)
         }
         else if(code==0x0c){key_page=0;repaint(project);music_ui_tick();}
         else if(code==0x0d||code==0x0e){mod_tab=(mod_tab+(code==0x0e?1:MOD_TAB_COUNT-1))%MOD_TAB_COUNT;mod_row=mod_edit=0;repaint(project);}
-        else if(code==0x6f&&mod_tab!=MOD_ABOUT_TAB){if(mod_row==mod_rows()){mod_reset_confirm=1;mod_edit=0;}else mod_edit=!mod_edit;repaint(project);}
+        else if(code==0x6f&&mod_tab!=MOD_ABOUT_TAB){if(mirror_row(mod_row)){lighting_save_error=!mirror_set(!mirror_enabled());}else if(mod_row==mod_rows()){mod_reset_confirm=1;mod_edit=0;}else mod_edit=!mod_edit;repaint(project);}
         owned_buttons[code]=1;atomic_fetch_add(&held_count,1);return 1;
     }
     if(key_page==2&&visible(project)){

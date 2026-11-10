@@ -43,20 +43,6 @@ static uint64_t name_time(void)
     timespec_get(&now,TIME_UTC);
     return (uint64_t)now.tv_sec*1000+(unsigned long)now.tv_nsec/1000000;
 }
-static void name_turn(struct phone_input*name,int delta)
-{
-    static const char alphabet[]=" ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.";
-    phone_commit(name);
-    if(!delta||name->cursor>=name->limit)return;
-    int position=0;
-    if(name->cursor<name->length)
-        for(unsigned i=0;alphabet[i];++i)if((unsigned char)alphabet[i]==name->text[name->cursor]){position=(int)i;break;}
-    int length=sizeof(alphabet)-1;
-    position=(position+delta)%length;
-    if(position<0)position+=length;
-    if(name->cursor==name->length)++name->length;
-    name->text[name->cursor]=(unsigned char)alphabet[position];
-}
 static unsigned count(unsigned mask){unsigned n=0;while(mask){n+=mask&1;mask>>=1;}return n;}
 static struct mixer_channel*selected(struct mixer_control*c){return c->view.master?&c->desired.master:c->desired.track+c->view.primary;}
 static void pickup(struct mixer_control*c){c->pickup=0;c->last_fader_valid=0;}
@@ -280,24 +266,21 @@ int mixer_control_button(struct mixer_control*c,enum mixer_action action,int dow
         if(c->view.page!=MIXER_OVERVIEW){c->view.page=MIXER_OVERVIEW;c->temporary=0;c->view.cursor=PARAM_LEVEL;}
         else{c->exit_requested=1;mixer_control_close(c);}
     }else if(c->view.page==MIXER_KNOB_FX&&c->fx_editing&&
-             (action==MIXER_B2||action==MIXER_B3)&&!c->shift&&!c->view.fx_parameters){
+             action==MIXER_B2&&!c->view.fx_parameters){
         struct fx_chain_config*chain=&selected(c)->fx;
-        if(action==MIXER_B2){
+        if(!c->shift){
             if(c->view.fx_slot>=chain->count)c->message="Select an effect to copy";
             else{c->fx_clipboard=chain->stage[c->view.fx_slot];c->fx_copied=1;c->message="Effect copied";}
         }else if(!c->fx_copied)c->message="No effect copied";
         else if(put_fx(c,&c->fx_clipboard))c->message="Effect pasted";
-    }else if(action==MIXER_B3&&c->shift&&c->view.page==MIXER_KNOB_FX&&c->view.fx_parameters){
-        struct fx_chain_config*chain=&selected(c)->fx;
-        unsigned slot=c->view.fx_slot;
-        if(slot<chain->count&&chain->stage[slot].kind==FX_STAGE_EQ){
-            struct fx_eq_config*eq=&chain->stage[slot].eq;
-            if(eq->count>=3)c->message="Three EQ points maximum";
-            else{
-                unsigned point=eq->count++;
-                eq->band[point]=mixer_eq_point_default(point,c->rate);
-                c->parameter_page=c->view.cursor=point;changed(c);
-            }
+    }else if(action==MIXER_B3&&c->shift&&c->view.page==MIXER_KNOB_FX&&c->view.fx_parameters&&
+             c->view.fx_slot<selected(c)->fx.count&&selected(c)->fx.stage[c->view.fx_slot].kind==FX_STAGE_EQ){
+        struct fx_eq_config*eq=&selected(c)->fx.stage[c->view.fx_slot].eq;
+        if(eq->count>=3)c->message="Three EQ points maximum";
+        else{
+            unsigned point=eq->count++;
+            eq->band[point]=mixer_eq_point_default(point,c->rate);
+            c->parameter_page=c->view.cursor=point;changed(c);
         }
     }else if(action==MIXER_B2&&c->view.page==MIXER_KNOB_FX&&c->view.fx_parameters&&!c->shift){
         selected(c)->fx.stage[c->view.fx_slot].bypass^=1;changed(c);
@@ -305,17 +288,20 @@ int mixer_control_button(struct mixer_control*c,enum mixer_action action,int dow
         if(!one(c)){c->message="Select one Track";return 1;}
         phone_init(&c->name,MIXER_NAME_BYTES-1);
         if(phone_sync(&c->name,selected(c)->name,0))c->naming=1;
-    }else if(action==MIXER_B2&&c->shift&&c->view.page!=MIXER_OVERVIEW&&c->view.page!=MIXER_INSPECT){
-        /* Shift+B2: FX Bypass of the selection or Master. */
-        if(c->view.master)c->desired.master.fx_bypass^=1;
-        else for(unsigned i=0;i<8;++i)if(c->view.selected&(1u<<i))c->desired.track[i].fx_bypass^=1;
-        changed(c);
+    }else if(action==MIXER_B2&&c->view.page==MIXER_ASSIGN&&!c->shift){
+        c->view.pad_lock^=1;
     }else if(action==MIXER_B3){
-        if(c->view.page==MIXER_OVERVIEW||c->view.page==MIXER_ASSIGN)group_gate(c,1);
+        if(c->view.page==MIXER_KNOB_FX&&c->fx_editing){
+            if(c->shift){selected(c)->fx_bypass^=1;changed(c);}
+            else group_gate(c,1);
+        }else if(c->view.page==MIXER_OVERVIEW&&c->shift){
+            clear_fx_page(c);c->view.page=MIXER_INSPECT;c->temporary=1;
+        }else if(c->view.page==MIXER_OVERVIEW||c->view.page==MIXER_ASSIGN)group_gate(c,1);
     }else if(action==MIXER_PAD_FX){
         if(c->view.page==MIXER_ASSIGN||c->view.page==MIXER_INSPECT){c->view.page=MIXER_OVERVIEW;c->temporary=0;return 1;}
         if(!c->shift&&!one(c)){c->message="Select one Track";return 1;}
         clear_fx_page(c);c->view.page=c->shift?MIXER_INSPECT:MIXER_ASSIGN;c->temporary=1;
+        c->view.pad_lock=1;
     }else if(action==MIXER_KNOB){
         if(c->view.page==MIXER_KNOB_FX){clear_fx_page(c);c->view.page=MIXER_OVERVIEW;c->temporary=0;c->view.cursor=PARAM_LEVEL;return 1;}
         if(c->fx_editing&&!one(c)){c->message="Select one Track";return 1;}
@@ -351,10 +337,16 @@ int mixer_control_pad(struct mixer_control*c,unsigned pad,int down,uint64_t tick
     int fx_pad=pad>=8&&pad<8+MIXER_FX_SLOTS;
     if(c->view.page==MIXER_KNOB_FX&&(c->view.fx_delete||(c->view.fx_parameters&&!fx_pad)))return 1;
     if(c->view.page==MIXER_ASSIGN||c->view.page==MIXER_INSPECT){unsigned sound=c->view.bank*16+pad;c->view.sound=sound;
-        if(c->view.page==MIXER_ASSIGN){if(!(c->present[sound/64]&(UINT64_C(1)<<(sound%64))))c->message="Empty pad";
-            else if(c->view.master){if(c->desired.output[sound]){c->desired.output[sound]=0;changed(c);}}
-            else if(one(c)){unsigned output=c->view.primary+1;
-                c->desired.output[sound]=(unsigned char)(c->desired.output[sound]==output?0:output);changed(c);}}
+        if(c->view.page==MIXER_ASSIGN){
+            unsigned current=c->desired.output[sound];
+            if(!(c->present[sound/64]&(UINT64_C(1)<<(sound%64))))c->message="Empty pad";
+            else if(current&&c->view.pad_lock)c->message="Pad Lock: press B2 to unlock";
+            else if(one(c)){
+                unsigned target=c->view.master?0:c->view.primary+1;
+                unsigned next=current==target?0:target;
+                if(next!=current){c->desired.output[sound]=(unsigned char)next;changed(c);}
+            }
+        }
         return 1;
     }
     if(c->fx_editing&&fx_pad&&
@@ -541,7 +533,7 @@ int mixer_control_cc(struct mixer_control*c,unsigned cc,unsigned value,uint64_t 
         if(cc==0x64){
             int delta=value>64?(int)value-128:value==64?0:(int)value;
             if(c->name.enabled||c->shift)phone_move(&c->name,delta);
-            else name_turn(&c->name,delta);
+            else phone_turn_character(&c->name,delta);
         }
         return 1;
     }
@@ -667,7 +659,7 @@ void mixer_control_view(struct mixer_control*c,uint64_t now,struct mixer_view_st
         out->name_elapsed=now>=c->name_since?now-c->name_since:0;
         if(c->naming){
             phone_tick(&c->name,name_time());
-            phone_view(&c->name,18,c->name_preview,sizeof(c->name_preview));
+            phone_view(&c->name,13,c->name_preview,sizeof(c->name_preview));
             out->name_edit=c->name_preview;out->name_pads=c->name.enabled;
         }
         out->shifted=c->shift;out->fx_editing=c->fx_editing;out->rate=c->rate;}

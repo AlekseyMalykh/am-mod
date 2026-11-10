@@ -1,5 +1,9 @@
 #define _GNU_SOURCE
 #include "song_ui.h"
+#ifdef MPC_EARLY_STARTUP
+#include "startup_project.h"
+#endif
+
 #ifdef MPC_MIXER_LIVE
 #include "mixer_stems.h"
 #pragma weak mixer_stems_arm
@@ -79,6 +83,13 @@ static uint64_t export_route_since;
 static _Alignas(8) unsigned char export_route_template[16];
 /* 0 none, 1 Mixdown naming, 2 Dry Stems naming, 3 Wet Stems naming. Both share the existing
  * TextEditor + pad keyboard; Sequence has no stock name dialog. */
+static int song_export_ready(unsigned choice){
+#ifdef MPC_EARLY_STARTUP
+    return choice==1u||startup_song_export_ready();
+#else
+    (void)choice;return 1;
+#endif
+}
 static _Atomic unsigned export_name_kind;
 /* Mixdown and Stems use the same native name editor. Its Shift/B2 mean
  * case/Erase. 0=idle, 1=opening, 2=open, 3=Do It. */
@@ -192,6 +203,7 @@ int song_ui_pads_active(void){ return atomic_load(&pads_shown)!=0; }
 int song_ui_owns(unsigned kind,unsigned code,int shift,int down)
 {
     if(kind==PHONE_CONTROLLER){
+        if(code==0x12&&song_ui_stems_modal_visible())return 1;
         if(atomic_load(&shown) && code==K1) return 1;
         /* The main DATA encoder (not K1) scrolls Export choices only when
          * our menu is active. The native name dialog keeps its own encoder. */
@@ -352,6 +364,7 @@ static int move_step(int direction)
 int song_ui_control(void *e)
 {
     unsigned cc=FIELD(e,8,unsigned char); int value=FIELD(e,9,unsigned char);
+    if(cc==0x12&&song_ui_stems_modal_visible())return 1;
     if(cc==DATA_ENCODER && atomic_load(&export_menu_active)){
         /* Native DATA encoder is relative: 1..63=clockwise,
          * 65..127=counterclockwise (127 is -1). Clamp at each end. */
@@ -395,6 +408,7 @@ int song_ui_button(void *e)
             struct song_ref song;
             if(!song_ref(&song)||!song.count)return 1;
             unsigned selected=atomic_load(&export_choice);
+            if(!song_export_ready(selected)){repaint(screen);return 1;}
 #ifdef MPC_MIXER_LIVE
             if(selected>=2u && (!mixer_stems_available || !mixer_stems_available() || !mixer_stems_arm)){
                 fprintf(stderr,"SONG_EXPORT STEMS_UNAVAILABLE\n");return 1;
@@ -544,7 +558,8 @@ static void paint(void *p,void *g)
         /* Paint after SongScreen children. Cover all of the song list/buttons;
          * the old native Cancel/Mixdown/Sequence modal was never entered. */
         const unsigned selected=atomic_load(&export_choice)%4u;
-        int can_export=song_ref(&r)&&r.count>0;
+        int has_song=song_ref(&r)&&r.count>0;
+        int can_export=has_song&&song_export_ready(selected);
         const char *items[]={"Mixdown","Sequence","Stems without FX","Stems with FX"};
         const char *detail[]={"One stereo WAV","Combine into a sequence",
                               "Separate WAVs without mixer FX","Separate WAVs with mixer FX"};
@@ -564,7 +579,7 @@ static void paint(void *p,void *g)
             text_at(g,detail[i],23,y+16,283,11,10.0f,0x21);
         }
         colour(g,0xff252525u);rect(g,12,198,296,1);
-        colour(g,0xffbbbbbbu);text(g,can_export?"Turn DATA to select   /   B3 to export":"Insert a sequence before exporting",12,204,296,22,12.0f);
+        colour(g,0xffbbbbbbu);text(g,can_export?"Turn DATA to select   /   B3 to export":has_song?"Insert SD card to export":"Insert a sequence before exporting",12,204,296,22,12.0f);
         return;
     }
     { struct song_ref pr; if(song_ref(&pr)) paint_rows(p,g,&pr); }
@@ -592,8 +607,7 @@ static void stems_modal_footer_paint(void *p,void *g)
     if(p!=stems_modal_root||!atomic_load(&stems_modal_visible))return;
     int w=FIELD(p,0x28,int),h=FIELD(p,0x2c,int);
     if(w<200||w>320||h<150||h>240)return;
-    /* Align the panel with the native dialog's bottom-left, not the text
-     * entry rectangle. Leave the stock Save-to-Internal control untouched. */
+    /* Draw input and the fixed SD destination after the stock children. */
     const int x=(w>=300)?38:8;
     const int y=(h>=230)?180:h-44;
     const unsigned pads=atomic_load(&stems_modal_pads);
@@ -603,6 +617,11 @@ static void stems_modal_footer_paint(void *p,void *g)
     text_at(g,pads?"Pads":"Encoder",x,y+17,75,19,17.0f,0x24);
     colour(g,0xff3b3b3bu);rect(g,x+7,y+39,61,2);
     colour(g,0xffffffffu);rect(g,x+7+(pads?30:0),y+39,31,2);
+#ifdef MPC_EARLY_STARTUP
+    colour(g,0xff000000u);rect(g,w/2-44,h-36,w/2+44,34);
+    colour(g,0xffffffffu);
+    text_at(g,"Save to SD Card",w/2-39,h-33,w/2+29,29,15.0f,0x22);
+#endif
 }
 
 /* Called only from the existing TextEditor::paint hook on the JUCE thread.

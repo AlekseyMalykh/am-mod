@@ -15,6 +15,7 @@
 #include <limits.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <unistd.h>
 #ifndef STARTUP_STORAGE_META
 #define STARTUP_STORAGE_META "/run/mpc-trial-app/storage-meta/save-path"
@@ -70,12 +71,42 @@ Errors native_load(void*saver,const uint64_t*file){
 }
 using AutoSave=void(*)(void*);
 AutoSave original_autosave;
+bool card_root(char (&root)[PATH_MAX]){
+ char canonical[PATH_MAX];struct stat st;
+ int fd=open(STARTUP_STORAGE_META,O_RDONLY|O_NOFOLLOW|O_CLOEXEC|O_NONBLOCK);if(fd<0)return false;
+ ssize_t n=fstat(fd,&st)||!S_ISREG(st.st_mode)?-1:read(fd,root,sizeof(root)-1);close(fd);
+ if(n<=0)return false;
+ while(n&&(root[n-1]=='\n'||root[n-1]=='\r'))--n;
+ root[n]=0;
+ if(n<8||std::strlen(root)!=(size_t)n||std::strncmp(root,"/media/",7)||!realpath(root,canonical)||std::strcmp(root,canonical))return false;
+ return true;
+}
+bool project_save_destination(const char *target){
+ if(!target||!*target)return false;
+ if(!std::strcmp(target,STARTUP_AUTOSAVE_PATH))return true;
+ char root[PATH_MAX],parent[PATH_MAX],canonical[PATH_MAX];
+ if(!card_root(root))return false;
+ const size_t root_length=std::strlen(root);
+ if(std::strncmp(target,root,root_length)||std::strncmp(target+root_length,"/Projects/",10))return false;
+ const char *leaf=std::strrchr(target,'/');
+ if(!leaf||!leaf[1]||!std::strcmp(leaf+1,".")||!std::strcmp(leaf+1,".."))return false;
+ const size_t length=static_cast<size_t>(leaf-target);
+ if(length>=sizeof(parent))return false;
+ std::memcpy(parent,target,length);parent[length]=0;
+ if(!realpath(parent,canonical)||std::strcmp(parent,canonical))return false;
+ struct stat st;
+ return lstat(target,&st)?errno==ENOENT:S_ISREG(st.st_mode);
+}
 using Save=int(*)(void*,const uint64_t*,bool,bool,bool);
 Save original_save;
 int save(void*saver,const uint64_t*file,bool a,bool b,bool c){
  char target[1200]={0};
  const char*incoming=file?reinterpret_cast<const char*>(*file):nullptr;
  if(incoming&&strnlen(incoming,sizeof(target))<sizeof(target))std::snprintf(target,sizeof(target),"%s",incoming);
+ if(!project_save_destination(target)){
+  std::fprintf(stderr,"STARTUP_PROJECT SAVE_REQUIRES_SD_CARD\n");
+  return 0;
+ }
  int result=original_save(saver,file,a,b,c);
 #ifdef MPC_PROJECT_RECOVERY
  if(result&&target[0])project_recovery_saved(target);
@@ -132,13 +163,8 @@ void scan(const char*folder,unsigned depth,time_t&best){
  closedir(d);
 }
 void choose(){
- char root[PATH_MAX],canonical[PATH_MAX];struct stat st;
- int fd=open(STARTUP_STORAGE_META,O_RDONLY|O_NOFOLLOW|O_CLOEXEC|O_NONBLOCK);if(fd<0)return;
- ssize_t n=fstat(fd,&st)||!S_ISREG(st.st_mode)?-1:read(fd,root,sizeof(root)-1);close(fd);
- if(n<=0)return;
- while(n&&(root[n-1]=='\n'||root[n-1]=='\r'))--n;
- root[n]=0;
- if(n<8||std::strlen(root)!=(size_t)n||std::strncmp(root,"/media/",7)||!realpath(root,canonical)||std::strcmp(root,canonical))return;
+ char root[PATH_MAX],canonical[PATH_MAX];
+ if(!card_root(root))return;
  char projects[PATH_MAX];if(std::snprintf(projects,sizeof(projects),"%s/Projects",root)>=(int)sizeof(projects))return;
  if(!realpath(projects,canonical)||std::strcmp(projects,canonical))return;
  time_t best=0;scan(projects,1,best);
@@ -162,6 +188,16 @@ Errors load(void*saver,const uint64_t*file){
  std::fprintf(stderr,"STARTUP_PROJECT NATIVE_LOAD_FINISHED sd=1 errors=%u\n",result.begin!=result.end);
  return result;
 }
+}
+extern "C" int startup_song_export_ready(void){
+ char root[PATH_MAX],folder[PATH_MAX];
+ if(!card_root(root)||std::snprintf(folder,sizeof(folder),"%s/Samples/Export",root)>=(int)sizeof(folder))return 0;
+ const char *native="/data/UserContent/Samples/User/Export";
+ struct stat card,alias;
+ struct statvfs fs;
+ return !stat(folder,&card)&&S_ISDIR(card.st_mode)&&!stat(native,&alias)&&
+        card.st_dev==alias.st_dev&&card.st_ino==alias.st_ino&&
+        !statvfs(native,&fs)&&!(fs.f_flag&ST_RDONLY);
 }
 extern "C" int startup_project_loading(void){return phase.load()==1||phase.load()==2;}
 extern "C" void startup_project_ready(void){

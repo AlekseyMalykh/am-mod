@@ -132,6 +132,25 @@ static void sends(void)
     float returns[MIXER_TRACKS];
     assert(mixer_buses_return_peaks(b,returns)==1);
     compare(returns[0],0);compare(value(b,0,0,0),.125f);
+    project.track[0].mix.solo=1;
+    struct mixer_bus_update *update=mixer_buses_update_prepare(&project,0,48000,1,NULL,NULL);
+    assert(update&&mixer_buses_publish(b,update)==MIXER_BUS_OK);
+    float block[128];for(unsigned i=0;i<128;++i)block[i]=.5f;
+    for(unsigned i=0;i<2;++i){
+        assert(mixer_buses_begin(b,128)==MIXER_BUS_OK);
+        assert(mixer_buses_accumulate(b,0,block,NULL,1,0)==MIXER_BUS_OK);
+        assert(mixer_buses_finish(b,NULL,0)==MIXER_BUS_OK);
+    }
+    compare(value(b,1,0,127),0);
+    compare(value(b,0,0,127),.25f);compare(value(b,9,0,127),.25f);
+    assert(mixer_buses_return_peaks(b,returns)==1);compare(returns[0],.25f);
+    mixer_buses_destroy(b);
+    project.track[1].mix.mute=1;b=prepare();
+    assert(mixer_buses_begin(b,1)==MIXER_BUS_OK);
+    assert(mixer_buses_accumulate(b,0,pcm,NULL,1,0)==MIXER_BUS_OK);
+    assert(mixer_buses_finish(b,NULL,0)==MIXER_BUS_OK);
+    compare(value(b,9,0,0),0);
+    puts("PASS soloed return keeps the send through a live Solo update; explicit source Mute still cuts it");
     mixer_meters_destroy(m);mixer_buses_destroy(b);
 }
 static void sidechain(void)

@@ -181,6 +181,14 @@ int main(int argc,char**argv){
  project_open=1;music_ui_project(project_screen,screen);
  assert(music_set_pad_colour(18,13)&&music_set_sequence_colour(11,4));
  music_ui_request_project((void*)((uintptr_t)project_screen|2));music_ui_tick();captions[0]=0;music_ui_project(project_screen,screen);assert(strstr(captions,"Pad lighting")&&strstr(captions,"Am MOD")&&strstr(captions,"Restore recommended"));
+#ifdef SCREEN_MIRROR_FLAG
+ assert(strstr(captions,"Screen Mirror")&&access(SCREEN_MIRROR_FLAG,F_OK)!=0);
+ knob(0x64,1);
+ assert(key(0x6f,1)&&key(0x6f,0)&&!access(SCREEN_MIRROR_FLAG,F_OK));
+ knob(0x10,0);assert(access(SCREEN_MIRROR_FLAG,F_OK)!=0);
+ knob(0x64,127);
+ puts("PASS Screen Mirror defaults off; encoder toggles on, K1 toggles off");
+#endif
  knob(0x10,0);assert(music_pad_lighting_mode()==MUSIC_LIGHTING_STANDARD);
  assert(music_pad_colour(18)==13&&music_sequence_colour(11)==4);
  knob(0x10,0);assert(music_pad_lighting_mode()==MUSIC_LIGHTING_STANDARD);knob(0x10,127);assert(music_pad_lighting_mode()==MUSIC_LIGHTING_MOD);
@@ -198,18 +206,57 @@ int main(int argc,char**argv){
  assert(music_tail_ms((unsigned)music_mod_setting(MUSIC_SETTING_TAIL))==1000);
  assert(key(0x0e,1)&&key(0x0e,0));
  uint32_t saved_cursor=music_palette_rgb(music_service_colour(0));
- music_ui_requested(0x31,1);assert(key(0x0d,1)&&key(0x0d,0));music_ui_requested(0x31,0);
- captions[0]=0;music_ui_project(project_screen,screen);assert(strstr(captions,"Palette Editor"));
+ captions[0]=0;music_ui_project(project_screen,screen);
+ assert(strstr(captions,"RGB Palette Editor")&&strstr(captions,"Press: open RGB editor"));
+ knob(0x10,127);assert(music_service_colour(0)==MUSIC_USER_COLOURS);
+ assert(key(0x6f,1)&&key(0x6f,0));
+ captions[0]=0;music_ui_project(project_screen,screen);
+ assert(strstr(captions,"#FFFFFF")&&strstr(captions,"Red")&&strstr(captions,"Save"));
  knob(0x10,13);knob(0x11,23);knob(0x12,37);
+ uint64_t draft_light;
+ assert(music_ui_palette_light(music_service_colour(0),&draft_light)&&(draft_light&0xffffffu)==0x1a2e4a);
  assert(music_palette_rgb(music_service_colour(0))==saved_cursor);
  assert(key(0x0e,1)&&key(0x0e,0)&&music_palette_rgb(music_service_colour(0))==0x1a2e4a);
+ uint64_t palette_ticket=music_ui_palette_ticket(),light=1;
+ assert(palette_ticket&&music_ui_palette_light(14,&light)&&!light);
+ music_ui_palette_pad(14,1,0,100,palette_ticket);
+ music_ui_palette_pad(14,0,0,101,palette_ticket);
+ assert(key(0x0d,1)&&key(0x0d,0));
+ knob(0x64,1);assert(key(0x0e,1)&&key(0x0e,0)); /* encoder types A */
+ knob(0x11,95);
+ assert(music_ui_palette_light(14,&light)&&(light&0xffffffu)==0x00bf00);
+ assert(!music_palette_present(14)&&music_ui_palette_light(15,&light)&&!light);
+ knob(0x12,63);
+ assert(music_ui_palette_light(14,&light)&&(light&0xffffffu)==0x00bf7e);
+ knob(0x12,0);
+ palette_ticket=music_ui_palette_ticket();
+ music_ui_palette_pad(15,1,0,150,palette_ticket);
+ music_ui_palette_pad(15,0,0,151,palette_ticket);
+ assert(music_ui_palette_light(14,&light)&&(light&0xffffffu)==0x00bf00);
+ assert(key(0x0d,1)&&key(0x0d,0));knob(0x10,127);
+ palette_ticket=music_ui_palette_ticket();
+ music_ui_palette_pad(13,1,0,200,palette_ticket); /* pad 14 types a */
+ music_ui_palette_pad(13,0,0,201,palette_ticket);
+ assert(key(0x0e,1)&&key(0x0e,0));knob(0x10,63);
+ assert(!music_palette_present(14)&&!music_palette_present(15));
+ assert(music_ui_palette_light(15,&light)&&(light&0xffffffu)==0x7e0000);
+ knob(0x64,127); /* encoder returns to the first edited slot */
+ assert(music_ui_palette_light(14,&light)&&(light&0xffffffu)==0x00bf00);
+ assert(key(0x0e,1)&&key(0x0e,0));
+ assert(music_palette_present(14)&&music_palette_rgb(14)==0x00bf00&&!strcmp(music_palette_name(14),"A"));
+ assert(music_palette_present(15)&&music_palette_rgb(15)==0x7e0000&&!strcmp(music_palette_name(15),"a"));
+ knob(0x11,0);knob(0x64,1);knob(0x10,100);
+ assert(key(0x0c,1)&&key(0x0c,0)&&!music_ui_palette_ticket());
+ assert(music_palette_rgb(14)==0x00bf00&&music_palette_rgb(15)==0x7e0000);
  music_ui_requested(0x31,1);assert(key(0x0d,1)&&key(0x0d,0));music_ui_requested(0x31,0);
- assert(key(0x0d,1)&&key(0x0d,0));assert(key(0x0e,1)&&key(0x0e,0));
- assert(music_palette_rgb(music_service_colour(0))==saved_cursor);
- knob(0x10,127);assert(music_service_colour(0)==MUSIC_PALETTE_SIZE-1);
+ music_ui_requested(0x31,1);assert(key(0x0d,1)&&key(0x0d,0));music_ui_requested(0x31,0);
+ assert(key(0x0e,1)&&key(0x0e,0)&&music_palette_rgb(music_service_colour(0))==saved_cursor);
+ assert(key(0x0c,1)&&key(0x0c,0));
+ puts("PASS 4x4 Palette pad/encoder selection, live LEDs, both name inputs, batch Save, Cancel and Shift shortcut");
+ knob(0x64,1);knob(0x10,127);assert(music_service_colour(0)==MUSIC_PALETTE_SIZE-1);
  knob(0x64,6);captions[0]=0;music_ui_project(project_screen,screen);assert(strstr(captions,"Restore recommended")&&!strstr(captions,"Cursor / selection"));
  assert(key(0x6f,1)&&key(0x6f,0)&&music_service_colour(0)==MUSIC_PALETTE_SIZE-1);
- captions[0]=0;music_ui_project(project_screen,screen);assert(strstr(captions,"The whole palette is reset."));
+ captions[0]=0;music_ui_project(project_screen,screen);assert(strstr(captions,"Default colour roles are restored."));
  assert(key(0x0e,1)&&key(0x0e,0)&&music_service_colour(0)==MUSIC_USER_COLOURS);
  assert(key(0x0e,1)&&key(0x0e,0));knob(0x10,0);assert(!music_mod_setting(MUSIC_SETTING_BLINK));
  assert(key(0x6f,1)&&key(0x6f,0));knob(0x64,1);assert(music_mod_setting(MUSIC_SETTING_BLINK)==1);

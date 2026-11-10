@@ -15,6 +15,10 @@ int main(void){
  phone_move(&s,1000);tap(&s,16,340);expect(&s,"acd");s.shift=0;tap(&s,16,350);expect(&s,"ac");
  assert(phone_sync(&s,"a\xc3\xa9\xd0\x96z",2));phone_view(&s,20,view,sizeof(view));assert(!strcmp(view,"a\xc3\xa9|\xd0\x96z"));
  tap(&s,16,400);expect(&s,"a\xd0\x96z");s.shift=1;tap(&s,16,410);expect(&s,"az");
+ assert(phone_sync(&s,"ABCDEFGHIJK",5));phone_view(&s,5,view,sizeof(view));assert(!strcmp(view,"DE|FG"));
+ phone_move(&s,100);phone_view(&s,5,view,sizeof(view));assert(!strcmp(view,"HIJK|"));
+ phone_move(&s,-100);phone_view(&s,5,view,sizeof(view));assert(!strcmp(view,"|ABCD"));
+ phone_view(&s,1,view,sizeof(view));assert(!strcmp(view,"|"));expect(&s,"ABCDEFGHIJK");
  phone_init(&s,2);phone_enable(&s,1);tap(&s,14,500);tap(&s,15,510);expect(&s,"ad");tap(&s,15,520);expect(&s,"ae");
  phone_move(&s,-1);tap(&s,13,600);expect(&s,"ae");assert(s.length==2);phone_move(&s,-1000);assert(s.cursor==0);
      {   /* Lost release: a later down on a held pad is a new tap; a duplicate down is not. */

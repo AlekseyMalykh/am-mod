@@ -67,12 +67,16 @@ void phone_commit(struct phone_input *s)
     s->cycle = 0;
 }
 void phone_view(const struct phone_input*s,size_t columns,char*out,size_t capacity){
-    struct phone_input view=*s;size_t caret=s->pending?s->pending_position+1:s->cursor;
-    if(columns>PHONE_MAX_CHARS-1)columns=PHONE_MAX_CHARS-1;
-    if(columns<2)columns=2;
-    size_t start=caret>columns-2?caret-(columns-2):0;
-    if(start>s->length)start=s->length;
-    view.length=s->length-start;if(view.length>columns)view.length=columns;
+    struct phone_input view=*s;
+    size_t caret=s->pending?s->pending_position+1:s->cursor;
+    if(caret>s->length)caret=s->length;
+    if(columns>PHONE_MAX_CHARS)columns=PHONE_MAX_CHARS;
+    if(!columns)columns=1;
+    size_t visible=columns-1;
+    size_t start=s->length>visible&&caret>visible/2?caret-visible/2:0;
+    if(s->length>visible&&start>s->length-visible)start=s->length-visible;
+    view.length=s->length-start;
+    if(view.length>visible)view.length=visible;
     memmove(view.text,s->text+start,view.length*sizeof(view.text[0]));
     size_t at=caret-start;if(at>view.length)at=view.length;
     memmove(view.text+at+1,view.text+at,(view.length-at)*sizeof(view.text[0]));view.text[at]='|';++view.length;
@@ -212,4 +216,19 @@ uint64_t phone_light(const struct phone_input *s, unsigned pad)
     uint32_t bits;
     memcpy(&bits, &brightness, sizeof(bits));
     return ((uint64_t)bits << 32) | rgb;
+}
+
+void phone_turn_character(struct phone_input*name,int delta)
+{
+    static const char alphabet[]=" ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.";
+    phone_commit(name);
+    if(!delta||name->cursor>=name->limit)return;
+    int position=0;
+    if(name->cursor<name->length)
+        for(unsigned i=0;alphabet[i];++i)if((unsigned char)alphabet[i]==name->text[name->cursor]){position=(int)i;break;}
+    int length=sizeof(alphabet)-1;
+    position=(position+delta)%length;
+    if(position<0)position+=length;
+    if(name->cursor==name->length)++name->length;
+    name->text[name->cursor]=(unsigned char)alphabet[position];
 }

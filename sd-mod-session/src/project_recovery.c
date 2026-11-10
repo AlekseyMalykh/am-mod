@@ -217,21 +217,62 @@ static void paint_text(uintptr_t image,void*g,const char*s,int x,int y,int w,int
  FN(0x10817b0,void(*)(void*,const uint64_t*,int,int,int,int,int,int,float))(g,&text,x,y,w,h,0x24,1,.7f);
  FN(0x1070d60,void(*)(uint64_t*))(&font);FN(0xf0a290,void(*)(uint64_t*))(&text);
 }
+enum save_screen_kind { SAVE_OTHER, SAVE_PROJECT, SAVE_SAMPLE };
+static enum save_screen_kind save_kind(uintptr_t image,void *p){
+ if(!p)return SAVE_OTHER;
+ uintptr_t type=F(p,0,uintptr_t)-image;
+ if(type==0x6e1faa0)return SAVE_PROJECT;
+ if(type==0x6e22e18)return SAVE_SAMPLE;
+ return SAVE_OTHER;
+}
+static int save_screen_visible(uintptr_t image,void *p){
+ return save_kind(image,p)!=SAVE_OTHER&&FN(0x112fd50,int(*)(void*))(p);
+}
+static unsigned storage_offset(uintptr_t image,void *p){
+ return save_kind(image,p)==SAVE_SAMPLE?0x11b8:0x11a0;
+}
+int project_recovery_save_external(uintptr_t image,void *p){
+ if(!save_screen_visible(image,p))return 0;
+ unsigned storage=storage_offset(image,p);
+ /* The native setter separates the requested position from the effective
+  * destination and clears External when the card is unavailable. */
+ if(!F(p,storage+1,unsigned char)){
+  uintptr_t setter=storage==0x11b8?0x1683280:0x16480e0;
+  FN(setter,void(*)(void*,float))(p,1.f);
+ }
+ return F(p,storage+1,unsigned char)!=0;
+}
+int project_recovery_save_control(uintptr_t image,void *p,unsigned cc){
+ if(cc!=0x12||!save_screen_visible(image,p)||FN(0x112f6b0,int(*)(void*))(p))return 0;
+ project_recovery_save_external(image,p);
+ return 1;
+}
 void project_recovery_save_paint(uintptr_t image,void*p,void*g){
+ if(!save_screen_visible(image,p))return;
  save_surface=p;
  /* SaveProjectScreen caches its editor/storage separately from Things.
   * Seed its native controls once, then preserve subsequent user edits. */
- if(first_save&&!save_seeded&&F(p,0,uintptr_t)==image+0x6e1faa0&&
-    F(p,0x9f8,uintptr_t)==image+0x6e18e20&&FN(0x112fd50,int(*)(void*))(p)){
+ unsigned storage=storage_offset(image,p);
+ if(!F(p,storage,unsigned char))project_recovery_save_external(image,p);
+ int external=F(p,storage+1,unsigned char)!=0;
+ int project=save_kind(image,p)==SAVE_PROJECT;
+ if(project&&first_save&&!save_seeded&&F(p,0x9f8,uintptr_t)==image+0x6e18e20){
   save_seeded=1;uint64_t value=0;FN(0xf535c0,void(*)(uint64_t*,const char*))(&value,save_name);
   FN(0x11c4ec0,void(*)(void*,const uint64_t*,int))((char*)p+0x9f8,&value,1);
   FN(0x15bdb10,void(*)(void*))((char*)p+0x9f8);
   FN(0xf0a290,void(*)(uint64_t*))(&value);
-  /* Same setter as the stock storage knob: choose External, whose native
-   * project browser already points at the folder used for the full load. */
-  FN(0x16480e0,void(*)(void*,float))(p,1.f);
  }
- if(!first_save||!save_prompt)return;
+ if(!external){
+  FN(0x102d5e0,void(*)(void*,uint32_t))(g,0xff000000);
+  FN(0x102e000,void(*)(void*,int,int,int,int))(g,0,170,320,27);
+  FN(0x102e000,void(*)(void*,int,int,int,int))(g,214,0,106,30);
+  FN(0x102d5e0,void(*)(void*,uint32_t))(g,0xff808080);
+  paint_text(image,g,"Save",214,4,106,23);
+  FN(0x102d5e0,void(*)(void*,uint32_t))(g,0xffffc247);
+  paint_text(image,g,"Insert SD card to save",3,172,314,23);
+  return;
+ }
+ if(!project||!first_save||!save_prompt)return;
  FN(0x102d5e0,void(*)(void*,uint32_t))(g,0xff000000);
  FN(0x102e000,void(*)(void*,int,int,int,int))(g,0,0,106,30);
  FN(0x102e000,void(*)(void*,int,int,int,int))(g,214,0,106,30);
@@ -245,7 +286,12 @@ void project_recovery_save_paint(uintptr_t image,void*p,void*g){
 int project_recovery_save_button(uintptr_t image,void*p,void*event){
  unsigned code=F(event,8,unsigned char),down=F(event,9,unsigned char)!=0;if(code>=112)return 0;
  if(save_owned[code]){if(!down)save_owned[code]=0;return 1;}
- if(!down||!first_save||p!=save_surface||!p||!FN(0x112fd50,int(*)(void*))(p)||FN(0x112f6b0,int(*)(void*))(p))return 0;
+ if(!down||p!=save_surface||!save_screen_visible(image,p)||FN(0x112f6b0,int(*)(void*))(p))return 0;
+ if(code==0x0e&&!project_recovery_save_external(image,p)){
+  save_owned[code]=1;
+  FN(0x1149880,void(*)(void*,uint64_t,uint64_t))(p,0,F(p,0x28,uint64_t));return 1;
+ }
+ if(save_kind(image,p)!=SAVE_PROJECT||!first_save)return 0;
  if(code==0x0e){
   if(save_prompt){save_prompt=0;first_save=0;return 0;} /* forward this real down and its matching release */
   save_prompt=1;save_owned[code]=1;

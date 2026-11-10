@@ -12,7 +12,7 @@ struct mixer_bus_update {
     double rate;
     unsigned char output[MIXER_PADS];
     unsigned solo;
-    float gain[9][2];
+    float gain[9][2],output_gate[MIXER_TRACKS];
     unsigned char send_to[MIXER_TRACKS];
     unsigned order[MIXER_TRACKS];
     float send[MIXER_TRACKS];
@@ -24,14 +24,14 @@ struct mixer_buses {
     unsigned max_frames,frames,state,solo;
     enum mixer_bus_result fault;
     unsigned char output[MIXER_PADS];
-    float gain[9][2];
+    float gain[9][2],output_gate[MIXER_TRACKS];
     unsigned char send_to[MIXER_TRACKS];
     unsigned order[MIXER_TRACKS];
     float send[MIXER_TRACKS];
     struct fx_exchange*fx[9];
     struct fx_chain_config config[9];
     unsigned char previous_output[MIXER_PADS];
-    float previous_gain[9][2],previous_send[MIXER_TRACKS];
+    float previous_gain[9][2],previous_send[MIXER_TRACKS],previous_output_gate[MIXER_TRACKS];
     unsigned previous_solo,ramp_position,ramp_total,transition;
     uint64_t target_revision;
     double rate;
@@ -84,8 +84,8 @@ struct mixer_buses*mixer_buses_prepare(const struct mixer_project*p,uint64_t par
     for(unsigned i=0;i<=MIXER_TRACKS;++i){
         const struct mixer_channel*c=i<MIXER_TRACKS?p->track+i:&p->master;
         const struct mixer_mix*m=i<MIXER_TRACKS?mix+i:&p->master.mix;
-        int audible=i==MIXER_TRACKS||(!m->mute&&(!b->solo||m->solo));
-        gains(b->gain[i],m,audible);
+        gains(b->gain[i],m,i==MIXER_TRACKS||!m->mute);
+        if(i<MIXER_TRACKS)b->output_gate[i]=!b->solo||m->solo;
         b->fx[i]=fx_exchange_create();if(!b->fx[i]){mixer_buses_destroy(b);result(error,MIXER_BUS_RESOURCE);return NULL;}
         if(!c->fx_bypass&&c->fx.count){
             b->config[i]=c->fx;
@@ -132,6 +132,8 @@ static void accept_update(struct mixer_buses*b)
         memcpy(b->send,u->send,sizeof(b->send));
         memcpy(b->send_to,u->send_to,sizeof(b->send_to));
         memcpy(b->order,u->order,sizeof(b->order));
+        memcpy(b->previous_output_gate,b->output_gate,sizeof(b->output_gate));
+        memcpy(b->output_gate,u->output_gate,sizeof(b->output_gate));
         b->previous_solo=b->solo;b->solo=u->solo;b->target_revision=u->revision;
         b->ramp_position=0;b->ramp_total=(unsigned)(b->rate*.005);if(!b->ramp_total)b->ramp_total=1;
         b->transition=1;
@@ -296,18 +298,30 @@ enum mixer_bus_result mixer_buses_finish(struct mixer_buses*b,struct mixer_meter
             }
             if(!process(b,i,i)){b->fault=MIXER_BUS_AUDIO_ERROR;break;}
             unsigned destination=b->send_to[i];
-            if(!destination||(!b->send[i]&&(!b->transition||!b->previous_send[i])))continue;
-            unsigned bit=1u<<(destination-1);
-            for(unsigned ch=0;ch<2;++ch){
-                const float*source=channel(b,i,ch);
-                float*target=b->returns+(size_t)(2*(destination-1)+ch)*b->max_frames;
-                if(!(b->return_mask&bit))memset(target,0,b->frames*sizeof(float));
-                for(unsigned frame=0;frame<b->frames;++frame){
-                    float level=b->transition?b->previous_send[i]+blend(b,frame)*(b->send[i]-b->previous_send[i]):b->send[i];
-                    target[frame]+=source[frame]*level;
+            if(destination&&(b->send[i]||(b->transition&&b->previous_send[i]))){
+                unsigned bit=1u<<(destination-1);
+                for(unsigned ch=0;ch<2;++ch){
+                    const float*source=channel(b,i,ch);
+                    float*target=b->returns+(size_t)(2*(destination-1)+ch)*b->max_frames;
+                    if(!(b->return_mask&bit))memset(target,0,b->frames*sizeof(float));
+                    for(unsigned frame=0;frame<b->frames;++frame){
+                        float level=b->transition?b->previous_send[i]+blend(b,frame)*(b->send[i]-b->previous_send[i]):b->send[i];
+                        target[frame]+=source[frame]*level;
+                    }
                 }
+                b->return_mask|=bit;
             }
-            b->return_mask|=bit;
+            /* A solo gates only the track output to Master. The post-fader
+             * send stays available to a soloed destination, including through
+             * intermediate tracks. Explicit Mute still cuts the send. */
+            float gate=b->output_gate[i],before=b->transition?b->previous_output_gate[i]:gate;
+            if(gate==1&&before==1)continue;
+            for(unsigned ch=0;ch<2;++ch){
+                float *output=channel(b,i,ch);
+                if(gate==0&&before==0)memset(output,0,b->frames*sizeof(float));
+                else for(unsigned frame=0;frame<b->frames;++frame)
+                    output[frame]*=before+blend(b,frame)*(gate-before);
+            }
         }
         for(unsigned ch=0;ch<2;++ch){float*direct=channel(b,MIXER_METER_DIRECT,ch);
             for(unsigned i=0;i<b->frames;++i){float gate=b->solo?0:1;
@@ -366,7 +380,8 @@ struct mixer_bus_update*mixer_buses_update_prepare_delta(const struct mixer_proj
         const struct mixer_mix*m=i<8?mix+i:&p->master.mix;
         if(i==8&&m->send){result(error,MIXER_BUS_UNSUPPORTED);goto fail;}
         if(!fx_chain_valid(&c->fx,rate))goto fail;
-        gains(u->gain[i],m,i==8||(!m->mute&&(!u->solo||m->solo)));
+        gains(u->gain[i],m,i==MIXER_TRACKS||!m->mute);
+        if(i<MIXER_TRACKS)u->output_gate[i]=!u->solo||m->solo;
         if(!c->fx_bypass)u->config[i]=c->fx;
         if(!previous||!same_fx(previous+i,u->config+i)){
             u->fx[i]=fx_program_prepare(u->config+i,rate,backend);

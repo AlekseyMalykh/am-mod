@@ -19,7 +19,7 @@ power-off, External saves and stock startup without the mod card.
 | P01 | Changed in r27r; confirmed on MPC | One set of pad lighting rules: white cursor and selected sequence; Copy source blinks, free/occupied targets green/red; Mute keeps colours, muted red; Erase keeps colours; brighter pressed pads; no green flash on a short Pad Bank press; source lit at once in Resample → B3. |
 | P02 | Changed in r27r; device check pending | Copy Sequence colours and transfer of the sequence colour to the target. Sample / Seq leaving Mod Settings, Key / Scale, Search and Stereo > Mono. |
 | S01 | Changed in r27r; confirmed on MPC | Search: Internal and All (Internal + SD), complete SD results, steady K3 Volume, stock Internal / External tab, no Knob FX over the browser, B2 idle while typing. |
-| O01 | Open | Sample / Seq do not leave 16 Levels or Chop (stock behaviour). r27r logs button codes to add it. |
+| O01 | r28c trial | Sample returns from 16 Levels and Chop in r28c. This route passed an ARM input check. Seq exit and the Sample gesture on hardware still need verification. |
 | O02 | Request | Spectrum for a muted pad (it does not play; would need a whole-sample spectrum). |
 | Q01 | Added in r27q; device check pending | Degrees layout: pads play key notes, I/IV/V colours, Transpose16 by degrees, MPCS19 colours. Check every scale, an original note outside the key, Steps playback flashes and Save/Load. |
 | Q02 | Changed in r27q; device check pending | Search: Folder/Library/SD Card/All, live matches, preview on, encoder press enters a letter, Erase in Encoder input (also in the Save name window). |

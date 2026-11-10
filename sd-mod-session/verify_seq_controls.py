@@ -45,7 +45,7 @@ results = []
 for variant, flags in [('normal', []), ('ubsan', ['-fsanitize=undefined', '-static-libubsan', '-fno-sanitize-recover=all'])]:
     common = ['aarch64-linux-gnu-gcc', '-O1', '-g', '-std=c11', '-Wall', '-Wextra', '-Werror', '-I.', '-Ibuild', '-Isrc', '-mbranch-protection=standard', *flags]
     cases = [
-        ('colour', ['-DMPC_PAD_EQ=1', '-DSEQ_COLOUR_ONLY=1', 'check_pad_eq_ui.c', 'check_header_toggle.S', 'src/step_abi.S', 'src/music_ui.c', 'src/pad_eq.c', 'src/pad_eq_native.c', 'src/music_settings.c', 'src/fx_eq.c']),
+        ('colour', ['-DMPC_PAD_EQ=1', '-DSEQ_COLOUR_ONLY=1', 'check_pad_eq_ui.c', 'check_header_toggle.S', 'src/step_abi.S', 'src/music_ui.c','src/phone_input.c', 'src/pad_eq.c', 'src/pad_eq_native.c', 'src/music_settings.c', 'src/fx_eq.c']),
         ('startup-repaint', ['-DMPC_EXPERIMENTAL_CHOP_EXPORT=1', 'check_startup_repaint.c', 'src/workflow_abi.S', 'src/phone_input.c', 'src/browser_tree.c']),
         ('copy-bank', ['-DMPC_EXPERIMENTAL_CHOP_EXPORT=1', 'check_copy_sequence_bank.c', 'src/workflow_abi.S', 'src/phone_input.c', 'src/browser_tree.c']),
         ('takeover-handoff', ['check_takeover_handoff.c', 'src/takeover_native.c', 'src/phone_events.c']),

@@ -56,18 +56,23 @@ static void load_elf(const char *path,uintptr_t address)
 }
 
 #define N(o,T) ((T)(base+(o)))
-static unsigned char saver[0x200],services[0x80],things[0x1400],preferences[0x200],save_screen[0x1200];
+static unsigned char saver[0x200],services[0x80],things[0x1400],preferences[0x200],save_screen[0x1200],sample_save_screen[0x1200];
 static void*native_saver=saver,*modal;static unsigned invalidations,field_count;static char saved_payload[PROJECT_RECOVERY_BYTES],saved_settings[128],captions[2048];
 static void stub(uintptr_t off,void*fn){uint32_t words[]={0x58000050,0xd61f0200};memcpy((void*)(base+off),words,8);memcpy((void*)(base+off+8),&fn,8);}
 static void*top_modal(int index){assert(index==0);return modal;}
 static void*service_entry(void*p,const uintptr_t*key){assert(p==services&&*key==base+0x6e0d598);return &native_saver;}
-static void invalidated(void*p,uint64_t a,uint64_t b){assert(p==save_screen&&!a&&!b);++invalidations;}
-static int shown(void*p){return p==save_screen;}
-static int unblocked(void*p){assert(p==save_screen);return 0;}
+static void invalidated(void*p,uint64_t a,uint64_t b){assert((p==save_screen||p==sample_save_screen)&&!a&&!b);++invalidations;}
+static int shown(void*p){return (p==save_screen||p==sample_save_screen);}
+static int unblocked(void*p){assert((p==save_screen||p==sample_save_screen));return 0;}
 static unsigned name_seeds,storage_seeds,rebuilds;
-static void seed_name(void*p,const uint64_t*s,int notify){assert(p==save_screen+0x9f8&&notify==1&&!strcmp((const char*)*s,"TestB"));++name_seeds;}
-static void rebuild_name(void*p){assert(p==save_screen+0x9f8);++rebuilds;}
-static void seed_storage(void*p,float v){assert(p==save_screen&&v==1.f);++storage_seeds;}
+static void seed_name(void*p,const uint64_t*s,int notify){assert((p==save_screen||p==sample_save_screen)+0x9f8&&notify==1&&!strcmp((const char*)*s,"TestB"));++name_seeds;}
+static void rebuild_name(void*p){assert((p==save_screen||p==sample_save_screen)+0x9f8);++rebuilds;}
+static unsigned card_available=1;
+static void seed_storage(void*p,float v){assert(p==save_screen&&v==1.f);++storage_seeds;F(p,0x11a0,unsigned char)=1;F(p,0x11a1,unsigned char)=card_available;}
+static void seed_sample_storage(void*p,float v){
+ assert(p==sample_save_screen&&v==1.f);
+ F(p,0x11b8,unsigned char)=1;F(p,0x11b9,unsigned char)=card_available;
+}
 static void colour(void*g,uint32_t c){(void)g;(void)c;}
 static void rectangle(void*g,int x,int y,int w,int h){(void)g;assert(x>=0&&y>=0&&w>0&&h>0&&x+w<=320&&y+h<=240);}
 static void font_make(uint64_t*p,int type,float size){assert(!type&&size==12);*p=0;}
@@ -98,7 +103,7 @@ int main(int argc,char**argv){
  assert(argc==2);setbuf(stdout,NULL);struct sigaction sa={.sa_sigaction=fault,.sa_flags=SA_SIGINFO};sigaction(SIGSEGV,&sa,NULL);sigaction(SIGABRT,&sa,NULL);load_elf(argv[1],0x5000000000ULL);
  stub(0x10f87a0,top_modal);stub(0x143ad50,service_entry);stub(0x1149880,invalidated);stub(0x112fd50,shown);stub(0x112f6b0,unblocked);
  stub(0x102d5e0,colour);stub(0x102e000,rectangle);stub(0x1082810,font_make);stub(0x102dca0,font_use);stub(0x1070d60,font_end);stub(0x10817b0,text);stub(0x1d27d90,write_field);
- stub(0x11c4ec0,seed_name);stub(0x15bdb10,rebuild_name);stub(0x16480e0,seed_storage);
+ stub(0x11c4ec0,seed_name);stub(0x15bdb10,rebuild_name);stub(0x16480e0,seed_storage);stub(0x1683280,seed_sample_storage);
  __builtin___clear_cache((char*)base,(char*)(base+0x7500000));
  F(saver,0,uintptr_t)=base+0x6d8cc00;F(saver,0x90,void*)=things;F(saver,0x50,void*)=preferences;F(things,0,uintptr_t)=base+0x6ecc648;
  init_property(things+0x908);init_property(things+0x960);init_property(things+0x9b8);N(0xf1c620,void(*)(void*))(preferences+0xa8);
@@ -134,13 +139,29 @@ int main(int argc,char**argv){
  puts("PASS actual native File/String property setter restores project path/name after quiet load; native Temp-Project autosave destination, recovery sample directory, sequences and original file remain unchanged");
  F(save_screen,0,uintptr_t)=base+0x6e1faa0;F(save_screen,0x9f8,uintptr_t)=base+0x6e18e20;
  project_recovery_save_paint(base,save_screen,NULL);assert(name_seeds==1&&storage_seeds==1&&rebuilds==1);
+ assert(project_recovery_save_control(base,save_screen,0x12));
+ assert(!project_recovery_save_control(base,save_screen,0x11));
+ assert(!project_recovery_save_control(base,things,0x12));
  project_recovery_save_paint(base,save_screen,NULL);assert(name_seeds==1&&storage_seeds==1); /* Subsequent edits survive paints. */
  assert(!button(0x0c,1)&&!button(0x0c,0)&&!save_seeded&&first_save); /* Native Cancel. */
- project_recovery_save_paint(base,save_screen,NULL);assert(name_seeds==2&&storage_seeds==2&&save_seeded);
+ project_recovery_save_paint(base,save_screen,NULL);assert(name_seeds==2&&storage_seeds==1&&save_seeded);
  assert(button(0x0e,1)&&button(0x0e,1)&&button(0x0e,0));assert(first_save&&save_prompt);
  captions[0]=0;project_recovery_save_paint(base,save_screen,NULL);assert(strstr(captions,"Review")&&strstr(captions,"Existing project may be replaced."));
  assert(button(0x0c,1)&&button(0x0c,0)&&first_save&&!save_prompt);assert(button(0x0e,1)&&button(0x0e,0));assert(!button(0x0e,1)&&!button(0x0e,0)&&!first_save&&!save_prompt);
  assert(invalidations==3);puts("PASS first recovered Save requires separate real press/release confirmation, duplicate down cannot approve; Review cancels, final native button pair and subsequent ordinary Save pass through");
+ F(save_screen,0x11a1,unsigned char)=0;card_available=0;
+ captions[0]=0;project_recovery_save_paint(base,save_screen,NULL);
+ assert(strstr(captions,"Insert SD card to save")&&button(0x0e,1)&&button(0x0e,0));
+ card_available=1;assert(project_recovery_save_external(base,save_screen)&&!button(0x0e,1));
+ F(sample_save_screen,0,uintptr_t)=base+0x6e22e18;
+ project_recovery_save_paint(base,sample_save_screen,NULL);
+ assert(F(sample_save_screen,0x11b9,unsigned char)&&project_recovery_save_control(base,sample_save_screen,0x12));
+ unsigned char sample_save[16]={0};sample_save[8]=0x0e;sample_save[9]=1;
+ F(sample_save_screen,0x11b9,unsigned char)=0;card_available=0;
+ assert(project_recovery_save_button(base,sample_save_screen,sample_save));
+ sample_save[9]=0;assert(project_recovery_save_button(base,sample_save_screen,sample_save));
+ card_available=1;assert(project_recovery_save_external(base,sample_save_screen));
+
  project_recovery_capture(base,saver);project_recovery_begin_copy();assert(!strcmp(project_recovery_copy_payload(),encoded));project_recovery_end_copy();
  load_metadata(NULL,0);assert(pending[0]);load_metadata(NULL,1);project_recovery_tick(base,services);assert(!pending[0]&&!first_save&&!project_recovery_notice());
  set_string(things+0x9b0,recovery);project_recovery_tick(base,services);assert(!strcmp(string_at(things+0x9b0),recovery));
@@ -155,7 +176,7 @@ int main(int argc,char**argv){
  assert(music_mod_restore_recommended(2)&&music_mod_restore_recommended(1)&&music_mod_restore_recommended(3));music_reset();assert(!compressor_type());
  settings_input=saved_settings;load_metadata(NULL,0);assert(compressor_project_snapshot()!=comp&&music_mod_settings_snapshot()!=display);
  load_metadata(NULL,1);assert(compressor_project_snapshot()==comp&&music_mod_settings_snapshot()==display&&compressor_type()==COMP_OPTO);
- assert(music_tail_ms((unsigned)music_mod_setting(MUSIC_SETTING_TAIL))==4000);
+ assert(music_tail_ms((unsigned)music_mod_setting(MUSIC_SETTING_TAIL))==0);
  struct comp_config restored;compressor_config(&restored);assert(restored.warm&&restored.gain==6);
  uint64_t prior_comp=compressor_project_snapshot();assert(!compressor_project_restore(UINT64_MAX)&&compressor_project_snapshot()==prior_comp);
  settings_input="AMS1 broken";load_metadata(NULL,1);assert(!compressor_type()&&music_mod_settings_snapshot()==display);

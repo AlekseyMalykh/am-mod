@@ -20,7 +20,7 @@ struct mixer_view_state {
     const struct mixer_project*project;
     const struct mixer_meter_snapshot*meter;
     unsigned pending;
-    unsigned sound,fx_catalog,parameter_page,pickup;
+    unsigned sound,fx_catalog,parameter_page,pickup,pad_lock;
     unsigned shifted,colour_edit,fx_editing,fx_parameters,fx_delete;
     uint64_t present[2];
     const char*message;

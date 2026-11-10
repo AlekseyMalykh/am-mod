@@ -68,6 +68,11 @@ int main(int argc,char**argv){
  auto save_method=*reinterpret_cast<Save*>(image+0x6d8cc18);
  assert(save_method((void*)0x1234,&explicit_file.value,true,false,true)==7&&explicit_calls==1&&named_saved==1&&named_target==b);
  explicit_ok=false;assert(!save_method((void*)0x1234,&explicit_file.value,true,false,true)&&explicit_calls==2&&named_saved==1);
+ File internal("/data/UserContent/Projects/Internal.xpj");
+ File linked((projects+"/Z.xpj").c_str());
+ assert(!save_method((void*)0x1234,&internal.value,true,false,true));
+ assert(!save_method((void*)0x1234,&linked.value,true,false,true));
+ assert(explicit_calls==2&&named_saved==1);
  puts("PASS native Save vtable forwards exact arguments/result once and remembers only its successful named target");
  invoke("/data/TempProjects/Temp-Project.xpj");assert(calls==1&&loaded==b&&phase==3&&!startup_project_loading());
  invoke(a.c_str());assert(calls==2&&loaded==a);puts("PASS first native Temp load selects SD once; later manual Load unchanged; actual AArch64 nontrivial vector result and native File/String ownership retained");

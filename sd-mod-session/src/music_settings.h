@@ -16,7 +16,7 @@ enum { MUSIC_ROOT, MUSIC_MODE, MUSIC_TRANSPOSE, MUSIC_COLOUR0, MUSIC_COLOUR1, MU
 #define MUSIC_DEFAULT_FIFTH_COLOUR 8
 struct music_sample { char name[MUSIC_NAME_BYTES]; int root,mode,transpose,colour[3],tonic,scale,original_colour,fifth_colour,fourth_colour; };
 struct music_project { int tonic,scale; unsigned count; struct music_sample samples[MUSIC_MAX_SAMPLES]; uint64_t pad_eq[128]; unsigned char sequence_colours[128]; unsigned char pad_colours[128]; };
-#define MUSIC_SEQUENCE_COLOURS 14
+#define MUSIC_SEQUENCE_COLOURS 16
 extern const char *const music_sequence_colour_names[MUSIC_SEQUENCE_COLOURS];
 extern const uint32_t music_sequence_colours[MUSIC_SEQUENCE_COLOURS];
 enum { MUSIC_LIGHTING_STANDARD, MUSIC_LIGHTING_MOD };
@@ -32,6 +32,8 @@ enum { MUSIC_SERVICE_SELECT, MUSIC_SERVICE_FREE, MUSIC_SERVICE_DANGER,
        MUSIC_SERVICE_COUNT };
 #define MUSIC_USER_COLOURS 8
 #define MUSIC_PALETTE_SIZE (MUSIC_USER_COLOURS+MUSIC_SERVICE_COUNT)
+#define MUSIC_PALETTE_SLOTS 16
+#define MUSIC_COLOUR_NAME_BYTES 24
 enum { MUSIC_SETTING_LIGHTING, MUSIC_SETTING_WAVE, MUSIC_SETTING_SPECTRUM, MUSIC_SETTING_BLINK, MUSIC_SETTING_TAIL };
 #define MUSIC_TAIL_CHOICES 8
 unsigned music_tail_ms(unsigned choice);
@@ -48,6 +50,19 @@ const char *music_palette_name(unsigned colour);
 uint32_t music_palette_rgb(unsigned colour);
 uint32_t music_palette_default_rgb(unsigned colour);
 int music_palette_set_rgb(unsigned colour,uint32_t rgb); /* card preference */
+int music_palette_present(unsigned colour);
+struct music_palette_edit {
+    uint32_t rgb;
+    char name[MUSIC_COLOUR_NAME_BYTES];
+    unsigned reset;
+};
+/* Apply edited slots together. Publish only after the card write succeeds. */
+int music_palette_apply(const struct music_palette_edit edits[MUSIC_PALETTE_SLOTS],unsigned mask);
+int music_palette_save(unsigned colour,uint32_t rgb,const char *name);
+int music_palette_reset(unsigned colour);
+unsigned music_identity_count(void);
+unsigned music_identity_choice(unsigned index);
+unsigned music_identity_index(unsigned raw);
 uint32_t music_user_rgb(unsigned raw);
 const char *music_identity_name(unsigned raw);
 int music_cursor_on(uint64_t phase,unsigned duty); /* duty in thousandths */

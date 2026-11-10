@@ -107,6 +107,7 @@ static _Thread_local int internal;
 static int timer_created, timer_running;
 static struct phone_input state;
 static _Atomic unsigned consumed, passed;
+static uint64_t palette_pad_pairs[16];
 static _Atomic unsigned consumed_step,consumed_workflow;
 #ifdef MPC_RESAMPLE_TRIAL
 static _Atomic unsigned consumed_resample,resample_sequence_pending;
@@ -279,8 +280,26 @@ static void forward_controller(void*event){
 enum { TAP_TEMPO_BUTTON = 0x35 };
 static _Atomic unsigned tap_tempo_mod_palette, tap_tempo_hold, step_confirm_forwarded, step_confirm_waiting;
 
+enum { SAMPLE_MODE_BUTTON = 0x06, SEQ_MODE_BUTTON = 0x07,
+       LEVELS_MODE_BUTTON = 0x28, CHOP_MODE_BUTTON = 0x4b };
+static void close_levels_for_sample(void *event)
+{
+    if(atomic_load(&native_buttons_down[SAMPLE_MODE_BUTTON])||
+       atomic_load(&native_buttons_down[SEQ_MODE_BUTTON])||
+       atomic_load(&native_shift_requested)||atomic_load(&native_buttons_down[0x31]))return;
+    unsigned enabled,mode,origin;
+    if(!music_lighting_levels_state(&enabled,&mode,&origin)||!enabled)return;
+    unsigned toggle=mode==8?CHOP_MODE_BUTTON:LEVELS_MODE_BUTTON;
+    if(atomic_load(&native_buttons_down[toggle])||FN(0x10f87a0,void*(*)(int))(0))return;
+    _Alignas(8) unsigned char exit_event[16];
+    memcpy(exit_event,event,sizeof(exit_event));
+    exit_event[8]=(unsigned char)toggle;
+    exit_event[9]=1;ORIG(H_BUTTONS,void(*)(void*))(exit_event);
+    exit_event[9]=0;ORIG(H_BUTTONS,void(*)(void*))(exit_event);
+}
 static void forward_buttons(void*event){
  unsigned code=FIELD(event,8,unsigned char),down=FIELD(event,9,unsigned char)!=0;
+ if(code==SAMPLE_MODE_BUTTON&&down)close_levels_for_sample(event);
  if((code==0x51||code==0x52)&&down)workflow_button(event,0);
  if(code<112){
   if(!down&&atomic_exchange(&gesture_released[code],0))return;
@@ -1540,16 +1559,23 @@ static void name_cursor_paint(void*p,void*g){
 #endif
         )return;
     if(w<24||w>320||h<12||h>100)return;
-    /* Same size as the stock name field (about 0.86 of its height). The
-     * window of characters is sized from the monospace advance (~0.46 of the
-     * font height) so the caret is always inside and nothing gets squeezed. */
     float font_h=h*.86f;if(font_h<16.f)font_h=16.f;if(font_h>56.f)font_h=56.f;
-    int columns=(int)((float)(w-14)/(font_h*.47f));if(columns<2)columns=2;
-    char display[PHONE_MAX_CHARS*4+8];phone_view(&state,(size_t)columns,display,sizeof(display));
+    int width=w-14;
+    int columns=(int)((float)width/(font_h*.47f));
+    if(columns<1)columns=1;
+    char display[PHONE_MAX_CHARS*4+8];
+    uint64_t str=0,font=0;
+    FN(0x1082810,void(*)(uint64_t*,int,float))(&font,0,font_h);
+    for(;;){
+        phone_view(&state,(size_t)columns,display,sizeof(display));
+        FN(0xf535c0,void(*)(uint64_t*,const char*))(&str,display);
+        float measured=FN(0x107c6f0,float(*)(const uint64_t*,const uint64_t*))(&font,&str);
+        if(measured<=width-1||columns==1)break;
+        FN(0xf0a290,void(*)(uint64_t*))(&str);
+        --columns;
+    }
     FN(0x102d5e0,void(*)(void*,uint32_t))(g,0xff000000);
     FN(0x102e000,void(*)(void*,int,int,int,int))(g,3,2,w-6,h-4);
-    uint64_t str=0,font=0;FN(0xf535c0,void(*)(uint64_t*,const char*))(&str,display);
-    FN(0x1082810,void(*)(uint64_t*,int,float))(&font,0,font_h);
     FN(0x102dca0,void(*)(void*,const uint64_t*))(g,&font);FN(0x102d5e0,void(*)(void*,uint32_t))(g,0xffffffff);
     FN(0x10817b0,void(*)(void*,const uint64_t*,int,int,int,int,int,int,float))(g,&str,7,2,w-14,h-4,0x21,1,1.f);
     FN(0x1070d60,void(*)(uint64_t*))(&font);FN(0xf0a290,void(*)(uint64_t*))(&str);
@@ -1568,6 +1594,9 @@ static void sample_paint(void *p,void *g)
 {
     ORIG(H_SAMPLE_PAINT,void(*)(void*,void*))(p,g);
     paint_mode(p,g,0xa10);
+#ifdef MPC_PROJECT_RECOVERY
+    project_recovery_save_paint(base,p,g);
+#endif
 }
 static void project_paint(void *p,void *g)
 {
@@ -1676,6 +1705,12 @@ static void editor_delete(void *p)
 static void controller_ui(void *event,uint64_t route)
 {
     unsigned cc = FIELD(event,8,unsigned char), value = FIELD(event,9,unsigned char);
+#ifdef MPC_PROJECT_RECOVERY
+    if(on_ui()&&project_recovery_save_control(base,screen,cc))return;
+#endif
+#ifdef MPC_SONG_UI
+    if(cc==0x12&&song_ui_stems_modal_visible())return;
+#endif
     if (on_ui() && editor && visible()) {
         if (cc == 0x10) {
             before_native(editor);
@@ -1711,6 +1746,9 @@ static void controller_ui(void *event,uint64_t route)
     if (on_ui() && step_native_owns(cc) && step_native_control(event,route)) return;
     if (on_ui() && (music_ui_control(event) || note_native_control(event))) return;
     forward_controller(event);
+#ifdef MPC_PROJECT_RECOVERY
+    if(on_ui()&&(cc==0x11||cc==0x12))project_recovery_save_external(base,screen);
+#endif
     if (cc == 0x64 && on_ui() && editor && visible()) after_native(1);
 }
 
@@ -2124,6 +2162,21 @@ static void pad_event(void *event)
         if (up) passed &= ~bit;
         ORIG(H_PAD,void(*)(void*))(event); return;
     }
+    uint64_t palette_ticket=palette_pad_pairs[pad];
+    if(palette_ticket||(down&&(palette_ticket=music_ui_palette_ticket()))){
+        if(up&&palette_ticket==UINT64_MAX){palette_pad_pairs[pad]=0;return;}
+        if((down&&!palette_pad_pairs[pad])||(up&&palette_pad_pairs[pad])){
+            struct phone_event e={0};
+            e.kind=PHONE_PALETTE_PAD;e.pad=pad;e.down=(unsigned)down;
+            e.up=atomic_load(&native_shift_requested);e.when_ms=now_ms();e.workflow_ticket=palette_ticket;
+            if(!phone_events_push_pair(&e,down)){
+                if(down)palette_pad_pairs[pad]=UINT64_MAX;
+                queue_failed();
+            }else if(down)palette_pad_pairs[pad]=palette_ticket;
+            if(up)palette_pad_pairs[pad]=0;
+        }
+        return;
+    }
 #ifdef MPC_KNOB_RESET
     if((atomic_load(&bank_pad_owned)&bit)||(down&&(knob_reset_ticket()&2)&&!atomic_load(&naming_active)&&!workflow_owns(3,pad)
 #ifdef MPC_MIXER_LIVE
@@ -2330,6 +2383,10 @@ static unsigned process_events(void)
 #ifdef MPC_MIXER_LIVE
         if (mixer_dispatch(&e)) continue;
 #endif
+        if(e.kind==PHONE_PALETTE_PAD){
+            music_ui_palette_pad(e.pad,e.down,e.up,e.when_ms,e.workflow_ticket);
+            continue;
+        }
         int current = !atomic_load(&editor_destroyed) && editor &&
             e.generation == atomic_load(&generation) && visible();
         if (e.kind == PHONE_CONTROLLER) {
@@ -2717,6 +2774,11 @@ static void rgb(void *s,uint32_t colour,unsigned pad)
         mixer_leds_native_rgb(pad);
 #endif
         if(atomic_load(&startup_pads))return; /* startup row animation owns the pads */
+        uint64_t palette_colour;
+        if(music_ui_palette_light(pad,&palette_colour)){
+            uint32_t packed=FN(0x23b00c0,uint32_t(*)(const uint64_t*))(&palette_colour);
+            send_pad_rgb(s,packed,pad);return;
+        }
 #ifdef MPC_KNOB_RESET
         if((knob_reset_ticket()&2)&&atomic_load(&pad_bank_held_long)){ORIG(H_RGB,void(*)(void*,uint32_t,unsigned))(s,colour,pad);return;}
 #endif
@@ -2936,7 +2998,8 @@ static void send_step_lights(void)
     }
     for(unsigned i=0;i<16;++i) {
         uint64_t light;unsigned bit=1u<<i;
-        if (
+        if (music_ui_palette_light(i,&light) ||
+
 #ifdef MPC_REAR_ROUTING
             rear_ui_light(i,&light) ||
 #endif

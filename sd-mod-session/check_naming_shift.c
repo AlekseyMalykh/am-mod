@@ -59,6 +59,13 @@ static void naming_pad_edge(unsigned pad,int down){
  assert(phone_events_pop(&received)&&received.kind==PHONE_PAD&&received.pad==pad-1&&received.down==(unsigned)down);
  assert(phone_pad(&state,pad,down,received.when_ms));write_native();
 }
+int music_lighting_levels_state(unsigned *enabled,unsigned *mode,unsigned *origin){
+ *enabled=*mode=*origin=0;return 0;
+}
+uint64_t music_ui_palette_ticket(void){return 0;}
+static float measure_name(const uint64_t *font,const uint64_t *text){
+ (void)font;return (float)strlen((const char*)(uintptr_t)*text)*19;
+}
 static void make_string(uint64_t*p,const char*s){*p=(uintptr_t)s;}
 static void no_string(uint64_t*p){(void)p;}
 static void write_text(void*p,const uint64_t*s,int notify){assert(p==editor&&notify==1);snprintf(text_buffer,sizeof(text_buffer),"%s",(char*)(uintptr_t)*s);}
@@ -77,11 +84,16 @@ int main(void){void*p=mmap(NULL,0x7500000,7,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);asse
  unsigned char move[16]={0};move[8]=0x64;move[9]=127;controller_ui(move,0);assert(state.cursor==3&&!strcmp(text_buffer,"abcd_E#")&&FIELD(editor,0x2c0,int)==3);
  move[9]=1;controller_ui(move,0);assert(state.cursor==4&&!strcmp(text_buffer,"abcd_E#")&&FIELD(editor,0x2c0,int)==4);
  FIELD(editor,0x28,int)=312;FIELD(editor,0x2c,int)=32;
- stub(0x1134ad0,original_paint);stub(0x102d5e0,paint_colour);stub(0x102e000,paint_rect);stub(0x1082810,paint_font);stub(0x102dca0,paint_use_font);stub(0x1070d60,paint_end_font);stub(0x10817b0,paint_text);
+ stub(0x1134ad0,original_paint);stub(0x102d5e0,paint_colour);stub(0x102e000,paint_rect);stub(0x1082810,paint_font);stub(0x107c6f0,measure_name);stub(0x102dca0,paint_use_font);stub(0x1070d60,paint_end_font);stub(0x10817b0,paint_text);
  FIELD((void*)base,0x6e18e20+0xd8,uintptr_t)=base+0x1134ad0;assert(install_name_cursor());
  assert(FIELD((void*)base,0x6e18e20+0xd8,uintptr_t)==(uintptr_t)name_cursor_paint);
  stub(0xddfed0,midi_down);stub(0xddff20,midi_up);__builtin___clear_cache((char*)base,(char*)(base+0x7500000));
  name_cursor_paint(editor,(void*)1);assert(paints==1&&!strcmp(painted_name,"abcd|_E#")&&!strcmp(text_buffer,"abcd_E#"));
+ strcpy(text_buffer,"WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW");
+ assert(phone_sync(&state,text_buffer,strlen(text_buffer)));
+ name_cursor_paint(editor,(void*)1);
+ assert(strchr(painted_name,'|')&&strlen(painted_name)*19<312-14&&state.cursor==strlen(text_buffer));
+ strcpy(text_buffer,"abcd_E#");assert(phone_sync(&state,text_buffer,4));
  /* Run producer ownership selection and real FIFO, with every background
   * screen claiming these same controls. Naming must still own the events. */
  claim_background=1;atomic_store(&naming_active,1);atomic_store(&requested_pads,1);

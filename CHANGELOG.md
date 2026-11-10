@@ -1,5 +1,16 @@
 # Changelog
 
+## r28c — experimental
+
+- USB Screen Mirror for a browser, with a switch in Mod Settings.
+- A 4 × 4 RGB palette with names, selection by pad or encoder, live pad preview and one Save for all edited cells.
+- Pad Lock, a shortcut to Pad Routing and new FX Chain button assignments.
+- Solo preserves sends into the receiving track.
+- Project and sample saves use SD. Song Mixdown and stems use the SD Export folder.
+- Long pad-typed names keep the cursor visible. Sample returns from 16 Levels and Chop.
+
+[English notes](docs/RELEASE_NOTES-r28c.md) · [Русский](docs/RELEASE_NOTES-r28c.ru.md).
+
 ## r28b — experimental
 
 - The Mixer Mute button toggles the selection, Shift + Mute clears A–H, and B2 opens track renaming.

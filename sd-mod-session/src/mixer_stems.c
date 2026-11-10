@@ -3,6 +3,10 @@
  * Silent buses do not allocate files. Output contains Tracks A–H and
  * Master Direct when audible, alongside the native mixdown WAV. */
 #include "mixer_stems.h"
+#ifdef MPC_EARLY_STARTUP
+#include "startup_project.h"
+#endif
+
 #include "mixer_live.h"
 #include "mixer_archive.h"
 #include "fx_native.h"
@@ -142,6 +146,12 @@ static void begin(void *context,void *writer,const char *path,unsigned rate,int 
     if(!path||path[0]!='/'||strnlen(path,sizeof(full))>=sizeof(full)){
         fprintf(stderr,"STEMS INVALID_EXPORT_PATH\n");return;
     }
+#ifdef MPC_EARLY_STARTUP
+    static const char export_path[]="/data/UserContent/Samples/User/Export/";
+    if(strncmp(path,export_path,sizeof(export_path)-1)||!startup_song_export_ready()){
+        fprintf(stderr,"STEMS SD_EXPORT_UNAVAILABLE\n");return;
+    }
+#endif
     snprintf(full,sizeof(full),"%s",path);
     char*slash=strrchr(full,'/'),*dot=strrchr(full,'.');
     if(!slash||!slash[1]){fprintf(stderr,"STEMS INVALID_EXPORT_NAME\n");return;}

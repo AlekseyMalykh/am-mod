@@ -249,24 +249,29 @@ static void header(const struct mixer_view_state*s,const struct resample_painter
     const char*names[3]={sub?"Back":"Sample",s->page==MIXER_OVERVIEW?"Rename":"","Solo"};
     int lit[3]={0,0,soloed},off=s->page==MIXER_INSPECT||s->page==MIXER_KNOB_FX;
     if(s->page==MIXER_KNOB_FX&&s->fx_editing){
-        names[1]=s->shifted?"Chain Bypass":"Copy";
-        names[2]=s->shifted?"":"Paste";
-        lit[1]=lit[2]=off=0;
+        names[1]=s->shifted?"Paste":"Copy";
+        names[2]=s->shifted?"Chain Bypass":"Solo";
+        lit[2]=s->shifted?(s->master?s->project->master.fx_bypass:s->project->track[s->primary].fx_bypass)!=0:soloed;
+        off=0;
     }
-    if(s->page==MIXER_KNOB_FX&&s->fx_catalog){names[0]="FX List";names[1]="";names[2]="";}
     if(s->page==MIXER_INSPECT){names[1]="";names[2]="";}
-    if(s->page==MIXER_ASSIGN&&s->shifted){names[1]="Chain Bypass";lit[1]=0;}
-    if(s->page==MIXER_KNOB_FX&&s->fx_parameters){
-        names[0]="FX List";names[1]=s->shifted?"Chain Bypass":"Bypass";names[2]="";
-        const struct mixer_channel*ch=s->master?&s->project->master:s->project->track+s->primary;
-        if(s->shifted&&s->fx_slot<ch->fx.count&&ch->fx.stage[s->fx_slot].kind==FX_STAGE_EQ)names[2]="+ EQ Point";
+    if(s->page==MIXER_ASSIGN){
+        names[1]=s->shifted?"":s->pad_lock?"Pad Lock: On":"Pad Lock: Off";
     }
+    if(s->page==MIXER_KNOB_FX&&s->fx_parameters){
+        names[0]="FX List";names[1]=s->shifted?"":"Bypass";
+        const struct mixer_channel*ch=s->master?&s->project->master:s->project->track+s->primary;
+        if(s->shifted&&s->fx_slot<ch->fx.count&&ch->fx.stage[s->fx_slot].kind==FX_STAGE_EQ){
+            names[2]="+ EQ Point";lit[2]=0;
+        }
+    }
+    if(s->page==MIXER_KNOB_FX&&s->fx_catalog){names[0]="FX List";names[1]="";names[2]="";lit[2]=0;}
     if(s->name_edit){names[0]="Cancel";names[1]="Erase";names[2]="Save";lit[1]=lit[2]=off=0;}
-    else if(s->shifted&&s->page==MIXER_OVERVIEW)names[1]="";
-    if(s->page==MIXER_KNOB_FX&&s->fx_delete){names[0]="Cancel";names[1]="";names[2]="Delete";}
+    else if(s->shifted&&s->page==MIXER_OVERVIEW){names[1]="";names[2]="Route";lit[2]=0;}
+    if(s->page==MIXER_KNOB_FX&&s->fx_delete){names[0]="Cancel";names[1]="";names[2]="Delete";lit[2]=0;}
     for(unsigned i=0;i<3;++i){int x=i==2?213:(int)i*106,w=i==0?106:107;
-        uint32_t active=i==1?(0xff000000u|MIXER_MUTE_RGB):(0xff000000u|MIXER_SOLO_RGB);
-        int gates=!s->name_edit&&!s->shifted&&(s->page==MIXER_OVERVIEW||s->page==MIXER_ASSIGN);
+        uint32_t active=i==1?(0xff000000u|MIXER_MUTE_RGB):(s->shifted&&s->page==MIXER_KNOB_FX?SEND:0xff000000u|MIXER_SOLO_RGB);
+        int gates=!s->name_edit&&!s->shifted&&(s->page==MIXER_OVERVIEW||s->page==MIXER_ASSIGN||s->page==MIXER_KNOB_FX);
         uint32_t ink=i==2&&s->fx_delete&&s->page==MIXER_KNOB_FX?SEND:i&&(off||(i==2&&s->master&&gates))?GREY:lit[i]?active:i==2&&gates?GREY:WHITE;
         mixer_key(p,names[i],x+6,1,w-12,18,12,ink,lit[i]);}
     unsigned group=0;for(unsigned i=0;i<8;++i)if(s->selected&(1u<<i))++group;

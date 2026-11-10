@@ -96,6 +96,17 @@ int main(void){
  assert(music_palette_set_rgb(8,0x778899)&&music_palette_rgb(8)==0x778899);
  assert(!music_palette_set_rgb(MUSIC_PALETTE_SIZE,0)&&!music_palette_set_rgb(0,0x1000000));
  assert(music_lighting_preferences_open(dir)&&music_palette_rgb(0)==0&&music_palette_rgb(8)==0x778899);
+ assert(!music_palette_present(14)&&!music_palette_present(15));
+ struct music_palette_edit edits[MUSIC_PALETTE_SLOTS]={0};
+ edits[14]=(struct music_palette_edit){0x115577,"Ocean",0};
+ edits[15]=(struct music_palette_edit){0,"Black",0};
+ assert(music_palette_apply(edits,(1u<<14)|(1u<<15)));
+
+ assert(music_lighting_preferences_open(dir)&&music_palette_present(15));
+ assert(!strcmp(music_palette_name(14),"Ocean")&&music_identity_choice(music_identity_count()-2)==14);
+ assert(!strcmp(music_identity_name(15),"Black")&&music_user_rgb(15)==0);
+ assert(music_palette_reset(14)&&music_lighting_preferences_open(dir)&&!music_palette_present(14));
+ assert(music_identity_choice(music_identity_count()-1)==15&&music_identity_index(15)==music_identity_count()-1);
  assert(music_service_rgb(MUSIC_SERVICE_SELECT)==0xffffff); /* Standard palette remains stock. */
  assert(music_set_pad_lighting_mode(MUSIC_LIGHTING_MOD)&&music_user_rgb(0)==0&&music_service_rgb(MUSIC_SERVICE_SELECT)==0x778899);
  assert(music_palette_set_rgb(8,music_palette_default_rgb(8))&&music_lighting_preferences_open(dir)&&music_palette_rgb(8)==0xffffff);

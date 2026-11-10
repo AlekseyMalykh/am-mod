@@ -10,7 +10,10 @@
 #undef base
 #undef FN
 #undef FIELD
+#define MPC_EARLY_STARTUP 1
 #include "src/song_ui.c"
+static int sd_ready=1;
+int startup_song_export_ready(void){return sd_ready;}
 #include <assert.h>
 
 static void stub(uintptr_t offset,void *fn)
@@ -167,6 +170,13 @@ int main(int argc,char **argv)
     atomic_store(&export_menu_active,1);
     ((void(*)(void*,void*))vt[SLOT_PAINT/8])(screen_obj,(void*)0x10);
     assert(stem_help==3&&strstr(drawn,"B3 to export"));
+    sd_ready=0;
+    drawn[0]=0;paint(screen_obj,(void*)0x10);
+    assert(strstr(drawn,"Insert SD card to export"));
+    button(B3,1);button(B3,0);
+    assert(atomic_load(&export_menu_active)&&!export_route_stage);
+    assert(song_export_ready(1));
+    sd_ready=1;
     int saved_steps=step_count;step_count=0;sync_song();
     ((void(*)(void*,void*))vt[SLOT_PAINT/8])(screen_obj,(void*)0x10);
     assert(!strcmp(drawn,"Insert a sequence before exporting"));
@@ -183,6 +193,8 @@ int main(int argc,char **argv)
     FIELD(export_obj,0xa38,uintptr_t)=elf_image+0x6e18e20;
     assert(song_ui_stems_name_editor()==export_obj+0xa38);
     song_ui_stems_name_opened();
+    unsigned char storage_knob[16]={0};storage_knob[8]=0x12;
+    assert(song_ui_owns(PHONE_CONTROLLER,0x12,0,1)&&song_ui_control(storage_knob));
     assert(!song_ui_stems_name_editor());
     song_ui_stems_name_closed();
     export_forget(export_obj);

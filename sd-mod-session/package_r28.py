@@ -27,10 +27,80 @@ def verified_asset(folder, proof_name, asset_name, hash_key):
     return asset
 
 
+def protect_internal_exports(launcher):
+    """Pin the native Song export path to the SD and protect internal user files."""
+    def replace(old, new):
+        nonlocal launcher
+        assert launcher.count(old) == 1, old
+        launcher = launcher.replace(old, new)
+
+    replace('storage_host_check || fail SD_SAVE_DIRECTORY_NOT_PINNED\n',
+            '''storage_host_check || fail SD_SAVE_DIRECTORY_NOT_PINNED
+EXPORT_PATH="$SAVE/Samples/Export"
+[ ! -L "$EXPORT_PATH" ] || fail SONG_EXPORT_SYMLINK
+if [ ! -d "$EXPORT_PATH" ]; then mkdir "$EXPORT_PATH" || fail SONG_EXPORT_CREATE; fi
+[ "$(readlink -f "$EXPORT_PATH")" = "$EXPORT_PATH" ] || fail SONG_EXPORT_PATH
+[ "$(stat -c %d "$EXPORT_PATH")" = "$(stat -c %d "$SAVE/Samples")" ] || fail SONG_EXPORT_DEVICE
+stat -c '%d:%i' "$EXPORT_PATH" > "$R/storage-meta/song-export-identity"
+mkdir -p "$R/data-image/UserContent/Samples/User/Export" || fail SONG_EXPORT_MOUNTPOINT
+''')
+    replace('    touch "$R/data-staged"\n',
+            '''    mkdir -p "$R/data-image/UserContent/Samples/User/Export" || return 1
+    [ "$(readlink -f "$R/data-image/UserContent/Samples/User/Export")" = "$R/data-image/UserContent/Samples/User/Export" ] || return 1
+    touch "$R/data-staged"
+''')
+    replace('    echo "TEMP_WORKSPACE_BOUND filesystem=$save_fs path=/data/TempProjects"\n',
+            '''    echo "TEMP_WORKSPACE_BOUND filesystem=$save_fs path=/data/TempProjects"
+    song_export=/data/UserContent/Samples/User/Export
+    [ "$(stat -c '%d:%i' "$song_export")" = "$(cat "$APP/storage-meta/song-export-identity")" ] || return 1
+    [ "$(stat -c '%d:%i' "$save_path/Samples/Export")" = "$(cat "$APP/storage-meta/song-export-identity")" ] || return 1
+    [ "$(stat -f -c %t "$song_export")" = "$save_magic" ] || return 1
+''')
+    replace('        if (fs ~ /^(ext[234]|exfat|vfat|f2fs|btrfs|xfs|ntfs|ntfs3|fuseblk|overlay)$/',
+            '''        if (target=="/data/UserContent" && opts ~ /(^|,)ro(,|$)/) protected_internal++;
+        if (fs ~ /^(ext[234]|exfat|vfat|f2fs|btrfs|xfs|ntfs|ntfs3|fuseblk|overlay)$/''')
+    replace('          else if (target=="/data/TempProjects"',
+            '''          else if (target=="/data/UserContent/Samples/User/Export" && fs==save_fs && opts ~ /(^|,)rw(,|$)/) allowed_song_export++;
+          else if (target=="/data/TempProjects"''')
+    replace(' || allowed_workspace!=1 || visible_data!=1',
+            ' || allowed_workspace!=1 || allowed_song_export!=1 || protected_internal!=1 || visible_data!=1')
+    replace('BindPaths=$R/app:$APP $R/data-image:/data $TEMP_WORK:/data/TempProjects\n',
+            'BindPaths=$R/app:$APP $R/data-image:/data $TEMP_WORK:/data/TempProjects $EXPORT_PATH:/data/UserContent/Samples/User/Export\n')
+    replace('ReadWritePaths=$SAVE/Projects $SAVE/Samples\n',
+            '''ReadWritePaths=$SAVE/Projects $SAVE/Samples /data/UserContent/Samples/User/Export
+ReadOnlyPaths=/data/UserContent
+''')
+    return launcher
+
+
+def add_screen_mirror(launcher, digest):
+    stage = 'storage_host_check || fail SD_SAVE_DIRECTORY_NOT_PINNED\n'
+    start = '    systemctl start "$U-clone.service"\n'
+    assert launcher.count(stage) == launcher.count(start) == 1
+    launcher = launcher.replace(stage, stage + f'''if [ "$(hash "$DIR/screen-mirror")" = "{digest}" ] &&
+   cp "$DIR/screen-mirror" "$R/screen-mirror" &&
+   chmod 500 "$R/screen-mirror" &&
+   [ "$(hash "$R/screen-mirror")" = "{digest}" ]; then
+    touch "$R/screen-mirror-ready"
+else
+    log SCREEN_MIRROR_STAGE_FAILED
+fi
+''')
+    return launcher.replace(start, start + '''    if [ -f "$R/screen-mirror-ready" ]; then
+        systemd-run --quiet --unit="$U-screen-mirror" \\
+            -p "BindsTo=$U-clone.service" -p "After=$U-clone.service" \\
+            -p NoNewPrivileges=yes -p ProtectSystem=strict -p ProtectHome=yes \\
+            -p DevicePolicy=closed \\
+            -p Nice=15 -p MemoryMax=16M -p TasksMax=2 \\
+            "$R/screen-mirror" "$R/app/screen-mirror.on" "$R/app/screen-mirror.bmp" || log SCREEN_MIRROR_START_FAILED
+    fi
+''')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("base", type=Path, help="Published am-mod-r27r.zip")
-    parser.add_argument("revision", choices=("r28a", "r28b"), help="Release revision")
+    parser.add_argument("revision", choices=("r28a", "r28b", "r28c"), help="Release revision")
     args = parser.parse_args()
     revision = args.revision
     assert sha(args.base.read_bytes()) == BASE_SHA, "Unexpected r27r base"
@@ -52,6 +122,14 @@ def main():
         assert launcher.count(old_hash) == count, name
         launcher = launcher.replace(old_hash, sha(asset))
         files[path] = asset
+    if revision == "r28c":
+        launcher = protect_internal_exports(launcher)
+        helper = ROOT / "build" / "screen-mirror"
+        helper.parent.mkdir(exist_ok=True)
+        subprocess.run(["aarch64-linux-gnu-gcc", "-O2", "-Wall", "-Wextra", "-Werror", "-static",
+                        str(ROOT / "src/screen_mirror.c"), "-o", str(helper)], check=True)
+        files["autorun/screen-mirror"] = helper.read_bytes()
+        launcher = add_screen_mirror(launcher, sha(files["autorun/screen-mirror"]))
     files[launcher_path] = launcher.encode()
 
     entry = files["autorun/autorun.sh"].decode()

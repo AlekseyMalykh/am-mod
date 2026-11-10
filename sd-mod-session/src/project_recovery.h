@@ -19,6 +19,8 @@ void project_recovery_loaded(const char *payload);
 void project_recovery_reset(void);
 void project_recovery_tick(uintptr_t base,void *services);
 const char *project_recovery_notice(void);
+int project_recovery_save_external(uintptr_t image,void *screen);
+int project_recovery_save_control(uintptr_t image,void *screen,unsigned cc);
 void project_recovery_save_paint(uintptr_t base,void *screen,void *graphics);
 int project_recovery_save_button(uintptr_t base,void *screen,void *event);
 /* Bounded, mount-independent format; paths are relative to MPC-Sample. */

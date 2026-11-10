@@ -4,7 +4,7 @@
 
 [English](README.md) · **Русский**
 
-[**Скачать r28b (экспериментальный)**](https://github.com/AlekseyMalykh/am-mod/releases/tag/r28b) · [**Скачать r27r**](https://github.com/AlekseyMalykh/am-mod/releases/tag/r27r) (стабильный релиз) · [Отзывы и помощь](docs/FEEDBACK.ru.md) · [Известные проблемы](docs/KNOWN_ISSUES.ru.md) · [Обсуждения](https://github.com/AlekseyMalykh/am-mod/discussions)
+[**Скачать r28c (экспериментальный)**](https://github.com/AlekseyMalykh/am-mod/releases/tag/r28c) · [**Скачать r27r**](https://github.com/AlekseyMalykh/am-mod/releases/tag/r27r) (стабильный релиз) · [Отзывы и помощь](docs/FEEDBACK.ru.md) · [Известные проблемы](docs/KNOWN_ISSUES.ru.md) · [Обсуждения](https://github.com/AlekseyMalykh/am-mod/discussions)
 
 Am MOD — мод сообщества для Akai MPC Sample (прошивка **1.3.0.12**), который запускается с
 SD-карты. Поверх штатного приложения он добавляет шаговый секвенсор на пэдах, режим
@@ -20,11 +20,11 @@ SD-карты. Поверх штатного приложения он доба�
 > изменяет копию приложения, которая уже есть на вашем MPC Sample. Используйте на свой
 > риск. См. [NOTICE](NOTICE.md).
 
-## Экспериментальный r28b
+## Экспериментальный r28c
 
-В r28b обновлены управление микшером и окна эффектов, добавлен редактор RGB-палитры в Mod Settings и доработано окно Song Export. Доступны микшер A–H и Master, цепочки до четырёх эффектов, посылы и экспорт стемов с эффектами микшера или без них. **Дизайн ещё будет дорабатываться.**
+В r28c появились Screen Mirror по USB, палитра 4 × 4 с именами цветов и Pad Lock. Исправлена работа Solo на треках с входящими посылами. Проекты и сэмплы сохраняются на SD, а Song Mixdown и стемы записываются в `MPC-Sample/Samples/Export`. Дизайн продолжает дорабатываться.
 
-[Скачать экспериментальный r28b](https://github.com/AlekseyMalykh/am-mod/releases/tag/r28b) · [Изменения, установка и управление](docs/RELEASE_NOTES-r28b.ru.md)
+[Скачать экспериментальный r28c](https://github.com/AlekseyMalykh/am-mod/releases/tag/r28c) · [Изменения, установка и управление](docs/RELEASE_NOTES-r28c.ru.md)
 
 ## Что нового в r27r
 
@@ -49,7 +49,7 @@ SD-карты. Поверх штатного приложения он доба�
 
 | Функция | Где | Статус |
 |---|---|---|
-| **Читаемая панель K1–K3**: названия и значения параметров видны всегда, янтарный фокус, стрелка вверх для функций с Shift в r28b | все стандартные экраны | подтверждено |
+| **Читаемая панель K1–K3**: названия и значения параметров видны всегда, янтарный фокус, стрелка вверх для функций с Shift в r28c | все стандартные экраны | подтверждено |
 | **Ввод имён пэдами** (телефонная клавиатура: ABC на пэде 14, DEF на 15…, удаление на 16) | Save Project / Save Sample, поиск | подтверждено |
 | **Orig Note** сэмпла, **Key / Scale** проекта | Sample → Tune → Shift+K1; Project → Key/Scale | подтверждено |
 | **Подсветка по ладу** для 16 Levels Tune: Monochrome / Piano / Scale / Degrees, Transpose16 | Sample → Tune/Play/**Scales** | частично подтверждено |
@@ -119,14 +119,14 @@ SD-карты. Поверх штатного приложения он доба�
 **Установщик (Windows):** скачайте `MPC-Sample-Mod-Installer.exe` и пакет
 `am-mod-*.zip` из [Releases](../../releases), запустите установщик, выберите zip (или
 нажмите *Latest release*) и SD-карту, нажмите **Install**.
-Для установки r28b выберите его ZIP вручную. Кнопка *Latest release* выбирает последний стабильный выпуск.
+Для установки r28c выберите его ZIP вручную. Кнопка *Latest release* выбирает последний стабильный выпуск.
 
 **Установщик (macOS / Linux / Windows с Python 3.8+):**
 
 ```bash
 python3 installer/mpc_mod_installer.py                 # окно
 python3 installer/mpc_mod_installer.py cards           # список карт
-python3 installer/mpc_mod_installer.py install am-mod-r28b.zip --card E:  # экспериментальный пакет
+python3 installer/mpc_mod_installer.py install am-mod-r28c.zip --card E:  # экспериментальный пакет
 python3 installer/mpc_mod_installer.py install --latest --card /Volumes/MPC
 python3 installer/mpc_mod_installer.py remove --card E:
 ```

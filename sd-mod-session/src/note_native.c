@@ -415,15 +415,16 @@ int note_native_control(void *event)
         if (cc==0x64 && !atomic_load(&focused_trim)) return 0;
         unsigned pad;
         if (!note_native_pad_index(&pad)) return 1;
-        int current=(int)music_colour_choice_index((unsigned)music_pad_colour(pad)),next;
-        if (cc==0x11) { if(!atomic_load(&focused_trim))take_knob_focus(); next=(int)((value&127)*MUSIC_IDENTITY_CHOICES/128); }
+        int current=(int)music_identity_index((unsigned)music_pad_colour(pad)),next;
+        int choices=(int)music_identity_count();
+        if (cc==0x11) { if(!atomic_load(&focused_trim))take_knob_focus(); next=(int)((value&127)*choices/128); }
         else {
             int step=value>64 ? (int)value-128 : (int)value;
             next=current+step;
             if (next<0) next=0;
-            if (next>=MUSIC_IDENTITY_CHOICES) next=MUSIC_IDENTITY_CHOICES-1;
+            if (next>=choices) next=choices-1;
         }
-        if (next!=current && music_set_pad_colour(pad,music_colour_choice((unsigned)next))) { trim_repaint(); log_note("PAD_COLOUR_CHANGED project_setting"); }
+        if (next!=current && music_set_pad_colour(pad,music_identity_choice((unsigned)next))) { trim_repaint(); log_note("PAD_COLOUR_CHANGED project_setting"); }
         return 1;
     }
 #ifdef MPC_MIXER_LIVE
@@ -515,7 +516,8 @@ static void pad_colour_cell(void *g,int ox,int oy,int focused)
 {
     unsigned pad; int valid=note_native_pad_index(&pad);
     int value=valid ? music_pad_colour(pad) : 0;
-    unsigned choice=music_colour_choice_index((unsigned)value);
+    unsigned choice=music_identity_index((unsigned)value);
+    int choices=(int)music_identity_count();
     uint32_t ink=!valid ? 0xff707070 : focused ? 0xffffc247 : 0xffffffff;
     colour(g,0xff000000); rect(g,ox,oy,106,38);
     colour(g,ink); text(g,"Pad Colour",ox+7,oy+2,82,12,12.0f);
@@ -524,8 +526,8 @@ static void pad_colour_cell(void *g,int ox,int oy,int focused)
 
     colour(g,swatch); rect(g,ox+6,oy+18,10,10);
     colour(g,ink); text(g,valid ? music_identity_name((unsigned)value) : "--",ox+18,oy+14,84,18,16.0f);
-    for (int i=0;i<MUSIC_IDENTITY_CHOICES;++i) {
-        int x=i*98/MUSIC_IDENTITY_CHOICES, next=(i+1)*98/MUSIC_IDENTITY_CHOICES;
+    for (int i=0;i<choices;++i) {
+        int x=i*98/choices, next=(i+1)*98/choices;
         colour(g,(unsigned)i==choice ? ink : 0xff3b3b3b);
         rect(g,ox+4+x,oy+35,next-x-2,2);
     }

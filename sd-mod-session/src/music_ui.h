@@ -31,4 +31,7 @@ int music_ui_control(void *event);
 int music_ui_control_at(void *event,unsigned event_shift);
 int music_ui_reset_knob(unsigned column,unsigned shifted);
 int music_ui_button(void *event);
+uint64_t music_ui_palette_ticket(void);
+int music_ui_palette_light(unsigned pad,uint64_t *out);
+void music_ui_palette_pad(unsigned pad,int down,int shift,uint64_t when,uint64_t ticket);
 #endif

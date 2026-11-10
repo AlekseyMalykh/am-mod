@@ -25,6 +25,7 @@ size_t phone_utf8(const struct phone_input *s, char *out, size_t capacity);
 void phone_view(const struct phone_input*,size_t columns,char*out,size_t capacity);
 void phone_commit(struct phone_input *s);
 void phone_native_boundary(struct phone_input *s);
+void phone_turn_character(struct phone_input *s,int delta);
 void phone_move(struct phone_input *s,int delta);
 void phone_enable(struct phone_input *s, int enabled);
 int phone_tick(struct phone_input *s, uint64_t now_ms);
