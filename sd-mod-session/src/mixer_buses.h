@@ -12,7 +12,7 @@ struct mixer_bus_update;
 #define MIXER_FX_MONITOR_FRAMES 4096u
 struct mixer_fx_monitor {
     unsigned channel,slot;
-    float input_peak,output_peak,key_peak;
+    float input_peak,output_peak,key_peak,gain_reduction_db;
     float input_pcm[MIXER_FX_MONITOR_FRAMES];
     float pcm[MIXER_FX_MONITOR_FRAMES];
 };

@@ -35,15 +35,18 @@ static void sidechain_init(struct sidechain*d,const float*p,double rate)
     d->release=expf(-1000.f/((float)rate*fx_sidechain_value(4,p[4])));
     d->mix=p[5];d->gain=1;
 }
-static void sidechain_process(struct sidechain*d,float*pcm,size_t frames,const float*key)
+static float sidechain_process(struct sidechain*d,float*pcm,size_t frames,const float*key,int monitored)
 {
+    float minimum=1;
     for(size_t i=0;i<frames;++i){
         float desired=key&&key[i]>d->threshold?powf(key[i]/d->threshold,d->slope):1;
         float smoothing=desired<d->gain?d->attack:d->release;
         d->gain=desired+smoothing*(d->gain-desired);
         float gain=1+d->mix*(d->gain-1);
         pcm[i*2]*=gain;pcm[i*2+1]*=gain;
+        if(monitored&&gain<minimum)minimum=gain;
     }
+    return minimum;
 }
 static int stage_valid(const struct fx_stage *s,double rate)
 {
@@ -113,15 +116,17 @@ static void program_process(struct fx_program *p,float *samples,size_t frames,un
 {
     if(!p||!samples)return;
     for(unsigned i=0;i<p->count;++i){struct fx_instance *s=&p->stage[i];
-        if(tap&&i==slot)tap(user,samples,frames,0);
+        int monitored=tap&&i==slot;
+        float minimum_gain=1;
+        if(monitored)tap(user,samples,frames,0,1);
         if(s->kind==FX_STAGE_EQ)fx_eq_process(&s->eq,samples,frames);
         else if(!s->bypass&&s->kind==FX_STAGE_SIDECHAIN){
             unsigned source=s->duck.source;
             const float*key=keys&&source?keys[source-1]:NULL;
-            sidechain_process(&s->duck,samples,frames,key?key+offset:NULL);
+            minimum_gain=sidechain_process(&s->duck,samples,frames,key?key+offset:NULL,monitored);
         }
         else if(!s->bypass)p->backend.process(p->backend.user,s->native,samples,frames);
-        if(tap&&i==slot)tap(user,samples,frames,1);
+        if(monitored)tap(user,samples,frames,1,minimum_gain);
     }
 }
 void fx_program_process(struct fx_program *p,float *samples,size_t frames)

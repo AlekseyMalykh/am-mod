@@ -87,7 +87,7 @@ int main(){
     failure=1;assert(project_exit_start(base,services));assert(wait_job()==3&&strstr(project_exit_message(),"copy"));
     failure=2;assert(project_exit_start(base,services));assert(wait_job()==3&&strstr(project_exit_message(),"settings"));
     failure=3;assert(project_exit_start(base,services));assert(wait_job()==3&&strstr(project_exit_message(),"copy"));
-    assert(!unlink(metadata));assert(!symlink("/etc/passwd",metadata));assert(project_exit_start(base,services));assert(wait_job()==3&&strstr(project_exit_message(),"unavailable"));assert(!unlink(metadata));
+    assert(!unlink(metadata));assert(!symlink("/etc/passwd",metadata));assert(project_exit_start(base,services));assert(wait_job()==3&&strstr(project_exit_message(),"SD card not ready"));assert(!unlink(metadata));
     F(object,0,uintptr_t)=0;assert(!project_exit_start(base,services)&&project_exit_status()==3);
     /* Failed saves removed their staging folders and kept the last good copy. */
     {std::ifstream kept(root+"/Projects/Mod-Exit-Last.xpj");std::string contents;std::getline(kept,contents);assert(contents=="native project fixture");}

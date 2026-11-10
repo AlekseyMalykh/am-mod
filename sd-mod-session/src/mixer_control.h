@@ -5,7 +5,7 @@
 extern "C" {
 #endif
 enum mixer_action {MIXER_B1,MIXER_B2,MIXER_B3,MIXER_PAD_FX,MIXER_KNOB,
-    MIXER_SELECT,MIXER_NATIVE_MODE,MIXER_SHIFT,MIXER_BANK,MIXER_BANK_NEXT,MIXER_BANK_PREVIOUS,MIXER_ERASE};
+    MIXER_SELECT,MIXER_NATIVE_MODE,MIXER_SHIFT,MIXER_BANK,MIXER_BANK_NEXT,MIXER_BANK_PREVIOUS,MIXER_ERASE,MIXER_MUTE};
 struct mixer_control;
 /* Transient state belongs exclusively to the UI owner. Input producers must
  * enqueue numeric events/tickets; they must never call this API concurrently.
@@ -36,7 +36,7 @@ int mixer_control_button(struct mixer_control*,enum mixer_action,int down,uint64
 int mixer_control_pad(struct mixer_control*,unsigned pad,int down,uint64_t ticket);
 int mixer_control_cc(struct mixer_control*,unsigned cc,unsigned value,uint64_t ticket);
 /* Pad Bank held + Fader/K1/K3: default Level/Pan/Colour for the selection. */
-int mixer_control_reset(struct mixer_control*,unsigned cc,uint64_t ticket);
+int mixer_control_reset(struct mixer_control*,unsigned cc,int shift,uint64_t ticket);
 /* B1 on the Mixer page closed it; the owner then opens native Sample (once). */
 int mixer_control_exit_requested(struct mixer_control*);
 /* Track FX editor behind KNOB FX. */

@@ -46,6 +46,8 @@ int music_set_service_colour(unsigned role,unsigned colour);
 uint32_t music_service_rgb(unsigned role);
 const char *music_palette_name(unsigned colour);
 uint32_t music_palette_rgb(unsigned colour);
+uint32_t music_palette_default_rgb(unsigned colour);
+int music_palette_set_rgb(unsigned colour,uint32_t rgb); /* card preference */
 uint32_t music_user_rgb(unsigned raw);
 const char *music_identity_name(unsigned raw);
 int music_cursor_on(uint64_t phase,unsigned duty); /* duty in thousandths */

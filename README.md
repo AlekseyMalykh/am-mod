@@ -4,7 +4,7 @@
 
 **English** · [Русский](README.ru.md)
 
-[**Download r27r**](https://github.com/AlekseyMalykh/am-mod/releases/tag/r27r) (stable release) · [Feedback and help](docs/FEEDBACK.md) · [Known issues](docs/KNOWN_ISSUES.md) · [Discussions](https://github.com/AlekseyMalykh/am-mod/discussions)
+[**Download r28b (experimental)**](https://github.com/AlekseyMalykh/am-mod/releases/tag/r28b) · [**Download r27r**](https://github.com/AlekseyMalykh/am-mod/releases/tag/r27r) (stable release) · [Feedback and help](docs/FEEDBACK.md) · [Known issues](docs/KNOWN_ISSUES.md) · [Discussions](https://github.com/AlekseyMalykh/am-mod/discussions)
 
 Am MOD is a community mod for the Akai MPC Sample (firmware **1.3.0.12**) that starts from
 the SD card. On top of the stock app it adds a step sequencer on the pads, a chord mode,
@@ -20,11 +20,11 @@ a patched copy of the stock app in RAM, and the stock app starts as usual withou
 > release packages**: the mod patches the copy of the app already on your MPC Sample.
 > Use at your own risk. See [NOTICE](NOTICE.md).
 
-## Experimental r28a
+## Experimental r28b
 
-r28a adds the A–H and Master mixer, insert chains, sends, Song stem export and fine project tempo control. It also fixes the Steps status display, Tap Tempo pad lighting and OptoCat knob takeover. **The interface design is still being refined.**
+r28b updates mixer and effect controls, adds an RGB palette editor in Mod Settings and refines Song Export. It includes the A–H and Master mixer, four-slot effect chains, sends and Song stem export with or without mixer effects. **The interface is still being refined.**
 
-[Download r28a (experimental)](https://github.com/AlekseyMalykh/am-mod/releases/tag/r28a) · [Changes, installation and controls for r28a](docs/RELEASE_NOTES-r28a.md)
+[Download r28b (experimental)](https://github.com/AlekseyMalykh/am-mod/releases/tag/r28b) · [What's changed, installation and controls](docs/RELEASE_NOTES-r28b.md)
 
 ## What's new in r27r
 
@@ -49,7 +49,7 @@ Thanks to **Leusha** for careful, detailed testing — almost every fix in r27r 
 
 | Feature | Where | Status |
 |---|---|---|
-| **Readable K1–K3 panel**: parameter names and values always visible, amber focus, `S` marks for Shift functions | all standard screens | confirmed |
+| **Readable K1–K3 panel**: parameter names and values always visible, amber focus, up arrow for Shift controls in r28b | all standard screens | confirmed |
 | **Type names with the pads** (phone keypad: ABC on pad 14, DEF on 15…, delete on 16) | Save Project / Save Sample, Search | confirmed |
 | **Orig Note** of a sample, project **Key / Scale** | Sample → Tune → Shift+K1; Project → Key/Scale | confirmed |
 | **Scale lighting** for 16 Levels Tune: Monochrome / Piano / Scale / Degrees colours, Transpose16 | Sample → Tune/Play/**Scales** | partly confirmed |
@@ -119,13 +119,14 @@ refuses to start on any other version) and a compatible SD card with a supported
 **Installer (Windows):** download `MPC-Sample-Mod-Installer.exe` and the
 `am-mod-*.zip` package from [Releases](../../releases), run the installer, pick the zip
 (or press *Latest release*) and the SD card, press **Install**.
+To install r28b, select its ZIP manually. *Latest release* selects the latest stable build.
 
 **Installer (macOS / Linux / Windows with Python 3.8+):**
 
 ```bash
 python3 installer/mpc_mod_installer.py                 # window
 python3 installer/mpc_mod_installer.py cards           # list cards
-python3 installer/mpc_mod_installer.py install am-mod-r28a.zip --card E:  # experimental package
+python3 installer/mpc_mod_installer.py install am-mod-r28b.zip --card E:  # experimental package
 python3 installer/mpc_mod_installer.py install --latest --card /Volumes/MPC
 python3 installer/mpc_mod_installer.py remove --card E:
 ```

@@ -192,7 +192,7 @@ int mixer_buses_take_monitor(struct mixer_buses*b,struct mixer_fx_monitor*out)
     atomic_store_explicit(&b->monitor_ready,0,memory_order_release);
     return 1;
 }
-static void monitor_stage(void*user,const float*pcm,size_t frames,int after)
+static void monitor_stage(void*user,const float*pcm,size_t frames,int after,float minimum_gain)
 {
     struct mixer_buses*b=user;
     unsigned n=MIXER_FX_MONITOR_FRAMES-b->monitor_frames;
@@ -208,6 +208,10 @@ static void monitor_stage(void*user,const float*pcm,size_t frames,int after)
     }
     if(!after){b->collecting.input_peak=fmaxf(b->collecting.input_peak,peak);return;}
     b->collecting.output_peak=fmaxf(b->collecting.output_peak,peak);
+    if(minimum_gain<1){
+        float reduction=-20.f*log10f(fmaxf(minimum_gain,1e-6f));
+        b->collecting.gain_reduction_db=fmaxf(b->collecting.gain_reduction_db,reduction);
+    }
     b->monitor_offset+=(unsigned)frames;
     b->monitor_frames+=n;
     if(b->monitor_frames!=MIXER_FX_MONITOR_FRAMES)return;
@@ -217,6 +221,7 @@ static void monitor_stage(void*user,const float*pcm,size_t frames,int after)
     }
     b->monitor_frames=0;
     b->collecting.input_peak=b->collecting.output_peak=b->collecting.key_peak=0;
+    b->collecting.gain_reduction_db=0;
 }
 static int process(struct mixer_buses*b,unsigned bus,unsigned fx)
 {
@@ -233,6 +238,7 @@ static int process(struct mixer_buses*b,unsigned bus,unsigned fx)
             if(key!=b->monitor_key){
                 b->monitor_key=key;b->monitor_frames=0;
                 b->collecting.input_peak=b->collecting.output_peak=b->collecting.key_peak=0;
+                b->collecting.gain_reduction_db=0;
                 b->collecting.channel=fx;b->collecting.slot=slot;
             }
             b->monitor_detector=NULL;

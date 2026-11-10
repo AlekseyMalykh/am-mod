@@ -16,6 +16,7 @@ int note_native_pad_index(unsigned*p){*p=12;return 1;}
 int note_native_current(char*out,size_t size){snprintf(out,size,"Chord test A13");return 1;}
 void note_native_repaint_sample(void){++repaints;}
 int music_lighting_levels_state(unsigned*enabled,unsigned*mode,unsigned*origin){*enabled=1;*mode=1;*origin=3;return 1;}
+int music_ui_knob_fx_active(void){return 0;}
 int music_ui_shift_active(void){return 0;}
 /* Arpeggiator/playback seams: no sequence playback or held arp notes here. */
 int step_native_playback_pitches(int*o,int m){(void)o;(void)m;return 0;}

@@ -29,7 +29,7 @@ int main(void){
  music_snapshot(&after);assert(!memcmp(&before,&after,sizeof(before))&&music_pad_colour(0)==13&&music_sequence_colour(3)==5);
  music_reset();assert(music_pad_lighting_mode()==MUSIC_LIGHTING_STANDARD);music_replace(&before);assert(!memcmp(&before,&after,sizeof(before)));
  assert(music_lighting_preferences_open(dir)&&music_pad_lighting_mode()==MUSIC_LIGHTING_STANDARD);
- assert(music_set_pad_lighting_mode(MUSIC_LIGHTING_MOD)&&music_identity_rgb(13)==0xff4070);
+ assert(music_set_pad_lighting_mode(MUSIC_LIGHTING_MOD)&&music_identity_rgb(13)==music_palette_default_rgb(4));
  assert(music_lighting_preferences_open(dir)&&music_pad_lighting_mode()==MUSIC_LIGHTING_MOD);
  assert(!music_set_pad_lighting_mode(2));
  uint64_t defaults=music_mod_settings_snapshot();
@@ -58,7 +58,7 @@ int main(void){
  uint64_t old_swap=old_default;
  old_swap&=~((UINT64_C(15)<<(5+4*0))|(UINT64_C(15)<<(5+4*5)));
  old_swap|=UINT64_C(5)<<(5+4*0); /* old cursor White <-> user Blue */
- assert(music_mod_settings_restore(old_swap)&&music_identity_rgb(8)==0xffffff&&music_service_rgb(MUSIC_SERVICE_SELECT)==0x2030ff);
+ assert(music_mod_settings_restore(old_swap)&&music_identity_rgb(8)==0xffffff&&music_service_rgb(MUSIC_SERVICE_SELECT)==music_palette_default_rgb(0));
  assert(music_mod_settings_restore(defaults));
  char legacy_path[512];snprintf(legacy_path,sizeof(legacy_path),"%s/.am-mod-settings",dir);
  FILE*legacy=fopen(legacy_path,"wb");assert(legacy);fprintf(legacy,"AM_SETTINGS1 %013llx\n",(unsigned long long)old_default);assert(!fclose(legacy));
@@ -91,6 +91,19 @@ int main(void){
  assert(!unlink(path));f=fopen(sentinel,"wb");assert(f);fputs("UNCHANGED",f);fclose(f);assert(!symlink(sentinel,path));
  assert(music_lighting_preferences_open(dir)&&music_pad_lighting_mode()==MUSIC_LIGHTING_MOD);
  assert(music_set_pad_lighting_mode(MUSIC_LIGHTING_STANDARD));char text[32]={0};f=fopen(sentinel,"rb");assert(f&&fread(text,1,sizeof(text),f)==9&&!strcmp(text,"UNCHANGED"));fclose(f);
- assert(!unlink(sentinel)&&!unlink(path)&&!rmdir(dir));assert(!music_set_pad_lighting_mode(MUSIC_LIGHTING_MOD)&&music_pad_lighting_mode()==MUSIC_LIGHTING_STANDARD);
+ char palette_path[512];snprintf(palette_path,sizeof(palette_path),"%s/.am-mod-palette",dir);
+ assert(music_palette_set_rgb(0,0)&&music_palette_rgb(0)==0);
+ assert(music_palette_set_rgb(8,0x778899)&&music_palette_rgb(8)==0x778899);
+ assert(!music_palette_set_rgb(MUSIC_PALETTE_SIZE,0)&&!music_palette_set_rgb(0,0x1000000));
+ assert(music_lighting_preferences_open(dir)&&music_palette_rgb(0)==0&&music_palette_rgb(8)==0x778899);
+ assert(music_service_rgb(MUSIC_SERVICE_SELECT)==0xffffff); /* Standard palette remains stock. */
+ assert(music_set_pad_lighting_mode(MUSIC_LIGHTING_MOD)&&music_user_rgb(0)==0&&music_service_rgb(MUSIC_SERVICE_SELECT)==0x778899);
+ assert(music_palette_set_rgb(8,music_palette_default_rgb(8))&&music_lighting_preferences_open(dir)&&music_palette_rgb(8)==0xffffff);
+ assert(music_set_pad_lighting_mode(MUSIC_LIGHTING_STANDARD));
+ assert(!unlink(palette_path));f=fopen(palette_path,"wb");assert(f);fputs("AMP1",f);fclose(f);
+ assert(music_lighting_preferences_open(dir)&&music_palette_rgb(0)==music_palette_default_rgb(0));
+ assert(!unlink(palette_path)&&!unlink(sentinel)&&!unlink(path)&&!rmdir(dir));
+ assert(!music_palette_set_rgb(0,0)&&music_palette_rgb(0)==music_palette_default_rgb(0));
+ assert(!music_set_pad_lighting_mode(MUSIC_LIGHTING_MOD)&&music_pad_lighting_mode()==MUSIC_LIGHTING_STANDARD);
  puts("PASS global lighting persistence, reset/project independence, legacy colour preservation, unchanged pitch/transpose, malformed/symlink handling and failed-save rollback");return 0;
 }

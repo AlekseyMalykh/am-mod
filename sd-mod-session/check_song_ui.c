@@ -64,7 +64,13 @@ static int yes(void *p){ (void)p; return 1; }
 static int no(void *p){ (void)p; return 0; }
 static void noop(void){}
 static char drawn[64];
-static void string_ctor(uint64_t *s,const char *text){ *s=0; snprintf(drawn,sizeof(drawn),"%s",text); }
+static unsigned stem_help;
+static void string_ctor(uint64_t *s,const char *text)
+{
+    *s=0;snprintf(drawn,sizeof(drawn),"%s",text);
+    if(!strcmp(text,"Separate WAVs without mixer FX"))stem_help|=1;
+    if(!strcmp(text,"Separate WAVs with mixer FX"))stem_help|=2;
+}
 
 static void button(unsigned code,int down)
 { unsigned char e[16]={0};e[8]=(unsigned char)code;e[9]=(unsigned char)down;assert(song_ui_button(e)); }
@@ -156,6 +162,18 @@ int main(int argc,char **argv)
 
     phase="end-of-song row and empty selection are ignored";
     row=step_count;before=ops;knob(64);knob(90);song_ui_owns(PHONE_BUTTON,B3,1,1);button(B3,1);button(B3,0);assert(ops==before);
+
+    phase="Song Export chooser describes both stem modes";
+    atomic_store(&export_menu_active,1);
+    ((void(*)(void*,void*))vt[SLOT_PAINT/8])(screen_obj,(void*)0x10);
+    assert(stem_help==3&&strstr(drawn,"B3 to export"));
+    int saved_steps=step_count;step_count=0;sync_song();
+    ((void(*)(void*,void*))vt[SLOT_PAINT/8])(screen_obj,(void*)0x10);
+    assert(!strcmp(drawn,"Insert a sequence before exporting"));
+    button(B3,1);button(B3,0);
+    assert(atomic_load(&export_menu_active)&&!export_route_stage);
+    step_count=saved_steps;sync_song();
+    atomic_store(&export_menu_active,0);
 
     phase="Song Export binds its name editor before TextEditor paint";
     FIELD(export_obj,0,uintptr_t)=elf_image+EXPORT_VPTR;

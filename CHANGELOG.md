@@ -1,5 +1,15 @@
 # Changelog
 
+## r28b — experimental
+
+- The Mixer Mute button toggles the selection, Shift + Mute clears A–H, and B2 opens track renaming.
+- Redesigned mixer strips and effect editors, with distinct FX Chain hints and signal views for EQ, filters, delay, reverb and compression.
+- Graphic EQ point selection wraps with DATA. Pad Bank + knob restores effect defaults on the current page and Shift layer.
+- Brighter default palette and an RGB editor in Mod Settings → Colours.
+- Song Export explains the output options and disables export for empty songs.
+
+[English notes](docs/RELEASE_NOTES-r28b.md) · [Русский](docs/RELEASE_NOTES-r28b.ru.md).
+
 ## r28a — experimental
 
 - Eight-track mixer with Master, groups, sends, track naming, mute/solo feedback and undo/redo.

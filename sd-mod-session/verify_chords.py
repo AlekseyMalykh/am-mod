@@ -13,9 +13,9 @@ sources=['src/chords.c','src/chords.h','src/chords_ui.c','src/chords_ui.h',
  'check_chords_ui.c','check_chords_entry.c','check_chords_poly.c','src/workflow_ui.c','src/workflow_ui.h',
  'src/resample_ui.h','src/resample_simple_ui.cc','check_poly_record.c','check_fx_native.c','verify_chords.py']
 hashes={s:sha(R/s) for s in sources}
-cases=[('model',['check_chords.c','src/chords.c']),
-       ('arp',['check_chords_arp.c','src/chords.c']),
-       ('native',['check_chords_native.c','src/chords.c']),
+cases=[('model',['check_chords.c','src/chords.c','src/music_settings.c']),
+       ('arp',['check_chords_arp.c','src/chords.c','src/music_settings.c']),
+       ('native',['check_chords_native.c','src/chords.c','src/music_settings.c']),
        ('poly',['check_chords_poly.c']),
        ('ui',['check_chords_ui.c','src/chords.c','src/chords_ui.c','src/music_settings.c']),
        ('entry',['check_chords_entry.c','src/chords.c','src/chords_ui.c','src/music_settings.c'])]

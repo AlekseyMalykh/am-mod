@@ -35,7 +35,7 @@ static void colour_controls(void)
     assert(submissions==unchanged&&accepted.master.colour==0x00c700&&!strcmp(mixer_control_message(c),"Master colour is fixed"));
     /* Pad Bank reset: Level 0 dB, Pan centre, Colour Yellow. */
     pad(c,1,1);pad(c,1,0);cc(c,0x14,1);cc(c,0x10,0);ack(c);assert(accepted.track[1].mix.pan==-1&&accepted.track[1].mix.level_db<-50);
-    assert(mixer_control_reset(c,0x14,mixer_control_ticket(c))&&mixer_control_reset(c,0x10,mixer_control_ticket(c))&&mixer_control_reset(c,0x12,mixer_control_ticket(c)));ack(c);
+    assert(mixer_control_reset(c,0x14,0,mixer_control_ticket(c))&&mixer_control_reset(c,0x10,0,mixer_control_ticket(c))&&mixer_control_reset(c,0x12,0,mixer_control_ticket(c)));ack(c);
     assert(accepted.track[1].mix.level_db==0&&accepted.track[1].mix.pan==0&&accepted.track[1].colour==mixer_colour_at(MIXER_DEFAULT_TRACK_COLOUR));
     mixer_control_destroy(c);
     puts("PASS Yellow/green defaults, absolute K3 colour for the selection, encoder follows last control, fixed Master colour and Pad Bank defaults");
@@ -47,7 +47,11 @@ static void fx_slots(void)
     assert(mixer_control_confirm(c,&accepted,revision,epoch)&&mixer_control_open(c,1,0));
     mixer_control_set_fx_editing(c,1);
     button(c,MIXER_KNOB);assert(!view(c).fx_catalog);
+    cc(c,0x14,115);ack(c);
+    assert(accepted.track[0].mix.level_db==3&&view(c).fx_slot==0);
     button(c,MIXER_SELECT);assert(view(c).fx_catalog);
+    cc(c,0x14,127);ack(c);
+    assert(accepted.track[0].mix.level_db==6&&view(c).fx_catalog);
     button(c,MIXER_SELECT);ack(c);
     assert(accepted.track[0].fx.stage[0].eq.count==1);
     uint64_t ticket=mixer_control_ticket(c);
@@ -56,6 +60,10 @@ static void fx_slots(void)
     mixer_control_button(c,MIXER_SHIFT,0,ticket);
     ack(c);assert(accepted.track[0].fx.stage[0].eq.count==1);
     button(c,MIXER_SELECT);assert(view(c).fx_parameters);
+    cc(c,0x14,115);ack(c);
+    assert(accepted.track[0].mix.level_db==3&&view(c).fx_parameters&&view(c).fx_slot==0);
+    assert(mixer_control_reset(c,0x14,0,ticket));ack(c);
+    assert(accepted.track[0].mix.level_db==0&&view(c).fx_parameters);
     mixer_control_button(c,MIXER_SHIFT,1,ticket);
     for(unsigned i=0;i<3;++i)button(c,MIXER_B3);
     mixer_control_button(c,MIXER_SHIFT,0,ticket);
@@ -65,6 +73,28 @@ static void fx_slots(void)
     button(c,MIXER_B2);ack(c);
     struct fx_stage copied=accepted.track[0].fx.stage[0];
     assert(copied.eq.count==3&&copied.eq.band[2].gain_db>0&&copied.bypass);
+    button(c,MIXER_SELECT);assert(view(c).fx_parameters&&view(c).parameter_page==0);
+    cc(c,0x64,127);assert(view(c).parameter_page==2);
+    cc(c,0x10,35);mixer_control_tick(c);
+    cc(c,0x64,1);assert(view(c).parameter_page==0);
+    cc(c,0x11,99);button(c,MIXER_SELECT);assert(view(c).parameter_page==1);
+    assert(mixer_control_confirm(c,&accepted,revision,epoch));ack(c);
+    assert(view(c).fx_parameters&&view(c).parameter_page==1);
+    assert(accepted.track[0].fx.stage[0].eq.band[0].gain_db>0);
+    assert(accepted.track[0].fx.stage[0].eq.band[2].hz!=copied.eq.band[2].hz);
+    cc(c,0x10,45);cc(c,0x11,10);cc(c,0x12,127);
+    mixer_control_button(c,MIXER_SHIFT,1,ticket);
+    cc(c,0x10,0);cc(c,0x11,100);cc(c,0x12,100);
+    mixer_control_button(c,MIXER_SHIFT,0,ticket);
+    assert(mixer_control_reset(c,0x10,0,ticket)&&mixer_control_reset(c,0x11,1,ticket));ack(c);
+    const struct fx_eq_config*eq=&accepted.track[0].fx.stage[0].eq;
+    assert(view(c).parameter_page==1&&eq->band[1].hz==250&&eq->band[1].q==1);
+    assert(eq->band[1].gain_db<0&&eq->band[1].type==FX_EQ_NOTCH&&!eq->band[1].enabled&&eq->output_db>0);
+    assert(mixer_control_reset(c,0x11,0,ticket)&&mixer_control_reset(c,0x12,0,ticket));
+    assert(mixer_control_reset(c,0x10,1,ticket)&&mixer_control_reset(c,0x12,1,ticket));ack(c);
+    assert(eq->band[1].gain_db==0&&eq->band[1].type==FX_EQ_BELL&&eq->band[1].enabled&&eq->output_db==0);
+    assert(eq->band[0].gain_db>0&&eq->band[2].gain_db==copied.eq.band[2].gain_db);
+    button(c,MIXER_B1);
     pad(c,1,1);pad(c,1,0);assert(!view(c).fx_catalog);
     for(unsigned slot=0;slot<4;++slot){
         if(slot)cc(c,0x64,1);
@@ -84,7 +114,7 @@ static void fx_slots(void)
     assert(accepted.track[1].fx.stage[3].eq.band[0].gain_db==-18);
     assert(accepted.track[1].fx.stage[2].eq.band[0].gain_db==copied.eq.band[0].gain_db);
     button(c,MIXER_ERASE);assert(view(c).fx_delete);
-    cc(c,0x64,127);assert(view(c).fx_slot==3);
+    cc(c,0x64,127);cc(c,0x14,127);assert(view(c).fx_slot==3&&!view(c).pending);
     button(c,MIXER_B1);assert(!view(c).fx_delete);
     assert(accepted.track[1].fx.count==4);
     button(c,MIXER_ERASE);button(c,MIXER_B3);ack(c);
@@ -96,11 +126,28 @@ static void fx_slots(void)
     pad(c,8,1);pad(c,8,0);assert(view(c).fx_parameters&&view(c).fx_slot==0);
     unsigned bank=view(c).bank;
     button(c,MIXER_BANK);assert(view(c).bank==bank);
+    button(c,MIXER_BANK_PREVIOUS);assert(view(c).fx_parameters&&view(c).primary==0&&view(c).fx_slot==0);
+    button(c,MIXER_BANK_PREVIOUS);assert(view(c).master&&!view(c).fx_parameters);
+    button(c,MIXER_BANK_NEXT);assert(!view(c).master&&view(c).primary==0&&view(c).bank==bank);
+    button(c,MIXER_BANK_NEXT);assert(view(c).primary==1&&!view(c).fx_parameters);
     button(c,MIXER_KNOB);assert(view(c).page==MIXER_OVERVIEW&&!view(c).fx_parameters);
     pad(c,11,1);pad(c,11,0);assert(view(c).fx_catalog&&view(c).fx_slot==3);
-    button(c,MIXER_B1);assert(!view(c).fx_catalog);
+    cc(c,0x64,1);button(c,MIXER_SELECT);ack(c);
+    assert(accepted.track[1].fx.count==4);
+    button(c,MIXER_SELECT);assert(view(c).fx_parameters);
+    const struct fx_stage*delay=&accepted.track[1].fx.stage[3];
+    const struct fx_catalog_entry*entry=fx_catalog_find(delay->native_id);
+    assert(entry&&entry->count>6);
+    cc(c,0x10,0);button(c,MIXER_SELECT);assert(view(c).parameter_page==1);
+    mixer_control_button(c,MIXER_SHIFT,1,ticket);cc(c,0x10,127);
+    mixer_control_button(c,MIXER_SHIFT,0,ticket);ack(c);
+    int mix=fx_catalog_parameter_index(entry,9);
+    assert(mix>=0&&delay->parameter[0]==0&&delay->parameter[mix]==1);
+    assert(mixer_control_reset(c,0x10,1,ticket));ack(c);
+    assert(delay->parameter[mix]==entry->defaults[mix]&&delay->parameter[0]==0);
+    assert(view(c).parameter_page==1);
 
-    mixer_control_destroy(c);puts("PASS four Mixer FX slots, copy/paste, three EQ points, deletion and chain bypass");
+    mixer_control_destroy(c);puts("PASS Mixer FX slots, copy/paste, EQ navigation during edits, parameter resets, deletion and bypass");
 }
 static void send_name_history(void)
 {
@@ -114,8 +161,8 @@ static void send_name_history(void)
     cc(c,0x11,127);ack(c);assert(accepted.track[0].mix.send==1);
     mixer_control_button(c,MIXER_SHIFT,1,ticket);
     cc(c,0x11,32);ack(c);assert(accepted.send_to[0]==2);
-    button(c,MIXER_B2);assert(view(c).name_edit);
     mixer_control_button(c,MIXER_SHIFT,0,ticket);
+    button(c,MIXER_B2);assert(view(c).name_edit);
     cc(c,0x64,1);button(c,MIXER_B3);ack(c);assert(!strcmp(accepted.track[0].name,"Urack A"));
     mixer_control_button(c,MIXER_SHIFT,1,ticket);
     button(c,MIXER_BANK_PREVIOUS);ack(c);assert(!strcmp(accepted.track[0].name,"Track A"));
@@ -165,35 +212,45 @@ int main(void)
     cc(c,0x11,99);ack(c);assert(accepted.track[0].mix.send==99/127.f&&view(c).cursor==3);
     unsigned unchanged=submissions;button(c,MIXER_SELECT);button(c,MIXER_SELECT);
     button(c,MIXER_SELECT);assert(view(c).cursor==2);button(c,MIXER_SELECT);assert(view(c).cursor==3);button(c,MIXER_SELECT);assert(view(c).cursor==0);
-    /* B2 Mute, B3 Solo for the selection. */
-    button(c,MIXER_B2);ack(c);assert(accepted.track[0].mix.mute&&accepted.track[2].mix.mute&&accepted.track[4].mix.mute&&!accepted.track[1].mix.mute);
+    /* Hardware Mute and B3 Solo for the selection. */
+    button(c,MIXER_MUTE);ack(c);assert(accepted.track[0].mix.mute&&accepted.track[2].mix.mute&&accepted.track[4].mix.mute&&!accepted.track[1].mix.mute);
     button(c,MIXER_B3);ack(c);assert(accepted.track[0].mix.solo&&accepted.track[4].mix.solo);
-    button(c,MIXER_B2);ack(c);assert(!accepted.track[0].mix.mute);
+    button(c,MIXER_MUTE);ack(c);assert(!accepted.track[0].mix.mute);
+    button(c,MIXER_MUTE);ack(c);assert(accepted.track[4].mix.mute);
     /* Master: one, clears Track selection, no Mute/Solo, Level works. */
-    pad(c,15,1);pad(c,15,0);assert(view(c).master&&!view(c).selected);button(c,MIXER_B2);assert(!strcmp(mixer_control_message(c),"Master has no Mute/Solo"));
+    pad(c,15,1);pad(c,15,0);assert(view(c).master&&!view(c).selected);button(c,MIXER_MUTE);assert(!strcmp(mixer_control_message(c),"Master has no Mute/Solo"));
+    mixer_control_button(c,MIXER_SHIFT,1,ticket);button(c,MIXER_MUTE);
+    mixer_control_button(c,MIXER_SHIFT,0,ticket);ack(c);
+    for(unsigned track=0;track<MIXER_TRACKS;++track)assert(!accepted.track[track].mix.mute);
+    assert(accepted.track[0].mix.solo&&accepted.track[4].mix.solo);
     cc(c,0x14,103);ack(c);assert(accepted.master.mix.level_db==0);
     pad(c,0,1);pad(c,0,0);assert(!view(c).master&&view(c).selected==1);
-    puts("PASS one Mixer page: PAD FX/KNOB FX back on B1, held/Shift multi-select, relative Fader, Shift+Fader, absolute K1 for the selection, encoder follows, B2 Mute, B3 Solo, Master");
+    puts("PASS one Mixer page: PAD FX/KNOB FX back on B1, held/Shift multi-select, relative Fader, Shift+Fader, absolute K1 for the selection, encoder follows, Mute button, B3 Solo, Master");
     /* PAD FX: assign sounds to the selected Track; on Master they go to Master. */
     mixer_control_presence(c,1,UINT64_C(1)<<63,7);button(c,MIXER_PAD_FX);assert(view(c).page==MIXER_ASSIGN);pad(c,15,1);pad(c,15,0);
     assert(view(c).project->output[127]==0&&view(c).pending);assert(mixer_control_cursor(c,15)==2);ack(c);
     assert(accepted.output[127]==1);pad(c,14,1);pad(c,14,0);assert(!strcmp(mixer_control_message(c),"Empty pad"));
     unsigned bank_submissions=submissions;
     button(c,MIXER_BANK);assert(view(c).bank==0&&view(c).sound==14&&view(c).primary==0);
-    button(c,MIXER_BANK_PREVIOUS);assert(view(c).bank==7&&view(c).sound==126);
+    button(c,MIXER_BANK_PREVIOUS);assert(view(c).bank==0&&view(c).sound==14&&view(c).master);
+    button(c,MIXER_BANK_NEXT);assert(view(c).bank==0&&!view(c).master&&view(c).primary==0);
     mixer_control_button(c,MIXER_SHIFT,1,ticket);button(c,MIXER_BANK);
-    mixer_control_button(c,MIXER_SHIFT,0,ticket);assert(view(c).bank==6);
-    button(c,MIXER_BANK_NEXT);assert(view(c).bank==7);
+    mixer_control_button(c,MIXER_SHIFT,0,ticket);assert(view(c).bank==7&&view(c).sound==126);
     mixer_control_tick(c);assert(submissions==bank_submissions);
     /* Select pads: the enlarged Track keeps Fader, K1, B2/B3 working. */
     cc(c,0x10,0);ack(c);assert(accepted.track[0].mix.pan==-1&&view(c).page==MIXER_ASSIGN);
     cc(c,0x14,103);ack(c);assert(accepted.track[0].mix.level_db==0);
-    button(c,MIXER_B2);ack(c);assert(accepted.track[0].mix.mute);button(c,MIXER_B2);ack(c);assert(!accepted.track[0].mix.mute);
+    button(c,MIXER_MUTE);ack(c);assert(accepted.track[0].mix.mute);button(c,MIXER_MUTE);ack(c);assert(!accepted.track[0].mix.mute);
     button(c,MIXER_B1);pad(c,15,1);pad(c,15,0);button(c,MIXER_PAD_FX);assert(view(c).page==MIXER_ASSIGN);
     assert(mixer_control_cursor(c,15)==1);pad(c,15,1);pad(c,15,0);ack(c);assert(accepted.output[127]==0&&mixer_control_cursor(c,15)==2);
     button(c,MIXER_B1);pad(c,0,1);pad(c,0,0);
     unchanged=submissions;mixer_control_button(c,MIXER_SHIFT,1,ticket);button(c,MIXER_PAD_FX);mixer_control_button(c,MIXER_SHIFT,0,ticket);
-    assert(view(c).page==MIXER_INSPECT);cc(c,0x10,127);cc(c,0x14,127);pad(c,15,1);pad(c,15,0);mixer_control_tick(c);assert(submissions==unchanged);
+    assert(view(c).page==MIXER_INSPECT);
+    button(c,MIXER_BANK);assert(view(c).primary==1&&view(c).bank==7);
+    mixer_control_button(c,MIXER_SHIFT,1,ticket);button(c,MIXER_BANK);
+    mixer_control_button(c,MIXER_SHIFT,0,ticket);assert(view(c).primary==0&&view(c).bank==7);
+    button(c,MIXER_BANK_NEXT);assert(view(c).bank==0&&view(c).primary==0);
+    cc(c,0x10,127);cc(c,0x14,127);pad(c,15,1);pad(c,15,0);mixer_control_tick(c);assert(submissions==unchanged);
     button(c,MIXER_PAD_FX);assert(view(c).page==MIXER_OVERVIEW);
     pad(c,0,1);pad(c,1,1);pad(c,0,0);pad(c,1,0);button(c,MIXER_PAD_FX);assert(view(c).page==MIXER_OVERVIEW&&!strcmp(mixer_control_message(c),"Select one Track"));
     pad(c,0,1);pad(c,0,0);

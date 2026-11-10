@@ -118,9 +118,9 @@ uint64_t mixer_control_name_light(const struct mixer_control*c,unsigned pad)
 uint64_t mixer_control_ticket(const struct mixer_control*c){return c?c->ticket:0;}
 /* Device-agreed layout (07.11.2026): one Mixer page with Track cells.
  * B1 = back to the Mixer from PAD FX/KNOB FX, from the Mixer exit to Sample;
- * B2 = Mute, B3 = Solo of the selection; Fader = Level, K1 = Pan, K3 =
- * Colour, all absolute and equal for every selected Track; the last moved
- * control becomes the encoder parameter. */
+ * Mute and B3 control the selected Tracks; B2 opens the name editor.
+ * Fader = Level, K1 = Pan, K3 = Colour. The last moved control sets the
+ * encoder parameter. */
 enum {PARAM_LEVEL,PARAM_PAN,PARAM_COLOUR,PARAM_SEND,PARAMS};
 static void group_gate(struct mixer_control*c,int solo)
 {
@@ -137,6 +137,41 @@ static void open_fx(struct mixer_control*c)
     clear_fx_page(c);
     c->parameter_page=0;
     c->view.cursor=0;
+}
+static struct fx_eq_band mixer_eq_point_default(unsigned point,double rate)
+{
+    static const double hz[]={100,250,4000,8000};
+    double frequency=point<3?hz[point]:hz[3];
+    return (struct fx_eq_band){fmin(frequency,rate*.45),0,1,FX_EQ_BELL,1};
+}
+static int fx_page_count(const struct fx_stage*stage)
+{
+    if(stage->kind==FX_STAGE_EQ)return stage->eq.count?stage->eq.count:1;
+    unsigned n=fx_catalog_parameter_count(fx_catalog_find(stage->native_id));
+    return n?(int)((n+5)/6):1;
+}
+static void select_fx_page(struct mixer_control*c,const struct fx_stage*stage,int delta,int wrap)
+{
+    int count=fx_page_count(stage);
+    int next=(int)c->parameter_page+delta;
+    if(wrap)next=(next%count+count)%count;
+    else if(next<0)next=0;
+    else if(next>=count)next=count-1;
+    c->parameter_page=c->view.cursor=(unsigned)next;
+}
+static void browse_track(struct mixer_control*c,int previous)
+{
+    unsigned current=c->view.master?MIXER_TRACKS:c->view.primary;
+    unsigned next=(current+(previous?MIXER_TRACKS:1))%(MIXER_TRACKS+1);
+    c->view.master=next==MIXER_TRACKS;
+    c->view.selected=c->view.master?0:1u<<next;
+    if(!c->view.master)c->view.primary=next;
+    c->held_tracks=0;c->view.colour_edit=0;c->name_since=0;pickup(c);
+    if(c->view.page==MIXER_KNOB_FX){
+        int editing=c->view.fx_parameters;
+        open_fx(c);
+        c->view.fx_parameters=editing&&c->view.fx_slot<selected(c)->fx.count;
+    }
 }
 void mixer_control_set_fx_editing(struct mixer_control*c,int on){if(c)c->fx_editing=on!=0;}
 static int put_fx(struct mixer_control*c,const struct fx_stage*stage)
@@ -175,7 +210,7 @@ static const struct mixer_mix*primary_mix(const struct mixer_control*c)
 {return c->view.master?&c->desired.master.mix:&c->desired.track[c->view.primary].mix;}
 int mixer_control_button(struct mixer_control*c,enum mixer_action action,int down,uint64_t ticket)
 {
-    if(!c||(unsigned)action>MIXER_ERASE)return 0;
+    if(!c||(unsigned)action>MIXER_MUTE)return 0;
     unsigned bit=1u<<action;
     if(action==MIXER_SHIFT){
         if(c->shift!=(down!=0))pickup(c);
@@ -218,14 +253,28 @@ int mixer_control_button(struct mixer_control*c,enum mixer_action action,int dow
         if(!c->view.fx_parameters&&!c->catalog&&c->view.fx_slot<selected(c)->fx.count)c->view.fx_delete=1;
         return 1;
     }
+    if(action==MIXER_MUTE){
+        if(c->view.page==MIXER_INSPECT)return 1;
+        if(!c->shift)group_gate(c,0);
+        else for(unsigned i=0;i<MIXER_TRACKS;++i)if(c->desired.track[i].mix.mute){
+            c->desired.track[i].mix.mute=0;changed(c);
+        }
+        return 1;
+    }
+    if(c->catalog&&(action==MIXER_B2||action==MIXER_B3))return 1;
     if(history){
         c->history_request=action==MIXER_BANK_PREVIOUS?-1:1;return 1;
     }
     if(bank_action){
-        if(!bank_page)return 1;
-        int previous=action==MIXER_BANK_PREVIOUS||(action==MIXER_BANK&&c->shift);
-        c->view.bank=(c->view.bank+(previous?7:1))%8;
-        c->view.sound=c->view.bank*16+c->view.sound%16;
+        int inspect=c->view.page==MIXER_INSPECT;
+        int bank_key=action==MIXER_BANK;
+        int previous=action==MIXER_BANK_PREVIOUS||(bank_key&&c->shift);
+        if(inspect?bank_key:!bank_key){
+            browse_track(c,previous);
+        }else if(bank_page){
+            c->view.bank=(c->view.bank+(previous?7:1))%8;
+            c->view.sound=c->view.bank*16+c->view.sound%16;
+        }
     }else if(action==MIXER_B1){
         if(c->view.page==MIXER_KNOB_FX&&(c->catalog||c->view.fx_parameters)){open_fx(c);return 1;}
         if(c->view.page!=MIXER_OVERVIEW){c->view.page=MIXER_OVERVIEW;c->temporary=0;c->view.cursor=PARAM_LEVEL;}
@@ -246,23 +295,23 @@ int mixer_control_button(struct mixer_control*c,enum mixer_action action,int dow
             if(eq->count>=3)c->message="Three EQ points maximum";
             else{
                 unsigned point=eq->count++;
-                eq->band[point]=(struct fx_eq_band){point==1?250:4000,0,1,FX_EQ_BELL,1};
+                eq->band[point]=mixer_eq_point_default(point,c->rate);
                 c->parameter_page=c->view.cursor=point;changed(c);
             }
         }
     }else if(action==MIXER_B2&&c->view.page==MIXER_KNOB_FX&&c->view.fx_parameters&&!c->shift){
         selected(c)->fx.stage[c->view.fx_slot].bypass^=1;changed(c);
-    }else if(action==MIXER_B2&&c->shift&&c->view.page==MIXER_OVERVIEW){
+    }else if(action==MIXER_B2&&!c->shift&&c->view.page==MIXER_OVERVIEW){
         if(!one(c)){c->message="Select one Track";return 1;}
         phone_init(&c->name,MIXER_NAME_BYTES-1);
         if(phone_sync(&c->name,selected(c)->name,0))c->naming=1;
-    }else if(action==MIXER_B2&&c->shift){
+    }else if(action==MIXER_B2&&c->shift&&c->view.page!=MIXER_OVERVIEW&&c->view.page!=MIXER_INSPECT){
         /* Shift+B2: FX Bypass of the selection or Master. */
         if(c->view.master)c->desired.master.fx_bypass^=1;
         else for(unsigned i=0;i<8;++i)if(c->view.selected&(1u<<i))c->desired.track[i].fx_bypass^=1;
         changed(c);
-    }else if(action==MIXER_B2||action==MIXER_B3){
-        if(c->view.page==MIXER_OVERVIEW||c->view.page==MIXER_ASSIGN)group_gate(c,action==MIXER_B3);
+    }else if(action==MIXER_B3){
+        if(c->view.page==MIXER_OVERVIEW||c->view.page==MIXER_ASSIGN)group_gate(c,1);
     }else if(action==MIXER_PAD_FX){
         if(c->view.page==MIXER_ASSIGN||c->view.page==MIXER_INSPECT){c->view.page=MIXER_OVERVIEW;c->temporary=0;return 1;}
         if(!c->shift&&!one(c)){c->message="Select one Track";return 1;}
@@ -281,6 +330,7 @@ int mixer_control_button(struct mixer_control*c,enum mixer_action action,int dow
                     put_fx(c,&stage);
                 }
             }else if(c->view.fx_slot==ch->fx.count)c->catalog=1;
+            else if(c->view.fx_parameters)select_fx_page(c,ch->fx.stage+c->view.fx_slot,1,1);
             else if(c->shift){ch->fx.stage[c->view.fx_slot].bypass^=1;changed(c);}
             else c->view.fx_parameters=1;
         }
@@ -378,12 +428,47 @@ static void move_fader(struct mixer_control*c,unsigned value)
         }
     }
 }
-int mixer_control_reset(struct mixer_control*c,unsigned cc,uint64_t ticket)
+static int effect_parameter_index(const struct mixer_control*c,const struct fx_catalog_entry*entry,
+                                  unsigned knob,int shift)
+{
+    return fx_catalog_parameter_index(entry,c->parameter_page*6+(shift?3:0)+knob);
+}
+static void reset_fx_parameter(struct mixer_control*c,unsigned knob,int shift)
+{
+    struct mixer_channel*channel=selected(c);
+    if(!c->view.fx_parameters||c->view.fx_slot>=channel->fx.count)return;
+    struct fx_stage*stage=channel->fx.stage+c->view.fx_slot;
+    if(stage->kind==FX_STAGE_EQ){
+        if(!stage->eq.count)return;
+        unsigned point=c->parameter_page<stage->eq.count?c->parameter_page:0;
+        struct fx_eq_band*b=stage->eq.band+point;
+        struct fx_eq_band defaults=mixer_eq_point_default(point,c->rate);
+        if(shift){
+            if(knob==0)b->enabled=defaults.enabled;
+            else if(knob==1)b->q=defaults.q;
+            else stage->eq.output_db=0;
+        }else if(knob==0)b->hz=defaults.hz;
+        else if(knob==1)b->gain_db=defaults.gain_db;
+        else b->type=defaults.type;
+    }else{
+        const struct fx_catalog_entry*entry=fx_catalog_find(stage->native_id);
+        int index=effect_parameter_index(c,entry,knob,shift);
+        if(index<0)return;
+        stage->parameter[index]=entry->defaults[index];
+    }
+    changed(c);
+}
+int mixer_control_reset(struct mixer_control*c,unsigned cc,int shift,uint64_t ticket)
 {
     /* Pad Bank held + control: default value for the whole selection. */
     if(!c||!c->active)return 0;
-    if(ticket!=c->ticket||(c->view.page!=MIXER_OVERVIEW&&c->view.page!=MIXER_ASSIGN))return 1;
-    if(cc==0x14){pickup(c);each(c,set_level,0);c->view.cursor=PARAM_LEVEL;}
+    if(ticket!=c->ticket||c->naming||c->view.fx_delete)return 1;
+    if(c->view.page==MIXER_KNOB_FX&&cc>=0x10&&cc<=0x12){
+        reset_fx_parameter(c,cc-0x10,shift);return 1;
+    }
+    if(c->view.page!=MIXER_OVERVIEW&&c->view.page!=MIXER_ASSIGN&&
+       !(c->view.page==MIXER_KNOB_FX&&cc==0x14))return 1;
+    if(cc==0x14){pickup(c);each(c,set_level,0);if(c->view.page!=MIXER_KNOB_FX)c->view.cursor=PARAM_LEVEL;}
     else if(cc==0x10){each(c,set_pan,0);c->view.cursor=PARAM_PAN;}
     else if(cc==0x11&&!c->view.master){each(c,set_send,0);c->view.cursor=PARAM_SEND;}
     else if(cc==0x12){set_colour(c,MIXER_DEFAULT_TRACK_COLOUR);c->view.cursor=PARAM_COLOUR;}
@@ -416,25 +501,22 @@ static int fx_cc(struct mixer_control*c,unsigned cc,unsigned value)
             c->view.fx_slot=(unsigned)next>last?last:(unsigned)next;
             open_fx(c);return 1;
         }
-        unsigned limit=c->catalog?fx_mixer_catalog_count():5;
-        if(!c->catalog&&c->view.fx_slot<ch->fx.count){
-            const struct fx_stage*s=ch->fx.stage+c->view.fx_slot;
-            if(s->kind==FX_STAGE_EQ)limit=s->eq.count?s->eq.count:1;
-            else{
-                unsigned n=fx_catalog_parameter_count(fx_catalog_find(s->native_id));
-                limit=(n+5)/6;if(!limit)limit=1;
-            }
+        if(c->catalog){
+            int next=(int)c->view.cursor+delta;
+            int last=(int)fx_mixer_catalog_count()-1;
+            c->view.cursor=(unsigned)(next<0?0:next>last?last:next);
+        }else if(c->view.fx_slot<ch->fx.count){
+            const struct fx_stage*stage=ch->fx.stage+c->view.fx_slot;
+            select_fx_page(c,stage,delta,stage->kind==FX_STAGE_EQ);
         }
-        int next=(int)c->view.cursor+delta;if(next<0)next=0;if((unsigned)next>=limit)next=(int)limit-1;c->view.cursor=(unsigned)next;
-        if(!c->catalog)c->parameter_page=c->view.cursor;
         return 1;
     }
     if(!one(c)){c->message="Select one Track";return 1;}
     if(c->catalog){if(cc==0x10)c->view.cursor=value*fx_mixer_catalog_count()/128;return 1;}
-    if(cc==0x14||!c->view.fx_parameters||c->view.fx_slot>=ch->fx.count)return 1;
+    if(!c->view.fx_parameters||c->view.fx_slot>=ch->fx.count)return 1;
     struct fx_stage*s=ch->fx.stage+c->view.fx_slot;
-    if(s->kind!=FX_STAGE_EQ){unsigned position=c->parameter_page*6+(c->shift?3:0)+cc-0x10;
-        int index=fx_catalog_parameter_index(fx_catalog_find(s->native_id),position);
+    if(s->kind!=FX_STAGE_EQ){
+        int index=effect_parameter_index(c,fx_catalog_find(s->native_id),cc-0x10,c->shift);
         if(index>=0){s->parameter[index]=value/127.f;changed(c);}
     }else{if(!s->eq.count)fx_eq_default(&s->eq);
         struct fx_eq_band*b=s->eq.band+(c->parameter_page<s->eq.count?c->parameter_page:0);
@@ -471,9 +553,13 @@ int mixer_control_cc(struct mixer_control*c,unsigned cc,unsigned value,uint64_t 
     }
     /* PAD FX (Select pads): the enlarged Track on the left keeps Fader, K1,
      * K3 and the encoder exactly as on the Mixer page; banks via Bank/+/-. */
+    if(cc==0x14&&!c->view.fx_delete){
+        move_fader(c,value);
+        if(c->view.page!=MIXER_KNOB_FX)c->view.cursor=PARAM_LEVEL;
+        return 1;
+    }
     if(c->view.page==MIXER_KNOB_FX&&c->fx_editing)return fx_cc(c,cc,value);
     if(c->view.page!=MIXER_OVERVIEW&&c->view.page!=MIXER_ASSIGN)return 1;
-    if(cc==0x14){move_fader(c,value);c->view.cursor=PARAM_LEVEL;return 1;}
     if(cc==0x10){each(c,set_pan,value==64?0:((float)value-64)/(value<64?64:63));c->view.cursor=PARAM_PAN;return 1;}
     if(cc==0x12){set_colour(c,value*MIXER_COLOURS/128);c->view.cursor=PARAM_COLOUR;return 1;}
     if(cc==0x11){

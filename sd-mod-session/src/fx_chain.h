@@ -49,7 +49,7 @@ enum fx_result fx_exchange_publish(struct fx_exchange *,struct fx_program *);
 void fx_exchange_collect(struct fx_exchange *);
 void fx_exchange_process(struct fx_exchange *,float *,size_t);
 /* Audio-only observation of one stage of the active chain, before/after DSP. */
-typedef void (*fx_stage_tap)(void*,const float*,size_t,int after);
+typedef void (*fx_stage_tap)(void*,const float*,size_t,int after,float minimum_gain);
 void fx_exchange_process_keyed(struct fx_exchange *,float *,size_t,unsigned,fx_stage_tap,void *,
                                const float *const keys[FX_SIDECHAIN_KEYS]);
 void fx_exchange_process_tapped(struct fx_exchange *,float *,size_t,unsigned,fx_stage_tap,void *);

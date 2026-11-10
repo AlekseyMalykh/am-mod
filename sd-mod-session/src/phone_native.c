@@ -814,13 +814,14 @@ static int mixer_dispatch(struct phone_event *e)
     if (control && (suppress || blocked)) mixer_close_ui();
     /* Device report: Shift did nothing in the Mixer. Shift itself stays a
      * native button (it is never queued to the Mixer). CCs capture Shift at
-     * arrival so a quick release cannot change the gesture. Shift+B1 Mute,
-     * Shift+B3 Solo, Shift+B2 FX bypass, Shift+PAD FX Inspect, Shift+Bank. */
-    if (control)
-        mixer_control_button(control,MIXER_SHIFT,
-            e->kind==PHONE_MIXER_CC ? e->down!=0 :
-            atomic_load(&native_shift_requested)||atomic_load(&native_buttons_down[0x31]),
-            mixer_control_ticket(control));
+     * arrival so a quick release cannot change the gesture. Mixer button
+     * presses also keep their arrival-time Shift state. */
+    if (control) {
+        int shift=atomic_load(&native_shift_requested)||atomic_load(&native_buttons_down[0x31]);
+        if(e->kind==PHONE_MIXER_CC)shift=e->down!=0;
+        else if(e->kind==PHONE_MIXER_BUTTON&&e->down)shift=e->up!=0;
+        mixer_control_button(control,MIXER_SHIFT,shift,mixer_control_ticket(control));
+    }
     if (e->kind == PHONE_MIXER_ENTRY && e->pad == 0xffu) {
         /* PAD FX + KNOB FX: open now on Sample; elsewhere press stock Sample
          * first and open on the tick once Sample shows. */
@@ -850,7 +851,7 @@ static int mixer_dispatch(struct phone_event *e)
         if (!suppress && control && e->generation == mixer_binding && e->native[8] == 0x14 &&
             (knob_reset_ticket()&2) && mixer_control_active(control)) {
             /* Pad Bank held + Fader: default Level (0 dB) for the selection. */
-            mixer_control_reset(control,0x14,mixer_control_ticket(control));
+            mixer_control_reset(control,0x14,0,mixer_control_ticket(control));
             break;
         }
 #endif
@@ -2028,7 +2029,8 @@ static void buttons(void *event)
         uint64_t ticket = mixer_capture_route();
         if (ticket && native_down && !atomic_load(&native_buttons_down[native_code]) &&
             mixer_input_action(native_code,NULL)) {
-            struct phone_event e = {.kind=PHONE_MIXER_BUTTON,.generation=ticket,.down=native_down};
+            struct phone_event e = {.kind=PHONE_MIXER_BUTTON,.generation=ticket,.down=native_down,
+                .up=atomic_load(&native_shift_requested)||atomic_load(&native_buttons_down[0x31])};
             memcpy(e.native,event,16);
             if (mixer_queue_pair(&e,held)) {
                 if (*held != UINT64_MAX || (native_code != 6 && native_code != 7)) return;
@@ -2304,10 +2306,10 @@ static unsigned process_events(void)
                 int done=0;
 #ifdef MPC_MIXER_LIVE
                 {struct mixer_control *mc=mixer_session_control(mixer_ui_session);
-                 if(mixer_control_active(mc))done=mixer_control_reset(mc,cc,mixer_control_ticket(mc))||1;}
+                 if(mixer_control_active(mc))done=mixer_control_reset(mc,cc,shift,mixer_control_ticket(mc));}
 #endif
 #ifdef MPC_REAR_ROUTING
-                done=rear_ui_reset_knob?rear_ui_reset_knob(column,shift):0;
+                if(!done&&rear_ui_reset_knob)done=rear_ui_reset_knob(column,shift);
 #endif
 #ifdef MPC_COMPRESSOR
                 if(!done)done=compressor_ui_reset_knob(column,shift);

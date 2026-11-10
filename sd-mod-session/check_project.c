@@ -68,7 +68,7 @@ memcpy(base+0x1643908,&b,4);
 #ifdef TEST_PHONE
 #ifdef TEST_LIGHTING_MENU
 #ifdef TEST_NO_MOD_OFF
- const char *labels[]={"Load Project","Save Project","New Project","SD Card Access","Key / Scale","Mod Settings"};const int rows=6;
+ const char *labels[]={"Load Project","Save Project","New Project","SD Card Access","Key / Scale / Tempo","Mod Settings"};const int rows=6;
 #else
  const char *labels[]={"Load Project","Save Project","New Project","SD Card Access","Key / Scale","Pad Lighting","Mod Off"};const int rows=7;
 #endif

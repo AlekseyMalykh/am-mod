@@ -19,15 +19,15 @@ static void font_end(uint64_t*font){(void)font;}
 static void ink_set(void*g,uint32_t ink){(void)g;draw_ink=ink;}
 static void grid_rect(void*g,int x,int y,int w,int h){
  (void)g;assert(x>=0&&y>=5&&x+w<=320&&y+h<=240);
- if(w==75&&h==25)return;
+ if(w==75&&h==22)return;
  assert(draw_ink==WHITE);++frame_edges;
- if(w==77&&h==1&&y>=81&&(y-81)%28==0&&x>=3&&(x-3)%79==0){
-  int row=(y-81)/28,col=(x-3)/79;assert(row<4&&col<4);frame_mask|=1u<<((3-row)*4+col);
+ if(w==77&&h==1&&y>=85&&(y-85)%25==0&&x>=3&&(x-3)%79==0){
+  int row=(y-85)/25,col=(x-3)/79;assert(row<4&&col<4);frame_mask|=1u<<((3-row)*4+col);
  }
 }
 static void grid_text(void*g,const uint64_t*s,int x,int y,int w,int h,int align,int lines,float scale){
- (void)g;(void)align;(void)lines;(void)scale;assert(w==75&&h==23);
- int row=(y-83)/28,col=(x-4)/79;assert(row>=0&&row<4&&col>=0&&col<4);
+ (void)g;(void)align;(void)lines;(void)scale;assert(w==75&&h==20);
+ int row=(y-87)/25,col=(x-4)/79;assert(row>=0&&row<4&&col>=0&&col<4);
  unsigned physical=(unsigned)((3-row)*4+col);drawn_numbers[physical]=atoi((const char*)(uintptr_t)*s);label_ink[physical]=draw_ink;
 }
 static void screen_paint(void*p,void*g){(void)p;(void)g;}
@@ -177,7 +177,7 @@ int main(void){
  stub(0xf535c0,text_make,0);stub(0x1082810,font_make,0);stub(0x102dca0,font_use,0);stub(0x1070d60,font_end,0);
  stub(0x102d5e0,ink_set,0);stub(0x102e000,grid_rect,0);stub(0x10817b0,grid_text,0);__builtin___clear_cache(p,(char*)p+0x7500000);
  music_reset();assert(music_pad_lighting_mode()==MUSIC_LIGHTING_MOD&&music_mod_setting(MUSIC_SETTING_BLINK)==2);sound=0;assert(music_set_pad_colour(0,8));assert(music_set_pad_colour(17,7));assert(music_set_pad_colour(127,4));
- assert((uint32_t)step_palette_value(1,0,0,0,0,0,400)==0x2030ff);
+ assert((uint32_t)step_palette_value(1,0,0,0,0,0,400)==music_palette_default_rgb(0));
  sound=17;assert((uint32_t)step_palette_value(1,0,0,0,0,0,400)==music_identity_rgb(7));sound=0;
  for(unsigned colour=0;colour<MUSIC_SEQUENCE_COLOURS;++colour){
   assert(music_set_pad_colour(0,colour));uint32_t expected=colour?music_identity_rgb(colour):PAD_CONTENT;
@@ -230,7 +230,7 @@ int main(void){
  assert(show_other_sounds);cursor_visible=0;was_playing=0;grid=2;page=0;sound=0;other_sound_steps=1;
  memset(slots,0,sizeof(slots));palette();
  assert(atomic_load(&lights[12])==pad_light(PAD_CONTEXT,.20f)&&atomic_load(&lights[13])==pad_light(0xffffff,.06f));
- slots[0].count=1;palette();assert((uint32_t)atomic_load(&lights[12])==0x2030ff);
+ slots[0].count=1;palette();assert((uint32_t)atomic_load(&lights[12])==music_palette_default_rgb(0));
  slots[0].muted=1;palette();assert((uint32_t)atomic_load(&lights[12])==PAD_MUTED);
  memset(slots,0,sizeof(slots));other_sound_steps=0;
  /* Sparse and dense sequence context: only real other-sound steps get a
@@ -240,17 +240,17 @@ int main(void){
  other_sound_steps=(1u<<1)|(1u<<2)|(1u<<12);palette();
  for(unsigned key=0;key<16;++key){
   unsigned step=(3-key/4)*4+key%4;
-  uint64_t expected=(step==2||step==9)?pad_light(0x2030ff,.80f)
+  uint64_t expected=(step==2||step==9)?pad_light(music_palette_default_rgb(0),.80f)
       :(step==1||step==12)?pad_light(PAD_CONTEXT,.20f):pad_light(0xffffff,.06f);
   assert(atomic_load(&lights[key])==expected);
  }
  other_sound_steps=0xffff;palette();
  for(unsigned key=0;key<16;++key){
   unsigned step=(3-key/4)*4+key%4;
-  assert(atomic_load(&lights[key])==((step==2||step==9)?pad_light(0x2030ff,.80f):pad_light(PAD_CONTEXT,.20f)));
+  assert(atomic_load(&lights[key])==((step==2||step==9)?pad_light(music_palette_default_rgb(0),.80f):pad_light(PAD_CONTEXT,.20f)));
  }
  show_other_sounds=0;palette();
- for(unsigned key=0;key<16;++key){unsigned step=(3-key/4)*4+key%4;assert(atomic_load(&lights[key])==((step==2||step==9)?pad_light(0x2030ff,.80f):pad_light(0xffffff,.06f)));}
+ for(unsigned key=0;key<16;++key){unsigned step=(3-key/4)*4+key%4;assert(atomic_load(&lights[key])==((step==2||step==9)?pad_light(music_palette_default_rgb(0),.80f):pad_light(0xffffff,.06f)));}
  /* A partial page must distinguish writable empties from out-of-range pads. */
  int64_t old_length=length;length=5*grid_ticks[grid];memset(slots,0,sizeof(slots));other_sound_steps=0;palette();
  for(unsigned key=0;key<16;++key)assert(atomic_load(&lights[key])==(pad_step(key)<5?pad_light(0xffffff,.06f):0));
@@ -282,10 +282,10 @@ int main(void){
  FIELD(model,0xa0,void*)=screen+0x11c8;FIELD(model,0x20,void*)=columns;FIELD(model,0x28,void*)=columns+48;
  FIELD(columns,16,uint32_t)=AMBER;FIELD(columns,20,uint32_t)=WHITE;FIELD(columns,40,uint32_t)=RED;
  for(int selected=0;selected<2;++selected){
-  event_row_paint(model,0,(void*)1,320,28,selected);assert(row_normal==0xff2030ff&&row_selected==0xff2030ff&&row_second==RED&&row_selection==selected);
+  event_row_paint(model,0,(void*)1,320,28,selected);assert(row_normal==(0xff000000u|music_palette_default_rgb(0))&&row_selected==row_normal&&row_second==RED&&row_selection==selected);
   assert(FIELD(columns,16,uint32_t)==AMBER&&FIELD(columns,20,uint32_t)==WHITE);
   event_row_paint(model,1,(void*)1,320,28,selected);assert(row_normal==(0xff000000u|music_identity_rgb(7)));
-  event_row_paint(model,3,(void*)1,320,28,selected);assert(row_normal==0xffff20b0);
+  event_row_paint(model,3,(void*)1,320,28,selected);assert(row_normal==(0xff000000u|music_palette_default_rgb(2)));
  }
  for(int i=2;i<6;++i)if(i!=3){event_row_paint(model,i,(void*)1,320,28,0);assert(row_normal==AMBER);}
  assert(music_set_pad_colour(0,0));event_row_paint(model,0,(void*)1,320,28,0);assert(row_normal==AMBER);

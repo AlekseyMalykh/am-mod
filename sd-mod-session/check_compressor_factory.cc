@@ -19,11 +19,17 @@ static int visible(void*){return showing;}
 static int modal(void*){return 0;}
 static void repaint(void*,uint64_t,uint64_t){++repaints;}
 static void colour(void*,uint32_t value){ink=value;}
-static void rectangle(void*,int x,int y,int w,int h){assert(x>=0&&y>=0&&w>=0&&h>=0&&x+w<=320&&y+h<=240);if(w==5&&y==25){assert(h==1||h==3);++indicators;}if(x==213&&y==0&&w==107&&h==29){assert(ink==0xff000000);bypass_underline=false;}if(x==221&&y==25&&w==91&&h==1){assert(ink==0xffffc247);bypass_underline=true;}if(x==0&&y==0&&w==106&&h==29){assert(ink==0xff000000);warm_underline=false;}if(x==8&&y==25&&w==90&&h==1){assert(ink==0xffffc247);warm_underline=true;}}
+static void rectangle(void*,int x,int y,int w,int h){assert(x>=0&&y>=0&&w>=0&&h>=0&&x+w<=320&&y+h<=240);if(y==205&&w==2&&h==4&&(x==98||x==204||x==310)){
+    if(ink==0xffff4747)++red_badges;else{assert(ink==0xffffffff);++white_badges;}
+}if(w==5&&y==25){assert(h==1||h==3);++indicators;}if(x==213&&y==0&&w==107&&h==29){assert(ink==0xff000000);bypass_underline=false;}if(x==221&&y==25&&w==91&&h==1){assert(ink==0xffffc247);bypass_underline=true;}if(x==0&&y==0&&w==106&&h==29){assert(ink==0xff000000);warm_underline=false;}if(x==8&&y==25&&w==90&&h==1){assert(ink==0xffffc247);warm_underline=true;}}
 static void font_create(uint64_t*f,int,float){*f=0;}
 static void font_destroy(uint64_t*){}
 static void font_set(void*,const uint64_t*){}
-static void text(void*,const uint64_t*s,int x,int y,int w,int h,int,int,float){assert(x>=0&&y>=0&&x+w<=320&&y+h<=240);const char*t=reinterpret_cast<const char*>(*s);if(!strcmp(t,"Type"))++type_labels;if(!strcmp(t,"Warm"))++warm_labels;if(!strcmp(t,"Attack"))shift_labels|=1;if(!strcmp(t,"Release"))shift_labels|=2;if(!strcmp(t,"Knee"))shift_labels|=4;if(!strncmp(t,"GR ",3))assert(sscanf(t,"GR %f dB",&displayed_gr)==1);if(!strcmp(t,"S")){assert(y==201&&w==8&&h==10&&(x==95||x==201||x==307));if(ink==0xffff4747)++red_badges;else{assert(ink==0xffffffff);++white_badges;}}}
+static void text(void*,const uint64_t*s,int x,int y,int w,int h,int,int,float){assert(x>=0&&y>=0&&x+w<=320&&y+h<=240);const char*t=reinterpret_cast<const char*>(*s);if(!strcmp(t,"Type"))++type_labels;if(!strcmp(t,"Warm"))++warm_labels;if(!strcmp(t,"Attack"))shift_labels|=1;if(!strcmp(t,"Release"))shift_labels|=2;if(!strcmp(t,"Knee"))shift_labels|=4;if(!strncmp(t,"GR ",3))assert(sscanf(t,"GR %f dB",&displayed_gr)==1);
+ if(!strcmp(t,"S")&&y==201){
+    if(ink==0xffff4747)++red_badges;else{assert(ink==0xffffffff);++white_badges;}
+ }
+}
 static unsigned lit_meters(uintptr_t base){
  const uint32_t*p=compressor_image_pixels(base);assert(p);unsigned n=0;
  for(int y=0;y<164;++y)for(int x=268;x<312;++x)n+=p[y*320+x]==0xff00ffa7u||p[y*320+x]==0xffd31145u;

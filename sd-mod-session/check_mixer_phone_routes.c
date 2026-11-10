@@ -181,19 +181,36 @@ int main(void)
     button(0x36,0);drain();
     assert(!stock_down[0x36]&&!stock_up[0x36]);
     mixer_control_view(session.control,0,&view);
-    assert(view.page==MIXER_OVERVIEW&&view.bank==7&&view.primary==4);
-    assert(step_native_browser_bank(-1)==7&&!mixer_leds_light(0,0,&colour));
+    assert(view.page==MIXER_OVERVIEW&&view.bank==6&&view.primary==5);
+    assert(step_native_browser_bank(-1)==6&&!mixer_leds_light(0,0,&colour));
+    pad(4,1);pad(4,0);drain();
     unsigned char knob[16]={0};
     knob[8]=0x10;
     controller(knob);
     drain();
     mixer_control_view(session.control,0,&view);
     assert(view.pending && !stock_cc);
+    mixer_control_set_fx_editing(session.control,1);
+    button(0,1);button(0,0);drain();
+    knob[8]=0x14;knob[9]=115;controller(knob);drain();
+    mixer_control_view(session.control,0,&view);
+    assert(view.page==MIXER_KNOB_FX&&view.project->track[4].mix.level_db==3&&!stock_cc);
+    button(0x2b,1);button(0x2b,0);drain();
+    mixer_control_view(session.control,0,&view);
+    assert(view.project->track[4].mix.mute&&!stock_down[0x2b]&&!stock_up[0x2b]);
+    button(0x31,1);button(0x2b,1);button(0x2b,0);button(0x31,0);drain();
+    mixer_control_view(session.control,0,&view);
+    assert(!view.project->track[4].mix.mute&&!stock_down[0x2b]&&!stock_up[0x2b]);
+
+
 
     button(7,1);
     button(7,0);
     drain();
     assert(!mixer_control_active(session.control) && stock_down[7]==1 && stock_up[7]==1);
+    button(0x2b,1);button(0x2b,0);
+    assert(stock_down[0x2b]==1&&stock_up[0x2b]==1);
+
     button(0x0c,1);
     button(0x0c,0);
     assert(stock_down[0x0c]==1 && stock_up[0x0c]==1);

@@ -62,7 +62,9 @@ static void *repeat_root;
 static _Atomic unsigned seq_active,global_shift;
 static _Atomic unsigned exit_blocked;
 static int exit_presented,exit_started,lighting_save_error;
-static unsigned mod_tab,mod_row,mod_edit,mod_reset_confirm;
+static unsigned mod_tab,mod_row,mod_edit,mod_reset_confirm,palette_edit,palette_index;
+static uint32_t palette_draft;
+static int palette_save_first;
 enum { MOD_ABOUT_TAB=4, MOD_TAB_COUNT=5 };
 static char exit_error[160];
 int music_ui_exit_saving(void){return atomic_load(&exit_blocked)!=0;}
@@ -241,7 +243,7 @@ int music_ui_tick(void)
     if (atomic_exchange(&dead_project,0)) { project=0; key_page=0; }
     uintptr_t requested=atomic_exchange(&request,0);
     if (requested && (requested&~(uintptr_t)3)==atomic_load(&project_id) && visible(project)) {
-        key_page=(requested&2)?5:(requested&1)?2:1;lighting_save_error=0;mod_tab=mod_row=mod_edit=mod_reset_confirm=0; focus=0; repaint(project); report(key_page==2?"MOD_OFF_CONFIRM_OPEN":"PROJECT_KEY_PAGE_OPEN");
+        key_page=(requested&2)?5:(requested&1)?2:1;lighting_save_error=0;mod_tab=mod_row=mod_edit=mod_reset_confirm=palette_edit=0; focus=0; repaint(project); report(key_page==2?"MOD_OFF_CONFIRM_OPEN":"PROJECT_KEY_PAGE_OPEN");
     }
     int sv=visible(sample)&&!music_ui_repeat_active(),pv=visible(project);
     /* Project is a native overlay; underlying Sample can remain showing.
@@ -680,7 +682,33 @@ static void text_aligned(void *g,const char *s,int x,int y,int w,int h,float hei
 }
 /* Mod Settings uses the stock list style of Project / Input Config: label on
  * the left, value on the right, grey fill on the selected row. */
+static void palette_paint(void*g){
+ colour(g,0xff000000u);rect(g,0,0,320,240);
+ colour(g,0xffffffffu);text(g,"Cancel",0,6,106,23,14);text(g,"Default",107,6,106,23,14);
+ colour(g,0xffffc247u);text(g,"Save",214,6,106,23,14);
+ colour(g,0xffffffffu);text_aligned(g,"Palette Editor",12,34,190,22,17,0x21);
+ text_aligned(g,music_palette_name(palette_index),206,34,102,22,14,0x22);
+ for(unsigned i=0;i<MUSIC_PALETTE_SIZE;++i){
+  int x=12+(int)(i%7)*43,y=64+(int)(i/7)*29;
+  colour(g,i==palette_index?0xffffffffu:0xff303030u);rect(g,x,y,38,24);
+  colour(g,0xff000000u|(i==palette_index?palette_draft:music_palette_rgb(i)));rect(g,x+2,y+2,34,20);
+ }
+ char hex[8];snprintf(hex,sizeof(hex),"#%06X",(unsigned)(palette_draft&0xffffffu));
+ colour(g,0xff333333u);rect(g,12,127,74,27);
+ colour(g,0xff000000u|palette_draft);rect(g,13,128,72,25);
+ colour(g,0xffffffffu);text_aligned(g,hex,97,126,80,28,16,0x21);
+ colour(g,0xffaaaaaau);text_aligned(g,"DATA: choose colour",180,127,128,25,11,0x22);
+ colour(g,lighting_save_error?0xffff4040u:0xffaaaaaau);
+ text(g,lighting_save_error?"Could not save palette":palette_save_first?"Save or cancel this colour first":music_lighting_preferences_durable()?"Save keeps this palette on the SD card":"Palette available for this session",12,173,296,19,12);
+ static const char*const labels[]={"Red","Green","Blue"};
+ for(unsigned k=0;k<3;++k){
+  unsigned channel=(palette_draft>>(16-8*k))&255u;
+  char value[5];snprintf(value,sizeof(value),"%u",channel);
+  cell(g,(int)k,labels[k],value,0,0,1,(int)channel,0);
+ }
+}
 static void mod_settings_paint(void*g){
+ if(palette_edit){palette_paint(g);return;}
  static const char*const tabs[]={"Pads","Sample","Colours","Cursor","About"};
  static const char*const titles[]={"Pad lighting","Sample","System colours","Selected pad","About"};
  static const char*const sample_labels[]={"Waveform tint","Spectrum tint","Preview from end"};
@@ -698,7 +726,7 @@ static void mod_settings_paint(void*g){
  }
  char prev[24],next[24];
  snprintf(prev,sizeof(prev),"< %s",tabs[(mod_tab+MOD_TAB_COUNT-1)%MOD_TAB_COUNT]);snprintf(next,sizeof(next),"%s >",tabs[(mod_tab+1)%MOD_TAB_COUNT]);
- text(g,"Back",0,6,106,23,14);text(g,prev,107,6,106,23,14);text(g,next,214,6,106,23,14);
+ text(g,"Back",0,6,106,23,14);text(g,mod_tab==2&&music_ui_shift_active()?"Palette":prev,107,6,106,23,14);text(g,next,214,6,106,23,14);
  colour(g,0xffffc247);text_aligned(g,titles[mod_tab],12,34,220,22,16,0x21);
  for(unsigned t=0;t<MOD_TAB_COUNT;++t){colour(g,t==mod_tab?0xffffc247:0xff4a4a4a);rect(g,252+(int)t*12,43,t==mod_tab?9:6,3);}
  if(mod_tab==MOD_ABOUT_TAB){
@@ -726,11 +754,16 @@ static void mod_settings_paint(void*g){
   if(field==MUSIC_SETTING_TAIL){if(music_tail_ms(value))snprintf(duration,sizeof(duration),"%u ms",music_tail_ms(value));else snprintf(duration,sizeof(duration),"Off");}
   const char*name=mod_tab==0?(value?"Am MOD":"Standard"):field==MUSIC_SETTING_TAIL?duration:mod_tab==1?(value?"Pad colour":"Original"):mod_tab==2?music_palette_name(value):speeds[value];
   colour(g,0xffffffff);text_aligned(g,label,14,y,190,21,13,0x21);
-  colour(g,current&&mod_edit?0xffffc247:0xffffffff);text_aligned(g,name,196,y,110,21,13,0x22);
+  int value_width=110;
+  if(mod_tab==2){
+   colour(g,0xff000000u|music_palette_rgb(value));rect(g,294,y+5,11,11);
+   value_width=92;
+  }
+  colour(g,current&&mod_edit?0xffffc247:0xffffffff);text_aligned(g,name,196,y,value_width,21,13,0x22);
   if(current){k1_label=label;snprintf(value_text,sizeof(value_text),"%s",name);k1_value=value_text;}
  }
  colour(g,0xffa0a0a0);
- text_aligned(g,mod_tab==2?"Choosing a used colour swaps the two":mod_tab==1?"Hold STOP and tap a pad to hear its end":mod_tab==3?"Sequence pulses still follow tempo":"Standard keeps Piano, Scale and Degrees",12,172,300,13,11,0x21);
+ text_aligned(g,mod_tab==2?"Shift + B2: edit RGB palette":mod_tab==1?"Hold STOP and tap a pad to hear its end":mod_tab==3?"Sequence pulses still follow tempo":"Standard keeps Piano, Scale and Degrees",12,172,300,13,11,0x21);
  colour(g,lighting_save_error?0xffff4040:0xffa0a0a0);
  text_aligned(g,lighting_save_error?"Could not save settings":"Saved in the project and as card default",12,185,300,13,11,0x21);
  /* K1 changes the selected row directly; the encoder selects and edits. */
@@ -830,6 +863,21 @@ int music_ui_control_at(void *event,unsigned event_shift)
         if(mod_tab==MOD_ABOUT_TAB)return 1;
         if(mod_reset_confirm)return 1;
         unsigned cc=FIELD(event,8,unsigned char),value=FIELD(event,9,unsigned char);
+        if(palette_edit){
+            if(cc==0x64){
+                unsigned next=(unsigned)choice(value,(int)palette_index,0,MUSIC_PALETTE_SIZE-1,1);
+                if(next!=palette_index){
+                    if(palette_draft==music_palette_rgb(palette_index)){
+                        palette_index=next;palette_draft=music_palette_rgb(next);palette_save_first=0;
+                    }else palette_save_first=1;
+                }
+            }else if(cc>=0x10&&cc<=0x12&&value<=127){
+                unsigned bits=16-8*(cc-0x10),channel=(value*255+63)/127;
+                palette_draft=(palette_draft&~(255u<<bits))|(channel<<bits);
+                palette_save_first=lighting_save_error=0;
+            }
+            repaint(project);return 1;
+        }
         if(cc==0x10||(cc==0x64&&mod_edit))mod_change(value,cc==0x64);
         else if(cc==0x64){mod_row=(unsigned)choice(value,(int)mod_row,0,(int)mod_rows(),1);repaint(project);}
         return 1;
@@ -932,7 +980,7 @@ int music_ui_button(void *event)
      * action. Page keys, encoder, Shift, transport, Tap, Knob FX stay. */
     if((key_page==1||key_page==2||key_page==4||key_page==5)&&visible(project)&&
        code!=0x0c&&code!=0x0d&&code!=0x0e&&code!=0x6f&&code!=0x31&&code!=0x51&&code!=0x52&&code!=0x50&&code!=0x35&&code!=0x00){
-        key_page=0;mod_reset_confirm=mod_edit=0;repaint(project);music_ui_tick();report("PAGE_LEFT_BY_SCREEN_BUTTON");return 0;
+        key_page=0;mod_reset_confirm=mod_edit=palette_edit=0;repaint(project);music_ui_tick();report("PAGE_LEFT_BY_SCREEN_BUTTON");return 0;
     }
     if(key_page==4&&visible(project)){
         if(code==0x31)return 0;
@@ -958,7 +1006,21 @@ int music_ui_button(void *event)
 #endif
     if(key_page==5&&visible(project)){
         if(code==0x31)return 0;
-        if(mod_reset_confirm){
+        if(palette_edit){
+            if(code==0x0c){palette_edit=0;lighting_save_error=0;}
+            else if(code==0x0d){palette_draft=music_palette_default_rgb(palette_index);palette_save_first=lighting_save_error=0;}
+            else if(code==0x0e){
+                lighting_save_error=!music_palette_set_rgb(palette_index,palette_draft);
+                if(!lighting_save_error)palette_edit=0;
+            }
+            repaint(project);
+        }
+        else if(mod_tab==2&&code==0x0d&&music_ui_shift_active()&&!mod_reset_confirm){
+            palette_edit=1;lighting_save_error=palette_save_first=0;
+            palette_index=mod_row<mod_rows()?music_service_colour(mod_row):0;
+            palette_draft=music_palette_rgb(palette_index);repaint(project);
+        }
+        else if(mod_reset_confirm){
             if(code==0x0c)mod_reset_confirm=0;
             else if(code==0x0e){lighting_save_error=!music_mod_restore_recommended(mod_tab);mod_reset_confirm=0;}
             repaint(project);

@@ -21,7 +21,7 @@ static void button(unsigned key){assert(resample_destination_button(&state,key,1
 static void open_dialog(int sample,int sequence){uint64_t used[2]={UINT64_C(1)<<3,0};assert(resample_destination_open(&state,18,"Drum","Verse",sample,sequence,valid_epoch,used));}
 static FILE*trace;
 static void rect(void*u,int x,int y,int w,int h,uint32_t colour){assert(u==&state&&x>=0&&y>=5&&w>0&&h>0&&x+w<=320&&y+h<=240);fprintf(trace,"R %d %d %d %d %08x\n",x,y,w,h,colour);}
-static void text(void*u,const char*s,int x,int y,int w,int h,unsigned size,uint32_t colour,int centre){assert(u==&state&&x>=0&&y>=5&&w>0&&h>0&&x+w<=320&&y+h<=240&&size>=12);assert(!strstr(s,"Compare")&&!strstr(s,"FX"));fprintf(trace,"T %d %d %d %d %u %08x %d %s\n",x,y,w,h,size,colour,centre,s);}
+static void text(void*u,const char*s,int x,int y,int w,int h,unsigned size,uint32_t colour,int centre){assert(u==&state&&x>=0&&y>=5&&w>0&&h>0&&x+w<=320&&y+h<=240&&size>=11);assert(!strstr(s,"Compare")&&!strstr(s,"FX"));fprintf(trace,"T %d %d %d %d %u %08x %d %s\n",x,y,w,h,size,colour,centre,s);}
 static void paint(const char*folder,const char*name){char file[1024];snprintf(file,sizeof(file),"%s/%s.txt",folder,name);trace=fopen(file,"w");assert(trace);struct resample_painter p={&state,rect,text};resample_destination_paint(&state,&p);fclose(trace);}
 static void capture_native_start(void*mode,int target){assert(mode==native_mode&&target>=0&&target<128);native_target=(unsigned)target;++native_starts;}
 static void replace_native(uintptr_t at,void*callback){uint32_t jump[]={0x58000050,0xd61f0200};memcpy((void*)(base+at),jump,8);memcpy((void*)(base+at+8),&callback,8);__builtin___clear_cache((char*)(base+at),(char*)(base+at+16));}

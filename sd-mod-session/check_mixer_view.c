@@ -14,7 +14,7 @@ static void r(void*u,int x,int y,int w,int h,uint32_t c){(void)u;
     if(c==0xe05a4419u)++amber_spectrum;
     if(c==0xffff4040u&&w==2){send_height=(unsigned)h;send_x=(unsigned)x;}
     if(c==0xffff4040u&&y+h==194&&h==5)send_width=(unsigned)w;
-    if(c==0xffffffffu&&w==1&&y==143&&h==13)++threshold_line;
+    if(c==0xffffffffu&&w==1&&y==92&&h==12)++threshold_line;
     if(trace)fprintf(trace,"R %d %d %d %d %08x\n",x,y,w,h,c);}
 static void t(void*u,const char*s,int x,int y,int w,int h,unsigned size,uint32_t c,int centre){(void)u;
     assert(s&&x>=0&&y>=0&&w>0&&h>0&&x+w<=320&&y+h<=240&&size>=8);++draws;
@@ -23,19 +23,26 @@ static void t(void*u,const char*s,int x,int y,int w,int h,unsigned size,uint32_t
         if(x==110&&!strcmp(s,"Gain"))eq_labels|=2;
         if(x==216&&!strcmp(s,"Type"))eq_labels|=4;
     }
-    if(!strncmp(s,"Threshold ",10)||!strncmp(s,"Ceiling ",8))++threshold_label;
-    if(y==135||y==100)input_label+=!strcmp(s,"Input");
-    if(y==152||y==121)output_label+=!strcmp(s,"Output");
-    if(y==142)key_label+=!strcmp(s,"Key");
-    if(!strncmp(s,"DATA: browse",12)){assert(y>=199);++catalog_hint;}
+    if(strstr(s,"Threshold ")||!strncmp(s,"Ceiling ",8))++threshold_label;
+    if(y==135||y==100||y==109)input_label+=!strcmp(s,"Input");
+    if(y==152||y==121||y==127)output_label+=!strcmp(s,"Output");
+    if(y==91)key_label+=!strcmp(s,"Key");
+    if(!strcmp(s,"Add effect")&&y>=199)++catalog_hint;
     if(!strcmp(s,"N/A"))++na;
     if(!strcmp(s,"FX List")||!strcmp(s,"+ EQ Point"))++fx_headers;
     if(strlen(s)==1&&s[0]>='A'&&s[0]<='H'&&size>=18)++letters;
     if(!strcmp(s,"MSTR"))++mstr;
     if(!strncmp(s,"B1",2)&&strlen(s)>3&&s[2]==' '&&s[3]!=':')++tabs;
-    if(!strncmp(s,"Track ",6)&&s[6]>='A'&&s[6]<='H'&&!s[7])assert(0); /* no "Track A" labels */
+    if(y>=44&&y<198&&!strncmp(s,"Track ",6)&&s[6]>='A'&&s[6]<='H'&&!s[7])assert(0); /* no "Track A" labels */
     if(dynamic)assert(y+h<=198);
     if(trace)fprintf(trace,"T %d %d %d %d %u %08x %d %s\n",x,y,w,h,size,c,centre,s);}
+static void paint_trace(const char*directory,const char*name,const struct mixer_view_state*s,
+                        const struct resample_painter*p)
+{
+    char path[1024];snprintf(path,sizeof(path),"%s/%s.trace",directory,name);
+    trace=fopen(path,"w");assert(trace);
+    mixer_view_paint(s,p);fclose(trace);trace=NULL;
+}
 int main(int argc,char**argv)
 {
     assert(argc==2);struct mixer_project project;mixer_defaults(&project);
@@ -73,7 +80,7 @@ int main(int argc,char**argv)
     s.page=MIXER_KNOB_FX;s.fx_editing=1;s.fx_parameters=1;s.rate=48000;
     assert(fx_catalog_stage(0,s.rate,&project.track[s.primary].fx.stage[0]));
     project.track[s.primary].fx.count=1;
-    struct mixer_fx_monitor monitor={.input_peak=.8f,.output_peak=.5f,.key_peak=.4f};
+    struct mixer_fx_monitor monitor={.input_peak=.8f,.output_peak=.5f,.key_peak=.4f,.gain_reduction_db=10};
     for(unsigned i=0;i<MIXER_FX_MONITOR_FRAMES;++i){
         monitor.pcm[i]=.5f*sinf(i*.13f);
         monitor.input_pcm[i]=.8f*sinf(i*.13f);
@@ -106,11 +113,42 @@ int main(int argc,char**argv)
     fx_headers=0;s.page=MIXER_OVERVIEW;s.shifted=1;
     mixer_view_paint(&s,&painter);assert(!fx_headers); /* Stale editor flags cannot leak into overview. */
     s.page=MIXER_KNOB_FX;s.fx_parameters=0;s.fx_catalog=1;
-    mixer_view_paint(&s,&painter);assert(!fx_headers&&catalog_hint);
+    mixer_view_paint(&s,&painter);assert(fx_headers==1&&catalog_hint);
     s.fx_catalog=0;
     s.shifted=0;s.fx_signal=NULL;
     s.page=MIXER_ASSIGN;s.master=1;mstr=0;mixer_view_paint(&s,&painter);assert(mstr>=2);s.master=0;
     s.page=MIXER_OVERVIEW;dynamic=1;draws=0;mixer_view_meters(&s,1,&painter);assert(draws>0&&draws<15);dynamic=0;
+    /* Capture actual painter output for visual review with populated tracks. */
+    s.primary=2;s.selected=1u<<2;s.bank=0;s.sound=1;s.present[0]=0x01110001015fu;
+    project.output[1]=project.output[4]=project.output[6]=3;
+    strcpy(project.track[2].name,"Bass");
+    project.track[2].fx.count=3;
+    assert(fx_catalog_stage(0,s.rate,&project.track[2].fx.stage[0]));
+    assert(fx_mixer_catalog_stage(fx_catalog_count(),s.rate,&project.track[2].fx.stage[1]));
+    assert(fx_catalog_stage(5,s.rate,&project.track[2].fx.stage[2]));
+    project.track[2].fx.stage[1].parameter[0]=.15f;
+    struct fx_eq_config*eq=&project.track[2].fx.stage[0].eq;
+    eq->count=3;eq->band[0].gain_db=7;eq->band[1].gain_db=-4;eq->band[2].gain_db=3;
+    snapshot.return_mask=1u<<2;snapshot.return_peak[2]=.15f;
+    paint_trace(argv[1],"mixer",&s,&painter);
+    s.selected|=1u<<0;paint_trace(argv[1],"group",&s,&painter);s.selected=1u<<2;
+    s.master=1;paint_trace(argv[1],"master",&s,&painter);s.master=0;
+    s.page=MIXER_ASSIGN;paint_trace(argv[1],"assign",&s,&painter);
+    s.page=MIXER_INSPECT;paint_trace(argv[1],"inspect",&s,&painter);
+    s.page=MIXER_OVERVIEW;s.name_edit="Bass";
+    paint_trace(argv[1],"rename",&s,&painter);s.name_edit=NULL;
+    s.page=MIXER_KNOB_FX;s.fx_editing=1;s.fx_slot=1;
+    paint_trace(argv[1],"chain",&s,&painter);
+    s.fx_delete=1;paint_trace(argv[1],"delete",&s,&painter);s.fx_delete=0;
+    s.fx_catalog=1;s.fx_slot=3;s.cursor=4;paint_trace(argv[1],"catalog",&s,&painter);s.fx_catalog=0;
+    s.fx_parameters=1;s.parameter_page=0;s.fx_signal=&monitor;
+    s.fx_slot=0;paint_trace(argv[1],"eq",&s,&painter);
+    s.shifted=1;paint_trace(argv[1],"eq-shift",&s,&painter);s.shifted=0;
+    s.fx_slot=1;paint_trace(argv[1],"sidechain",&s,&painter);
+    s.fx_slot=2;paint_trace(argv[1],"reverb",&s,&painter);
+    assert(fx_catalog_stage(7,s.rate,&project.track[2].fx.stage[2]));
+    paint_trace(argv[1],"filter",&s,&painter);
+    s.page=MIXER_OVERVIEW;s.fx_parameters=0;s.fx_signal=NULL;
     s.now_ms=1251;na=0;mixer_view_paint(&s,&painter);assert(na==9);
     s.now_ms=1000;s.epoch=8;na=0;mixer_view_paint(&s,&painter);assert(na==9);
     assert(mixer_view_gain_y(0)==114&&mixer_view_gain_y(6)==102&&mixer_view_gain_y(-60)==174&&mixer_view_gain_y(-INFINITY)==177);

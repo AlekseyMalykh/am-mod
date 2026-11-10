@@ -71,7 +71,7 @@ int main(void){
  struct music_project pink,decoded;char *payload=malloc(MUSIC_PAYLOAD_BYTES);assert(payload);
  assert(music_pad_colour(0)==7);assert(cc(0x11,72)&&music_pad_colour(0)==13);
  music_snapshot(&pink);assert(pink.pad_colours[0]==13);int encoded=music_encode(&pink,payload,MUSIC_PAYLOAD_BYTES);assert(encoded>0&&music_decode(payload,(size_t)encoded,&decoded)&&decoded.pad_colours[0]==13);
- assert(music_set_pad_colour(0,5));music_snapshot(&pink);assert(pink.pad_colours[0]==5&&music_identity_rgb(5)==music_sequence_colours[4]);free(payload);
+ assert(music_set_pad_colour(0,5));music_snapshot(&pink);assert(pink.pad_colours[0]==5&&music_identity_rgb(5)==music_palette_default_rgb(2));free(payload);
  int stored=music_pad_colour(0);assert(music_set_pad_lighting_mode(MUSIC_LIGHTING_STANDARD));note_native_tick();
  assert(!note_native_owns(0x11)&&!cc(0x11,127)&&music_pad_colour(0)==stored);texts=0;note_native_sample_overlay(sample,(void*)1);assert(!texts);
  assert(music_set_pad_lighting_mode(MUSIC_LIGHTING_MOD));note_native_tick();assert(note_native_owns(0x11));

@@ -172,7 +172,9 @@ static void sidechain(void)
             assert(mixer_buses_take_monitor(b,&monitor));
             compare(monitor.input_pcm[0],.5f);
             compare(monitor.key_peak,block<MIXER_FX_MONITOR_FRAMES/128?1:0);
-            if(block<MIXER_FX_MONITOR_FRAMES/128)assert(monitor.pcm[127]<.05f);
+            if(block<MIXER_FX_MONITOR_FRAMES/128){
+                assert(monitor.pcm[127]<.05f&&monitor.gain_reduction_db>20);
+            }else assert(monitor.gain_reduction_db<.01f);
         }
     }
     mixer_buses_destroy(b);

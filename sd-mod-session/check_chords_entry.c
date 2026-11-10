@@ -7,6 +7,7 @@
 static int sample_visible=1,render_dialog,render_busy,level_on=1,level_type=1;
 static unsigned repaints;
 int music_ui_chords_available(void){return sample_visible;}
+int music_ui_knob_fx_active(void){return 0;}
 int music_ui_shift_active(void){return 0;}
 /* Arpeggiator/playback seams: no sequence playback or held arp notes here. */
 int step_native_playback_pitches(int*o,int m){(void)o;(void)m;return 0;}

@@ -392,6 +392,8 @@ int song_ui_button(void *e)
         }
         if(code==B2)return 1;
         if(code==B3){
+            struct song_ref song;
+            if(!song_ref(&song)||!song.count)return 1;
             unsigned selected=atomic_load(&export_choice);
 #ifdef MPC_MIXER_LIVE
             if(selected>=2u && (!mixer_stems_available || !mixer_stems_available() || !mixer_stems_arm)){
@@ -542,10 +544,13 @@ static void paint(void *p,void *g)
         /* Paint after SongScreen children. Cover all of the song list/buttons;
          * the old native Cancel/Mixdown/Sequence modal was never entered. */
         const unsigned selected=atomic_load(&export_choice)%4u;
+        int can_export=song_ref(&r)&&r.count>0;
         const char *items[]={"Mixdown","Sequence","Stems without FX","Stems with FX"};
+        const char *detail[]={"One stereo WAV","Combine into a sequence",
+                              "Separate WAVs without mixer FX","Separate WAVs with mixer FX"};
         colour(g,0xff000000u);rect(g,0,0,320,240);
         colour(g,0xffffffffu);text(g,"Back",0,1,106,23,14.0f);
-        colour(g,0xffffc247u);text(g,"Export",213,1,107,23,14.0f);
+        colour(g,can_export?0xffffc247u:0xff777777u);text(g,"Export",213,1,107,23,14.0f);
         colour(g,0xff252525u);rect(g,4,25,312,1);
         colour(g,0xffffffffu);text_at(g,"Song Export",14,31,292,28,20.0f,0x21);
         for(unsigned i=0;i<4;++i){
@@ -554,10 +559,12 @@ static void paint(void *p,void *g)
             colour(g,current?0xff302412u:0xff161616u);rect(g,12,y,296,28);
             if(current){colour(g,0xffffc247u);rect(g,12,y,3,28);}
             colour(g,current?0xffffc247u:0xffeeeeeeu);
-            text_at(g,items[i],23,y,283,28,16.0f,0x21);
+            text_at(g,items[i],23,y+1,283,16,14.0f,0x21);
+            colour(g,0xffb5b5b5u);
+            text_at(g,detail[i],23,y+16,283,11,10.0f,0x21);
         }
         colour(g,0xff252525u);rect(g,12,198,296,1);
-        colour(g,0xffbbbbbbu);text(g,"Turn DATA to select",12,204,296,22,12.0f);
+        colour(g,0xffbbbbbbu);text(g,can_export?"Turn DATA to select   /   B3 to export":"Insert a sequence before exporting",12,204,296,22,12.0f);
         return;
     }
     { struct song_ref pr; if(song_ref(&pr)) paint_rows(p,g,&pr); }

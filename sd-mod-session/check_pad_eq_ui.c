@@ -42,7 +42,7 @@ static void ui_repaint(void*p,uint64_t a,uint64_t b){assert((p==screen||p==seque
 /* fix6: Filter/Filt Env spectrum uses the EQ colour at alpha e0 (was 60). */
 static void draw_colour(void*g,uint32_t c){assert(g==screen&&((c>>24)==255||c==0xe05a4419||c==0xe05b5b5b));draw_ink=c;if(c==0xe05b5b5b||c==0xff5b5b5b)++muted_bars;}
 static void draw_rect(void*g,int x,int y,int w,int h){assert(g==screen&&x>=0&&y>=0&&w>0&&h>0&&x+w<=320&&y+h<=240);if(draw_ink==0xff000000&&x==0&&y==88&&w==320&&h==110){++graph_clears;graph_cleared=1;}if(draw_ink==0xe05a4419){assert(x>=15&&x+w<=304&&y>=94&&y+h<=188);++spectrum_bars;}if(repeat_drawing)assert(y>=5&&y+h<=38);if(header_testing&&y==25)++header_bars;++draws;}
-static void font_make(void*p,int type,float size){assert(p&&!type&&size>=10&&size<=26);*(uintptr_t*)p=0;}
+static void font_make(void*p,int type,float size){assert(p&&!type&&size>=8&&size<=30);*(uintptr_t*)p=0;}
 static void font_set(void*g,const void*f){assert(g==screen&&f);}
 static void font_delete(void*f){assert(f);}
 static void draw_text(void*g,const uint64_t*s,int x,int y,int w,int h,int flags,int lines,float scale){(void)x;(void)y;(void)w;(void)h;(void)flags;(void)lines;(void)scale;assert(g==screen&&s);const char*str=*(const char*const*)s;if(header_testing&&!strcmp(str,"Bypass"))header_caption_ink=draw_ink;assert(strlen(captions)+strlen(str)+2<sizeof(captions));strcat(captions,str);strcat(captions,"\n");}
@@ -180,7 +180,7 @@ int main(int argc,char**argv){
  phase="Project Mod Settings tabs, encoder, reset and Standard/AM Mod switching";
  project_open=1;music_ui_project(project_screen,screen);
  assert(music_set_pad_colour(18,13)&&music_set_sequence_colour(11,4));
- music_ui_request_project((void*)((uintptr_t)project_screen|2));music_ui_tick();captions[0]=0;music_ui_project(project_screen,screen);assert(strstr(captions,"Mod Settings")&&strstr(captions,"AM Mod")&&strstr(captions,"Restore recommended"));
+ music_ui_request_project((void*)((uintptr_t)project_screen|2));music_ui_tick();captions[0]=0;music_ui_project(project_screen,screen);assert(strstr(captions,"Pad lighting")&&strstr(captions,"Am MOD")&&strstr(captions,"Restore recommended"));
  knob(0x10,0);assert(music_pad_lighting_mode()==MUSIC_LIGHTING_STANDARD);
  assert(music_pad_colour(18)==13&&music_sequence_colour(11)==4);
  knob(0x10,0);assert(music_pad_lighting_mode()==MUSIC_LIGHTING_STANDARD);knob(0x10,127);assert(music_pad_lighting_mode()==MUSIC_LIGHTING_MOD);
@@ -190,23 +190,33 @@ int main(int argc,char**argv){
  knob(0x64,1);knob(0x10,0);assert(music_tail_ms((unsigned)music_mod_setting(MUSIC_SETTING_TAIL))==100);
  knob(0x64,1);uint64_t before_reset=music_mod_settings_snapshot();
  assert(key(0x6f,1)&&key(0x6f,1)&&key(0x6f,0)&&music_mod_settings_snapshot()==before_reset);
- captions[0]=0;music_ui_project(project_screen,screen);assert(strstr(captions,"Restore recommended?")&&strstr(captions,"Sample")&&strstr(captions,"Cancel"));
+ captions[0]=0;music_ui_project(project_screen,screen);assert(strstr(captions,"Only this section is reset.")&&strstr(captions,"Sample")&&strstr(captions,"Cancel"));
  knob(0x10,0);knob(0x64,127);assert(key(0x6f,1)&&key(0x6f,0)&&music_mod_settings_snapshot()==before_reset);
  assert(key(0x0c,1)&&key(0x0c,0)&&music_mod_settings_snapshot()==before_reset);
- captions[0]=0;music_ui_project(project_screen,screen);assert(strstr(captions,"Restore recommended")&&!strstr(captions,"Restore recommended?"));
+ captions[0]=0;music_ui_project(project_screen,screen);assert(strstr(captions,"Restore recommended")&&!strstr(captions,"Only this section is reset."));
  assert(key(0x6f,1)&&key(0x6f,0)&&key(0x0e,1)&&key(0x0e,0)&&!music_mod_setting(MUSIC_SETTING_WAVE)&&!music_mod_setting(MUSIC_SETTING_SPECTRUM));
  assert(music_tail_ms((unsigned)music_mod_setting(MUSIC_SETTING_TAIL))==1000);
- assert(key(0x0e,1)&&key(0x0e,0));knob(0x10,127);assert(music_service_colour(0)==MUSIC_PALETTE_SIZE-1);
+ assert(key(0x0e,1)&&key(0x0e,0));
+ uint32_t saved_cursor=music_palette_rgb(music_service_colour(0));
+ music_ui_requested(0x31,1);assert(key(0x0d,1)&&key(0x0d,0));music_ui_requested(0x31,0);
+ captions[0]=0;music_ui_project(project_screen,screen);assert(strstr(captions,"Palette Editor"));
+ knob(0x10,13);knob(0x11,23);knob(0x12,37);
+ assert(music_palette_rgb(music_service_colour(0))==saved_cursor);
+ assert(key(0x0e,1)&&key(0x0e,0)&&music_palette_rgb(music_service_colour(0))==0x1a2e4a);
+ music_ui_requested(0x31,1);assert(key(0x0d,1)&&key(0x0d,0));music_ui_requested(0x31,0);
+ assert(key(0x0d,1)&&key(0x0d,0));assert(key(0x0e,1)&&key(0x0e,0));
+ assert(music_palette_rgb(music_service_colour(0))==saved_cursor);
+ knob(0x10,127);assert(music_service_colour(0)==MUSIC_PALETTE_SIZE-1);
  knob(0x64,6);captions[0]=0;music_ui_project(project_screen,screen);assert(strstr(captions,"Restore recommended")&&!strstr(captions,"Cursor / selection"));
  assert(key(0x6f,1)&&key(0x6f,0)&&music_service_colour(0)==MUSIC_PALETTE_SIZE-1);
- captions[0]=0;music_ui_project(project_screen,screen);assert(strstr(captions,"Reset the whole colour palette"));
+ captions[0]=0;music_ui_project(project_screen,screen);assert(strstr(captions,"The whole palette is reset."));
  assert(key(0x0e,1)&&key(0x0e,0)&&music_service_colour(0)==MUSIC_USER_COLOURS);
  assert(key(0x0e,1)&&key(0x0e,0));knob(0x10,0);assert(!music_mod_setting(MUSIC_SETTING_BLINK));
  assert(key(0x6f,1)&&key(0x6f,0));knob(0x64,1);assert(music_mod_setting(MUSIC_SETTING_BLINK)==1);
  assert(key(0x6f,1)&&key(0x6f,0));knob(0x64,1);assert(key(0x6f,1)&&key(0x6f,0)&&music_mod_setting(MUSIC_SETTING_BLINK)==1);
  assert(key(0x0e,1)&&key(0x0e,0)&&music_mod_setting(MUSIC_SETTING_BLINK)==2);
  assert(key(0x0e,1)&&key(0x0e,0));captions[0]=0;music_ui_project(project_screen,screen);
- assert(strstr(captions,"About")&&strstr(captions,"Version " AM_MOD_VERSION)&&strstr(captions,AM_MOD_REPO_URL)&&strstr(captions,"5 / 5")&&!strstr(captions,"Restore recommended"));
+ assert(strstr(captions,"About")&&strstr(captions,"Version " AM_MOD_VERSION)&&strstr(captions,AM_MOD_REPO_URL)&&!strstr(captions,"Restore recommended"));
  uint64_t about_snapshot=music_mod_settings_snapshot();knob(0x10,0);knob(0x11,127);knob(0x12,127);knob(0x64,127);assert(key(0x6f,1)&&key(0x6f,0)&&music_mod_settings_snapshot()==about_snapshot);
  assert(key(0x0e,1)&&key(0x0e,0));captions[0]=0;music_ui_project(project_screen,screen);assert(strstr(captions,"Pad lighting"));
  assert(key(0x0d,1)&&key(0x0d,0));captions[0]=0;music_ui_project(project_screen,screen);assert(strstr(captions,"About"));
@@ -219,8 +229,8 @@ int main(int argc,char**argv){
  phase="Standard retains 16 Levels layout controls";
  sequence_only=0;F(screen,0x7f0+0x218,int)=1;paint_ui();
  assert(key(0x0d,1)&&key(0x0d,0)&&music_ui_owns(0x10));
- paint_ui();assert(strstr(captions,"Scales")&&strstr(captions,"Tonic")&&strstr(captions,"Scale"));
- knob(0x10,64);knob(0x11,127);knob(0x12,127);
+ paint_ui();assert(strstr(captions,"Layout")&&strstr(captions,"Tonic")&&strstr(captions,"Scale"));
+ knob(0x10,40);knob(0x11,127);knob(0x12,127);
  struct music_sample layout;assert(music_get_sample("Shared",&layout));
  assert(layout.mode==MUSIC_PIANO&&layout.tonic==11&&layout.scale==7);
  F(controller,0x22a0,unsigned char)=1;knob(0x10,127);paint_ui();
