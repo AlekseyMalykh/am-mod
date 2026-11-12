@@ -1,4 +1,5 @@
 #include "fx_catalog.h"
+#include "fx_own.h"
 #include <math.h>
 #include <string.h>
 /* Defaults/complete labels read from actual 1.3.0.12 AIR/MPC instances.
@@ -45,11 +46,27 @@ int fx_catalog_parameter_index(const struct fx_catalog_entry*e,unsigned position
 }
 static const struct fx_catalog_entry sidechain={FX_SIDECHAIN_ID,"Sidechain Compressor","Dynamics",6,
     {"Key Track","Threshold","Ratio","Attack","Release","Mix"},{0,.60f,.158f,.25f,.5f,1}};
-unsigned fx_mixer_catalog_count(void){return fx_catalog_count()+1;}
+/* Am MOD's own effects (fx_own.c). Offered by the Mixer only: they are not firmware plug-ins. */
+static const struct fx_catalog_entry own_entries[FX_OWN_COUNT]={
+ {FX_OWN_SHIMMER,"Shimmer Reverb","Reverb",7,{"Mix","Decay","Shimmer","Pitch","Size","Damp","Pre-Delay"},{.35f,.6f,.5f,.8f,.5f,.5f,.1f}},
+ {FX_OWN_PITCH,"Pitch Shifter","Pitch",3,{"Interval","Detune","Mix"},{.75f,.5f,.5f}},
+ {FX_OWN_REVERSE,"Reverse Delay","Delay",4,{"Time","Feedback","Mix","Tone"},{.4f,.3f,.5f,.7f}},
+ {FX_OWN_TREMOLO,"Tremolo","Modulation",4,{"Rate","Depth","Shape","Stereo"},{.35f,.6f,0.f,.5f}},
+ {FX_OWN_SWELL,"Slow Attack","Dynamics",3,{"Attack","Sensitivity","Mix"},{.5f,.5f,1.f}},
+ {FX_OWN_RING,"Ring Modulator","Modulation",2,{"Frequency","Mix"},{.4f,.5f}},
+ {FX_OWN_CRUSH,"Bit Crusher","Drive",3,{"Bits","Rate","Mix"},{.6f,.2f,1.f}},
+};
+unsigned fx_mixer_catalog_count(void){return fx_catalog_count()+1+FX_OWN_COUNT;}
 const struct fx_catalog_entry *fx_mixer_catalog_at(unsigned i)
-{return i==fx_catalog_count()?&sidechain:fx_catalog_at(i);}
+{return i==fx_catalog_count()?&sidechain:i>fx_catalog_count()&&i<fx_mixer_catalog_count()?own_entries+(i-fx_catalog_count()-1):fx_catalog_at(i);}
 int fx_mixer_catalog_stage(unsigned i,double rate,struct fx_stage*out)
 {
+    if(i>fx_catalog_count()&&i<fx_mixer_catalog_count()){
+        if(!out||rate<8000||rate>192000)return 0;
+        const struct fx_catalog_entry*e=own_entries+(i-fx_catalog_count()-1);
+        memset(out,0,sizeof(*out));out->kind=FX_STAGE_NATIVE;out->native_id=e->id;
+        memcpy(out->parameter,e->defaults,sizeof(e->defaults));return 1;
+    }
     if(i!=fx_catalog_count())return fx_catalog_stage(i,rate,out);
     if(!out||rate<8000||rate>192000)return 0;
     memset(out,0,sizeof(*out));out->kind=FX_STAGE_SIDECHAIN;out->native_id=FX_SIDECHAIN_ID;
@@ -57,7 +74,7 @@ int fx_mixer_catalog_stage(unsigned i,double rate,struct fx_stage*out)
 }
 unsigned fx_catalog_count(void){return sizeof(entries)/sizeof(entries[0]);}
 const struct fx_catalog_entry*fx_catalog_at(unsigned i){return i<fx_catalog_count()?entries+i:0;}
-const struct fx_catalog_entry*fx_catalog_find(uint32_t id){if(id==FX_SIDECHAIN_ID)return &sidechain;for(unsigned i=0;i<fx_catalog_count();++i)if(entries[i].id==id)return entries+i;return 0;}
+const struct fx_catalog_entry*fx_catalog_find(uint32_t id){if(id==FX_SIDECHAIN_ID)return &sidechain;if(fx_own_is(id))return own_entries+(id-FX_OWN_SHIMMER);for(unsigned i=0;i<fx_catalog_count();++i)if(entries[i].id==id)return entries+i;return 0;}
 const char*fx_catalog_stage_name(const struct fx_stage*s){const struct fx_catalog_entry*e=s?fx_catalog_find(s->kind==FX_STAGE_EQ?0:s->native_id):0;return e?e->name:"Unknown effect";}
 int fx_catalog_stage(unsigned i,double rate,struct fx_stage*out){const struct fx_catalog_entry*e=fx_catalog_at(i);if(!e||!out||rate<8000||rate>192000)return 0;
  memset(out,0,sizeof(*out));if(!e->id){out->kind=FX_STAGE_EQ;fx_eq_default(&out->eq);for(unsigned b=0;b<out->eq.count;++b)out->eq.band[b].hz=fmin(out->eq.band[b].hz,rate*.45);}

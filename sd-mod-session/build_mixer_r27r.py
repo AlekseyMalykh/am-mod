@@ -22,7 +22,7 @@ sources = frozen['compile_verification']['linked_sources'] + [
     'src/rear_audio.cc', 'src/rear_native.cc', 'src/rear_ui.c', 'src/rear_abi.S',
     'src/pad_resample_commit.cc', 'src/pad_sample_pool.cc', 'src/pad_assignment.cc',
     'src/pad_assignment_abi.S', 'src/pad_source_abi.S', 'src/pad_memory_abi.S']
-mixer = ['src/mixer_model.c', 'src/mixer_meters.c', 'src/fx_chain.c', 'src/fx_catalog.c',
+mixer = ['src/mixer_model.c', 'src/mixer_meters.c', 'src/fx_chain.c', 'src/fx_own.c', 'src/fx_catalog.c',
          'src/mixer_archive.cc', 'src/mixer_buses.c', 'src/mixer_route_native.c',
          'src/mixer_live.c', 'src/mixer_live_native.c', 'src/mixer_view.c',
          'src/mixer_control.c', 'src/mixer_session.cc', 'src/mixer_input.c',
@@ -77,7 +77,7 @@ subprocess.run(['aarch64-linux-gnu-gcc', '-std=c11', '-O1', '-g', '-Wall', '-Wex
                 '-mbranch-protection=standard', '-ffunction-sections', '-fdata-sections',
                 '-Wl,--gc-sections', '-Ibuild', 'check_mixer_phone_routes.c', 'src/phone_events.c',
                 'src/mixer_input.c', 'src/mixer_control.c', 'src/phone_input.c', 'src/mixer_model.c', 'src/fx_catalog.c',
-                'src/fx_chain.c', 'src/fx_eq.c', 'src/mixer_leds.c', '-lm', '-pthread',
+                'src/fx_chain.c', 'src/fx_own.c', 'src/fx_eq.c', 'src/mixer_leds.c', '-lm', '-pthread',
                 '-o', str(route)], cwd=R, check=True)
 routes = subprocess.run(['qemu-aarch64', '-L', sysroot, str(route)], cwd=R,
                         capture_output=True, text=True, timeout=30)

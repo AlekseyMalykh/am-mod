@@ -9,7 +9,7 @@ out=R/'build/mixer-input-native';out.mkdir(parents=True,exist_ok=True)
 sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
 expected='b6584cba76e416e432ad202509099d34373dc2c3d6a8fb625f5678bf0193b508'
 assert sha(stock)==expected
-sources=['check_mixer_input_native.c','src/mixer_input.c','src/mixer_control.c','src/phone_input.c','src/mixer_model.c','src/fx_catalog.c','src/fx_chain.c','src/fx_eq.c']
+sources=['check_mixer_input_native.c','src/mixer_input.c','src/mixer_control.c','src/phone_input.c','src/mixer_model.c','src/fx_catalog.c','src/fx_chain.c','src/fx_own.c','src/fx_eq.c']
 tracked=sources+['src/mixer_input.h','src/mixer_control.h','src/mixer_view.h','check_fx_native.c','verify_mixer_input_native.py']
 before={p:sha(R/p) for p in tracked};checks=[]
 for name,flags in [('normal',[]),('ubsan',['-fsanitize=undefined','-static-libubsan','-fno-sanitize-recover=all'])]:

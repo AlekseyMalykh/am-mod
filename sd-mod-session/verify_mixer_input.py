@@ -3,7 +3,7 @@ from pathlib import Path
 import hashlib,json,os,subprocess
 R=Path(__file__).resolve().parent
 out=R/'build/mixer-input';out.mkdir(parents=True,exist_ok=True)
-sources=['check_mixer_input.c','src/mixer_input.c','src/mixer_control.c','src/phone_input.c','src/mixer_model.c','src/fx_catalog.c','src/fx_chain.c','src/fx_eq.c']
+sources=['check_mixer_input.c','src/mixer_input.c','src/mixer_control.c','src/phone_input.c','src/mixer_model.c','src/fx_catalog.c','src/fx_chain.c','src/fx_own.c','src/fx_eq.c']
 tracked=sources+['src/mixer_input.h','src/mixer_control.h','src/mixer_view.h','verify_mixer_input.py']
 sha=lambda p:hashlib.sha256((R/p).read_bytes()).hexdigest()
 before={p:sha(p) for p in tracked};checks=[]
