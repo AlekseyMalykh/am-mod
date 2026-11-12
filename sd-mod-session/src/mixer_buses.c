@@ -84,7 +84,7 @@ struct mixer_buses*mixer_buses_prepare(const struct mixer_project*p,uint64_t par
     for(unsigned i=0;i<=MIXER_TRACKS;++i){
         const struct mixer_channel*c=i<MIXER_TRACKS?p->track+i:&p->master;
         const struct mixer_mix*m=i<MIXER_TRACKS?mix+i:&p->master.mix;
-        gains(b->gain[i],m,i==MIXER_TRACKS||!m->mute);
+        gains(b->gain[i],m,i==MIXER_TRACKS||!m->mute||m->solo); /* Solo overrides Mute */
         if(i<MIXER_TRACKS)b->output_gate[i]=!b->solo||m->solo;
         b->fx[i]=fx_exchange_create();if(!b->fx[i]){mixer_buses_destroy(b);result(error,MIXER_BUS_RESOURCE);return NULL;}
         if(!c->fx_bypass&&c->fx.count){
@@ -380,7 +380,7 @@ struct mixer_bus_update*mixer_buses_update_prepare_delta(const struct mixer_proj
         const struct mixer_mix*m=i<8?mix+i:&p->master.mix;
         if(i==8&&m->send){result(error,MIXER_BUS_UNSUPPORTED);goto fail;}
         if(!fx_chain_valid(&c->fx,rate))goto fail;
-        gains(u->gain[i],m,i==MIXER_TRACKS||!m->mute);
+        gains(u->gain[i],m,i==MIXER_TRACKS||!m->mute||m->solo);
         if(i<MIXER_TRACKS)u->output_gate[i]=!u->solo||m->solo;
         if(!c->fx_bypass)u->config[i]=c->fx;
         if(!previous||!same_fx(previous+i,u->config+i)){
