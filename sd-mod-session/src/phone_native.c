@@ -1789,6 +1789,11 @@ WRAP1(right_action,H_RIGHT)
 /* With pad input the B2 soft key is Clear: the first press arms it, a second press within 3 s empties the
  * whole text. Hardware Erase stays a one-character backspace. Returns 1 when the press was consumed. */
 static uint64_t clear_armed_ms;
+const char*phone_native_erase_label(void)
+{
+    if(!atomic_load(&naming_active)||!state.enabled)return NULL;
+    return clear_armed_ms&&now_ms()-clear_armed_ms<3000?"Sure?":"Clear";
+}
 static int clear_confirm_press(void)
 {
     if(!atomic_load(&naming_active)||!state.enabled)return 0;
@@ -1797,7 +1802,7 @@ static int clear_confirm_press(void)
         clear_armed_ms=0;
         ++internal;phone_move(&state,(int)state.length);while(state.length&&phone_delete(&state,0));--internal;
         write_native();repaint();note("PADS_CLEAR");
-    }else clear_armed_ms=now;
+    }else{clear_armed_ms=now;repaint();}
     return 1;
 }
 WRAP0(clear_action,H_CLEAR)
