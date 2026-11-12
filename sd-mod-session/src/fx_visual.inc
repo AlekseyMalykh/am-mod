@@ -643,6 +643,13 @@ static void fxv_opto_draw(const struct resample_painter*p,const struct comp_conf
     rect(p,gx,gy,gs,gs,WELL);
     rect(p,gx,gy+gs/2,gs,1,DARK);rect(p,gx+gs/2,gy,1,gs,DARK);
     double slope=1.0-1.0/c->ratio,half=c->knee*.5;
+    if(c->knee>0){ /* knee band: the region where the curve bends, wider as Knee grows */
+        int k0=(int)lround((fmax(-60.0,c->threshold-half)+60.0)*(gs-1)/60.0),k1=(int)lround((fmin(0.0,c->threshold+half)+60.0)*(gs-1)/60.0);
+        if(k1>=k0)rect(p,gx+k0,gy,k1-k0+1,gs,0xff2b2a20u);
+    }
+    for(int x=0;x<gs;++x){ /* 1:1 reference diagonal, so Ratio shows as the bend away from it */
+        int y=gy+gs-1-x;if(y>=gy)rect(p,gx+x,y,1,1,0xff3a4048u);
+    }
     for(int x=0;x<gs;++x){
         double in=-60.0+60.0*x/(gs-1),over=in-c->threshold,gr;
         gr=over<=-half?0:over>=half?slope*over:c->knee>0?slope*(over+half)*(over+half)/(2*c->knee):0;
@@ -665,7 +672,7 @@ static void fxv_opto_draw(const struct resample_painter*p,const struct comp_conf
     char buf[48];
     snprintf(buf,sizeof(buf),reduction>0?"GR -%.1f dB":"GR 0.0 dB",(double)reduction);
     text(p,buf,gx,FXV_Y+FXV_H-18,70,12,10,0xffff9a7cu,0);
-    snprintf(buf,sizeof(buf),"%.0f dB  %.1f:1%s",(double)c->threshold,(double)c->ratio,c->warm?"  WARM":"");
+    snprintf(buf,sizeof(buf),"%.0f dB  %.1f:1  K%.0f%s",(double)c->threshold,(double)c->ratio,(double)c->knee,c->warm?" W":"");
     text(p,buf,FXV_X+180,FXV_Y+FXV_H-18,FXV_W-184,12,10,WHITE,0);
 }
 static void fxv_opto(const struct resample_painter*p,const struct fx_stage*stage,const struct mixer_fx_monitor*m)
@@ -850,7 +857,7 @@ static int fx_visual_dispatch(const struct resample_painter*p,const struct fx_ca
     case 0x41435671:fxv_auto_pan(p,stage);return 1;     /* Auto Pan */
     case 0x56456678:fxv_vinyl(p,stage);return 1;        /* Vinyl */
     case 0x54456678:fxv_tape_emu(p,stage);return 1;     /* Tape */
-    case FX_OWN_OPTO:fxv_opto(p,stage,m);return 1;
+    case FX_OWN_OPTO:fxv_history_push(identity,now_ms,m);fxv_opto(p,stage,m);return 1;
     case FX_OWN_SHIMMER:fxv_shimmer(p,stage,m);return 1;
     case FX_OWN_PITCH:fxv_pitch(p,stage);return 1;
     case FX_OWN_REVERSE:fxv_reverse(p,stage);return 1;
