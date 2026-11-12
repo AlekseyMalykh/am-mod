@@ -1,6 +1,6 @@
 # Am MOD r28e-fx2 — illustrated mixer effects
 
-Pre-release for Akai MPC Sample firmware **1.3.0.12**, 12 November 2026. Built on r28e; host checks passed, **ARM/QEMU package checks and hardware checks are still pending**.
+Pre-release for Akai MPC Sample firmware **1.3.0.12**, 12 November 2026. Built on r28e; host and ARM/QEMU package checks passed, **hardware checks are still pending**.
 
 **Back up projects and samples before updating.**
 
@@ -40,7 +40,7 @@ Pre-release for Akai MPC Sample firmware **1.3.0.12**, 12 November 2026. Built o
 
 ## Tested and not yet tested
 
-Host checks, including the new unit tests for Solo over Mute, the double-Stop flush, the pinned Sample compressor row and the category filter, passed. The ARM/QEMU checks run during the package build. Not tested on a device: frame time of the illustrated screens, the loudness of Shimmer Reverb, whether the Sample compressor row is available (open Shift+Pad 5 once if it shows N/A), the named Cab Models, and double Stop in a long song.
+Host and ARM/QEMU checks, including the new unit tests for Solo over Mute, the double-Stop flush, the pinned Sample compressor row and the category filter, passed. Not tested on a device: frame time of the illustrated screens, the loudness of Shimmer Reverb, whether the Sample compressor row is available (open Shift+Pad 5 once if it shows N/A), the named Cab Models, and double Stop in a long song.
 
 ## Known limits
 
