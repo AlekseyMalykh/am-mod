@@ -211,6 +211,21 @@ extern "C" int startup_song_export_external(const char*path){
  prefix[n-1]=0;struct stat st;struct statvfs fs;
  return !stat(prefix,&st)&&S_ISDIR(st.st_mode)&&!statvfs(prefix,&fs)&&!(fs.f_flag&ST_RDONLY);
 }
+extern "C" int startup_song_export_target(const char*path,char*out,size_t size){
+ static const char internal[]="/data/UserContent/Samples/User/Export/";
+ char root[PATH_MAX],dir[PATH_MAX];
+ if(!path||!out||!size||!card_root(root))return 0;
+ if(std::snprintf(dir,sizeof(dir),"%s/Samples/User/Export/",root)>=(int)sizeof(dir))return 0;
+ const char*rest=nullptr;
+ if(!std::strncmp(path,internal,sizeof(internal)-1)&&startup_song_export_ready())rest=path+sizeof(internal)-1;
+ else if(!std::strncmp(path,dir,std::strlen(dir)))rest=path+std::strlen(dir);
+ if(!rest||!*rest||std::strstr(rest,".."))return 0;
+ char folder[PATH_MAX];std::snprintf(folder,sizeof(folder),"%s",dir);folder[std::strlen(folder)-1]=0;
+ struct stat st;struct statvfs fs;
+ if(stat(folder,&st)){if(mkdir(folder,0777)&&errno!=EEXIST)return 0;}
+ if(stat(folder,&st)||!S_ISDIR(st.st_mode)||statvfs(folder,&fs)||(fs.f_flag&ST_RDONLY))return 0;
+ return std::snprintf(out,size,"%s%s",dir,rest)<(int)size;
+}
 extern "C" int startup_project_loading(void){return phase.load()==1||phase.load()==2;}
 extern "C" void startup_project_ready(void){
  unsigned waiting=1;

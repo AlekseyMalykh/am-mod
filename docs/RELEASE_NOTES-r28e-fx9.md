@@ -1,4 +1,4 @@
-# r28e-fx8 (candidate for r29a)
+# r28e-fx9 (candidate for r29a)
 
 Fix: Save Project and Save Sample windows are SD-only. K3 is forced to External when the window opens and on any K3 movement. Diagnostic logging (SAVE_SCREEN/SAVE_K3/SAVE_BUTTON) is still enabled.
 
@@ -7,4 +7,4 @@ Master FX: the pinned "Sample Comp" row is hidden for now (the Sample compressor
 Text input: naming, search and export windows (project, sample, track names in the Mixer, Stems export) now open in Pads mode by default. K1 still switches to Encoder. New Mod Setting: Quick tab > Text input (Pads/Encoder), saved on the card.
 
 
-Fixed: Stems export failed with SD_EXPORT_UNAVAILABLE when the export destination was External (card Samples/User/Export); both destinations on the SD card are now accepted. First Mod Settings tab renamed Pads -> Quick.
+Fixed: Stems export failed with SD_EXPORT_UNAVAILABLE when the export destination was External (card Samples/User/Export); Stems always go to Samples/User/Export on the SD card, whichever destination the Export window shows, in a folder named after the song. First Mod Settings tab renamed Pads -> Quick.

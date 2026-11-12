@@ -150,14 +150,15 @@ static void begin(void *context,void *writer,const char *path,unsigned rate,int 
     if(!path||path[0]!='/'||strnlen(path,sizeof(full))>=sizeof(full)){
         fprintf(stderr,"STEMS INVALID_EXPORT_PATH\n");return;
     }
+    char redirected[1024];
+    snprintf(redirected,sizeof(redirected),"%s",path);
 #ifdef MPC_EARLY_STARTUP
     static const char export_path[]="/data/UserContent/Samples/User/Export/";
-    int internal_ok=!strncmp(path,export_path,sizeof(export_path)-1)&&startup_song_export_ready();
-    if(!internal_ok&&!startup_song_export_external(path)){
+    if(!startup_song_export_target(path,redirected,sizeof(redirected))){
         fprintf(stderr,"STEMS SD_EXPORT_UNAVAILABLE path=%s prefix_ok=%d\n",path,!strncmp(path,export_path,sizeof(export_path)-1));return;
     }
 #endif
-    snprintf(full,sizeof(full),"%s",path);
+    snprintf(full,sizeof(full),"%s",redirected);
     char*slash=strrchr(full,'/'),*dot=strrchr(full,'.');
     if(!slash||!slash[1]){fprintf(stderr,"STEMS INVALID_EXPORT_NAME\n");return;}
     if(dot&&dot>slash)*dot=0;
