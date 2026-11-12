@@ -50,6 +50,8 @@ static void changed(struct mixer_control*c){c->dirty=1;c->message="";}
 static int one(const struct mixer_control*c){return c->view.master||count(c->view.selected)==1;}
 static const struct mixer_comp_ops*comp_ops;
 void mixer_control_set_comp_ops(const struct mixer_comp_ops*ops){comp_ops=ops;}
+static unsigned name_pads_default;
+void mixer_control_set_name_pads_default(unsigned pads){name_pads_default=pads!=0;}
 static int comp_visible(const struct mixer_control*c){return c->view.master&&comp_ops&&comp_ops->state;}
 static int comp_pinned(const struct mixer_control*c){return comp_visible(c)&&c->view.fx_slot==MIXER_COMP_SLOT;}
 static int comp_available(void){struct mixer_sample_comp k;memset(&k,0,sizeof(k));return comp_ops&&comp_ops->state&&comp_ops->state(&k)&&k.available;}
@@ -445,7 +447,7 @@ int mixer_control_button(struct mixer_control*c,enum mixer_action action,int dow
         }
         if(!one(c)){c->message="Select one Track";return 1;}
         phone_init(&c->name,MIXER_NAME_BYTES-1);
-        if(phone_sync(&c->name,selected(c)->name,0))c->naming=1;
+        if(phone_sync(&c->name,selected(c)->name,0)){c->naming=1;if(name_pads_default)phone_enable(&c->name,1);}
     }else if(action==MIXER_B2&&c->view.page==MIXER_ASSIGN&&!c->shift){
         c->view.pad_lock^=1;
     }else if(action==MIXER_B3){

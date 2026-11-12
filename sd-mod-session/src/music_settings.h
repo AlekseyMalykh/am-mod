@@ -34,6 +34,9 @@ uint32_t music_relation_rgb(unsigned role);
 /* LED colour strength: 0 Standard (unchanged), 1 Strong, 2 Max. Removes the
  * white component of mixed colours so they do not look washed out. */
 /* Mixer effect screens: 1 Illustrated (default), 0 Classic (plain traces). Card-wide. */
+/* Default text input in naming/search windows: 1 Pads (default), 0 Encoder. Card-wide. */
+unsigned music_text_input(void);
+int music_set_text_input(unsigned pads);
 unsigned music_fx_view(void);
 int music_set_fx_view(unsigned view);
 unsigned music_led_vivid(void);

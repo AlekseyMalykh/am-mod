@@ -6,7 +6,7 @@ WIN="/mnt/c/Users/Алексей/Desktop/akai mpc sample"
 SRC="/mnt/c/Users/Алексей/Desktop/am-mod-illustrated-fx"
 SEED="/home/user/am-mod-stems-merge/sd-mod-session/build"
 BASE_ZIP="$WIN/releases/r28d/am-mod-r28d.zip"
-VER="r28e-fx4"
+VER="r28e-fx5"
 W=/home/user/am-mod-illustrated-fx
 mkdir -p "$W"
 # Свежие исходники ветки; build/ и .git не трогаем.

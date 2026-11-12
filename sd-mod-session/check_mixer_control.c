@@ -235,12 +235,21 @@ static void send_name_history(void)
     cc(c,0x11,127);ack(c);assert(accepted.track[0].mix.send==1);
     mixer_control_button(c,MIXER_SHIFT,1,ticket);
     cc(c,0x11,32);ack(c);assert(accepted.send_to[0]==2);
-    button(c,MIXER_B2);assert(view(c).name_edit);
+    button(c,MIXER_B2);assert(view(c).name_edit&&!view(c).name_pads); /* default: Encoder */
     mixer_control_button(c,MIXER_SHIFT,0,ticket);
     cc(c,0x64,1);button(c,MIXER_B3);ack(c);assert(!strcmp(accepted.track[0].name,"Urack A"));
     mixer_control_button(c,MIXER_SHIFT,1,ticket);
     button(c,MIXER_BANK_PREVIOUS);ack(c);assert(!strcmp(accepted.track[0].name,"Track A"));
     button(c,MIXER_BANK_NEXT);ack(c);assert(!strcmp(accepted.track[0].name,"Urack A"));
+    mixer_control_destroy(c);
+    /* Mod Setting "Text input: Pads": the track-name editor opens in Pads mode. */
+    mixer_defaults(&accepted);++revision;++epoch;
+    c=mixer_control_create(&ops,48000);assert(c);
+    assert(mixer_control_confirm(c,&accepted,revision,epoch)&&mixer_control_open(c,1,0));
+    mixer_control_set_name_pads_default(1);ticket=mixer_control_ticket(c);
+    mixer_control_button(c,MIXER_SHIFT,1,ticket);button(c,MIXER_B2);
+    assert(view(c).name_edit&&view(c).name_pads);
+    mixer_control_set_name_pads_default(0);
     mixer_control_destroy(c);
 }
 static void group_fader_limits(void)

@@ -907,6 +907,7 @@ static int mixer_dispatch(struct phone_event *e)
 {
     if (e->kind < PHONE_MIXER_PAD || e->kind > PHONE_MIXER_CC) return 0;
     struct mixer_control *control = mixer_session_control(mixer_ui_session);
+    mixer_control_set_name_pads_default(music_text_input());
     int blocked = control && mixer_ui_blocked();
     if (blocked && mixer_control_active(control)) mixer_fail_input();
     int suppress = atomic_load(&mixer_input_fault) || atomic_load(&mixer_project_invalidated) ||
@@ -1324,6 +1325,16 @@ static void activate(void *p, size_t editor_offset)
         phone_init(&state,PHONE_MAX_CHARS);
         if (!read_native()) { editor = 0; screen = 0; atomic_store(&editor_identity,0); note("NAMING_TEXT_REJECTED"); return; }
         note("NAMING_READY r10b_UI_FIFO feedback100ms encoder_and_plus_minus_preserved");
+        /* Default input is a Mod Setting (Pads unless set to Encoder). The
+         * window repaints on its own; K1 still switches at any time. */
+        if(music_text_input()&&!atomic_load(&input_fault)&&state.length<=PHONE_MAX_CHARS){
+            phone_enable(&state,1);
+#ifdef MPC_SONG_UI
+            song_ui_stems_input_mode(1);
+#endif
+            lights();
+            note("PADS_ON default");
+        }
     }
     if (visible()) { atomic_store(&naming_active,1); start_timer(); }
 }

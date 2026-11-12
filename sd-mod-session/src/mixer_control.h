@@ -27,6 +27,8 @@ struct mixer_comp_ops {
     void(*warm)(void);
 };
 void mixer_control_set_comp_ops(const struct mixer_comp_ops*);
+/* Track-name editor opens in Pads (1) or Encoder (0) mode. */
+void mixer_control_set_name_pads_default(unsigned pads);
 struct mixer_control*mixer_control_create(const struct mixer_control_ops*,double rate);
 void mixer_control_destroy(struct mixer_control*);
 /* Confirmed snapshot from the project/audio owner. Load/New/source epoch change

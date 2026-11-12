@@ -73,6 +73,9 @@ int main(void){
  assert(music_lighting_preferences_open(dir)&&music_fx_view()==0);
  assert(music_set_pad_link_lighting(MUSIC_LINK_BOTH)&&music_fx_view()==0);
  assert(music_set_fx_view(1)&&music_lighting_preferences_open(dir)&&music_fx_view()==1);
+ assert(music_text_input()==1&&music_set_text_input(0)&&music_text_input()==0&&!music_set_text_input(2));
+ assert(music_lighting_preferences_open(dir)&&music_text_input()==0);
+ assert(music_set_text_input(1)&&music_lighting_preferences_open(dir)&&music_text_input()==1);
  {char fxpath[512];snprintf(fxpath,sizeof(fxpath),"%s/.am-mod-fx-view",dir);
   FILE*fx=fopen(fxpath,"wb");assert(fx);fputs("garbage",fx);fclose(fx);
   assert(music_lighting_preferences_open(dir)&&music_fx_view()==1);
@@ -165,6 +168,7 @@ int main(void){
  assert(!unlink(palette_path));f=fopen(palette_path,"wb");assert(f);fputs("AMP1",f);fclose(f);
  assert(music_lighting_preferences_open(dir)&&music_palette_rgb(0)==music_palette_default_rgb(0));
  {char fxclean[512];snprintf(fxclean,sizeof(fxclean),"%s/.am-mod-fx-view",dir);unlink(fxclean);}
+ {char tclean[512];snprintf(tclean,sizeof(tclean),"%s/.am-mod-text-input",dir);unlink(tclean);}
  assert(!unlink(palette_path)&&!unlink(sentinel)&&!unlink(path)&&!rmdir(dir));
  assert(!music_palette_set_rgb(0,0)&&music_palette_rgb(0)==music_palette_default_rgb(0));
  assert(!music_set_pad_lighting_mode(MUSIC_LIGHTING_MOD)&&music_pad_lighting_mode()==MUSIC_LIGHTING_STANDARD);
