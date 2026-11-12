@@ -1385,7 +1385,7 @@ static void mixer_paint_text(void *g,const char *text,int x,int y,int w,int h,un
 }
 #endif
 
-#if defined(MPC_MIXER_LIVE) && defined(MPC_COMPRESSOR)
+#if defined(MPC_MIXER_LIVE) && defined(MPC_COMPRESSOR) && defined(MPC_MIXER_SAMPLE_COMP_ROW)
 /* The Sample-mode master compressor as a pinned row of the Mixer's Master FX page. */
 static int mixer_comp_state(struct mixer_sample_comp*k)
 {
@@ -1406,7 +1406,9 @@ static const struct mixer_comp_ops mixer_comp_ops={mixer_comp_state,mixer_comp_k
 #endif
 static void music_sample_paint(void *p,void *g)
 {
-#if defined(MPC_MIXER_LIVE) && defined(MPC_COMPRESSOR)
+#if defined(MPC_MIXER_LIVE) && defined(MPC_COMPRESSOR) && defined(MPC_MIXER_SAMPLE_COMP_ROW)
+    /* The pinned Sample Comp row is hidden for now: the native compressor
+     * only exists after Sample's compressor has been opened once. */
     mixer_control_set_comp_ops(&mixer_comp_ops);
 #endif
     if (!ui_known) { ui_thread=pthread_self(); ui_known=1; }
