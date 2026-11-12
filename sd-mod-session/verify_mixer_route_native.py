@@ -20,7 +20,7 @@ expected = "b6584cba76e416e432ad202509099d34373dc2c3d6a8fb625f5678bf0193b508"
 if digest(stock) != expected:
     raise RuntimeError("Scoped adapter test requires the exact pinned 1.3.0.12 ELF")
 core = ["src/mixer_route_native.c", "src/mixer_buses.c", "src/mixer_model.c",
-        "src/mixer_meters.c", "src/fx_chain.c", "src/fx_eq.c"]
+        "src/mixer_meters.c", "src/fx_chain.c", "src/fx_own.c", "src/compressor_dsp.c", "src/fx_eq.c"]
 suites = [
     ("routing", ["check_mixer_route_native.c", *core], "PASS scoped Mixer native adapter"),
     ("native-dsp", ["check_mixer_route_dsp.c", *core, "src/pad_eq.c", "src/pad_eq_native.c", "src/music_settings.c"],

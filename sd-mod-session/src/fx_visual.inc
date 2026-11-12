@@ -579,7 +579,8 @@ static void fxv_opto(const struct resample_painter*p,const struct fx_stage*stage
         double in=-60.0+60.0*x/(gs-1),over=in-c.threshold,gr;
         gr=over<=-half?0:over>=half?slope*over:c.knee>0?slope*(over+half)*(over+half)/(2*c.knee):0;
         double out=in-gr+c.gain;
-        if(out<-60)out=-60;if(out>0)out=0;
+        if(out<-60)out=-60;
+        if(out>0)out=0;
         rect(p,gx+x,gy+gs-1-(int)lround((out+60.0)*(gs-1)/60.0),1,2,AMBER);
     }
     rect(p,gx+(int)lround((c.threshold+60.0)*(gs-1)/60.0),gy,1,gs,LINE);

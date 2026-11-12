@@ -18,7 +18,7 @@ for source in sources:
  obj=OUT/(Path(source).stem+'.o');objects.append(str(obj))
  subprocess.run(['aarch64-linux-gnu-g++','-c','-fPIC','-O1','-g','-std=c++11','-Wall','-Wextra','-Werror',*flags,'-mbranch-protection=standard',source,'-o',str(obj)],cwd=R,check=True)
 target=OUT/'ui-bridge'
-c_sources=['src/resample_worker.c','src/resample_flow.c','src/resample_view.c','src/fx_catalog.c','src/resample_panel.c','src/pad_render.c','src/fx_chain.c','src/fx_eq.c','src/fx_eq_editor.c']
+c_sources=['src/resample_worker.c','src/resample_flow.c','src/resample_view.c','src/fx_catalog.c','src/resample_panel.c','src/pad_render.c','src/fx_chain.c', 'src/fx_own.c', 'src/compressor_dsp.c','src/fx_eq.c','src/fx_eq_editor.c']
 subprocess.run(['aarch64-linux-gnu-gcc','-O1','-g','-Wall','-Wextra','-Werror',*flags,'-Ibuild','-mbranch-protection=standard','check_resample_ui.c','check_chop_pcm_support.S','check_steps_support.S','src/step_abi.S','src/pad_output_abi.S','src/pad_source_abi.S','src/pad_memory_abi.S','src/pad_assignment_abi.S',*c_sources,*objects,'-lstdc++','-ldl','-pthread','-lm','-o',str(target)],cwd=R,check=True)
 result=subprocess.run(['qemu-aarch64','-L','/home/user/mpc-rootfs-user-20260808',str(target),str(stock),str(OUT/'eq-draw.txt')],cwd=R,capture_output=True,text=True,timeout=45)
 (OUT/'ui-bridge.log').write_text(result.stdout+result.stderr);result.check_returncode()

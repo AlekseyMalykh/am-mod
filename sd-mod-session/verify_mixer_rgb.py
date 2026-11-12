@@ -9,7 +9,7 @@ expected='b6584cba76e416e432ad202509099d34373dc2c3d6a8fb625f5678bf0193b508'
 assert sha(stock)==expected
 root=os.environ.get('MPC_QEMU_SYSROOT','/home/user/mpc-rootfs-user-20260808')
 out=R/'build/mixer-rgb';out.mkdir(parents=True,exist_ok=True)
-sources=['check_mixer_rgb.c','src/mixer_leds.c','src/phone_input.c','src/music_settings.c','src/mixer_control.c','src/mixer_model.c','src/fx_catalog.c','src/fx_chain.c','src/fx_eq.c']
+sources=['check_mixer_rgb.c','src/mixer_leds.c','src/phone_input.c','src/music_settings.c','src/mixer_control.c','src/mixer_model.c','src/fx_catalog.c','src/fx_chain.c', 'src/fx_own.c', 'src/compressor_dsp.c','src/fx_eq.c']
 tracked=sources+['src/mixer_leds.h','src/phone_native.c','check_fx_native.c','src/mixer_control.h','verify_mixer_rgb.py']
 before={p:sha(R/p) for p in tracked};checks=[]
 for mode,flags in [('normal',[]),('ubsan',['-fsanitize=undefined','-static-libubsan','-fno-sanitize-recover=all'])]:
