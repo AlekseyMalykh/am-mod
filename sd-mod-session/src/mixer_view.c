@@ -774,9 +774,10 @@ static void track_fx(const struct mixer_view_state*s,const struct resample_paint
         }
         rect(p,315,61,2,130,DARK);
         rect(p,315,61+(int)(first*130/total),2,(int)(6*130/total),GREY);
-        rect(p,85,202,231,32,PANEL);
-        fx_hint(p,"TURN DATA","Browse  /  K3 Filter",202);
-        fx_hint(p,"PRESS DATA","Add effect",217);
+        rect(p,85,202,124,32,PANEL);
+        text(p,"TURN DATA",92,202,52,15,10,AMBER,0);text(p,"Browse",146,202,60,15,10,WHITE,0);
+        text(p,"PRESS DATA",92,217,52,15,10,AMBER,0);text(p,"Add effect",146,217,60,15,10,WHITE,0);
+        knob_cell(p,2,"K3  Filter",fx_mixer_category_name(s->catalog_filter),1,0);
         return;
     }
     const int comp_row=s->master&&s->comp.visible;
