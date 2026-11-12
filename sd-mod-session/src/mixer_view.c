@@ -674,7 +674,9 @@ static void effect_editor(const struct mixer_view_state*s,const struct resample_
                     if(v)snprintf(value[knob],sizeof(value[knob]),"Track %c",'A'+(int)v-1);
                     else snprintf(value[knob],sizeof(value[knob]),"Off");
                 }else snprintf(value[knob],sizeof(value[knob]),formats[index],v);
-            }else snprintf(value[knob],sizeof(value[knob]),"%.0f%%",stage->parameter[index]*100.f);
+            }else if(fx_catalog_choice_count(e,(unsigned)index))
+                snprintf(value[knob],sizeof(value[knob]),"%s",fx_catalog_choice_name(e,(unsigned)index,stage->parameter[index]));
+            else snprintf(value[knob],sizeof(value[knob]),"%.0f%%",stage->parameter[index]*100.f);
         }
         snprintf(status,sizeof(status),"%s%s",pages>1?"Turn or press DATA: page   ":"",layer?"Shift layer":"");
     }

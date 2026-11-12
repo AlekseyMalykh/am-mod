@@ -707,7 +707,10 @@ static int fx_cc(struct mixer_control*c,unsigned cc,unsigned value)
     struct fx_stage*s=ch->fx.stage+c->view.fx_slot;
     if(s->kind!=FX_STAGE_EQ){
         int index=effect_parameter_index(c,fx_catalog_find(s->native_id),cc-0x10,c->shift);
-        if(index>=0){s->parameter[index]=value/127.f;changed(c);}
+        if(index>=0){
+            float v=value/127.f;unsigned n=fx_catalog_choice_count(fx_catalog_find(s->native_id),(unsigned)index);
+            if(n>1)v=roundf(v*(float)(n-1))/(float)(n-1); /* named choices: whole steps only */
+            s->parameter[index]=v;changed(c);}
     }else{
         if(!s->eq.count){
             if(c->shift&&cc==0x12){s->eq.output_db=-24+value*36./127;changed(c);}

@@ -414,7 +414,8 @@ static void fxv_amp(const struct resample_painter*p,const struct fx_stage*stage,
     text(p,"AM-30",FXV_X+FXV_W/2-24,FXV_Y+49,48,12,10,0xffe8d8a0u,1);
     float lamp=m?fminf(1.f,m->output_peak*1.6f):0.f;
     fxv_disc(p,FXV_X+FXV_W-30,FXV_Y+17,4,lamp>.1f?0xffff3030u:0xff401010u);
-    char b[48];snprintf(b,sizeof(b),"Drive %.0f%%  Bass %.0f%%  Treble %.0f%%",fxv_p(stage,0)*100,fxv_p(stage,4)*100,fxv_p(stage,7)*100);
+    char b[64];snprintf(b,sizeof(b),"Drive %.0f%%  Treble %.0f%%  Cab %s",fxv_p(stage,0)*100,fxv_p(stage,7)*100,
+                        fx_catalog_choice_name(fx_catalog_find(0x61464153u),9,stage->parameter[9]));
     fxv_params_text(p,b,0);
 }
 static void fxv_clip_wave(const struct resample_painter*p,int x,int y,int w,int h,double drive,double hard)

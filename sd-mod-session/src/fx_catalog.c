@@ -44,6 +44,15 @@ int fx_catalog_parameter_index(const struct fx_catalog_entry*e,unsigned position
         if(e->parameter[i]&&*e->parameter[i]&&position--==0)return (int)i;
     return -1;
 }
+unsigned fx_catalog_choice_count(const struct fx_catalog_entry*e,unsigned index){return e&&e->id==0x61464153u&&index==9?8u:0u;}
+const char *fx_catalog_choice_name(const struct fx_catalog_entry*e,unsigned index,float v)
+{
+    static const char*const cab[8]={"Dense","Gritty","Loose","Roomy","Boxy","Cramped","Tiny","Nano"};
+    unsigned n=fx_catalog_choice_count(e,index);
+    if(!n)return "";
+    v=fminf(1.f,fmaxf(0.f,v));
+    return cab[(unsigned)(v*(float)(n-1)+.5f)];
+}
 int fx_catalog_shift_layer(const struct fx_catalog_entry*e,unsigned page)
 {
     for(unsigned k=0;k<3;++k)if(fx_catalog_parameter_index(e,page*6+3+k)>=0)return 1;
