@@ -570,6 +570,7 @@ static void move_fader(struct mixer_control*c,unsigned value)
 static int effect_parameter_index(const struct mixer_control*c,const struct fx_catalog_entry*entry,
                                   unsigned knob,int shift)
 {
+    if(shift&&!fx_catalog_shift_layer(entry,c->parameter_page))shift=0;
     return fx_catalog_parameter_index(entry,c->parameter_page*6+(shift?3:0)+knob);
 }
 static void reset_fx_parameter(struct mixer_control*c,unsigned knob,int shift)

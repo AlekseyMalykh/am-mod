@@ -17,6 +17,8 @@ const struct fx_catalog_entry *fx_mixer_catalog_at(unsigned);
 int fx_mixer_catalog_stage(unsigned,double,struct fx_stage*);
 unsigned fx_catalog_parameter_count(const struct fx_catalog_entry*);
 int fx_catalog_parameter_index(const struct fx_catalog_entry*,unsigned position);
+/* 1 when the Shift layer of this page holds at least one parameter; otherwise Shift keeps the normal layer. */
+int fx_catalog_shift_layer(const struct fx_catalog_entry*,unsigned page);
 const struct fx_catalog_entry *fx_catalog_at(unsigned);
 const struct fx_catalog_entry *fx_catalog_find(uint32_t);
 const char *fx_catalog_stage_name(const struct fx_stage*);

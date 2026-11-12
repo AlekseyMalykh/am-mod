@@ -44,6 +44,11 @@ int fx_catalog_parameter_index(const struct fx_catalog_entry*e,unsigned position
         if(e->parameter[i]&&*e->parameter[i]&&position--==0)return (int)i;
     return -1;
 }
+int fx_catalog_shift_layer(const struct fx_catalog_entry*e,unsigned page)
+{
+    for(unsigned k=0;k<3;++k)if(fx_catalog_parameter_index(e,page*6+3+k)>=0)return 1;
+    return 0;
+}
 static const struct fx_catalog_entry sidechain={FX_SIDECHAIN_ID,"Sidechain Compressor","Dynamics",6,
     {"Key Track","Threshold","Ratio","Attack","Release","Mix"},{0,.60f,.158f,.25f,.5f,1}};
 /* Am MOD's own effects (fx_own.c). Offered by the Mixer only: they are not firmware plug-ins. */

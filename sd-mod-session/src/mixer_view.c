@@ -650,10 +650,11 @@ static void effect_editor(const struct mixer_view_state*s,const struct resample_
             signal_meter(p,"Input",m?m->input_peak:0,138,8,BLUE,NAN);
             signal_meter(p,"Output",m?m->output_peak:0,155,8,AMBER,NAN);
         }
+        int layer=s->shifted&&fx_catalog_shift_layer(e,s->parameter_page);
         for(unsigned knob=0;knob<3;++knob){
             unsigned position=s->parameter_page*6+knob;
-            if(fx_catalog_parameter_index(e,position+3)>=0)alternate[knob]=s->shifted?2:1;
-            int index=fx_catalog_parameter_index(e,position+(s->shifted?3:0));
+            if(fx_catalog_parameter_index(e,position+3)>=0)alternate[knob]=layer?2:1;
+            int index=fx_catalog_parameter_index(e,position+(layer?3:0));
             if(index<0)continue;
             label[knob]=e->parameter[index];
             if(stage->kind==FX_STAGE_SIDECHAIN){
@@ -665,7 +666,7 @@ static void effect_editor(const struct mixer_view_state*s,const struct resample_
                 }else snprintf(value[knob],sizeof(value[knob]),formats[index],v);
             }else snprintf(value[knob],sizeof(value[knob]),"%.0f%%",stage->parameter[index]*100.f);
         }
-        snprintf(status,sizeof(status),"%s%s",pages>1?"Turn or press DATA: page   ":"",s->shifted?"Shift layer":"");
+        snprintf(status,sizeof(status),"%s%s",pages>1?"Turn or press DATA: page   ":"",layer?"Shift layer":"");
     }
     if(!is_eq)text(p,s->message&&*s->message?s->message:status,10,171,300,13,10,GREY,1);
     for(unsigned i=0;i<3;++i)knob_cell(p,i,label[i],value[i],0,alternate[i]);
@@ -673,7 +674,7 @@ static void effect_editor(const struct mixer_view_state*s,const struct resample_
         if(stage->eq.count)eq_knob_bars(s,p,&stage->eq);
         else if(s->shifted)knob_scale(p,2,(stage->eq.output_db+24)/36,0);
     }else for(unsigned k=0;k<3;++k){
-        int index=fx_catalog_parameter_index(e,s->parameter_page*6+(s->shifted?3:0)+k);
+        int index=fx_catalog_parameter_index(e,s->parameter_page*6+(s->shifted&&fx_catalog_shift_layer(e,s->parameter_page)?3:0)+k);
         if(index<0)continue;
         if(stage->kind==FX_STAGE_SIDECHAIN&&index==0)
             knob_steps(p,k,(int)fx_sidechain_value(0,stage->parameter[0]),9,AMBER);

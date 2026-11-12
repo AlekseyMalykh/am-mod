@@ -573,8 +573,15 @@ static void fxv_tape_emu(const struct resample_painter*p,const struct fx_stage*s
         fxv_disc(p,cx,cy,5,0xffc0c4ccu);
     }
     rect(p,FXV_X+76,cy+32,FXV_W-152,2,0xff6a4a30u);
-    for(int k=0;k<2;++k){int x=FXV_X+112+k*70,hh=(int)lround(8+10*(.5+.5*sin(fxv_now*.004+k)));
-        rect(p,x,FXV_Y+8,46,26,0xffe8e0c0u);rect(p,x+22,FXV_Y+32-hh,1,hh,BLACK);}
+    /* Two VU meters in the gap between the reels; the needles swing around a pivot at the bottom. */
+    for(int k=0;k<2;++k){
+        int x=FXV_X+112+k*42,top=FXV_Y+8,pivot_x=x+17,pivot_y=top+23;
+        rect(p,x,top,34,26,0xffe8e0c0u);
+        for(int t=-2;t<=2;++t){double a=t*.38;rect(p,pivot_x+(int)lround(sin(a)*19),pivot_y-(int)lround(cos(a)*19),1,2,0xff6a5a40u);}
+        double a=(-.8+1.6*(.5+.5*sin(fxv_now*.004+k*1.3)))*(.6+.4*(1-wow));
+        for(int r=0;r<=18;++r)rect(p,pivot_x+(int)lround(sin(a)*r),pivot_y-(int)lround(cos(a)*r),1,1,k?0xffb02a1eu:BLACK);
+        rect(p,pivot_x-1,pivot_y-1,3,3,BLACK);
+    }
     char b[48];snprintf(b,sizeof(b),"Wow %.0f%%  Noise %.0f%%  Pitch %.0f%%",wow*100,fxv_p(stage,1)*100,fxv_p(stage,2)*100);
     fxv_params_text(p,b,0);
 }
