@@ -14,3 +14,4 @@ Stems: the stock mixdown WAV is moved into the song folder as "<song>_Master.wav
 Stem file names now carry the Track name: "<song>_track A_<name>.wav" (only if the Track was renamed), "<song>_Master.wav".
 
 - Effect screens: the value strip under the pictures is gone (values are on the parameter panel). New detailed pictures with AM MOD labels: Tape Delay (reels, rollers, heads), Tape (cassette with VU and transport), Vinyl (turntable), Sample Delay.
+- Tape cassette: two buttons PLAY/STOP (PLAY down while sound runs, STOP when it stops), reels turn only while playing, VU needle follows the signal level.

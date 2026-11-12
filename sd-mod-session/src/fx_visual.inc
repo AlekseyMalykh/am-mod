@@ -405,7 +405,8 @@ static void fxv_vinyl(const struct resample_painter*p,const struct fx_stage*stag
     unsigned seed=(unsigned)(fxv_now/90);int sparks=(int)lround(6*fxv_p(stage,1));
     for(int k=0;k<sparks;++k){seed=seed*1664525u+1013904223u;rect(p,hx-6+(int)(seed>>9&15),hy+6+(int)(seed>>13&7),2,2,AMBER);}
 }
-static void fxv_tape_emu(const struct resample_painter*p,const struct fx_stage*stage)
+static struct {double ang,needle;uint64_t last_ms,hold_ms;} fxv_tape_state;
+static void fxv_tape_emu(const struct resample_painter*p,const struct fx_stage*stage,const struct mixer_fx_monitor*m)
 {
     rect(p,FXV_X,FXV_Y,FXV_W,FXV_H,0xff1d2126u);
     int bx=FXV_X+74,by=FXV_Y+1,bw=148,bh=92;double wow=fxv_p(stage,0);
@@ -415,7 +416,15 @@ static void fxv_tape_emu(const struct resample_painter*p,const struct fx_stage*s
     text(p,"SIDE A",bx+10,by+16,40,9,7,0xfff6eedcu,0);text(p,"NR",bx+bw-30,by+16,20,9,7,0xfff6eedcu,0);
     int wx=bx+20,wy=by+30,ww=108,wh=32;
     rect(p,wx,wy,ww,wh,0xff0d1013u);
-    double ang=fxv_idle?0:fxv_now*.0026*(1+.15*wow*sin(fxv_now*.012));
+    float level=m?fmaxf(m->input_peak,m->output_peak):0.f;
+    if(level>.004f)fxv_tape_state.hold_ms=fxv_now;
+    int playing=!fxv_idle&&fxv_now-fxv_tape_state.hold_ms<350;
+    uint64_t dt=fxv_now>fxv_tape_state.last_ms?fxv_now-fxv_tape_state.last_ms:0;if(dt>200)dt=0;
+    fxv_tape_state.last_ms=fxv_now;
+    if(playing)fxv_tape_state.ang+=dt*.0026*(1+.15*wow*sin(fxv_now*.012));
+    double ang=fxv_tape_state.ang;
+    double target=0;if(level>0){double db=mixer_meter_dbfs(level);target=fmax(0.0,fmin(1.0,(db+40.0)/40.0));}
+    fxv_tape_state.needle+=(target-fxv_tape_state.needle)*(target>fxv_tape_state.needle?.5:.12);
     int lcx=wx+24,rcx=wx+ww-24,cy=wy+wh/2;
     fxv_disc_clip(p,lcx,cy,21,wy+1,wy+wh-1,0xff4a3524u);
     fxv_disc_clip(p,rcx,cy,11,wy+1,wy+wh-1,0xff4a3524u);
@@ -432,14 +441,20 @@ static void fxv_tape_emu(const struct resample_painter*p,const struct fx_stage*s
     rect(p,vx,vy,vw,vh,0xffe8e0c0u);rect(p,vx+2,vy+2,vw-4,vh-4,0xfff6eedcu);
     int pxv=vx+vw/2,pyv=vy+vh-6;
     for(int t=-3;t<=3;++t){double a=t*.3;rect(p,pxv+(int)lround(sin(a)*24),pyv-(int)lround(cos(a)*24),1,3,t>1?0xffb02a1eu:0xff6a5a40u);}
-    double a=fxv_idle?-.6:(-.8+1.6*(.5+.5*sin(fxv_now*.004)))*(.6+.4*(1-wow));
+    double a=-.8+1.6*fxv_tape_state.needle;
     fxv_line(p,pxv,pyv,pxv+sin(a)*22,pyv-cos(a)*22,1,BLACK);
     rect(p,pxv-2,pyv-2,5,4,BLACK);
     text(p,"VU",vx,vy+vh-12,vw,10,7,0xff6a5a40u,1);
-    /* transport at the right */
-    const char*lab[3]={"REC","PLAY","HI-FI"};uint32_t colr[3]={0xffc23a2eu,0xff4a4f56u,0xff4a4f56u};
-    for(int i=0;i<3;++i){int y=FXV_Y+12+i*24;rect(p,FXV_X+FXV_W-62,y,54,18,colr[i]);rect(p,FXV_X+FXV_W-62,y,54,2,0xffd86a5eu);
-        text(p,lab[i],FXV_X+FXV_W-62,y+4,54,10,8,0xfff0f0f0u,1);}
+    /* transport at the right: PLAY is down while sound runs, STOP when it has stopped */
+    const char*lab[2]={"PLAY","STOP"};
+    for(int i=0;i<2;++i){
+        int down=i==0?playing:!playing;int y=FXV_Y+14+i*34+(down?2:0);
+        uint32_t body=down?(i==0?0xff3aa655u:0xffc23a2eu):0xff4a4f56u;
+        rect(p,FXV_X+FXV_W-62,y,54,down?24:26,body);
+        if(!down)rect(p,FXV_X+FXV_W-62,y+24,54,2,0xff2b2f34u);
+        rect(p,FXV_X+FXV_W-62,y,54,2,down?body:0xff7a808aU);
+        text(p,lab[i],FXV_X+FXV_W-62,y+7,54,10,9,0xfff0f0f0u,1);
+    }
 }
 static void fxv_reverb(const struct resample_painter*p,const struct fx_stage*stage,unsigned time_i,unsigned size_i,unsigned mix_i)
 {
@@ -860,7 +875,7 @@ static int fx_visual_dispatch(const struct resample_painter*p,const struct fx_ca
     case 0x41435679:fxv_auto_wah(p,stage,m);return 1;   /* Auto Wah */
     case 0x41435671:fxv_auto_pan(p,stage);return 1;     /* Auto Pan */
     case 0x56456678:fxv_vinyl(p,stage);return 1;        /* Vinyl */
-    case 0x54456678:fxv_tape_emu(p,stage);return 1;     /* Tape */
+    case 0x54456678:fxv_tape_emu(p,stage,m);return 1;     /* Tape */
     case FX_OWN_OPTO:fxv_history_push(identity,now_ms,m);fxv_opto(p,stage,m);return 1;
     case FX_OWN_SHIMMER:fxv_shimmer(p,stage,m);return 1;
     case FX_OWN_PITCH:fxv_pitch(p,stage);return 1;
