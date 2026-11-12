@@ -1330,6 +1330,7 @@ static void activate(void *p, size_t editor_offset)
          * window repaints on its own; K1 still switches at any time. */
         if(music_text_input()&&!atomic_load(&input_fault)&&state.length<=PHONE_MAX_CHARS){
             phone_enable(&state,1);
+            atomic_store(&requested_pads,1); /* same routing flag K1 sets */
             lights();
             note("PADS_ON default");
         }

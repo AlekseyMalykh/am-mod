@@ -11,6 +11,8 @@ int startup_song_export_ready(void);
 int startup_song_export_external(const char *path);
 /* Stems always go to <card>/Samples/User/Export: map either stock destination there. */
 int startup_song_export_target(const char *path,char *out,size_t size);
+/* Card path of the stock mixdown file written for a dialog path (same filesystem as the stems folder). */
+int startup_song_export_native_file(const char *path,char *out,size_t size);
 int startup_project_loading(void);
 /* UI reached a usable screen without a boot Load (e.g. no Temp-Project). */
 void startup_project_ready(void);

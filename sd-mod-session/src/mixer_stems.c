@@ -31,7 +31,7 @@ struct stems_job {
     unsigned rate;
     uint64_t valid_blocks,missing_blocks,frames;
     struct stem_writer writer[STEM_FILES];
-    char folder[1024];
+    char folder[1024],native_file[1100];
     void *context,*native_writer;
     int failed;
 };
@@ -115,6 +115,24 @@ static int close_job(struct stems_job*j,int success)
         else wav_header(f,j->rate,j->writer[i].frames);
         if(fflush(f)||ferror(f)||fsync(fileno(f)))success=0;
         if(fclose(f))success=0;
+    }
+    if(success&&j->folder[0]&&j->native_file[0]){
+        /* The stock mixdown belongs in the song folder as its Master; never leave it in Export (Internal). */
+        char target[1100];const char *name=strrchr(j->folder,'/')+1;
+        int n=snprintf(target,sizeof(target),"%s/%s - Master.wav",j->folder,name);
+        if(n>0&&(size_t)n<sizeof(target)&&access(target,F_OK)==0)n=snprintf(target,sizeof(target),"%s/%s - Mixdown.wav",j->folder,name);
+        if(n>0&&(size_t)n<sizeof(target)){
+            if(rename(j->native_file,target)==0)fprintf(stderr,"STEMS MIXDOWN_MOVED %s\n",target);
+            else{
+                FILE*in=fopen(j->native_file,"rb"),*out=in?fopen(target,"wbx"):NULL;int ok=in&&out;
+                char buf[65536];size_t got;
+                while(ok&&(got=fread(buf,1,sizeof(buf),in))>0)if(fwrite(buf,1,got,out)!=got)ok=0;
+                if(in)fclose(in);
+                if(out&&(fflush(out)||fsync(fileno(out))||fclose(out)))ok=0;else if(out&&0)fclose(out);
+                if(ok){unlink(j->native_file);fprintf(stderr,"STEMS MIXDOWN_COPIED %s\n",target);}
+                else{fprintf(stderr,"STEMS MIXDOWN_MOVE_FAILED errno=%d\n",errno);if(out)unlink(target);}
+            }
+        }
     }
     if(!success&&j->folder[0]){
         const char *name=strrchr(j->folder,'/')+1;
@@ -205,6 +223,10 @@ static void begin(void *context,void *writer,const char *path,unsigned rate,int 
         j->folder[0]=0;
         close_job(j,0);return;
     }
+    j->native_file[0]=0;
+#ifdef MPC_EARLY_STARTUP
+    if(!startup_song_export_native_file(path,j->native_file,sizeof(j->native_file)))j->native_file[0]=0;
+#endif
     j->context=context;
     j->native_writer=writer;
     fprintf(stderr,"STEMS BEGIN folder=%s rate=%u\n",j->folder,j->rate);

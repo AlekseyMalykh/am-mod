@@ -226,6 +226,13 @@ extern "C" int startup_song_export_target(const char*path,char*out,size_t size){
  if(stat(folder,&st)||!S_ISDIR(st.st_mode)||statvfs(folder,&fs)||(fs.f_flag&ST_RDONLY))return 0;
  return std::snprintf(out,size,"%s%s",dir,rest)<(int)size;
 }
+extern "C" int startup_song_export_native_file(const char*path,char*out,size_t size){
+ static const char internal[]="/data/UserContent/Samples/User/Export/";
+ char root[PATH_MAX];
+ if(!path||!out||!size||!card_root(root))return 0;
+ if(!std::strncmp(path,internal,sizeof(internal)-1))return std::snprintf(out,size,"%s/Samples/Export/%s",root,path+sizeof(internal)-1)<(int)size;
+ return std::snprintf(out,size,"%s",path)<(int)size;
+}
 extern "C" int startup_project_loading(void){return phase.load()==1||phase.load()==2;}
 extern "C" void startup_project_ready(void){
  unsigned waiting=1;
