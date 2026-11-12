@@ -21,7 +21,7 @@ static void repaint(void*,uint64_t,uint64_t){++repaints;}
 static void colour(void*,uint32_t value){ink=value;}
 static void rectangle(void*,int x,int y,int w,int h){assert(x>=0&&y>=0&&w>=0&&h>=0&&x+w<=320&&y+h<=240);if(y==205&&w==2&&h==4&&(x==98||x==204||x==310)){
     if(ink==0xffff4747)++red_badges;else{assert(ink==0xffffffff);++white_badges;}
-}if(w==5&&y==25){assert(h==1||h==3);++indicators;}if(x==213&&y==0&&w==107&&h==29){assert(ink==0xff000000);bypass_underline=false;}if(x==221&&y==25&&w==91&&h==1){assert(ink==0xffffc247);bypass_underline=true;}if(x==0&&y==0&&w==106&&h==29){assert(ink==0xff000000);warm_underline=false;}if(x==8&&y==25&&w==90&&h==1){assert(ink==0xffffc247);warm_underline=true;}}
+}if(w==5&&y==25){assert(h==1||h==3);++indicators;}if(x==215&&y==1&&w==105&&h==28){assert(ink==0xff202020);bypass_underline=false;}if(x==221&&y==25&&w==91&&h==1){assert(ink==0xffff4040);bypass_underline=true;}if(x==1&&y==1&&w==105&&h==28){assert(ink==0xff202020);warm_underline=false;}if(x==8&&y==25&&w==90&&h==1){assert(ink==0xffffc247);warm_underline=true;}}
 static void font_create(uint64_t*f,int,float){*f=0;}
 static void font_destroy(uint64_t*){}
 static void font_set(void*,const uint64_t*){}
@@ -183,7 +183,7 @@ extern "C" int modern_fx_probe(uintptr_t base,const char**phase){
  assert(button(0x0e,1,ticket)&&button(0x0e,0,ticket));
  reinterpret_cast<void(*)(void*,void*)>(ui[27])(screen,nullptr);assert(!lit_meters(base)&&displayed_gr==0);
  assert(bypass_underline);
- puts("PASS OptoCat Bypass uses the native amber one-pixel underline only while enabled, cleared on wake and restored on repeated sleep");
+ puts("PASS OptoCat Bypass uses the red one-pixel underline only while enabled, cleared on wake and restored on repeated sleep");
  puts("PASS production OptoCat paint hides input/output/GR immediately on Bypass with live and stale telemetry, restores meters on wake and preserves actual bypass audio levels");
  *reinterpret_cast<int*>(audio)=1;
  for(unsigned i=0;i<256;++i)l[i]=.2f;
@@ -224,16 +224,15 @@ extern "C" int modern_fx_probe(uintptr_t base,const char**phase){
  auto native_bypass=[&](){return reinterpret_cast<float(*)(void*,int)>(v[27])(instance.get(),5)>=.5f;};
  assert(compressor_select(COMP_OPTO));reopen();assert(compressor_type()==COMP_OPTO);
  assert(button(0x0e,1,ticket)&&button(0x0e,0,ticket)&&native_bypass());
- reopen();assert(compressor_type()==COMP_DUCK);compressor_config(&after);assert(after.bypass);
- assert(button(0x0d,1,ticket)&&button(0x0d,0,ticket)&&compressor_type()==COMP_OPTO);
+ reopen();assert(compressor_type()==COMP_OPTO);compressor_config(&after);assert(after.bypass);
  compressor_config(&after);assert(after.bypass&&native_bypass());
  assert(button(0x0e,1,ticket)&&button(0x0e,0,ticket)&&!native_bypass());
  reopen();assert(compressor_type()==COMP_OPTO);
  /* Direct native/project parameter updates must drive both algorithms. */
  reinterpret_cast<void(*)(void*,int,float)>(v[40])(instance.get(),5,1);audio_block(0);
- compressor_config(&after);assert(after.bypass);reopen();assert(compressor_type()==COMP_DUCK);
+ compressor_config(&after);assert(after.bypass);reopen();assert(compressor_type()==COMP_OPTO);
  assert(button(0x0e,1,ticket)&&button(0x0e,0,ticket)&&!native_bypass());
- puts("PASS shared native Bypass disables both types, Type browsing stays bypassed, reopening selects active Opto or default Duck when off; native B3 retained");
+ puts("PASS shared native Bypass disables both types, Type browsing stays bypassed, reopening retains selected type even while bypassed; native B3 retained");
  *phase="OptoCat knob takeover";
  uint64_t takeover_saved=compressor_project_snapshot();
  compressor_project_reset();

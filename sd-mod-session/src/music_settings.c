@@ -77,7 +77,30 @@ const char*music_palette_name(unsigned c){
  return c<MUSIC_PALETTE_SIZE?palette_names[c]:c==14?"Custom 1":"Custom 2";
 }
 unsigned music_service_colour(unsigned role){return palette_slot(atomic_load(&mod_settings),MUSIC_USER_COLOURS+(role<MUSIC_SERVICE_COUNT?role:0));}
-uint32_t music_service_rgb(unsigned role){uint64_t v=atomic_load(&mod_settings);unsigned slot=palette_slot((v&1)?v:MOD_DEFAULT,MUSIC_USER_COLOURS+(role<MUSIC_SERVICE_COUNT?role:0));return (v&1)?music_palette_rgb(slot):mod_palette_rgb[slot];}
+static int service_colours_distinct(uint64_t settings)
+{
+ uint32_t seen[MUSIC_SERVICE_COUNT];
+ for(unsigned role=0;role<MUSIC_SERVICE_COUNT;++role){
+  uint32_t colour=music_palette_rgb(palette_slot(settings,MUSIC_USER_COLOURS+role))&0xf0f0f0u;
+  if(!colour)return 0;
+  for(unsigned i=0;i<role;++i)if(seen[i]==colour)return 0;
+  seen[role]=colour;
+ }
+ return 1;
+}
+int music_service_colours_fallback(void)
+{
+ uint64_t settings=atomic_load(&mod_settings);
+ return (settings&1)&&!service_colours_distinct(settings);
+}
+uint32_t music_service_rgb(unsigned role)
+{
+ uint64_t settings=atomic_load(&mod_settings);
+ unsigned offset=MUSIC_USER_COLOURS+(role<MUSIC_SERVICE_COUNT?role:0);
+ if((settings&1)&&service_colours_distinct(settings))
+  return music_palette_rgb(palette_slot(settings,offset));
+ return mod_palette_rgb[palette_slot(MOD_DEFAULT,offset)];
+}
 unsigned music_identity_count(void){
  return MUSIC_IDENTITY_CHOICES+music_palette_present(14)+music_palette_present(15);
 }
@@ -188,6 +211,7 @@ static int save_preference(const char*name,const void*data,size_t size){
 int music_palette_apply(const struct music_palette_edit edits[MUSIC_PALETTE_SLOTS],unsigned mask){
  if(mask&~((1u<<MUSIC_PALETTE_SLOTS)-1))return 0;
  if(!mask)return 1;
+ if(!music_lighting_preferences_durable())return 0;
  unsigned char data[PALETTE_BYTES]={'A','M','P','2'};
  uint32_t values[MUSIC_PALETTE_SLOTS];
  for(unsigned i=0;i<MUSIC_PALETTE_SLOTS;++i){
@@ -200,7 +224,7 @@ int music_palette_apply(const struct music_palette_edit edits[MUSIC_PALETTE_SLOT
   }
   unsigned char *record=data+4+PALETTE_RECORD_BYTES*i;
   for(unsigned b=0;b<4;++b)record[b]=(unsigned char)(values[i]>>(24-8*b));
-  memcpy(record+4,name,strlen(name));
+  memcpy(record+4,name,strlen(name)+1);
  }
  if(!save_preference(PALETTE_FILE,data,sizeof(data)))return 0;
  for(unsigned i=0;i<MUSIC_PALETTE_SLOTS;++i)if(mask&(1u<<i)){

@@ -23,7 +23,7 @@ static void colour_controls(void)
     for(unsigned i=0;i<8;++i)assert(accepted.track[i].colour==mixer_colour_at(MIXER_DEFAULT_TRACK_COLOUR));
     assert(accepted.master.colour==0x00c700);
     for(unsigned index=0;index<MIXER_COLOURS;++index){cc(c,0x12,index*128/MIXER_COLOURS+1);ack(c);
-        assert(accepted.track[0].colour==mixer_colour_at(index)&&view(c).cursor==2);}
+        assert(accepted.track[0].colour==mixer_colour_at(index)&&view(c).cursor==PARAM_COLOUR);}
     unsigned unchanged=submissions;cc(c,0x12,(MIXER_COLOURS-1)*128/MIXER_COLOURS+1);mixer_control_tick(c);assert(submissions==unchanged);
     /* Encoder follows the last moved control: colour steps. */
     cc(c,0x64,127);ack(c);assert(accepted.track[0].colour==mixer_colour_at(MIXER_COLOURS-2));
@@ -65,8 +65,12 @@ static void fx_slots(void)
     assert(mixer_control_reset(c,0x14,0,ticket));ack(c);
     assert(accepted.track[0].mix.level_db==0&&view(c).fx_parameters);
     mixer_control_button(c,MIXER_SHIFT,1,ticket);
-    for(unsigned i=0;i<3;++i)button(c,MIXER_B3);
+    for(unsigned i=0;i<4;++i)button(c,MIXER_B3);
+    ack(c);assert(accepted.track[0].fx.stage[0].eq.count==MIXER_EQ_POINTS);
+    assert(accepted.track[0].fx.stage[0].eq.band[3].hz==8000);
+    assert(!strcmp(mixer_control_message(c),"Four EQ points maximum"));
     mixer_control_button(c,MIXER_SHIFT,0,ticket);
+    button(c,MIXER_ERASE);button(c,MIXER_B3);ack(c);
     cc(c,0x11,100);
     button(c,MIXER_B2);
     button(c,MIXER_B1);assert(!view(c).fx_parameters);
@@ -94,7 +98,24 @@ static void fx_slots(void)
     assert(mixer_control_reset(c,0x10,1,ticket)&&mixer_control_reset(c,0x12,1,ticket));ack(c);
     assert(eq->band[1].gain_db==0&&eq->band[1].type==FX_EQ_BELL&&eq->band[1].enabled&&eq->output_db==0);
     assert(eq->band[0].gain_db>0&&eq->band[2].gain_db==copied.eq.band[2].gain_db);
-    button(c,MIXER_B1);
+    button(c,MIXER_ERASE);assert(view(c).fx_delete==MIXER_DELETE_POINT);
+    cc(c,0x64,1);assert(view(c).parameter_page==1);
+    button(c,MIXER_B1);assert(!view(c).fx_delete&&view(c).fx_parameters&&eq->count==3);
+    button(c,MIXER_ERASE);button(c,MIXER_B3);ack(c);
+    assert(view(c).fx_parameters&&view(c).parameter_page==1&&eq->count==2);
+    assert(eq->band[1].gain_db==copied.eq.band[2].gain_db);
+    button(c,MIXER_ERASE);button(c,MIXER_B3);ack(c);
+    assert(view(c).parameter_page==0&&eq->count==1);
+    button(c,MIXER_ERASE);button(c,MIXER_B3);ack(c);
+    assert(view(c).fx_parameters&&eq->count==0&&accepted.track[0].fx.count==1);
+    cc(c,0x10,127);mixer_control_tick(c);assert(!view(c).pending);
+    mixer_control_button(c,MIXER_SHIFT,1,ticket);
+    button(c,MIXER_B3);ack(c);assert(eq->count==1);
+    for(unsigned i=0;i<4;++i){button(c,MIXER_BANK_PREVIOUS);ack(c);}
+    mixer_control_button(c,MIXER_SHIFT,0,ticket);
+    assert(eq->count==3);
+
+    if(view(c).fx_parameters)button(c,MIXER_B1);
     pad(c,1,1);pad(c,1,0);assert(!view(c).fx_catalog);
     for(unsigned slot=0;slot<4;++slot){
         if(slot)cc(c,0x64,1);
@@ -162,16 +183,53 @@ static void send_name_history(void)
     cc(c,0x11,127);ack(c);assert(accepted.track[0].mix.send==1);
     mixer_control_button(c,MIXER_SHIFT,1,ticket);
     cc(c,0x11,32);ack(c);assert(accepted.send_to[0]==2);
-    mixer_control_button(c,MIXER_SHIFT,0,ticket);
     button(c,MIXER_B2);assert(view(c).name_edit);
+    mixer_control_button(c,MIXER_SHIFT,0,ticket);
     cc(c,0x64,1);button(c,MIXER_B3);ack(c);assert(!strcmp(accepted.track[0].name,"Urack A"));
     mixer_control_button(c,MIXER_SHIFT,1,ticket);
     button(c,MIXER_BANK_PREVIOUS);ack(c);assert(!strcmp(accepted.track[0].name,"Track A"));
     button(c,MIXER_BANK_NEXT);ack(c);assert(!strcmp(accepted.track[0].name,"Urack A"));
     mixer_control_destroy(c);
 }
+static void group_fader_limits(void)
+{
+    mixer_defaults(&accepted);
+    accepted.track[0].mix.level_db=-60;
+    accepted.track[1].mix.level_db=6;
+    accepted.track[3].mix.level_db=-INFINITY;
+    struct mixer_control_ops ops={NULL,submit};
+    struct mixer_control*c=mixer_control_create(&ops,48000);assert(c);
+    assert(mixer_control_confirm(c,&accepted,revision,epoch)&&mixer_control_open(c,1,0));
+    pad(c,0,1);pad(c,1,1);pad(c,2,1);pad(c,3,1);pad(c,3,0);pad(c,2,0);pad(c,1,0);pad(c,0,0);
+    cc(c,0x14,103);cc(c,0x14,127);ack(c);
+    assert(accepted.track[0].mix.level_db==-54&&accepted.track[1].mix.level_db==6&&accepted.track[2].mix.level_db==6);
+    assert(accepted.track[3].mix.level_db==-54);
+    cc(c,0x14,1);ack(c);
+    assert(accepted.track[0].mix.level_db==-60&&accepted.track[1].mix.level_db==-54&&accepted.track[2].mix.level_db==-60);
+    assert(accepted.track[3].mix.level_db==-INFINITY);
+    cc(c,0x14,0);ack(c);
+    for(unsigned i=0;i<4;++i)assert(accepted.track[i].mix.level_db==-INFINITY);
+    cc(c,0x14,1);ack(c);
+    assert(accepted.track[0].mix.level_db==-60&&accepted.track[1].mix.level_db==-54);
+    cc(c,0x14,103);ack(c);
+    assert(accepted.track[0].mix.level_db==-60&&accepted.track[1].mix.level_db==6&&accepted.track[2].mix.level_db==0);
+    cc(c,0x64,2);ack(c);
+    assert(accepted.track[0].mix.level_db==-59&&accepted.track[1].mix.level_db==6&&accepted.track[2].mix.level_db==1);
+    cc(c,0x64,126);ack(c);
+    assert(accepted.track[3].mix.level_db==-INFINITY);
+    uint64_t ticket=mixer_control_ticket(c);
+    mixer_control_button(c,MIXER_SHIFT,1,ticket);
+    cc(c,0x14,0);ack(c);
+    mixer_control_button(c,MIXER_SHIFT,0,ticket);
+    cc(c,0x14,0);
+    cc(c,0x14,103);ack(c);
+    for(unsigned i=0;i<4;++i)assert(accepted.track[i].mix.level_db==0);
+    mixer_control_destroy(c);++epoch;
+    puts("PASS group fader continues in both directions after individual tracks hit their limits");
+}
 int main(void)
 {
+    group_fader_limits();
     mixer_defaults(&accepted);accepted.track[0].mix.level_db=-3;accepted.track[1].mix.level_db=-9;accepted.track[2].mix.level_db=-6;
     struct mixer_control_ops ops={NULL,submit};struct mixer_control*c=mixer_control_create(&ops,48000);assert(c);
     assert(!mixer_control_open(c,0,0));assert(mixer_control_confirm(c,&accepted,revision,epoch));assert(!mixer_control_open(c,1,1));assert(mixer_control_open(c,1,0));
@@ -188,7 +246,7 @@ int main(void)
     pad(c,0,1);pad(c,0,0);pad(c,2,1);pad(c,2,0);mixer_control_button(c,MIXER_SHIFT,0,ticket);assert(view(c).selected==0x15);
     /* The first position anchors the group without jumping. */
     unsigned fader_submissions=submissions;
-    cc(c,0x14,103);mixer_control_tick(c);assert(submissions==fader_submissions&&view(c).cursor==0);
+    cc(c,0x14,103);mixer_control_tick(c);assert(submissions==fader_submissions&&view(c).cursor==PARAM_LEVEL);
     cc(c,0x14,115);ack(c);
     assert(accepted.track[0].mix.level_db==0&&accepted.track[2].mix.level_db==-3&&accepted.track[4].mix.level_db==3);
     cc(c,0x14,127);ack(c);
@@ -208,11 +266,15 @@ int main(void)
     /* Encoder changes the last moved parameter (Level) for the selection. */
     cc(c,0x64,1);ack(c);assert(accepted.track[0].mix.level_db==-60&&accepted.track[2].mix.level_db==-60);
     /* K1: one absolute Pan; encoder follows Pan. */
-    cc(c,0x10,0);ack(c);assert(accepted.track[0].mix.pan==-1&&accepted.track[4].mix.pan==-1&&view(c).cursor==1);
+    cc(c,0x10,0);ack(c);assert(accepted.track[0].mix.pan==-1&&accepted.track[4].mix.pan==-1&&view(c).cursor==PARAM_PAN);
     cc(c,0x64,10);ack(c);assert(fabsf(accepted.track[2].mix.pan+.8f)<1e-5f);
-    cc(c,0x11,99);ack(c);assert(accepted.track[0].mix.send==99/127.f&&view(c).cursor==3);
-    unsigned unchanged=submissions;button(c,MIXER_SELECT);button(c,MIXER_SELECT);
-    button(c,MIXER_SELECT);assert(view(c).cursor==2);button(c,MIXER_SELECT);assert(view(c).cursor==3);button(c,MIXER_SELECT);assert(view(c).cursor==0);
+    cc(c,0x11,99);ack(c);assert(accepted.track[0].mix.send==99/127.f&&view(c).cursor==PARAM_SEND);
+    unsigned unchanged=submissions;
+    button(c,MIXER_SELECT);assert(view(c).cursor==PARAM_COLOUR);
+    button(c,MIXER_SELECT);assert(view(c).cursor==PARAM_LEVEL);
+    button(c,MIXER_SELECT);assert(view(c).cursor==PARAM_PAN);
+    button(c,MIXER_SELECT);assert(view(c).cursor==PARAM_SEND);
+    button(c,MIXER_SELECT);button(c,MIXER_SELECT);assert(view(c).cursor==PARAM_LEVEL);
     /* Hardware Mute and B3 Solo for the selection. */
     button(c,MIXER_MUTE);ack(c);assert(accepted.track[0].mix.mute&&accepted.track[2].mix.mute&&accepted.track[4].mix.mute&&!accepted.track[1].mix.mute);
     button(c,MIXER_B3);ack(c);assert(accepted.track[0].mix.solo&&accepted.track[4].mix.solo);
@@ -224,15 +286,33 @@ int main(void)
     mixer_control_button(c,MIXER_SHIFT,0,ticket);ack(c);
     for(unsigned track=0;track<MIXER_TRACKS;++track)assert(!accepted.track[track].mix.mute);
     assert(accepted.track[0].mix.solo&&accepted.track[4].mix.solo);
+    mixer_control_button(c,MIXER_SHIFT,1,ticket);button(c,MIXER_B3);ack(c);
+    assert(view(c).page==MIXER_OVERVIEW&&view(c).master);
+    for(unsigned track=0;track<MIXER_TRACKS;++track)assert(!accepted.track[track].mix.solo);
+    unchanged=submissions;button(c,MIXER_B3);mixer_control_tick(c);assert(submissions==unchanged);
+    button(c,MIXER_BANK_PREVIOUS);ack(c);assert(accepted.track[0].mix.solo&&accepted.track[4].mix.solo);
+    button(c,MIXER_BANK_NEXT);ack(c);assert(!accepted.track[0].mix.solo&&!accepted.track[4].mix.solo);
+    mixer_control_button(c,MIXER_SHIFT,0,ticket);
     cc(c,0x14,103);ack(c);assert(accepted.master.mix.level_db==0);
+    button(c,MIXER_SELECT);assert(view(c).cursor==PARAM_PAN);
+    cc(c,0x12,127);assert(view(c).cursor==PARAM_PAN);
+    button(c,MIXER_SELECT);assert(view(c).cursor==PARAM_LEVEL);
     pad(c,0,1);pad(c,0,0);assert(!view(c).master&&view(c).selected==1);
     puts("PASS one Mixer page: PAD FX/KNOB FX back on B1, held/Shift multi-select, relative Fader, Shift+Fader, absolute K1 for the selection, encoder follows, Mute button, B3 Solo, Master");
     /* PAD FX: assign sounds to the selected Track; on Master they go to Master. */
-    mixer_control_presence(c,1,UINT64_C(1)<<63,7);button(c,MIXER_PAD_FX);assert(view(c).page==MIXER_ASSIGN);pad(c,15,1);pad(c,15,0);
-    assert(view(c).project->output[127]==0&&view(c).pending);assert(mixer_control_cursor(c,15)==2);ack(c);
-    assert(accepted.output[127]==1&&view(c).pad_lock);
-    pad(c,15,1);pad(c,15,0);assert(view(c).project->output[127]==1&&!view(c).pending);
+    mixer_control_presence(c,1,UINT64_C(1)<<63,7);
+    button(c,MIXER_PAD_FX);assert(view(c).page==MIXER_ASSIGN&&view(c).pad_lock);
+    unsigned locked_submissions=submissions;
     pad(c,14,1);pad(c,14,0);assert(!strcmp(mixer_control_message(c),"Empty pad"));
+    pad(c,15,1);pad(c,15,0);
+    assert(!mixer_control_set_output(c,127,1));
+    mixer_control_tick(c);assert(submissions==locked_submissions&&accepted.output[127]==0);
+    button(c,MIXER_B2);pad(c,15,1);pad(c,15,0);
+    assert(view(c).pending&&mixer_control_cursor(c,15)==2);ack(c);
+    assert(accepted.output[127]==1);
+    button(c,MIXER_B2);pad(c,15,1);pad(c,15,0);
+    assert(view(c).project->output[127]==1&&!view(c).pending);
+    pad(c,14,1);pad(c,14,0);
     unsigned bank_submissions=submissions;
     button(c,MIXER_BANK);assert(view(c).bank==0&&view(c).sound==14&&view(c).primary==0);
     button(c,MIXER_BANK_PREVIOUS);assert(view(c).bank==0&&view(c).sound==14&&view(c).master);
@@ -256,8 +336,11 @@ int main(void)
     pad(c,15,1);pad(c,15,0);ack(c);assert(accepted.output[127]==0&&mixer_control_cursor(c,15)==2);
     button(c,MIXER_B1);button(c,MIXER_PAD_FX);assert(view(c).pad_lock);
     button(c,MIXER_B1);pad(c,0,1);pad(c,0,0);
-    unchanged=submissions;mixer_control_button(c,MIXER_SHIFT,1,ticket);button(c,MIXER_B3);mixer_control_button(c,MIXER_SHIFT,0,ticket);
+    unchanged=submissions;button(c,MIXER_B2);
     assert(view(c).page==MIXER_INSPECT);
+    mixer_control_button(c,MIXER_SHIFT,1,ticket);button(c,MIXER_BANK_PREVIOUS);
+    mixer_control_button(c,MIXER_SHIFT,0,ticket);mixer_control_tick(c);
+    assert(submissions==unchanged&&view(c).bank==7);
     button(c,MIXER_BANK);assert(view(c).primary==1&&view(c).bank==7);
     mixer_control_button(c,MIXER_SHIFT,1,ticket);button(c,MIXER_BANK);
     mixer_control_button(c,MIXER_SHIFT,0,ticket);assert(view(c).primary==0&&view(c).bank==7);

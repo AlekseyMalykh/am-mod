@@ -1,7 +1,7 @@
 # Known issues, testing status and requests
 
-Updated **6 November 2026**. Latest release **r27r**; r27q, r27p and r26s remain available as older versions.
-[Full changes](RELEASE_NOTES-r27r.md) ·
+Updated **12 November 2026**. Latest release **r28d**. The final build still needs physical device testing.
+[r28d changes and verification limits](RELEASE_NOTES-r28d.md) ·
 [Settings](MOD_SETTINGS.md) · [Original Leusha list, Russian](TESTER_FEEDBACK_LEUSHA.ru.md).
 
 Implemented means the change and stated coverage exist, not that the entire
@@ -54,10 +54,10 @@ power-off, External saves and stock startup without the mod card.
 ## Requests not included in this release
 
 - Synth: **deferred by the author**, not being implemented now.
-- Stem export: not implemented; mixer/effect routing is not designed yet.
+- Mixer, sends and stem export are available in r28. Complex audio scenarios need hardware testing.
 - L15: an additional Key/Scale entry in Input Config.
 - L17/L18: investigate low-frequency detail and spectrum brightness while keeping curves readable.
-- L21b: an independent RGB editor; palette swapping is not a full RGB editor.
+- L21b: the named RGB palette editor is available in r28c, with persistence fixes in r28d.
 - L21c/L21d: interchangeable characters/artwork help; Duck/OptoCat B2 chooses an algorithm, not an independent skin.
 - L14: Piano/Scale instructions exist; the [device walkthrough](FEATURES.md#quick-start-16-levels-pianoscale) can still be refined.
 

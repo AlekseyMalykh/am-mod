@@ -448,6 +448,68 @@ static unsigned mixer_block_reasons(void)
 static _Atomic unsigned mixer_last_reasons=~0u;
 static _Atomic unsigned mixer_select_enabled;
 static _Atomic uint64_t mixer_select_lights[16];
+/* AC50 bank indicators use their own binary LED sender (CC 0x39–0x40).
+ * Keep the latest stock state so leaving a track view restores the bank. */
+enum { BANK_LED_FIRST=0x39, BANK_LED_COUNT=8 };
+static void (*native_bank_light)(void*,unsigned,unsigned);
+static pthread_mutex_t bank_light_lock=PTHREAD_MUTEX_INITIALIZER;
+static void *bank_light_sender;
+static unsigned bank_light_seen,bank_light_values[BANK_LED_COUNT];
+static int bank_lights_hidden;
+
+static void mixer_bank_light(void *sender,unsigned value,unsigned code)
+{
+    if(code<BANK_LED_FIRST||code>=BANK_LED_FIRST+BANK_LED_COUNT){
+        native_bank_light(sender,value,code);
+        return;
+    }
+    unsigned index=code-BANK_LED_FIRST;
+    pthread_mutex_lock(&bank_light_lock);
+    if(bank_light_sender!=sender){bank_light_sender=sender;bank_light_seen=0;}
+    bank_light_values[index]=value;
+    bank_light_seen|=1u<<index;
+    native_bank_light(sender,bank_lights_hidden?0:value,code);
+    pthread_mutex_unlock(&bank_light_lock);
+}
+static void mixer_bank_lights_hide(int hidden)
+{
+    if(!native_bank_light)return;
+    pthread_mutex_lock(&bank_light_lock);
+    if(bank_lights_hidden!=hidden){
+        bank_lights_hidden=hidden;
+        for(unsigned i=0;i<BANK_LED_COUNT;++i)if(bank_light_seen&(1u<<i))
+            native_bank_light(bank_light_sender,hidden?0:bank_light_values[i],BANK_LED_FIRST+i);
+    }
+    pthread_mutex_unlock(&bank_light_lock);
+}
+static int mixer_bank_lights_install(void)
+{
+    const uintptr_t offset=0x23b0d00;
+    const uint32_t expected[]={0xd503233f,0xd10103ff,0x90026da3,0xf941cc63};
+    void *entry=(void*)(base+offset);
+    if(sysconf(_SC_PAGESIZE)!=4096||memcmp(entry,expected,sizeof(expected)))return 0;
+    void *trampoline=mmap(NULL,4096,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
+    if(trampoline==MAP_FAILED)return 0;
+    /* Relocate ADRP x3 to an absolute literal, preserving the stack guard load. */
+    const uint32_t code[]={0xd503245f,0xd503233f,0xd10103ff,0x580000a3,
+                           0xf941cc63,0x580000b0,0xd61f0200,0xd503201f};
+    memcpy(trampoline,code,sizeof(code));
+    FIELD(trampoline,32,uintptr_t)=base+0x7164000;
+    FIELD(trampoline,40,uintptr_t)=base+offset+sizeof(expected);
+    __builtin___clear_cache(trampoline,(char*)trampoline+48);
+    if(mprotect(trampoline,4096,PROT_READ|PROT_EXEC)){munmap(trampoline,4096);return 0;}
+    void *page=(void*)((uintptr_t)entry&~(uintptr_t)4095);
+    if(mprotect(page,4096,PROT_READ|PROT_WRITE)){munmap(trampoline,4096);return 0;}
+    native_bank_light=trampoline;
+    const uint32_t jump[]={0x58000050,0xd61f0200};
+    memcpy(entry,jump,sizeof(jump));
+    FIELD(entry,8,uintptr_t)=(uintptr_t)mixer_bank_light;
+    __builtin___clear_cache(entry,(char*)entry+sizeof(expected));
+    if(mprotect(page,4096,PROT_READ|PROT_EXEC))_exit(121);
+    note("MIXER BANK_LED_INSTALLED");
+    return 1;
+}
+
 static void mixer_publish_route(void)
 {
     struct mixer_control *control = mixer_session_control(mixer_ui_session);
@@ -468,6 +530,7 @@ static void mixer_publish_route(void)
     atomic_store(&mixer_route, state ? (mixer_binding << 2) | state : 0);
     struct mixer_view_state view = {0};
     mixer_control_view(control,now_ms(),&view);
+    mixer_bank_lights_hide((state&MIXER_OPEN)&&view.page!=MIXER_ASSIGN&&view.page!=MIXER_INSPECT);
     /* Device report: the Sample pad colours stayed lit in the Mixer. Outside
      * Assign/Inspect the pads select Tracks: pads 1-8 = Track A-H in their
      * colours (selected bright), pads 9-12 = FX slots, pad 16 = Master. */
@@ -477,14 +540,20 @@ static void mixer_publish_route(void)
     } else if ((state & MIXER_OPEN) && (view.page == MIXER_ASSIGN || view.page == MIXER_INSPECT)) {
         /* The sound chooser identifies loaded pads by their Sample hues.
          * Assigned pads alternate between the white cursor and their hue. */
-        int cursor_on=now_ms()%1000<500;
+        unsigned phase=(unsigned)(now_ms()%1200);
+        int cursor_on=phase<400;
         for(unsigned i=0;i<16;++i){
             int cursor=mixer_control_cursor(control,i);
             uint32_t hue=music_identity_rgb((unsigned)music_pad_colour(view.bank*16+i));
             uint64_t light=0;
             uint32_t status=mixer_sample_status_rgb(mixer_sample_project_gate(view.project,view.bank*16+i));
-            if(cursor>0&&status)light=pad_light(cursor_on?status:hue,.70f);
-            else if(cursor==2)light=cursor_on?pad_light(PAD_SELECT,.95f):pad_light(hue,.70f);
+            int output=mixer_control_output(control,view.bank*16+i);
+            if(view.page==MIXER_ASSIGN&&cursor==1&&output>0)
+                light=cursor_on?pad_light(MIXER_MUTE_RGB,.90f):pad_light(hue,.28f);
+            else if(cursor==2){
+                if(cursor_on)light=pad_light(PAD_SELECT,.95f);
+                else light=pad_light(status&&phase<800?status:hue,.70f);
+            }
             else if(cursor==1)light=pad_light(hue,.18f);
             atomic_store(&mixer_select_lights[i],light);
         }
@@ -1870,10 +1939,17 @@ static int queue_native(void *native,unsigned kind)
     if(!naming&&compressor_ui_owns(kind,FIELD(native,8,unsigned char))){e.pad=64u;e.workflow_ticket=compressor_ui_ticket();}
 #endif
 #ifdef MPC_REAR_ROUTING
-    if(!naming&&rear_ui_owns(kind,FIELD(native,8,unsigned char)))e.pad=128u;
+    if(!naming&&rear_ui_owns(kind,FIELD(native,8,unsigned char))){
+        e.pad=128u;
+        if(kind==PHONE_CONTROLLER)e.down=music_ui_shift_active();
+    }
 #endif
 #ifdef MPC_SONG_UI
-    if(!naming&&song_ui_owns(kind,FIELD(native,8,unsigned char),(atomic_load(&native_shift_requested)||atomic_load(&native_buttons_down[0x31])),kind!=PHONE_BUTTON||FIELD(native,9,unsigned char)!=0))e.pad=256u;
+    int song_shift=atomic_load(&native_shift_requested)||atomic_load(&native_buttons_down[0x31]);
+    if(!naming&&song_ui_owns(kind,FIELD(native,8,unsigned char),song_shift,kind!=PHONE_BUTTON||FIELD(native,9,unsigned char)!=0)){
+        e.pad=256u;
+        if(kind==PHONE_BUTTON)e.down=song_shift;
+    }
 #endif
     if (phone_events_push(&e)) return 1;
     queue_failed();
@@ -2399,7 +2475,7 @@ static unsigned process_events(void)
                 else
 #endif
 #ifdef MPC_REAR_ROUTING
-                if(e.pad&128u){if(!rear_ui_control(e.native))forward_controller(e.native);}
+                if(e.pad&128u){if(!rear_ui_control_at(e.native,e.down))forward_controller(e.native);}
                 else
 #endif
 #ifdef MPC_COMPRESSOR
@@ -2428,7 +2504,7 @@ static unsigned process_events(void)
             if(step_confirm_to_native(e.native,e.pad))continue;
             if (current && !(seen&2)) { seen|=2; note("FIFO_BUTTON_ON_UI"); }
 #ifdef MPC_SONG_UI
-            if(e.pad&256u){if(!song_ui_button(e.native))forward_buttons(e.native);}
+            if(e.pad&256u){if(!song_ui_button(e.native,e.down))forward_buttons(e.native);}
             else
 #endif
 #ifdef MPC_REAR_ROUTING
@@ -2670,6 +2746,40 @@ static _Atomic int pad_colour_bank;
 /* Sample pad layout: the user's Pad Colour (Mix, K2) keeps the
  * native brightness of each pad (dim loaded, bright playing) and replaces
  * only its hue. Stock (0) passes the native colour through. */
+static _Atomic unsigned settings_pad_mask;
+static _Atomic int settings_pad_bank=-1;
+static int settings_pad_visible(void){
+#ifdef MPC_MIXER_LIVE
+    if(atomic_load(&mixer_route)&MIXER_OPEN)return 0;
+#endif
+#ifdef MPC_REAR_ROUTING
+    if(rear_ui_pad_owns())return 0;
+    if(rear_ui_input_config_visible())return 1;
+#endif
+    return music_ui_pad_settings_visible();
+}
+static int settings_pad_light(unsigned pad,uint64_t *out){
+    int bank=atomic_load(&settings_pad_bank);
+    if(bank<0||pad>=16||!settings_pad_visible()||!music_pad_lighting_mode())return 0;
+    unsigned mask=atomic_load(&settings_pad_mask);
+    *out=mask&(1u<<pad)?pad_light(music_identity_rgb((unsigned)music_pad_colour((unsigned)bank*16+pad)),PAD_BRIGHT_CONTENT):0;
+    return 1;
+}
+static void settings_pad_tick(int bank){
+    if(!settings_pad_visible()||!music_pad_lighting_mode()){
+        atomic_store(&settings_pad_bank,-1);return;
+    }
+    void *things=note_native_context();
+    void *program=things?FIELD(things,0xb8,void*):NULL;
+    if(!program||bank<0||bank>=8){atomic_store(&settings_pad_bank,-1);return;}
+    unsigned occupied=0;
+    for(unsigned pad=0;pad<16;++pad){
+        void *instrument=FN(0x286bbe0,void*(*)(void*,int))(program,bank*16+(int)pad);
+        if(instrument&&FN(0x2804760,int(*)(void*))(instrument))occupied|=1u<<pad;
+    }
+    atomic_store(&settings_pad_mask,occupied);
+    atomic_store(&settings_pad_bank,bank);
+}
 static int pad_colour_light(unsigned pad,uint64_t *out){
     if(!music_pad_lighting_mode()||pad>=16||!atomic_load(&pad_colour_sample_layout)||atomic_load(&led_enabled))return 0;
     int bank=atomic_load(&pad_colour_bank);if(bank<0||bank>=8)return 0;
@@ -2775,7 +2885,7 @@ static void rgb(void *s,uint32_t colour,unsigned pad)
 #endif
         if(atomic_load(&startup_pads))return; /* startup row animation owns the pads */
         uint64_t palette_colour;
-        if(music_ui_palette_light(pad,&palette_colour)){
+        if(music_ui_palette_light(pad,&palette_colour)||settings_pad_light(pad,&palette_colour)){
             uint32_t packed=FN(0x23b00c0,uint32_t(*)(const uint64_t*))(&palette_colour);
             send_pad_rgb(s,packed,pad);return;
         }
@@ -2901,7 +3011,9 @@ static void send_step_lights(void)
     atomic_store(&pad_colour_native_occupied,workflow_native_occupied());
     atomic_store(&pad_colour_native_muted,workflow_native_muted?workflow_native_muted():0u);
     atomic_store(&pad_colour_native_selected,workflow_native_selected());
-    atomic_store(&pad_colour_bank,step_native_browser_bank(-1));
+    int bank=step_native_browser_bank(-1);
+    atomic_store(&pad_colour_bank,bank);
+    settings_pad_tick(bank);
     uint64_t selection_phase=now_ms();
     atomic_store(&pad_colour_cursor_white,music_cursor_on(selection_phase,500));
     atomic_store(&pad_colour_source_white,selection_phase%1000<80||(selection_phase%1000>=180&&selection_phase%1000<260));
@@ -2998,7 +3110,7 @@ static void send_step_lights(void)
     }
     for(unsigned i=0;i<16;++i) {
         uint64_t light;unsigned bit=1u<<i;
-        if (music_ui_palette_light(i,&light) ||
+        if (music_ui_palette_light(i,&light) || settings_pad_light(i,&light) ||
 
 #ifdef MPC_REAR_ROUTING
             rear_ui_light(i,&light) ||
@@ -3216,6 +3328,7 @@ static void load(void)
 #ifdef MPC_MIXER_LIVE
     if (!mixer_live_native_install(base)) _exit(121);
     if (!mixer_leds_install(base)) _exit(121);
+    if (!mixer_bank_lights_install()) note("MIXER BANK_LED_NOT_INSTALLED");
     if (mixer_stems_install && !mixer_stems_install(base)) note("MIXER_STEMS NOT_INSTALLED");
 #endif
     for (unsigned i=0;i<H_COUNT;++i) FIELD(table,64+i*16+8,uintptr_t)=(uintptr_t)callbacks[i];

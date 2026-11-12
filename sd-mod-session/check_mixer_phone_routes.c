@@ -49,6 +49,12 @@ void music_ui_requested(unsigned c,unsigned d) { (void)c; (void)d; }
 void step_native_requested(unsigned c,unsigned d) { (void)c; (void)d; }
 
 static unsigned stock_down[112],stock_up[112],stock_pad[2],stock_cc;
+static unsigned bank_led[128];
+static void receive_bank_light(void *sender,unsigned value,unsigned code)
+{
+    assert(sender==(void*)0x4000&&code<128);
+    bank_led[code]=value;
+}
 static void receive_button(void *e)
 {
     unsigned code=FIELD(e,8,unsigned char);
@@ -136,6 +142,10 @@ int main(void)
     mixer_binding=1;
     mixer_entry_init(&mixer_entry,500);
     mixer_publish_route();
+    native_bank_light=receive_bank_light;
+    for(unsigned i=0;i<BANK_LED_COUNT;++i)
+        mixer_bank_light((void*)0x4000,i==5,BANK_LED_FIRST+i);
+    assert(bank_led[BANK_LED_FIRST+5]==1);
 
     /* A lone PAD FX is held back only briefly, then reaches the native app
      * unchanged (released early, or after the combo window). */
@@ -145,6 +155,23 @@ int main(void)
     /* PAD FX + KNOB FX opens the Mixer; neither press nor release is native. */
     button(1,1);button(0,1);button(1,0);button(0,0);drain();
     assert(mixer_control_active(session.control)&&stock_down[1]==1&&stock_up[1]==1&&stock_down[0]==1&&stock_up[0]==1);
+    assert(!bank_led[BANK_LED_FIRST+5]);
+    mixer_bank_light((void*)0x4000,0,BANK_LED_FIRST+5);
+    mixer_bank_light((void*)0x4000,1,BANK_LED_FIRST+6);
+    mixer_bank_light((void*)0x4000,1,0x41);
+    assert(!bank_led[BANK_LED_FIRST+6]&&bank_led[0x41]);
+    assert(mixer_control_button(session.control,MIXER_KNOB,1,mixer_control_ticket(session.control)));
+    assert(mixer_control_button(session.control,MIXER_KNOB,0,mixer_control_ticket(session.control)));
+    mixer_publish_route();assert(!bank_led[BANK_LED_FIRST+6]);
+    assert(mixer_control_button(session.control,MIXER_B1,1,mixer_control_ticket(session.control)));
+    assert(mixer_control_button(session.control,MIXER_B1,0,mixer_control_ticket(session.control)));
+    mixer_publish_route();assert(!bank_led[BANK_LED_FIRST+6]);
+    assert(mixer_control_button(session.control,MIXER_B2,1,mixer_control_ticket(session.control)));
+    assert(mixer_control_button(session.control,MIXER_B2,0,mixer_control_ticket(session.control)));
+    mixer_publish_route();assert(bank_led[BANK_LED_FIRST+6]==1);
+    assert(mixer_control_button(session.control,MIXER_B1,1,mixer_control_ticket(session.control)));
+    assert(mixer_control_button(session.control,MIXER_B1,0,mixer_control_ticket(session.control)));
+    mixer_publish_route();assert(!bank_led[BANK_LED_FIRST+6]);
     pad(4,1);
     pad(4,0);
     drain();
@@ -171,11 +198,15 @@ int main(void)
     button(0x23,1);button(0x23,0);drain();
     mixer_control_view(session.control,0,&view);
     assert(view.page==MIXER_ASSIGN&&view.bank==6&&view.primary==4);
+    assert(bank_led[BANK_LED_FIRST+6]==1);
     assert(step_native_browser_bank(-1)==6);
+    project.output[97]=2;
+    assert(mixer_control_confirm(session.control,&project,5,1));
     mixer_control_presence(session.control,0,UINT64_C(3)<<32,6);
     mixer_publish_route();
     assert(atomic_load(&mixer_select_lights[0])==pad_light(0x102030u,.18f));
-    assert(atomic_load(&mixer_select_lights[1])==pad_light(0x102031u,.18f));
+    uint64_t other=atomic_load(&mixer_select_lights[1]);
+    assert(other==pad_light(0x102031u,.28f)||other==pad_light(MIXER_MUTE_RGB,.90f));
     assert(atomic_load(&mixer_select_lights[2])==0);
     uint64_t colour;
     assert(mixer_leds_light(0,0x123456,&colour)); /* Palette owns unknown/native fallback too. */
@@ -224,6 +255,7 @@ int main(void)
     unsigned sample_down=stock_down[6],sample_up=stock_up[6];
     button(0x0c,1);drain();
     assert(!mixer_control_active(session.control)&&stock_down[6]==sample_down+1&&stock_up[6]==sample_up+1);
+    assert(bank_led[BANK_LED_FIRST+6]==1);
     button(0x0c,0);drain();assert(stock_down[0x0c]==1&&stock_up[0x0c]==1);
 
     /* Mode exit remains paired when there is room for only one event. */

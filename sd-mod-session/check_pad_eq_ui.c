@@ -12,8 +12,11 @@ static unsigned char muted_sample[0x80];
 static int test_program;
 static void *sample_lookup(void *program,int pad){assert(program==&test_program);return pad==18?muted_sample:NULL;}
 static int sequence_only,project_open,repeat_open,knob_open;
-static unsigned char knob_screen[0x300];
+static unsigned char knob_screen[0x300],config_screen[0x300];
+static int config_open;
 static unsigned char project_screen[0x2000];
+static _Alignas(8) unsigned char tempo_app[0xe0],tempo_audio[0x150],tempo_core[0x590],tempo_control[0x30],tempo_seq[0xac8];
+static void set_tempo(void *p,float bpm){assert(p==tempo_control);F(tempo_seq,0xac0,float)=bpm;}
 static unsigned draws,repaints,primes;static char captions[8192];static unsigned current_pad=18;
 static unsigned char fx_screen[0x300],fx_header[0x240];
 static uintptr_t value_source[7][2],value_vtable[3],var_vtable[24],var_type;
@@ -35,8 +38,8 @@ int project_exit_status(void){return 0;}
 const char*project_exit_message(void){return "";}
 void*workflow_project_services(void){return NULL;}
 void resample_ui_prime_eq(void){++primes;}
-static int shown(void*p){if(p==knob_screen)return knob_open;if(p==repeat_screen)return repeat_open;if(p>=(void*)repeat_screen&&p<(void*)(repeat_screen+sizeof(repeat_screen)))return ((char*)p-(char*)repeat_screen-0x1c0)%0x440==0;assert(p==screen||p==sequence_screen||p==project_screen);if(p==project_screen)return project_open;return p==sequence_screen?sequence_only:!sequence_only;}
-static int blocked(void*p){assert(p==screen||p==sequence_screen||p==project_screen||p==repeat_screen||p==knob_screen);return 0;}
+static int shown(void*p){if(p==config_screen)return config_open;if(p==knob_screen)return knob_open;if(p==repeat_screen)return repeat_open;if(p>=(void*)repeat_screen&&p<(void*)(repeat_screen+sizeof(repeat_screen)))return ((char*)p-(char*)repeat_screen-0x1c0)%0x440==0;assert(p==screen||p==sequence_screen||p==project_screen);if(p==project_screen)return project_open;return p==sequence_screen?sequence_only:!sequence_only;}
+static int blocked(void*p){assert(p==screen||p==sequence_screen||p==project_screen||p==repeat_screen||p==knob_screen||p==config_screen);return 0;}
 static int enabled(void*p){assert(p==screen+0xe50||p==fx_header);return p!=fx_header||!header_disabled;}
 static void ui_repaint(void*p,uint64_t a,uint64_t b){assert((p==screen||p==sequence_screen||p==project_screen)&&!a&&!b);++repaints;}
 /* fix6: Filter/Filt Env spectrum uses the EQ colour at alpha e0 (was 60). */
@@ -121,6 +124,14 @@ int main(int argc,char**argv){
  memcpy((void*)(base+0x6d3b400),lighting_project_before,sizeof(lighting_project_before));
  memcpy((void*)(base+0x1643908),lighting_dispatch_before,4);memcpy((void*)(base+0x1644ff4),lighting_rows_before,4);
  assert(music_ui_install(noop_paint,noop_paint,noop_paint));
+ const uintptr_t config_vptr=0x6e1e9e8;
+ {
+  F(config_screen,0,uintptr_t)=base+config_vptr;
+  void(*paint_config)(void*,void*)=(void(*)(void*,void*))F((void*)base,config_vptr+0xd8,uintptr_t);
+  assert(!music_ui_pad_settings_visible());
+  config_open=1;paint_config(config_screen,screen);music_ui_tick();assert(music_ui_pad_settings_visible());
+  config_open=0;music_ui_tick();assert(!music_ui_pad_settings_visible());
+ }
  F(knob_screen,0,uintptr_t)=base+0x6e1e258;
  void(*knob_paint)(void*,void*)=(void(*)(void*,void*))F((void*)base,0x6e1e258+0xd0,uintptr_t);
  knob_open=1;knob_paint(knob_screen,screen);assert(music_ui_knob_fx_active());
@@ -176,7 +187,30 @@ int main(int argc,char**argv){
 #endif
  sequence_only=0;F(screen,0x7f0+0x218,int)=1;paint_ui();assert(key(0x0d,1)&&key(0x0d,0)&&music_ui_owns(0x10));
  F(project_screen,0,uintptr_t)=base+0x6e1f788;F(project_screen,0x100,void*)=controller;project_open=1;music_ui_project(project_screen,screen);
+ assert(music_ui_pad_settings_visible());
  assert(!music_ui_owns(0x10)&&!key(0x6f,1)); /* Native Project menu owns its encoder even above Lights. */
+ phase="Project subpages keep +/- local and preserve Back";
+ assert(!key(0x36,1)&&!key(0x36,0));
+ music_ui_request_project(project_screen);music_ui_tick();
+ assert(key(0x36,1)&&key(0x36,0)&&key(0x37,1)&&key(0x37,0));
+ captions[0]=0;music_ui_project(project_screen,screen);assert(strstr(captions,"Key / Scale / Tempo"));
+ void *old_app=F((void*)base,0x71e3dc8,void*);
+ F((void*)base,0x71e3dc8,void*)=tempo_app;F(tempo_app,0,uintptr_t)=base+0x6e07288;
+ F(tempo_app,0xd8,void*)=tempo_audio;F(tempo_audio,0,uintptr_t)=base+0x6e0c430;
+ F(tempo_audio,0x148,void*)=tempo_core;F(tempo_core,0,uintptr_t)=base+0x6e0cf38;
+ F(tempo_core,0x588,void*)=tempo_control;F(tempo_control,0,uintptr_t)=base+0x6d95318;
+ F(tempo_control,0x28,void*)=tempo_seq;F(tempo_seq,0xac0,float)=81.5f;patch(0x1956f00,set_tempo);
+ knob(0x12,127);assert(F(tempo_seq,0xac0,float)==300);
+ knob(0x12,0);assert(F(tempo_seq,0xac0,float)==20);
+ music_ui_requested(0x31,1);knob(0x12,127);assert(fabsf(F(tempo_seq,0xac0,float)-20.99f)<.001f);
+ assert(music_ui_reset_knob(2,1)&&F(tempo_seq,0xac0,float)==20);
+ music_ui_requested(0x31,0);assert(music_ui_reset_knob(2,0)&&F(tempo_seq,0xac0,float)==120);
+ F((void*)base,0x71e3dc8,void*)=old_app;
+ puts("PASS Master Tempo K3 reaches both endpoints, Shift edits hundredths, normal/fine resets");
+ assert(key(0x0c,1)&&key(0x0c,0));
+ assert(!key(0x37,1)&&!key(0x37,0));
+ char preferences[]="/tmp/am-pad-eq-XXXXXX";
+ assert(mkdtemp(preferences)&&music_lighting_preferences_open(preferences));
  phase="Project Mod Settings tabs, encoder, reset and Standard/AM Mod switching";
  project_open=1;music_ui_project(project_screen,screen);
  assert(music_set_pad_colour(18,13)&&music_set_sequence_colour(11,4));
@@ -207,7 +241,7 @@ int main(int argc,char**argv){
  assert(key(0x0e,1)&&key(0x0e,0));
  uint32_t saved_cursor=music_palette_rgb(music_service_colour(0));
  captions[0]=0;music_ui_project(project_screen,screen);
- assert(strstr(captions,"RGB Palette Editor")&&strstr(captions,"Press: open RGB editor"));
+ assert(strstr(captions,"RGB Palette Editor")&&strstr(captions,"Press DATA: open"));
  knob(0x10,127);assert(music_service_colour(0)==MUSIC_USER_COLOURS);
  assert(key(0x6f,1)&&key(0x6f,0));
  captions[0]=0;music_ui_project(project_screen,screen);
@@ -263,6 +297,8 @@ int main(int argc,char**argv){
  assert(key(0x6f,1)&&key(0x6f,0));knob(0x64,1);assert(key(0x6f,1)&&key(0x6f,0)&&music_mod_setting(MUSIC_SETTING_BLINK)==1);
  assert(key(0x0e,1)&&key(0x0e,0)&&music_mod_setting(MUSIC_SETTING_BLINK)==2);
  assert(key(0x0e,1)&&key(0x0e,0));captions[0]=0;music_ui_project(project_screen,screen);
+ assert(key(0x36,1)&&key(0x36,0)&&key(0x37,1)&&key(0x37,0));
+ captions[0]=0;music_ui_project(project_screen,screen);
  assert(strstr(captions,"About")&&strstr(captions,"Version " AM_MOD_VERSION)&&strstr(captions,AM_MOD_REPO_URL)&&!strstr(captions,"Restore recommended"));
  uint64_t about_snapshot=music_mod_settings_snapshot();knob(0x10,0);knob(0x11,127);knob(0x12,127);knob(0x64,127);assert(key(0x6f,1)&&key(0x6f,0)&&music_mod_settings_snapshot()==about_snapshot);
  assert(key(0x0e,1)&&key(0x0e,0));captions[0]=0;music_ui_project(project_screen,screen);assert(strstr(captions,"Pad lighting"));
@@ -289,5 +325,9 @@ int main(int argc,char**argv){
  assert(music_get_sample("Shared",&layout)&&layout.transpose==24&&layout.mode==MUSIC_PIANO);
  puts("PASS Standard retains Lights mode/key/scale and Transpose16 controls, Repeat priority and settings across lighting switches");
  puts("PASS Project Lighting entry and B2/B3/K1 controls; global mode preserves colours and disables Standard Seq Colour interception");
- puts("PASS native Seq screen hook: twelve colours by native sequence index, global and clip event presence, empty initialized slots excluded, Shift K1 only; Note Repeat keeps its controls");return 0;
+ puts("PASS native Seq screen hook: twelve colours by native sequence index, global and clip event presence, empty initialized slots excluded, Shift K1 only; Note Repeat keeps its controls");char path[128];
+ snprintf(path,sizeof(path),"%s/.am-mod-palette",preferences);assert(!unlink(path));
+ snprintf(path,sizeof(path),"%s/.am-mod-settings",preferences);assert(!unlink(path));
+ assert(!rmdir(preferences));
+ return 0;
 }

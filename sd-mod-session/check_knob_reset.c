@@ -4,12 +4,19 @@
 #include <sys/mman.h>
 #include "src/knob_reset.c"
 #include "src/phone_events.h"
-static unsigned writes;static double last_value;static void*last_slider;
+static unsigned writes;static double last_value,model_value,trim_end_marker;static void*last_slider;
 static unsigned char screen[0xa000],impl[0x300];static void*shown;
 static int visible(void*p){return p==screen||p==shown;}
 static int enabled(void*p){return p==shown;}
 static int blocked(void*p){(void)p;return 0;}
-static void setter(void*p,double value,int notification){assert(p==shown&&notification==1);++writes;last_slider=p;last_value=value;}
+static void setter(void*p,double value,int notification){
+ assert(p==shown);++writes;last_slider=p;last_value=value;
+ /* Native Slider Pimpl dispatches listeners inline only for mode 2. */
+ if(notification==2){
+  model_value=value;
+  if(p==screen+0x3258)trim_end_marker=value;
+ }
+}
 static void stub(uintptr_t off,void*fn){uint32_t words[]={0x58000050,0xd61f0200};memcpy((void*)(image+off),words,8);memcpy((void*)(image+off+8),&fn,8);}
 static void slider(unsigned off,unsigned column,double lo,double hi){
  shown=screen+off;F(shown,0,uintptr_t)=image+0x706e5d0;F(shown,0x18,void*)=screen;
@@ -29,12 +36,23 @@ int main(void){
  /* All bank pads/buttons remain outside this module: only three knob CCs
   * can be claimed, and the modifier function has no native-output callback. */
  for(unsigned i=0;i<128;++i)assert(knob_reset_claim(i)==(i>=0x10&&i<=0x12));
- slider(0x3258,1,0,100);assert(knob_reset_native(1,0)&&writes==1&&last_value==100&&last_slider==shown);
- slider(0x35a8,1,0,100);assert(knob_reset_native(1,1)&&last_value==0); /* Shift zoom differs from End. */
- slider(0x4988,2,0,1);assert(knob_reset_native(2,0)&&last_value==.5);
- slider(0x60b8,0,-24,24);assert(knob_reset_native(0,0)&&last_value==0);
- slider(0x7b38,0,0,127);assert(knob_reset_native(0,0)&&last_value==127);
- slider(0x4638,0,0,1);assert(knob_reset_native(0,0)&&last_value>.7&&last_value<.71);
+ slider(0x3258,1,0,100);model_value=trim_end_marker=37;
+ assert(knob_reset_native(1,0)&&writes==1&&last_value==100&&last_slider==shown);
+ assert(model_value==100&&trim_end_marker==100);
+ slider(0x35a8,1,0,100);assert(knob_reset_native(1,1)&&last_value==0&&model_value==0); /* Shift zoom differs from End. */
+ slider(0x4988,2,0,1);assert(knob_reset_native(2,0)&&last_value==.5&&model_value==.5);
+ slider(0x60b8,0,-24,24);assert(knob_reset_native(0,0)&&last_value==0&&model_value==0);
+ slider(0x7b38,0,0,127);assert(knob_reset_native(0,0)&&last_value==127&&model_value==127);
+ slider(0x4638,0,0,1);assert(knob_reset_native(0,0)&&last_value>.7&&last_value<.71&&model_value==last_value);
+ for(unsigned off=0x2bb8;off<=0x9268;off+=0x350){
+  double expected;
+  if(!default_value(0x6e212a0,off,&expected))continue;
+  unsigned column=(off/0x350)%3;
+  slider(off,column,expected-1,expected+1);
+  model_value=expected-.5;
+  assert(knob_reset_native(column,0)&&model_value==expected&&last_slider==shown);
+ }
+ slider(0x4638,0,0,1);
  unsigned before=writes;F(impl,0xa0,double)=.5;assert(!knob_reset_native(0,0)&&writes==before);
  knob_reset_forget(screen);assert(!knob_reset_native(0,0));
  for(unsigned n=0;n<5000;++n){struct phone_event e={0};e.kind=PHONE_KNOB_RESET;e.workflow_ticket=6;e.native[8]=0x10+n%3;e.native[9]=n%128;assert(phone_events_push(&e));}
@@ -42,7 +60,7 @@ int main(void){
  e=(struct phone_event){.kind=PHONE_KNOB_RESET,.workflow_ticket=6};e.native[8]=0x10;assert(phone_events_push(&e));
  e.kind=PHONE_BUTTON;assert(phone_events_push(&e));e.kind=PHONE_KNOB_RESET;assert(phone_events_push(&e));assert(phone_events_pending()==3);
  while(phone_events_pop(&e)){}
- puts("PASS hold-bank modifier never owns button/pads/Main Volume; per-knob once per gesture and separate Shift snapshots; native End=100/Pan=.5/Cutoff=127/Volume defaults, current visible alternate, synchronous setter, range and lifetime guards");
+ puts("PASS hold-bank modifier never owns button/pads/Main Volume; per-knob once per gesture and separate Shift snapshots; native End=100/Pan=.5/Cutoff=127/Volume defaults, current visible alternate, synchronous model and Trim marker updates, range and lifetime guards");
  puts("PASS 5000 held-knob movements coalesce to three reset commands; a real action remains an ordering barrier");
  munmap((void*)image,0x7500000);return 0;
 }

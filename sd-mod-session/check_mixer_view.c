@@ -6,11 +6,18 @@
 #include <math.h>
 #include <string.h>
 static FILE*trace;
+static unsigned delete_probe,delete_buttons,add_point_ink;
+static unsigned overview_keys,fader_focus,master_cap_x,master_cap_ink,knob_centres,knob_bars[3];
 static unsigned dynamic,draws,na,thumbs,letters,mstr,tabs,eq_labels,fx_headers,amber_spectrum,send_height,send_x,send_width,threshold_line,threshold_label,input_label,output_label,key_label,catalog_hint;
 static void r(void*u,int x,int y,int w,int h,uint32_t c){(void)u;
     assert(x>=0&&y>=0&&w>0&&h>0&&x+w<=320&&y+h<=240);++draws;
     if(dynamic)assert(y+h<=198);
+    if(delete_probe&&delete_buttons&&y<19)assert(c!=0xff000000u);
+    if(y==234&&x==53&&w==1&&h==4)++knob_centres;
+    if(y==235&&h==2)++knob_bars[x/106];
+    if(y==36&&w==6&&h==6){master_cap_x=(unsigned)x;master_cap_ink=c;}
     if(h==9&&(w==14||w==18))++thumbs;
+    if(h==7&&(w==12||w==16)&&c==0xffffc247u)++fader_focus;
     if(c==0xe05a4419u)++amber_spectrum;
     if(c==0xffff4040u&&w==2){send_height=(unsigned)h;send_x=(unsigned)x;}
     if(c==0xffff4040u&&y+h==194&&h==5)send_width=(unsigned)w;
@@ -18,6 +25,16 @@ static void r(void*u,int x,int y,int w,int h,uint32_t c){(void)u;
     if(trace)fprintf(trace,"R %d %d %d %d %08x\n",x,y,w,h,c);}
 static void t(void*u,const char*s,int x,int y,int w,int h,unsigned size,uint32_t c,int centre){(void)u;
     assert(s&&x>=0&&y>=0&&w>0&&h>0&&x+w<=320&&y+h<=240&&size>=8);++draws;
+    if(delete_probe&&y==1){
+        if(!strcmp(s,"Cancel")){assert(c==0xffffffffu);delete_buttons|=1;}
+        if(!strcmp(s,"Delete")){assert(c==0xffff4040u);delete_buttons|=2;}
+    }
+    if(y<18){
+        if(!strcmp(s,"Route"))overview_keys|=1;
+        if(!strcmp(s,"Solo"))overview_keys|=2;
+        if(!strcmp(s,"Rename"))overview_keys|=4;
+        if(!strcmp(s,"Clear Solo"))overview_keys|=8;
+    }
     if(y==200&&h==12){
         if(x==4&&!strcmp(s,"Freq"))eq_labels|=1;
         if(x==110&&!strcmp(s,"Gain"))eq_labels|=2;
@@ -30,6 +47,7 @@ static void t(void*u,const char*s,int x,int y,int w,int h,unsigned size,uint32_t
     if(!strcmp(s,"Add effect")&&y>=199)++catalog_hint;
     if(!strcmp(s,"N/A"))++na;
     if(!strcmp(s,"FX List")||!strcmp(s,"+ EQ Point"))++fx_headers;
+    if(!strcmp(s,"+ EQ Point"))add_point_ink=c;
     if(strlen(s)==1&&s[0]>='A'&&s[0]<='H'&&size>=18)++letters;
     if(!strcmp(s,"MSTR"))++mstr;
     if(!strncmp(s,"B1",2)&&strlen(s)>3&&s[2]==' '&&s[3]!=':')++tabs;
@@ -60,6 +78,23 @@ int main(int argc,char**argv)
     s.page=MIXER_OVERVIEW;snprintf(path,sizeof(path),"%s/overview.trace",argv[1]);trace=fopen(path,"w");assert(trace);
     thumbs=letters=mstr=tabs=na=0;mixer_view_paint(&s,&painter);fclose(trace);trace=NULL;
     assert(thumbs==8&&letters==8&&mstr==1&&!tabs&&na==0);
+    assert(fader_focus==2);
+    unsigned unity_cap=master_cap_x;
+    assert(unity_cap>245&&master_cap_ink==0xff787d84u);
+    s.master=1;project.master.mix.level_db=-INFINITY;
+    mixer_view_paint(&s,&painter);assert(master_cap_x==246&&master_cap_ink==0xffffc247u);
+    project.master.mix.level_db=6;
+    mixer_view_paint(&s,&painter);assert(master_cap_x>unity_cap);
+    project.master.mix.level_db=0;s.master=0;
+    fader_focus=0;knob_centres=0;
+    memset(knob_bars,0,sizeof(knob_bars));
+    mixer_view_paint(&s,&painter);
+    assert(overview_keys==3&&knob_centres==1&&knob_bars[0]==1&&knob_bars[1]==1&&knob_bars[2]==12);
+    project.track[s.primary].mix.pan=-.5f;
+    s.shifted=1;overview_keys=0;knob_bars[0]=knob_bars[1]=0;
+    mixer_view_paint(&s,&painter);assert(overview_keys==12&&knob_bars[0]==2&&knob_bars[1]==9);
+    s.shifted=0;s.cursor=PARAM_PAN;fader_focus=0;
+    mixer_view_paint(&s,&painter);assert(!fader_focus);s.cursor=PARAM_LEVEL;
     project.send_to[0]=2;project.track[0].mix.send=1;
     snapshot.return_mask=2;snapshot.return_peak[1]=.5f;
     mixer_view_meters(&s,1,&painter);assert(!send_height);
@@ -139,11 +174,20 @@ int main(int argc,char**argv)
     paint_trace(argv[1],"rename",&s,&painter);s.name_edit=NULL;
     s.page=MIXER_KNOB_FX;s.fx_editing=1;s.fx_slot=1;
     paint_trace(argv[1],"chain",&s,&painter);
-    s.fx_delete=1;paint_trace(argv[1],"delete",&s,&painter);s.fx_delete=0;
+    s.fx_delete=MIXER_DELETE_EFFECT;delete_probe=1;paint_trace(argv[1],"delete",&s,&painter);
+    assert(delete_buttons==3);s.fx_delete=delete_probe=0;
     s.fx_catalog=1;s.fx_slot=3;s.cursor=4;paint_trace(argv[1],"catalog",&s,&painter);s.fx_catalog=0;
     s.fx_parameters=1;s.parameter_page=0;s.fx_signal=&monitor;
     s.fx_slot=0;paint_trace(argv[1],"eq",&s,&painter);
-    s.shifted=1;paint_trace(argv[1],"eq-shift",&s,&painter);s.shifted=0;
+    s.fx_delete=MIXER_DELETE_POINT;delete_probe=1;delete_buttons=0;
+    paint_trace(argv[1],"eq-delete",&s,&painter);assert(delete_buttons==3);
+    s.fx_delete=delete_probe=0;
+    eq->count=0;paint_trace(argv[1],"eq-empty",&s,&painter);eq->count=3;
+    s.shifted=1;paint_trace(argv[1],"eq-shift",&s,&painter);
+    assert(add_point_ink==0xffffffffu);
+    eq->count=MIXER_EQ_POINTS;eq->band[3]=(struct fx_eq_band){8000,0,1,FX_EQ_BELL,1};
+    paint_trace(argv[1],"eq-full",&s,&painter);assert(add_point_ink==0xff9ba5b0u);
+    eq->count=3;s.shifted=0;
     s.fx_slot=1;paint_trace(argv[1],"sidechain",&s,&painter);
     s.fx_slot=2;paint_trace(argv[1],"reverb",&s,&painter);
     assert(fx_catalog_stage(7,s.rate,&project.track[2].fx.stage[2]));

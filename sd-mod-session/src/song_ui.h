@@ -16,7 +16,7 @@ int song_ui_selected_sequence(void); /* pad-selected sequence on the Song page, 
 int song_ui_owns(unsigned kind,unsigned code,int shift,int down);
 /* Consumer side (UI thread): 1 = handled. */
 int song_ui_control(void *event);
-int song_ui_button(void *event);
+int song_ui_button(void *event,int shift);
 /* Native button sink for gestures that replay stock presses (Song Export Shift+B2 Stems). */
 void song_ui_set_forward(void(*forward)(void*));
 /* Hardware Shift edge, delivered by the native button hook. No JUCE access

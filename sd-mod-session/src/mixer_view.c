@@ -137,7 +137,7 @@ static int rail_y(float db,int top,int height)
     if(db>=0)return unity-(int)lroundf(db*(float)(unity-top)/6.f);
     return unity+(int)lroundf(-db*(float)(top+height-3-unity)/60.f);
 }
-static void fader_rail(float db,int selected,int x,int y,int h,int cap,const struct resample_painter*p)
+static void fader_rail(float db,int selected,int focused,int x,int y,int h,int cap,const struct resample_painter*p)
 {
     static const float marks[]={6,0,-6,-12,-24,-36,-60};
     rect(p,x-2,y,5,h,0xff303236u);
@@ -152,18 +152,18 @@ static void fader_rail(float db,int selected,int x,int y,int h,int cap,const str
     if(t>y+h-5)t=y+h-5;
     int left=x-cap/2;
     rect(p,left,t-4,cap,9,0xff111214u);
-    rect(p,left+1,t-3,cap-2,7,selected?0xffaa783bu:0xff787d84u);
-    rect(p,left+1,t-3,cap-2,1,selected?0xffffcf81u:0xffcdd0d4u);
+    rect(p,left+1,t-3,cap-2,7,focused?AMBER:selected?0xffaa783bu:0xff787d84u);
+    rect(p,left+1,t-3,cap-2,1,focused?0xffffe7bfu:selected?0xffffcf81u:0xffcdd0d4u);
     rect(p,left+2,t-1,cap-4,1,0xff414246u);
     rect(p,left+2,t+1,cap-4,1,0xff414246u);
-    rect(p,left+2,t,cap-4,1,selected?0xffffe7bf:WHITE);
+    rect(p,left+2,t,cap-4,1,focused?0xff302412u:selected?0xffffe7bf:WHITE);
     rect(p,left+1,t+3,cap-2,1,0xff38393bu);
 }
 static void mixer_key(const struct resample_painter*p,const char*label,int x,int y,int w,int h,
                       unsigned size,uint32_t ink,int lit)
 {
     if(!*label)return;
-    rect(p,x,y,w,h,lit?SELECTED:PANEL);
+    rect(p,x,y,w,h,lit?SELECTED:0xff202020u);
     rect(p,x,y+h-1,w,1,lit?ink:LINE);
     text(p,label,x+2,y,w-4,h-1,size,ink,1);
 }
@@ -189,7 +189,7 @@ static void cell(const struct mixer_view_state*s,unsigned track,int x,int y,cons
     if(selected)border(p,x+2,y+1,w-4,h-2,s->primary==track?AMBER:GREY);
     rect(p,x+4,y+3,w-8,2,0xff000000u|c->colour);
     pan_bar(m->pan,x+5,y+8,34,p);
-    fader_rail(m->level_db,selected,x+14,y+20,h-26,14,p);
+    fader_rail(m->level_db,selected,selected&&s->cursor==PARAM_LEVEL&&!s->name_edit,x+14,y+20,h-26,14,p);
     vmeter(s,track,x+34,y+18,12,h-24,p);
     send_meter(s,track,x+22,y+20,h-26,p);
     char letter[2]={(char)('A'+track),0};
@@ -218,9 +218,10 @@ void mixer_view_channel_strip(const struct mixer_view_state*s,unsigned track,int
     int custom=track<8&&strcmp(c->name,stock)!=0;
     if(custom)text(p,name,x+7,41,16,12,10,0xff000000u|c->colour,1);
     track_title(p,custom?c->name:name,x+5,custom?53:43,70,custom?23:32,custom?19:track<8?34:21,WHITE,1,s->name_elapsed);
-    char db[24];level_text(db,sizeof(db),m->level_db);text(p,db,x+2,76,76,14,11,WHITE,1);
+    int level_focus=s->page==MIXER_ASSIGN&&s->cursor==PARAM_LEVEL;
+    char db[24];level_text(db,sizeof(db),m->level_db);text(p,db,x+2,76,76,14,11,level_focus?AMBER:WHITE,1);
     pan_bar(m->pan,x+8,93,64,p);
-    fader_rail(m->level_db,1,x+22,106,86,18,p);
+    fader_rail(m->level_db,1,level_focus,x+22,106,86,18,p);
     vmeter(s,track<8?track:9,x+46,106,14,86,p);
     if(track<8)send_meter(s,track,x+32,106,86,p);
     if(track<8){
@@ -239,6 +240,24 @@ void mixer_view_overview(const struct mixer_view_state*s,const struct resample_p
     /* Bottom row A-D, top row E-H. */
     for(unsigned i=0;i<8;++i)cell(s,i,(int)(i%4)*80,i<4?121:44,p);
 }
+static void master_fader(const struct mixer_view_state*s,const struct resample_painter*p,int x,int w)
+{
+    float db=s->project->master.mix.level_db;
+    /* Match the physical fader taper: Off, -60 dB, unity, +6 dB. */
+    int travel=w-8,unity=(int)lroundf(travel*103.f/127.f);
+    int position=0;
+    if(isfinite(db)){
+        if(db<0)position=1+(int)lroundf((unity-1)*(db+60.f)/60.f);
+        else position=unity+(int)lroundf((travel-unity)*db/6.f);
+    }
+    rect(p,x,38,w,2,0xff3b3b3bu);
+    rect(p,x+4+unity,35,1,8,GREY);
+    int left=x+position;
+    rect(p,left,35,8,8,BLACK);
+    uint32_t ink=s->master?(s->cursor==PARAM_LEVEL?AMBER:0xffaa783bu):0xff787d84u;
+    rect(p,left+1,36,6,6,ink);
+    rect(p,left+3,37,1,4,s->master&&s->cursor==PARAM_LEVEL?0xff302412u:WHITE);
+}
 static void header(const struct mixer_view_state*s,const struct resample_painter*p)
 {
     rect(p,0,0,320,s->page==MIXER_OVERVIEW?44:36,BLACK);
@@ -246,7 +265,8 @@ static void header(const struct mixer_view_state*s,const struct resample_painter
     int sub=s->page==MIXER_ASSIGN||s->page==MIXER_INSPECT||s->page==MIXER_KNOB_FX;
     int soloed=0;struct mixer_mix all[8];mixer_scene_resolve(s->project,s->part_id,all);
     if(!s->master)for(unsigned i=0;i<8;++i)if(s->selected&(1u<<i))soloed|=all[i].solo;
-    const char*names[3]={sub?"Back":"Sample",s->page==MIXER_OVERVIEW?"Rename":"","Solo"};
+    const char*names[3]={sub?"Back":"Sample",s->page==MIXER_OVERVIEW?"Route":"","Solo"};
+    int add_eq_disabled=0;
     int lit[3]={0,0,soloed},off=s->page==MIXER_INSPECT||s->page==MIXER_KNOB_FX;
     if(s->page==MIXER_KNOB_FX&&s->fx_editing){
         names[1]=s->shifted?"Paste":"Copy";
@@ -261,19 +281,20 @@ static void header(const struct mixer_view_state*s,const struct resample_painter
     if(s->page==MIXER_KNOB_FX&&s->fx_parameters){
         names[0]="FX List";names[1]=s->shifted?"":"Bypass";
         const struct mixer_channel*ch=s->master?&s->project->master:s->project->track+s->primary;
+        lit[1]=!s->shifted&&s->fx_slot<ch->fx.count&&ch->fx.stage[s->fx_slot].bypass;
         if(s->shifted&&s->fx_slot<ch->fx.count&&ch->fx.stage[s->fx_slot].kind==FX_STAGE_EQ){
             names[2]="+ EQ Point";lit[2]=0;
+            add_eq_disabled=ch->fx.stage[s->fx_slot].eq.count>=MIXER_EQ_POINTS;
         }
     }
     if(s->page==MIXER_KNOB_FX&&s->fx_catalog){names[0]="FX List";names[1]="";names[2]="";lit[2]=0;}
     if(s->name_edit){names[0]="Cancel";names[1]="Erase";names[2]="Save";lit[1]=lit[2]=off=0;}
-    else if(s->shifted&&s->page==MIXER_OVERVIEW){names[1]="";names[2]="Route";lit[2]=0;}
-    if(s->page==MIXER_KNOB_FX&&s->fx_delete){names[0]="Cancel";names[1]="";names[2]="Delete";lit[2]=0;}
+    else if(s->shifted&&s->page==MIXER_OVERVIEW){names[1]="Rename";names[2]="Clear Solo";lit[2]=0;}
     for(unsigned i=0;i<3;++i){int x=i==2?213:(int)i*106,w=i==0?106:107;
         uint32_t active=i==1?(0xff000000u|MIXER_MUTE_RGB):(s->shifted&&s->page==MIXER_KNOB_FX?SEND:0xff000000u|MIXER_SOLO_RGB);
         int gates=!s->name_edit&&!s->shifted&&(s->page==MIXER_OVERVIEW||s->page==MIXER_ASSIGN||s->page==MIXER_KNOB_FX);
-        uint32_t ink=i==2&&s->fx_delete&&s->page==MIXER_KNOB_FX?SEND:i&&(off||(i==2&&s->master&&gates))?GREY:lit[i]?active:i==2&&gates?GREY:WHITE;
-        mixer_key(p,names[i],x+6,1,w-12,18,12,ink,lit[i]);}
+        uint32_t ink=i&&(off||(i==2&&(add_eq_disabled||(s->master&&gates))))?GREY:lit[i]?active:i==2&&gates?GREY:WHITE;
+        mixer_key(p,names[i],x+2,1,w-4,18,14,ink,lit[i]);}
     unsigned group=0;for(unsigned i=0;i<8;++i)if(s->selected&(1u<<i))++group;
     int overview=s->page==MIXER_OVERVIEW&&!s->name_edit;
     if(overview){
@@ -292,7 +313,7 @@ static void header(const struct mixer_view_state*s,const struct resample_painter
                 text(p,count,105,24,25,16,10,AMBER,1);
             }
         }
-        text(p,db,133,20,73,24,heading_size,WHITE,1);
+        text(p,db,133,20,73,24,heading_size,s->cursor==PARAM_LEVEL?AMBER:WHITE,1);
         rect(p,208,22,1,17,DARK);
     }
     if(s->page==MIXER_KNOB_FX&&s->fx_parameters){
@@ -310,6 +331,7 @@ static void header(const struct mixer_view_state*s,const struct resample_painter
         rect(p,x,22+(int)c*6,w,5,DARK);
         if(fill>0)rect(p,x,22+(int)c*6,fill,5,(s->meter->clip_mask&(1u<<9))?SEND:AMBER);
     }else text(p,"N/A",x,21,w,13,8,GREY,1);
+    if(overview)master_fader(s,p,x,w);
 }
 static void knob_cell(const struct resample_painter*p,unsigned column,const char*label,
                       const char*value,int focused,unsigned alternate)
@@ -318,10 +340,30 @@ static void knob_cell(const struct resample_painter*p,unsigned column,const char
     uint32_t ink=focused?AMBER:*label?WHITE:GREY;
     rect(p,x+2,198,w-4,40,focused?SELECTED:PANEL);
     rect(p,x+2,198,w-4,1,focused?AMBER:LINE);
-    text(p,label,x+4,200,alternate?w-22:w-8,12,11,focused?AMBER:GREY,1);
+    text(p,label,x+4,200,alternate?w-22:w-8,12,12,focused?AMBER:GREY,1);
     if(alternate)SHIFT_BADGE_COLOURED(p->rect,p->user,(int)column*106+94,200,
                                        alternate==2?0xffff4747u:WHITE);
     text(p,value,x+4,214,w-8,19,16,ink,1);
+}
+static void knob_scale(const struct resample_painter*p,unsigned column,double value,int bipolar)
+{
+    int x=column==2?217:4+(int)column*106,w=column==2?99:98;
+    int start=bipolar?w/2:0;
+    double position=fmax(0,fmin(1,value));
+    int end=(int)lround(position*w);
+    rect(p,x,235,w,2,0xff3b3b3bu);
+    if(end<start)rect(p,x+end,235,start-end,2,AMBER);
+    if(end>start)rect(p,x+start,235,end-start,2,AMBER);
+    if(bipolar)rect(p,x+start,234,1,4,WHITE);
+}
+static void knob_steps(const struct resample_painter*p,unsigned column,int selected,
+                       unsigned count,uint32_t ink)
+{
+    int x=column==2?217:4+(int)column*106,w=column==2?99:98;
+    for(unsigned i=0;i<count;++i){
+        int a=(int)i*w/(int)count,b=(int)(i+1)*w/(int)count;
+        rect(p,x+a,235,b-a-1,2,(int)i==selected?ink:0xff3b3b3bu);
+    }
 }
 static void footer(const struct mixer_view_state*s,const struct resample_painter*p)
 {
@@ -331,19 +373,28 @@ static void footer(const struct mixer_view_state*s,const struct resample_painter
     const struct mixer_mix*m=s->master?&s->project->master.mix:resolved+s->primary;
     char value[32];
     pan(value,sizeof(value),m->pan);
-    knob_cell(p,0,"Pan",value,s->cursor==1,0);
+    knob_cell(p,0,"Pan",value,s->cursor==PARAM_PAN,0);
+    knob_scale(p,0,(m->pan+1)*.5,1);
     if(s->master)knob_cell(p,1,"","",0,0);
     else if(s->shifted){
         unsigned destination=s->project->send_to[s->primary];
         if(destination)snprintf(value,sizeof(value),"Track %c",'A'+destination-1);
         else snprintf(value,sizeof(value),"Off");
-        knob_cell(p,1,"Send To",value,s->cursor==3,2);
+        knob_cell(p,1,"Send To",value,s->cursor==PARAM_SEND,2);
+        knob_steps(p,1,(int)destination,9,AMBER);
     }else{
         snprintf(value,sizeof(value),"%.0f%%",m->send*100.f);
-        knob_cell(p,1,"Send",value,s->cursor==3,1);
+        knob_cell(p,1,"Send",value,s->cursor==PARAM_SEND,1);
+        knob_scale(p,1,m->send,0);
     }
     const char*name=s->master?"Green":mixer_colour_name(s->project->track[s->primary].colour);
-    knob_cell(p,2,"Colour",name?name:"Custom",s->cursor==2,0);
+    knob_cell(p,2,"Colour",name?name:"Custom",s->cursor==PARAM_COLOUR,0);
+    if(!s->master){
+        uint32_t colour=s->project->track[s->primary].colour;
+        int index=mixer_colour_index(colour);
+        if(index>=0)knob_steps(p,2,index,MIXER_COLOURS,0xff000000u|colour);
+        else rect(p,217,235,99,2,0xff000000u|colour);
+    }
 }
 static void plot_sample(const struct resample_painter*p,int x,int y,int previous,uint32_t ink)
 {
@@ -441,11 +492,11 @@ static void fx_trace(const struct resample_painter*p,const float*pcm,uint32_t in
 static void fx_dynamics(const struct resample_painter*p,const struct fx_catalog_entry*e,
                         const struct fx_stage*stage,const struct mixer_fx_monitor*m)
 {
-    char value[40];
+    char value[64];
     if(stage->kind==FX_STAGE_SIDECHAIN){
         unsigned source=(unsigned)fx_sidechain_value(0,stage->parameter[0]);
         float threshold=fx_sidechain_value(1,stage->parameter[1]);
-        if(source)snprintf(value,sizeof(value),"Key %c  /  Threshold %.1f dBFS",'A'+source-1,threshold);
+        if(source)snprintf(value,sizeof(value),"Key %c (detector)  /  Threshold %.1f dBFS",'A'+source-1,threshold);
         else snprintf(value,sizeof(value),"Key off  /  Threshold %.1f dBFS",threshold);
         text(p,value,15,76,285,15,10,GREY,0);
         signal_meter(p,"Key",m?m->key_peak:0,94,8,KEY,threshold);
@@ -520,9 +571,9 @@ static void effect_editor(const struct mixer_view_state*s,const struct resample_
     else if(stage->bypass||ch->fx_bypass)
         text(p,ch->fx_bypass?"CHAIN OFF":"BYPASS",237,39,69,12,10,SEND,1);
     text(p,fx_catalog_stage_name(stage),13,50,229,20,18,WHITE,0);
-    int is_eq=stage->kind==FX_STAGE_EQ&&stage->eq.count;
+    int is_eq=stage->kind==FX_STAGE_EQ;
     rect(p,6,72,308,112,PANEL);
-    if(stage->kind==FX_STAGE_EQ&&stage->eq.count){
+    if(is_eq&&stage->eq.count){
         const struct fx_eq_config*eq=&stage->eq;
         unsigned index=s->parameter_page<eq->count?s->parameter_page:0;
         const struct fx_eq_band*b=eq->band+index;
@@ -543,6 +594,13 @@ static void effect_editor(const struct mixer_view_state*s,const struct resample_
                 snprintf(value[1],sizeof(value[1]),"--");
             else snprintf(value[1],sizeof(value[1]),"%+.1f dB",b->gain_db);
             snprintf(value[2],sizeof(value[2]),"%s",types[b->type]);
+        }
+    }else if(is_eq){
+        eq_plot(s,p,&stage->eq);
+        text(p,"0 points",239,51,68,18,11,accent,1);
+        if(s->shifted){
+            alternate[2]=2;label[2]="Output";
+            snprintf(value[2],sizeof(value[2]),"%+.1f dB",stage->eq.output_db);
         }
     }else{
         unsigned pages=(fx_catalog_parameter_count(e)+5)/6;
@@ -595,11 +653,20 @@ static void effect_editor(const struct mixer_view_state*s,const struct resample_
                 }else snprintf(value[knob],sizeof(value[knob]),formats[index],v);
             }else snprintf(value[knob],sizeof(value[knob]),"%.0f%%",stage->parameter[index]*100.f);
         }
-        snprintf(status,sizeof(status),"%s%s",pages>1?"DATA: next page   ":"",s->shifted?"Shift layer":"");
+        snprintf(status,sizeof(status),"%s%s",pages>1?"Turn or press DATA: page   ":"",s->shifted?"Shift layer":"");
     }
     if(!is_eq)text(p,s->message&&*s->message?s->message:status,10,171,300,13,10,GREY,1);
     for(unsigned i=0;i<3;++i)knob_cell(p,i,label[i],value[i],0,alternate[i]);
-    if(is_eq)eq_knob_bars(s,p,&stage->eq);
+    if(is_eq){
+        if(stage->eq.count)eq_knob_bars(s,p,&stage->eq);
+        else if(s->shifted)knob_scale(p,2,(stage->eq.output_db+24)/36,0);
+    }else for(unsigned k=0;k<3;++k){
+        int index=fx_catalog_parameter_index(e,s->parameter_page*6+(s->shifted?3:0)+k);
+        if(index<0)continue;
+        if(stage->kind==FX_STAGE_SIDECHAIN&&index==0)
+            knob_steps(p,k,(int)fx_sidechain_value(0,stage->parameter[0]),9,AMBER);
+        else knob_scale(p,k,stage->parameter[index],0);
+    }
     mixer_view_meters(s,1u<<(s->master?8:s->primary),p);
 }
 static void fx_hint(const struct resample_painter*p,const char*label,const char*action,int y)
@@ -612,13 +679,6 @@ static void track_fx(const struct mixer_view_state*s,const struct resample_paint
     const struct mixer_channel*ch=s->master?&s->project->master:s->project->track+s->primary;
     const struct fx_stage*stage=s->fx_slot<ch->fx.count?ch->fx.stage+s->fx_slot:NULL;
     rect(p,0,198,320,42,BLACK);
-    if(s->fx_delete){
-        rect(p,87,55,226,122,PANEL);
-        rect(p,87,55,226,2,SEND);
-        text(p,"Remove effect?",94,76,212,27,20,WHITE,1);
-        if(stage)text(p,fx_catalog_stage_name(stage),94,111,212,25,17,GREY,1);
-        return;
-    }
     char counter[16];
     snprintf(counter,sizeof(counter),"%u / %u",ch->fx.count,MIXER_FX_SLOTS);
     rect(p,85,37,231,21,PANEL);
@@ -708,8 +768,8 @@ void mixer_view_context(const struct mixer_view_state*s,const struct resample_pa
         }
         rect(p,85,175,3,8,hue);
         text(p,"Routed here",92,173,92,13,10,GREY,0);
-        text(p,inspect?"+ / −  Bank":"PAD BANK  Bank",192,173,122,13,10,GREY,1);
-        text(p,s->message&&*s->message?s->message:inspect?"PAD BANK / Shift + PAD BANK: Track":"+ / −: Track   /   Pads: Assign",
+        text(p,inspect?"+/− or K3: bank":"PAD BANK: bank",192,173,122,13,10,GREY,1);
+        text(p,s->message&&*s->message?s->message:inspect?"PAD BANK: track  /  Turn DATA: pad":"+ / −: track   /   Press pad: assign",
              86,187,230,11,10,s->message&&*s->message?AMBER:GREY,0);
         rect(p,0,198,320,42,BLACK);
         if(!inspect)footer(s,p);
@@ -743,9 +803,38 @@ void mixer_view_meters(const struct mixer_view_state*s,unsigned mask,const struc
         }
     }
 }
+static void fx_delete_confirm(const struct mixer_view_state*s,const struct resample_painter*p)
+{
+    const struct mixer_channel*ch=s->master?&s->project->master:s->project->track+s->primary;
+    rect(p,0,0,320,36,PANEL);
+    rect(p,0,36,320,204,BLACK);
+    mixer_key(p,"Cancel",2,1,102,18,14,WHITE,0);
+    mixer_key(p,"Delete",215,1,103,18,14,SEND,1);
+    int point=s->fx_delete==MIXER_DELETE_POINT;
+    text(p,point?"Graphic EQ":"FX Chain",108,1,104,17,12,GREY,1);
+    rect(p,0,35,320,1,LINE);
+    rect(p,36,68,248,104,PANEL);
+    rect(p,36,68,248,2,SEND);
+    text(p,point?"Remove EQ point?":"Remove effect?",44,83,232,29,20,WHITE,1);
+    if(point&&s->fx_slot<ch->fx.count){
+        const struct fx_eq_config *eq=&ch->fx.stage[s->fx_slot].eq;
+        if(s->parameter_page<eq->count){
+            char detail[40];
+            snprintf(detail,sizeof(detail),"Point %u  /  %.0f Hz",
+                s->parameter_page+1,eq->band[s->parameter_page].hz);
+            text(p,detail,44,122,232,24,16,GREY,1);
+        }
+    }else if(s->fx_slot<ch->fx.count)
+        text(p,fx_catalog_stage_name(ch->fx.stage+s->fx_slot),44,122,232,24,16,GREY,1);
+}
+
 void mixer_view_paint(const struct mixer_view_state*s,const struct resample_painter*p)
 {
     if(!s||!s->project||!p||!p->rect||!p->text||s->primary>=8||s->bank>=8||s->page>MIXER_INSPECT)return;
+    if(s->page==MIXER_KNOB_FX&&s->fx_delete){
+        fx_delete_confirm(s,p);
+        return;
+    }
     header(s,p);
     if(s->name_edit){
         rect(p,0,36,320,204,BLACK);

@@ -47,7 +47,13 @@ static void keys(void)
     struct mixer_control*c=mixer_control_create(&ops,48000);assert(c);
     assert(mixer_control_confirm(c,&p,1,1));assert(mixer_control_open(c,1,0));
     uint64_t t=mixer_control_ticket(c);
+    assert(mixer_input_button(c,0x0d,1,t)&&view(c).page==MIXER_INSPECT);
+    assert(mixer_input_button(c,0x0d,0,t));
+    assert(mixer_input_button(c,0x0c,1,t)&&view(c).page==MIXER_OVERVIEW);
+    assert(mixer_input_button(c,0x0c,0,t));
+    assert(!mixer_input_button(c,0x31,1,t));
     assert(mixer_input_button(c,0x0d,1,t)&&view(c).name_edit);
+    assert(!mixer_input_button(c,0x31,0,t));
     assert(mixer_input_button(c,0x0d,0,t));
     assert(mixer_input_button(c,0x0c,1,t)&&!view(c).name_edit);
     assert(mixer_input_button(c,0x0c,0,t));
@@ -81,6 +87,6 @@ static void keys(void)
     assert(mixer_control_open(c,1,0));t=mixer_control_ticket(c);
     assert(mixer_input_button(c,0x0c,1,t)&&!mixer_control_active(c)&&mixer_control_exit_requested(c));
     assert(mixer_input_button(c,0x0c,0,t));
-    mixer_control_destroy(c);puts("PASS pinned raw button IDs route B1 exit/B2 Rename/B3 Solo/Mute/FX; mode exit forwards; outside Mixer stock buttons/transport/Shift remain forwarded");
+    mixer_control_destroy(c);puts("PASS pinned raw button IDs route B1 exit/B2 Route/Shift+B2 Rename/B3 Solo/Mute/FX; mode exit forwards; outside Mixer stock buttons/transport/Shift remain forwarded");
 }
 int main(void){gestures();keys();return 0;}

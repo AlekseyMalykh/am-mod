@@ -24,6 +24,7 @@ void music_ui_destroyed(void *root);
 void music_ui_request_project(void *root);
 int music_ui_tick(void);
 int music_ui_active(void);
+int music_ui_pad_settings_visible(void);
 int music_ui_owns(unsigned cc);
 int music_ui_button_owns(unsigned code);
 int music_ui_control(void *event);

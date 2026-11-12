@@ -7,6 +7,9 @@
 #include "src/values_bipolar.h"
 #include "src/phone_native.c"
 #include <assert.h>
+static int settings_visible;
+int music_ui_pad_settings_visible(void){return settings_visible;}
+int music_ui_palette_light(unsigned pad,uint64_t *out){(void)pad;(void)out;return 0;}
 static int sample_visible=1,seq_visible,bank,levels_on,steps_on,events_visible,inside_rgb,compressor_visible;
 static unsigned transport,queries,calls,levels_type,levels_origin;static int native_workflow;
 static int browser_selected=-1;
@@ -185,5 +188,15 @@ int main(void){
  knob_reset_button(0x23,0);atomic_store(&native_buttons_down[0x23],0);send_step_lights();atomic_store(&pad_colour_target_phase,0);native_rgb(0,0x008000);assert(sent[0]==PAD_SELECT);
  puts("PASS actual RGB interception/timer preserves native bank picker pads1-8 over browser/custom identity after a 300 ms hold (short press keeps mod colours), then restores selected white cursor on release");
 #endif
- munmap(p,0x7500000);return 0;
+ munmap(p,0x7500000);settings_visible=1;
+    atomic_store(&settings_pad_bank,0);atomic_store(&settings_pad_mask,1u);
+    uint64_t settings_light=0;
+    assert(settings_pad_light(0,&settings_light)&&(settings_light&0xffffffu)==music_identity_rgb(music_pad_colour(0)));
+    assert(settings_pad_light(1,&settings_light)&&!settings_light);
+    unsigned previous_mode=music_pad_lighting_mode();
+    assert(music_set_pad_lighting_mode(MUSIC_LIGHTING_STANDARD));
+    assert(!settings_pad_light(0,&settings_light));
+    assert(music_set_pad_lighting_mode(previous_mode));
+    settings_visible=0;assert(!settings_pad_light(0,&settings_light));
+    return 0;
 }

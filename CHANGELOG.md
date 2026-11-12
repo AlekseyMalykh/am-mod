@@ -1,5 +1,17 @@
 # Changelog
 
+## r28d — release
+
+- Song step numbers, persistent Repeats footer, bounded selection, Clear All confirmation and Shift + B3 Duplicate.
+- Group level range and encoder balance fixes, clearer focus/scales and a horizontal Master fader.
+- Four EQ points with confirmed point deletion and a disabled add action at the limit.
+- Strict Pad Lock, other-track warning lights and contextual bank LEDs.
+- Correct lighting across settings windows, RGB name persistence and system-colour conflict fallback.
+- Complete parameter reset notifications, preserved OptoCat bypass, Rear Routing and resampling fixes.
+- Unified B/K panels and hints, Batch Copy/Extract navigation fixes and silent-export failure reporting.
+
+[English notes](docs/RELEASE_NOTES-r28d.md) · [Русский](docs/RELEASE_NOTES-r28d.ru.md).
+
 ## r28c — experimental
 
 - USB Screen Mirror for a browser, with a switch in Mod Settings.

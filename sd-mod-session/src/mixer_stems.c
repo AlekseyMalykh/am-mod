@@ -124,7 +124,11 @@ static int close_job(struct stems_job*j,int success)
         }
         rmdir(j->folder);
     }
-    if(success&&!files)rmdir(j->folder);
+    if(success&&!files){
+        rmdir(j->folder);
+        fprintf(stderr,"STEMS NO_AUDIBLE_TRACKS\n");
+        success=0;
+    }
     if(j->folder[0])fprintf(stderr,"STEMS %s folder=%s files=%u frames=%llu valid=%llu missing=%llu\n",
         success?"SAVED":"INCOMPLETE",j->folder,files,(unsigned long long)j->frames,
         (unsigned long long)j->valid_blocks,(unsigned long long)j->missing_blocks);

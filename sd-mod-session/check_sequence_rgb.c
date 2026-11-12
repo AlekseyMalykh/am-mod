@@ -6,6 +6,9 @@ int music_pad_colours_used(void){return 0;}
 int music_pad_colour(unsigned index){(void)index;return 0;}
 int step_native_active(void){return 0;}
 int step_native_sound_layout(void){return 0;}
+
+int music_ui_pad_settings_visible(void){return 0;}
+int music_ui_palette_light(unsigned pad,uint64_t *out){(void)pad;(void)out;return 0;}
 int note_native_sample_visible(void){return 0;}
 int music_lighting_levels_state(unsigned*on,unsigned*mode,unsigned*origin){*on=*mode=*origin=0;return 1;}
 static int seq_visible,seq_shift,seq_bank;

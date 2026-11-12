@@ -24,7 +24,7 @@ int main(int argc,char**argv){
  pad_samples[19]=0;stock_callback_init_action(callback,assign_rendered);FN(0xf535c0,void(*)(void*,const char*))(path,"/run/fixture-not-written.wav");
  patch(0x112fd50,is_visible);patch(0x112f6b0,is_blocked);patch(0x1149880,repaint_stub);F(screen,0,uintptr_t)=base+0x6e212a0;
  resample_ui_init(base);resample_ui_transport(0,1);resample_ui_bind(copy_context);resample_ui_paint(screen,NULL);open_ui();button(0);assert(!resample_ui_active());
- open_ui();button(2);draw();assert(strstr(drawn,"Source")&&strstr(drawn,"Render")&&strstr(drawn,"Press a pad"));resample_ui_pad(3,1,resample_ui_ticket());resample_ui_pad(3,0,resample_ui_ticket());draw();assert(strstr(drawn,"B04"));
+ open_ui();button(2);draw();assert(strstr(drawn,"Source")&&strstr(drawn,"Render")&&strstr(drawn,"Press pad"));resample_ui_pad(3,1,resample_ui_ticket());resample_ui_pad(3,0,resample_ui_ticket());draw();assert(strstr(drawn,"B04"));
  for(unsigned hue=1;hue<MUSIC_SEQUENCE_COLOURS;++hue){
   test_colours[18]=hue;resample_ui_pad(3,1,resample_ui_ticket());
   uint64_t source_colour;assert(resample_ui_light(2,&source_colour)&&((uint32_t)source_colour==PAD_SELECT||(uint32_t)source_colour==music_identity_rgb(hue)));
@@ -40,8 +40,8 @@ int main(int argc,char**argv){
  pad_samples[19]=(uintptr_t)samples[0];
  resample_ui_transport(1,1);open_ui();button(2);resample_ui_pad(3,1,resample_ui_ticket());button(2);button(2);
  draw();assert(strstr(drawn,"Stop playback?")&&resample_ui_active());
- unsigned char stop[16]={0};assert(!resample_ui_take_stop(stop));button(2);draw();assert(strstr(drawn,"To B04")&&!strstr(drawn,"Stop playback?")&&!resample_ui_take_stop(stop));
- button(2);button(2);draw();assert(strstr(drawn,"Stop playback?"));button(0);
+ unsigned char stop[16]={0};assert(!resample_ui_take_stop(stop));button(0);draw();assert(strstr(drawn,"To B04")&&!strstr(drawn,"Stop playback?")&&!resample_ui_take_stop(stop));
+ button(2);button(2);draw();assert(strstr(drawn,"Stop playback?"));button(2);
  assert(resample_ui_take_stop(stop)&&stop[8]==0x51&&stop[9]==1&&!resample_ui_take_stop(stop));
  resample_ui_tick(0);draw();assert(strstr(drawn,"Stopping...")&&resample_ui_active());
  resample_ui_transport(0,1);resample_ui_tick(0);stock_queue_pump();resample_ui_tick(0);assert(!resample_ui_active());

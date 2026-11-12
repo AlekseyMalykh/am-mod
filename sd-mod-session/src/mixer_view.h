@@ -7,12 +7,15 @@
 extern "C" {
 #endif
 #define MIXER_FX_SLOTS 4u
+#define MIXER_EQ_POINTS 4u
 static inline uint32_t mixer_fx_slot_rgb(unsigned slot)
 {
     static const uint32_t hue[MIXER_FX_SLOTS]={0xffc247u,0x9e68ffu,0x00c8ffu,0xff54afu};
     return slot<MIXER_FX_SLOTS?hue[slot]:0;
 }
 enum mixer_page {MIXER_OVERVIEW,MIXER_MIX,MIXER_FX,MIXER_ROUTE,MIXER_KNOB_FX,MIXER_ADVANCED,MIXER_ASSIGN,MIXER_INSPECT};
+enum mixer_parameter {PARAM_LEVEL,PARAM_PAN,PARAM_SEND,PARAM_COLOUR,PARAMS};
+enum mixer_fx_delete {MIXER_DELETE_NONE,MIXER_DELETE_EFFECT,MIXER_DELETE_POINT};
 struct mixer_view_state {
     enum mixer_page page;
     unsigned selected,primary,master,cursor,scroll,bank,fx_slot;

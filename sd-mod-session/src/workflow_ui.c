@@ -1230,7 +1230,7 @@ static void batch_job_tick(void){
 }
 static int batch_control(void*e){
  if(batch_job||batch_leaving)return 1;
- unsigned cc=FIELD(e,8,unsigned char),v=FIELD(e,9,unsigned char);int delta=v&0x40?-(int)(v&0x3f):(int)(v&0x3f);
+ unsigned cc=FIELD(e,8,unsigned char),v=FIELD(e,9,unsigned char);int delta=v>64?(int)v-128:v==64?0:(int)v;
  batch_confirm=0;batch_message[0]=0;
  if(cc==0x10||cc==0x11||cc==0x12||cc==0x64)preview_stop();
  if(!batch_page){if(chop_export&&cc==0x64){preview_stop();slice_focus=clamp(slice_focus+delta,0,slice_count-1);slice_page=slice_focus/16;}if(cc==0x10){if(chop_export){preview_stop();slice_page=clamp((int)(v*((slice_count+15)/16)/128),0,(slice_count-1)/16);slice_focus=clamp(slice_page*16,0,slice_count-1);}else{batch_bank=(int)(v*8/128);step_native_browser_bank(batch_bank);}}return 1;}
@@ -1258,9 +1258,9 @@ static int batch_button(void*e){
  if(!down)return 1;
  preview_stop();
  if(code==0x0c){batch_exit();return 1;}
- else if(code==0x0d){if(!batch_page)table();else{preview_stop();batch_page=0;batch_confirm=0;}}
+ else if(code==0x0d&&batch_page){batch_page=0;batch_confirm=0;}
  else if(code==0x0e){if(!batch_page)table();else batch_apply();}
- else if(chop_export&&!batch_page&&(code==0x36||code==0x37)){slice_page=clamp(slice_page+(code==0x37?-1:1),0,(slice_count-1)/16);}
+ else if(chop_export&&!batch_page&&(code==0x36||code==0x37)){slice_page=clamp(slice_page+(code==0x37?-1:1),0,(slice_count-1)/16);slice_focus=clamp(slice_page*16,0,slice_count-1);}
  else if(batch_page&&(code==0x36||code==0x37)){preview_stop();batch_row=clamp(batch_row+(code==0x37?-1:1),0,(int)batch_count-1);}
  else if(code==0x23||code==0x36||code==0x37){batch_bank=(batch_bank+(code==0x37||(code==0x23&&shift)?7:1))%8;}
  else if(code==0x09&&batch_page){pinned[batch_row]=0;arrange();}
@@ -1305,7 +1305,10 @@ static void batch_paint(void*g){
  if(batch_leaving){colour(g,0xff000000);rect(g,0,5,320,235);colour(g,WHITE);text(g,"Closing Copy...",8,92,304,30,20);return;}
  if(batch_job){batch_job_paint(g);return;}
  colour(g,0xff000000);rect(g,0,5,320,235);colour(g,WHITE);
- text(g,"Cancel",0,6,106,23,15);text(g,batch_page?"Sources":"Targets",107,6,106,23,15);text(g,batch_confirm?"Confirm":batch_page?(missing_targets()?"No space":chop_export?"Extract":"Copy"):"Next",214,6,106,23,15);
+ colour(g,0xff202020u);rect(g,1,6,105,26);if(batch_page)rect(g,108,6,105,26);rect(g,215,6,105,26);
+ colour(g,WHITE);text(g,"Cancel",1,7,105,24,14);if(batch_page)text(g,"Sources",108,7,105,24,14);
+ colour(g,batch_confirm?RED:missing_targets()&&batch_page?GREY:AMBER);
+ text(g,batch_confirm?"Confirm":batch_page?(missing_targets()?"No space":chop_export?"Extract":"Copy"):"Next",215,7,105,24,14);
  char line[96];colour(g,WHITE);left_text(g,chop_export?"EXTRACT CHOPS":batch_events?"COPY PADS + EVENTS":"COPY PADS",8,36,304,22,17);
  if(!batch_page){
   unsigned selected_count=0;for(unsigned i=0;i<128;++i)selected_count+=selected_sources[i];
@@ -1313,7 +1316,7 @@ static void batch_paint(void*g){
   colour(g,WHITE);if(chop_export)snprintf(line,sizeof(line),"%c%02u  |  Chop %d",'A'+slice_sound/16,slice_sound%16+1,slice_focus+1);else snprintf(line,sizeof(line),"Bank %c",'A'+batch_bank);left_text(g,line,8,112,304,24,18);
   colour(g,0xff373737);rect(g,8,143,304,1);colour(g,GREY);
   left_text(g,"White: selected source",8,151,304,18,13);
-  ui_caption(line,sizeof(line),batch_message[0]?batch_message:chop_export?"Press: play/stop   Turn: choose":"Unlit: free   Pads: select",38);colour(g,batch_message[0]?RED:GREY);left_text(g,line,8,177,304,18,13);
+  ui_caption(line,sizeof(line),batch_message[0]?batch_message:chop_export?"Press DATA: play   /   Turn: select":"Unlit: free   Pads: select",38);colour(g,batch_message[0]?RED:GREY);left_text(g,line,8,177,304,18,13);
  }else{
   colour(g,GREY);left_text(g,chop_export?"CHOP":"SOURCE",8,63,80,15,12);left_text(g,"TARGET",119,63,84,15,12);left_text(g,"ASSIGN",230,63,82,15,12);
   unsigned first=(unsigned)batch_row/3*3;
@@ -1326,11 +1329,12 @@ static void batch_paint(void*g){
   }
   unsigned missing=missing_targets(),replace=0;colour(g,GREY);
   if(missing){snprintf(line,sizeof(line),"%u targets missing",missing);colour(g,RED);}
-  else if(batch_confirm){review(&replace);if(replace)snprintf(line,sizeof(line),"Overwrite %u pads? B3 confirms",replace);else snprintf(line,sizeof(line),"%s %u pads? B3 confirms",chop_export?"Extract":"Copy",batch_count);colour(g,RED);}
+  else if(batch_confirm){review(&replace);if(batch_events&&!chop_export)snprintf(line,sizeof(line),"All seqs + %u pads; overwrite %u?",batch_count,replace);else if(replace)snprintf(line,sizeof(line),"Overwrite %u pads? B3 confirms",replace);else snprintf(line,sizeof(line),"%s %u pads? B3 confirms",chop_export?"Extract":"Copy",batch_count);colour(g,RED);}
   else snprintf(line,sizeof(line),"Row %d/%u   View bank %c",batch_row+1,batch_count,'A'+batch_bank);
   left_text(g,line,8,168,304,16,13);
-  const char*hint=batch_message[0]&&!batch_confirm?batch_message:"Press: play/stop   +/-: row";ui_caption(line,sizeof(line),hint,38);colour(g,missing?RED:GREY);left_text(g,line,8,184,304,13,12);
+  const char*hint=batch_message[0]&&!batch_confirm?batch_message:"Press DATA: play/stop   /   +/−: row";ui_caption(line,sizeof(line),hint,38);colour(g,missing?RED:GREY);left_text(g,line,8,184,304,13,12);
  }
+ colour(g,0xff202020u);for(unsigned i=0;i<(batch_page?3u:1u);++i)rect(g,(int)i*106+2,198,102,40);
  colour(g,WHITE);text(g,chop_export&&!batch_page?"Page":shift&&batch_page?"Row bank":batch_page?"Auto bank":"Bank",0,201,106,13,12);
  if(chop_export&&!batch_page)snprintf(line,sizeof(line),"%d / %d",slice_page+1,(slice_count+15)/16);else snprintf(line,sizeof(line),"%c",'A'+(batch_page&&!shift?batch_auto_bank:batch_bank));text(g,line,0,216,106,20,18);
  if(batch_page){text(g,"Target",107,201,106,13,12);char b[8];if(!pinned[batch_row])strcpy(b,"Auto");else if(destination[batch_row]<128)pad_name(destination[batch_row],b,sizeof(b));else strcpy(b,"--");text(g,b,107,216,106,20,18);text(g,shift&&!chop_export?"Copy":"Auto",214,201,106,13,12);text(g,shift&&!chop_export?(batch_events?"Snd+events":"Sound only"):batch_layout==0?"First free":batch_layout==1?"Same pad":"Bank free",214,216,106,20,16);}

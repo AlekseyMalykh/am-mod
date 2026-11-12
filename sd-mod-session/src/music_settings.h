@@ -46,6 +46,7 @@ int music_mod_restore_recommended(unsigned section);
 unsigned music_service_colour(unsigned role);
 int music_set_service_colour(unsigned role,unsigned colour);
 uint32_t music_service_rgb(unsigned role);
+int music_service_colours_fallback(void);
 const char *music_palette_name(unsigned colour);
 uint32_t music_palette_rgb(unsigned colour);
 uint32_t music_palette_default_rgb(unsigned colour);

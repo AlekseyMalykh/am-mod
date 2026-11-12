@@ -37,8 +37,8 @@ static void sync_song(void)
 static void check_ctx(void **ctx,void *song){ assert(*ctx==sequencer_obj&&song==song_obj); }
 static void op_repeats(void **ctx,void *song,long step,int rep)
 { check_ctx(ctx,song);assert(step>=0&&step<step_count);steps[step][1]=rep;++ops;last_op='R';last_step=(int)step;last_rep=rep; }
-static void op_sequence(void **ctx,void *song,long step,int seq)
-{ check_ctx(ctx,song);assert(step>=0&&step<step_count);steps[step][0]=seq;++ops;last_op='S';last_step=(int)step;last_seq=seq; }
+static void op_clear(void **ctx,void *song)
+{ check_ctx(ctx,song);step_count=0;sync_song();++ops;last_op='C'; }
 static void op_insert(void **ctx,void *song,long step,int seq,int rep)
 {
     check_ctx(ctx,song);assert(step>=0&&step<=step_count&&step_count<64);
@@ -67,16 +67,26 @@ static int yes(void *p){ (void)p; return 1; }
 static int no(void *p){ (void)p; return 0; }
 static void noop(void){}
 static char drawn[64];
-static unsigned stem_help;
+static unsigned stem_help,repeats_label,row_labels;
+static void list_bounds(void*p,uint64_t xy,uint64_t wh)
+{
+    assert(p==screen_obj+0x798&&xy==((uint64_t)LIST_TOP<<32)&&(uint32_t)wh==320);
+    FIELD(p,0x2c,int)=(int)(wh>>32);
+}
 static void string_ctor(uint64_t *s,const char *text)
 {
     *s=0;snprintf(drawn,sizeof(drawn),"%s",text);
+    repeats_label+=!strcmp(text,"Repeats");
+    if(!strcmp(text,"1"))row_labels|=1;
+    if(!strcmp(text,"2"))row_labels|=2;
+    if(strstr(text,"bar ×2"))row_labels|=4;
+    if(!strcmp(text,"Step 2 / 3"))row_labels|=8;
     if(!strcmp(text,"Separate WAVs without mixer FX"))stem_help|=1;
     if(!strcmp(text,"Separate WAVs with mixer FX"))stem_help|=2;
 }
 
 static void button(unsigned code,int down)
-{ unsigned char e[16]={0};e[8]=(unsigned char)code;e[9]=(unsigned char)down;assert(song_ui_button(e)); }
+{ unsigned char e[16]={0};e[8]=(unsigned char)code;e[9]=(unsigned char)down;assert(song_ui_button(e,1)); }
 static void knob(int value)
 { unsigned char e[16]={0};e[8]=K1;e[9]=(unsigned char)value;assert(song_ui_control(e)); }
 
@@ -98,15 +108,19 @@ int main(int argc,char **argv)
 
     phase="fixtures";
     stub(0x112fd50,(void*)yes);stub(0x112f6b0,(void*)no);stub(0x1149880,(void*)noop);
+    stub(0x1160fc0,(void*)list_bounds);
     stub(0x102d5e0,(void*)noop);stub(0x102e000,(void*)noop);stub(0xf535c0,(void*)string_ctor);
     stub(0x1082810,(void*)noop);stub(0x102dca0,(void*)noop);stub(0x10817b0,(void*)noop);
     stub(0x1070d60,(void*)noop);stub(0xf0a290,(void*)noop);
     stub(0x3b71e80,(void*)list_row);stub(0x2909be0,(void*)sequence_get);stub(0x29ba240,(void*)song_bars);
-    stub(0x19a20d0,(void*)op_repeats);stub(0x19a29e0,(void*)op_sequence);
+    stub(0x19a20d0,(void*)op_repeats);stub(0x19a3a40,(void*)op_clear);
     stub(0x19a2d20,(void*)op_insert);stub(0x19a1880,(void*)op_delete);
     stub(0x14e19c0,(void*)select_row);
     for(int i=0;i<16;++i)FIELD(sequences[i],0x200,int)=2;
     FIELD(screen_obj,0,uintptr_t)=elf_image+SONG_VPTR;FIELD(screen_obj,0x110,void*)=controller_obj;
+    void *list=screen_obj+0x798;
+    FIELD(list,0,uintptr_t)=elf_image+SONG_LIST_VPTR;
+    FIELD(list,0x24,int)=LIST_TOP;FIELD(list,0x28,int)=320;FIELD(list,0x2c,int)=198;
     FIELD(controller_obj,0x260,void*)=sequencer_obj;FIELD(controller_obj,0x1dc,int)=5;
     songs[0]=song_obj;FIELD(sequencer_obj,0xb38,int)=0;
     FIELD(sequencer_obj,0x1260,void**)=songs;FIELD(sequencer_obj,0x126c,unsigned)=1;
@@ -119,6 +133,30 @@ int main(int argc,char **argv)
     ((void(*)(void*,void*))vt[SLOT_PAINT/8])(screen_obj,(void*)0x10);
     assert(screen==screen_obj&&!drawn[0]); /* nothing drawn until an edit */
     song_ui_tick();assert(song_ui_active()&&song_ui_pads_active()&&song_ui_selected_sequence()==5);
+    assert(FIELD(list,0x2c,int)==LIST_BOTTOM-LIST_TOP);
+    _Alignas(8) unsigned char song_rows[2][0x100]={0};
+    void *row_children[]={song_rows[0],song_rows[1]};
+    child_offset=0x40;
+    FIELD(list,0x40,void**)=row_children;FIELD(list,0x48,int)=2;FIELD(list,0x4c,int)=2;
+    for(unsigned i=0;i<2;++i){
+        FIELD(song_rows[i],0,uintptr_t)=elf_image+ROW_VPTR;
+        FIELD(song_rows[i],0x18,void*)=list;FIELD(song_rows[i],0x24,int)=(int)i*ROW_HEIGHT;
+    }
+    steps[1][1]=2;
+    paint(screen_obj,(void*)0x10);assert(repeats_label==1&&row_labels==15);
+    steps[1][1]=1;child_offset=-1;
+
+    phase="Song navigation clamps to real step rows regardless of repeats";
+    steps[1][1]=4;
+    unsigned char move[16]={0};move[8]=PLUS;move[9]=1;
+    assert(song_ui_owns(PHONE_BUTTON,PLUS,0,1)&&song_ui_button(move,0)&&row==2);
+    for(unsigned i=0;i<4;++i)assert(song_ui_button(move,0)&&row==2);
+    move[9]=0;assert(song_ui_button(move,0));
+    move[8]=DATA_ENCODER;move[9]=127;
+    assert(song_ui_owns(PHONE_CONTROLLER,DATA_ENCODER,0,1)&&song_ui_control(move)&&row==1);
+    assert(song_ui_control(move)&&row==0);
+    assert(song_ui_control(move)&&row==0&&steps[1][1]==4&&!ops);
+    steps[1][1]=1;row=1;
 
     phase="ownership pairing";
     assert(song_ui_owns(PHONE_CONTROLLER,K1,0,1)&&!song_ui_owns(PHONE_CONTROLLER,0x11,0,1));
@@ -135,41 +173,56 @@ int main(int argc,char **argv)
     knob(10);assert(last_rep==1&&steps[1][1]==1);          /* clamped at x1 */
     int before=ops;knob(6);assert(ops==before);            /* already x1: no command */
 
-    phase="Shift+B3 replace";
-    button(B3,1);assert(last_op=='S'&&last_step==1&&last_seq==5&&steps[1][0]==5);button(B3,0);
-    ((void(*)(void*,void*))vt[SLOT_PAINT/8])(screen_obj,(void*)0x10);
-    assert(!strcmp(drawn,"Step replaced   Step 2/3 x1"));   /* transient strip after the edit */
-    toast_until=1;((void(*)(void*,void*))vt[SLOT_PAINT/8])(screen_obj,(void*)0x10);song_ui_tick();assert(!toast_until);
-    assert(!song_ui_owns(PHONE_BUTTON,B3,0,0));
-    before=ops;song_ui_owns(PHONE_BUTTON,B3,1,1);button(B3,1);button(B3,0);assert(ops==before); /* same sequence */
-
-    phase="Shift+B2 duplicate";
+    phase="Shift+B2 Clear All asks first; Cancel leaves steps intact";
+    before=ops;
+    assert(song_ui_owns(PHONE_BUTTON,B2,1,1));button(B2,1);button(B2,0);
+    assert(clear_pending&&ops==before);
+    knob(72);knob(84);assert(ops==before&&row==1);
+    assert(song_ui_owns(PHONE_BUTTON,B1,0,1));button(B1,1);button(B1,0);
+    assert(!clear_pending&&ops==before);
+    phase="Shift+B3 duplicate";
     steps[1][1]=4;
-    song_ui_owns(PHONE_BUTTON,B2,1,1);button(B2,1);button(B2,0);
-    assert(last_op=='I'&&last_step==2&&last_seq==5&&last_rep==4&&step_count==4);
+    song_ui_owns(PHONE_BUTTON,B3,1,1);button(B3,1);button(B3,0);
+    assert(last_op=='I'&&last_step==2&&last_seq==1&&last_rep==4&&step_count==4);
+    paint(screen_obj,(void*)0x10);assert(!strcmp(drawn,"Step duplicated"));
+    toast_until=1;song_ui_tick();assert(!toast_until);
     assert(FIELD(controller_obj,0x292,unsigned char)==0);  /* follow flag restored */
     song_ui_tick();assert(selected==2&&row==2);             /* new step selected after the command */
 
     phase="Shift+-/+ move";
     row=1;song_ui_owns(PHONE_BUTTON,MINUS,1,1);button(MINUS,1);button(MINUS,0);
-    assert(last_op=='I'&&last_step==0&&steps[0][0]==5&&steps[0][1]==4&&steps[1][0]==0&&step_count==4);
+    assert(last_op=='I'&&last_step==0&&steps[0][0]==1&&steps[0][1]==4&&steps[1][0]==0&&step_count==4);
     song_ui_tick();assert(selected==0);
     row=3;before=ops;song_ui_owns(PHONE_BUTTON,PLUS,1,1);button(PLUS,1);button(PLUS,0);assert(ops==before); /* last row */
     row=2;song_ui_owns(PHONE_BUTTON,PLUS,1,1);button(PLUS,1);button(PLUS,0);
-    assert(steps[3][0]==5&&steps[3][1]==4&&steps[2][0]==2);
+    assert(steps[3][0]==1&&steps[3][1]==4&&steps[2][0]==2);
 
     phase="song length limit";
-    FIELD(sequences[5],0x200,int)=SONG_BAR_LIMIT;row=3;before=ops;
-    song_ui_owns(PHONE_BUTTON,B2,1,1);button(B2,1);button(B2,0);assert(ops==before&&!strcmp(toast,"Song would be too long"));
+    FIELD(sequences[1],0x200,int)=SONG_BAR_LIMIT;row=3;before=ops;
+    song_ui_owns(PHONE_BUTTON,B3,1,1);button(B3,1);button(B3,0);assert(ops==before&&!strcmp(toast,"Song would be too long"));
     knob(64);knob(80);assert(ops==before);
 
     phase="end-of-song row and empty selection are ignored";
     row=step_count;before=ops;knob(64);knob(90);song_ui_owns(PHONE_BUTTON,B3,1,1);button(B3,1);button(B3,0);assert(ops==before);
 
+    phase="Clear All confirms with plain B3 and submits one native command";
+    int old_count=step_count;
+    assert(song_ui_owns(PHONE_BUTTON,B2,1,1));button(B2,1);button(B2,0);
+    assert(clear_pending&&ops==before);
+    unsigned char confirm[16]={0};confirm[8]=B3;confirm[9]=1;
+    assert(song_ui_owns(PHONE_BUTTON,B3,0,1)&&song_ui_button(confirm,0));
+    assert(!clear_pending&&ops==before+1&&last_op=='C'&&step_count==0);
+    confirm[9]=0;assert(song_ui_button(confirm,0));
+    step_count=old_count;sync_song();
+
     phase="Song Export chooser describes both stem modes";
     atomic_store(&export_menu_active,1);
     ((void(*)(void*,void*))vt[SLOT_PAINT/8])(screen_obj,(void*)0x10);
-    assert(stem_help==3&&strstr(drawn,"B3 to export"));
+    assert(stem_help==3&&strstr(drawn,"B3: export"));
+    row=1;before=ops;
+    assert(song_ui_owns(PHONE_CONTROLLER,K1,0,1));knob(0);knob(80);
+    assert(song_ui_owns(PHONE_BUTTON,PLUS,1,1));button(PLUS,1);button(PLUS,0);
+    assert(ops==before&&atomic_load(&export_menu_active));
     sd_ready=0;
     drawn[0]=0;paint(screen_obj,(void*)0x10);
     assert(strstr(drawn,"Insert SD card to export"));
@@ -203,6 +256,6 @@ int main(int argc,char **argv)
     forget(screen_obj);assert(!song_ui_active()&&!screen);
     assert(!song_ui_owns(PHONE_CONTROLLER,K1,0,1)&&!song_ui_owns(PHONE_BUTTON,B3,1,1));
 
-    puts("PASS Song UI: real SongScreen vtable install/refusal and editor context; K1 repeats with clamp, Shift+B3 replace, Shift+B2 duplicate, Shift+-/+ move through stock Song step builders with selection follow, length limit, end row, paired button ownership and screen lifetime; fixture model/graphics, no hardware");
+    puts("PASS Song UI: real SongScreen vtable install/refusal and editor context; K1 repeats with clamp, Shift+B2 confirmed Clear All, Shift+B3 duplicate, Shift+-/+ move through stock Song step builders with selection follow, length limit, end row, paired button ownership and screen lifetime; fixture model/graphics, no hardware");
     return 0;
 }

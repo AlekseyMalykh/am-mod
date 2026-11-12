@@ -4,7 +4,7 @@
 
 **English** · [Русский](README.ru.md)
 
-[**Download r28c (experimental)**](https://github.com/AlekseyMalykh/am-mod/releases/tag/r28c) · [**Download r27r**](https://github.com/AlekseyMalykh/am-mod/releases/tag/r27r) (stable release) · [Feedback and help](docs/FEEDBACK.md) · [Known issues](docs/KNOWN_ISSUES.md) · [Discussions](https://github.com/AlekseyMalykh/am-mod/discussions)
+[**Download r28d**](https://github.com/AlekseyMalykh/am-mod/releases/tag/r28d) · [**Download r27r**](https://github.com/AlekseyMalykh/am-mod/releases/tag/r27r) (previous stable release) · [Feedback and help](docs/FEEDBACK.md) · [Known issues](docs/KNOWN_ISSUES.md) · [Discussions](https://github.com/AlekseyMalykh/am-mod/discussions)
 
 Am MOD is a community mod for the Akai MPC Sample (firmware **1.3.0.12**) that starts from
 the SD card. On top of the stock app it adds a step sequencer on the pads, a chord mode,
@@ -20,11 +20,11 @@ a patched copy of the stock app in RAM, and the stock app starts as usual withou
 > release packages**: the mod patches the copy of the app already on your MPC Sample.
 > Use at your own risk. See [NOTICE](NOTICE.md).
 
-## Experimental r28c
+## Release r28d
 
-r28c adds USB Screen Mirror, a 4 × 4 palette with named colours and Pad Lock. It fixes Solo on tracks receiving sends, puts project and sample saves on SD, and writes Song Mixdown and stems to `MPC-Sample/Samples/Export`. The interface is still being refined.
+r28d combines the mixer, effects, stems, Screen Mirror and RGB palette with Song, group level, Pad Lock, parameter reset, lighting and resampling fixes. EQ supports four points with deletion confirmation. Song has a persistent Repeats footer, step numbers and Clear All. The interface is still being refined.
 
-[Download r28c (experimental)](https://github.com/AlekseyMalykh/am-mod/releases/tag/r28c) · [Changes, installation and controls](docs/RELEASE_NOTES-r28c.md)
+[Changes, installation and controls](docs/RELEASE_NOTES-r28d.md)
 
 ## What's new in r27r
 
@@ -51,7 +51,7 @@ Thanks to **Leusha** for careful, detailed testing — almost every fix in r27r 
 |---|---|---|
 | **Readable K1–K3 panel**: parameter names and values always visible, amber focus, up arrow for Shift controls in r28c | all standard screens | confirmed |
 | **Type names with the pads** (phone keypad: ABC on pad 14, DEF on 15…, delete on 16) | Save Project / Save Sample, Search | confirmed |
-| **Orig Note** of a sample, project **Key / Scale** | Sample → Tune → Shift+K1; Project → Key/Scale | confirmed |
+| **Orig Note** of a sample, project **Key / Scale** | Sample → Tune → Shift+K1; Project → Key / Scale / Tempo | confirmed |
 | **Scale lighting** for 16 Levels Tune: Monochrome / Piano / Scale / Degrees colours, Transpose16 | Sample → Tune/Play/**Scales** | partly confirmed |
 | **Degrees**: 16 Levels pads play only key notes, tonic/IV/V colours | Scales → K1 Layout | trial |
 | **Steps**: 16-step sequencer on the physical pads, grid 1/4…1/64 and triplets, velocity, mute steps, copy/paste | Shift+SEQ → B2 Steps | confirmed |
@@ -105,7 +105,7 @@ Every feature with its controls and status: [docs/FEATURES.md](docs/FEATURES.md)
 > **Before installing or updating Am MOD, I recommend backing up all projects and samples from the SD card to your computer or another drive.** The installer's backup of `autorun/` does not include your projects or samples.
 
 > [!IMPORTANT]
-> **FAT32 / MS-DOS (FAT32) is available experimentally starting with r26e; exFAT remains supported.** FAT32 requires a package **r26e or newer** (r27r is current) and installer **1.0.2+**, or a manual copy of that package's complete `autorun/`. FAT32 has been checked in test images and the emulator; physical MPC testing is still pending. The published r26d and earlier packages require exFAT; updating only the installer does not add FAT32 support to an old package.
+> **FAT32 / MS-DOS (FAT32) is available experimentally starting with r26e; exFAT remains supported.** FAT32 requires a package **r26e or newer** (r28d is current) and installer **1.0.2+**, or a manual copy of that package's complete `autorun/`. FAT32 has been checked in test images and the emulator; physical MPC testing is still pending. The published r26d and earlier packages require exFAT; updating only the installer does not add FAT32 support to an old package.
 >
 > **Use a card volume name such as `MPC` or `MPCSAMPLE`.** Only ASCII letters, digits, `.`, `_` and `-` are supported; spaces and Cyrillic letters in the card name prevent startup. This restriction applies to the card name, not your sample/project names.
 >
@@ -119,14 +119,14 @@ refuses to start on any other version) and a compatible SD card with a supported
 **Installer (Windows):** download `MPC-Sample-Mod-Installer.exe` and the
 `am-mod-*.zip` package from [Releases](../../releases), run the installer, pick the zip
 (or press *Latest release*) and the SD card, press **Install**.
-To install r28c, select its ZIP manually. *Latest release* selects the latest stable build.
+Choose *Latest release* for r28d, or select its ZIP manually.
 
 **Installer (macOS / Linux / Windows with Python 3.8+):**
 
 ```bash
 python3 installer/mpc_mod_installer.py                 # window
 python3 installer/mpc_mod_installer.py cards           # list cards
-python3 installer/mpc_mod_installer.py install am-mod-r28c.zip --card E:  # experimental package
+python3 installer/mpc_mod_installer.py install am-mod-r28d.zip --card E:  # release package
 python3 installer/mpc_mod_installer.py install --latest --card /Volumes/MPC
 python3 installer/mpc_mod_installer.py remove --card E:
 ```

@@ -70,6 +70,9 @@ static struct music_palette_edit palette_drafts[MUSIC_PALETTE_SLOTS];
 static unsigned palette_changes;
 static int palette_naming;
 static struct phone_input palette_input;
+static _Atomic int pad_settings_visible;
+static void *midi_config_root;
+int music_ui_pad_settings_visible(void){return atomic_load(&pad_settings_visible);}
 static _Atomic uint64_t palette_pad_ticket,palette_lights[16];
 static uint64_t palette_ticket;
 enum { MOD_ABOUT_TAB=4, MOD_TAB_COUNT=5 };
@@ -94,6 +97,13 @@ static void sequence_destroy(void*p){if(seq_screen==p){seq_screen=NULL;atomic_st
 static void sequence_delete(void*p){if(seq_screen==p){seq_screen=NULL;atomic_store(&seq_active,0);}FN(0x169a6d0,void(*)(void*))(p);}
 static void repeat_destroy(void*p){if(repeat_root==p){repeat_root=NULL;atomic_store(&repeat_visible,0);}FN(0x1639740,void(*)(void*))(p);}
 static void repeat_delete(void*p){if(repeat_root==p){repeat_root=NULL;atomic_store(&repeat_visible,0);}FN(0x1639df0,void(*)(void*))(p);}
+#define MIDI_CONFIG_VPTR 0x6e1e9e8
+static void config_paint(void*p,void*g){
+    (void)g;
+    midi_config_root=p;
+}
+static void midi_config_destroy(void*p){if(midi_config_root==p)midi_config_root=NULL;FN(0x1637230,void(*)(void*))(p);}
+static void midi_config_delete(void*p){if(midi_config_root==p)midi_config_root=NULL;FN(0x1637710,void(*)(void*))(p);}
 #define SAMPLE_VPTR 0x6e212a0
 #define PROJECT_VPTR 0x6e1f788
 static void report(const char *message)
@@ -119,13 +129,20 @@ int music_ui_button_owns(unsigned code)
  * Both tables are in the pinned ELF's GNU_RELRO mapping. */
 int music_ui_install(void (*sp)(void*,void*),void (*pp)(void*,void*),void (*tp)(void*,void*))
 {
-    uintptr_t *slots[13]={(uintptr_t*)(base+SAMPLE_VPTR+0xd8),
+    uintptr_t *slots[]={(uintptr_t*)(base+SAMPLE_VPTR+0xd8),
         (uintptr_t*)(base+PROJECT_VPTR+0xd8),(uintptr_t*)(base+0x706e940+0xd8),
         (uintptr_t*)(base+0x6e1e258+0xd0),(uintptr_t*)(base+0x6e1f060+0xd0),
         (uintptr_t*)(base+0x6e23e38+0xd8),(uintptr_t*)(base+0x6e23e38),(uintptr_t*)(base+0x6e23e38+8),
-        (uintptr_t*)(base+0x6e1f060+0xd8),(uintptr_t*)(base+0x6e1f060),(uintptr_t*)(base+0x6e1f060+8),(uintptr_t*)(base+0x6e1e258),(uintptr_t*)(base+0x6e1e258+8)};
-    uintptr_t callbacks[13]={(uintptr_t)sp,(uintptr_t)pp,(uintptr_t)tp,(uintptr_t)knob_underlay,(uintptr_t)knob_underlay,(uintptr_t)sequence_paint,(uintptr_t)sequence_destroy,(uintptr_t)sequence_delete,(uintptr_t)repeat_paint,(uintptr_t)repeat_destroy,(uintptr_t)repeat_delete,(uintptr_t)knob_fx_destroy,(uintptr_t)knob_fx_delete};
-    for (unsigned i=0;i<13;++i) if (*slots[i]!=base+(i==6?0x169a0f0:i==7?0x169a6d0:i==9?0x1639740:i==10?0x1639df0:i==11?0x1627040:i==12?0x1628750:0x10e2e10)) return 0;
+        (uintptr_t*)(base+0x6e1f060+0xd8),(uintptr_t*)(base+0x6e1f060),(uintptr_t*)(base+0x6e1f060+8),(uintptr_t*)(base+0x6e1e258),(uintptr_t*)(base+0x6e1e258+8),
+        (uintptr_t*)(base+MIDI_CONFIG_VPTR+0xd8),(uintptr_t*)(base+MIDI_CONFIG_VPTR),(uintptr_t*)(base+MIDI_CONFIG_VPTR+8)};
+    uintptr_t callbacks[]={(uintptr_t)sp,(uintptr_t)pp,(uintptr_t)tp,(uintptr_t)knob_underlay,(uintptr_t)knob_underlay,(uintptr_t)sequence_paint,(uintptr_t)sequence_destroy,(uintptr_t)sequence_delete,(uintptr_t)repeat_paint,(uintptr_t)repeat_destroy,(uintptr_t)repeat_delete,(uintptr_t)knob_fx_destroy,(uintptr_t)knob_fx_delete,
+        (uintptr_t)config_paint,(uintptr_t)midi_config_destroy,(uintptr_t)midi_config_delete};
+    static const uintptr_t expected[]={
+        0x10e2e10,0x10e2e10,0x10e2e10,0x10e2e10,0x10e2e10,0x10e2e10,
+        0x169a0f0,0x169a6d0,0x10e2e10,0x1639740,0x1639df0,0x1627040,0x1628750,
+        0x10e2e10,0x1637230,0x1637710};
+    enum { slot_count=sizeof(slots)/sizeof(slots[0]) };
+    for(unsigned i=0;i<slot_count;++i)if(*slots[i]!=base+expected[i])return 0;
     /* Frozen r16d footer code: only the Knob FX background MOV W9,#c247.
      * Constructor runs before native main/audio. Never change live code. */
     uint32_t*amber=(uint32_t*)(base+0x6d3ba84);
@@ -135,8 +152,8 @@ int music_ui_install(void (*sp)(void*,void*),void (*pp)(void*,void*),void (*tp)(
        memcmp((void*)(base+0x1644ff4),lighting_rows_before,4))return 0;
     long ps=sysconf(_SC_PAGESIZE);
     if (ps!=4096) return 0;
-    void *pages[13]; unsigned writable=0;
-    for (unsigned i=0;i<13;++i) {
+    void *pages[slot_count]; unsigned writable=0;
+    for (unsigned i=0;i<slot_count;++i) {
         pages[i]=(void*)((uintptr_t)slots[i]&~(uintptr_t)4095);
         if (mprotect(pages[i],4096,PROT_READ|PROT_WRITE)) {
             for (unsigned j=0;j<writable;++j) if (mprotect(pages[j],4096,PROT_READ)) _exit(121);
@@ -148,15 +165,15 @@ int music_ui_install(void (*sp)(void*,void*),void (*pp)(void*,void*),void (*tp)(
     unsigned code_writable=0;
     for(unsigned i=0;i<2;++i){if(mprotect(code_pages[i],4096,PROT_READ|PROT_WRITE)){
         for(unsigned j=0;j<code_writable;++j)if(mprotect(code_pages[j],4096,PROT_READ|PROT_EXEC))_exit(121);
-        for(unsigned j=0;j<13;++j)if(mprotect(pages[j],4096,PROT_READ))_exit(121);
+        for(unsigned j=0;j<slot_count;++j)if(mprotect(pages[j],4096,PROT_READ))_exit(121);
         return 0;}++code_writable;}
     *amber=0x52800009u|(0xb000u<<5);
     memcpy((void*)(base+0x6d3b400),lighting_project_after,sizeof(lighting_project_after));
     memcpy((void*)(base+0x1643908),lighting_dispatch_after,4);
     for(unsigned i=0;i<2;++i){__builtin___clear_cache((char*)code_pages[i],(char*)code_pages[i]+4096);
         if(mprotect(code_pages[i],4096,PROT_READ|PROT_EXEC))_exit(121);}
-    for (unsigned i=0;i<13;++i) *slots[i]=callbacks[i];
-    for (unsigned i=0;i<13;++i) if (mprotect(pages[i],4096,PROT_READ)) _exit(121);
+    for (unsigned i=0;i<slot_count;++i) *slots[i]=callbacks[i];
+    for (unsigned i=0;i<slot_count;++i) if (mprotect(pages[i],4096,PROT_READ)) _exit(121);
     return 1;
 }
 static int visible(void *p)
@@ -220,6 +237,7 @@ void music_ui_destroyed(void *p)
     if ((uintptr_t)p==atomic_load(&project_id)) {
         atomic_store(&project_id,0); atomic_store(&dead_project,1);
         atomic_store(&palette_pad_ticket,0);
+        atomic_store(&pad_settings_visible,0);
         atomic_store(&active,0); atomic_store(&custom,0);
     }
 }
@@ -292,6 +310,7 @@ int music_ui_tick(void)
     else pad_eq_spectrum_watch(-1);
 #endif
     if (!pv&&(key_page<3||key_page==5)) key_page=0;
+    atomic_store(&pad_settings_visible,pv||visible(midi_config_root));
     palette_publish();
     if(key_page==3&&exit_presented){
         if(!exit_started){
@@ -412,8 +431,9 @@ static void repeat_paint(void*p,void*g){
 }
 /* Shift colour groups on the Lights page. Scale: Tonic, Scale, Other, Original.
  * Degrees: I, key notes, IV, V, Original. */
-static unsigned role_count(const struct music_sample *s){return s->mode==MUSIC_DEGREES?5u:4u;}
+static unsigned role_count(const struct music_sample *s){return s->mode==MUSIC_PIANO?1u:s->mode==MUSIC_DEGREES?5u:4u;}
 static int role_field(const struct music_sample *s,int r){
+    if(s->mode==MUSIC_PIANO)return MUSIC_ORIGINAL_COLOUR;
     static const int scale[]={MUSIC_COLOUR0,MUSIC_COLOUR1,MUSIC_COLOUR2,MUSIC_ORIGINAL_COLOUR};
     static const int degrees[]={MUSIC_COLOUR0,MUSIC_COLOUR1,MUSIC_FOURTH_COLOUR,MUSIC_FIFTH_COLOUR,MUSIC_ORIGINAL_COLOUR};
     unsigned n=role_count(s);if(r<0)r=0;if((unsigned)r>=n)r=(int)n-1;
@@ -430,6 +450,7 @@ static void cell(void *g,int i,const char *name,const char *value,int shift,int 
     int x=i==2 ? 213 : i*106,w=i==2 ? 107 : 106;
     uint32_t ink=!enabled ? 0xff707070 : focus==i ? 0xffffc247 : 0xffffffff;
     colour(g,0xff000000); rect(g,x,198,w,42);
+    colour(g,focus==i&&enabled?0xff302412u:0xff202020u);rect(g,x+2,198,w-4,40);
     colour(g,ink); text(g,name,x+4,200,badge ? w-22 : w-8,12,12);
     text(g,value,x+4,214,w-8,19,16);
     if (badge) shift_badge(g,i*106+94,200,shift);
@@ -665,20 +686,21 @@ void music_ui_sample(void *p,void *g)
     const char *modes[MUSIC_LAYOUT_CHOICES]={"Monochrome","Piano","Scale","Degrees"};
     static const char *const scale_roles[]={"Tonic","Scale","Other","Original"};
     static const char *const degree_roles[]={"I Tonic","Key notes","IV","V","Original"};
-    const char *const *roles=s.mode==MUSIC_DEGREES?degree_roles:scale_roles;
+    const char *const *roles=s.mode==MUSIC_PIANO?scale_roles+3:s.mode==MUSIC_DEGREES?degree_roles:scale_roles;
     int shown_role=role<(int)role_count(&s)?role:(int)role_count(&s)-1;
     if (shift) {
-        snprintf(value,sizeof(value),"%+d",s.transpose); cell(g,0,"Transpose16",value,1,1,ok,s.transpose+24,49);
+        snprintf(value,sizeof(value),s.mode==MUSIC_DEGREES?"%+d steps":"%+d st",s.transpose);
+        cell(g,0,"Transpose16",value,1,1,ok,s.transpose+24,49);
         int c=role_value(&s,role_field(&s,shown_role));
-        cell(g,1,"Role",roles[shown_role],1,1,ok && s.mode!=MUSIC_MONO,shown_role,(int)role_count(&s));
-        cell(g,2,"Colour",music_colour_names[c],1,1,ok && s.mode!=MUSIC_MONO,c,12);
+        if(s.mode!=MUSIC_PIANO)cell(g,1,"Role",roles[shown_role],1,1,ok && s.mode!=MUSIC_MONO,shown_role,(int)role_count(&s));
+        cell(g,2,s.mode==MUSIC_PIANO?"Original Colour":"Colour",music_colour_names[c],1,1,ok && s.mode!=MUSIC_MONO,c,12);
     } else {
         int project_tonic,project_scale;char tonic_text[32],scale_text[64];
         music_get_key(&project_tonic,&project_scale);
         snprintf(tonic_text,sizeof(tonic_text),s.tonic<0 ? "%s (P)" : "%s",music_note_names[s.tonic<0 ? project_tonic : s.tonic]);
         snprintf(scale_text,sizeof(scale_text),s.scale<0 ? "%s (P)" : "%s",music_scale_names[s.scale<0 ? project_scale : s.scale]);
         cell(g,0,"Layout",modes[music_mode_ui_index(s.mode)],0,1,ok,music_mode_ui_index(s.mode),MUSIC_LAYOUT_CHOICES);
-        cell(g,1,"Tonic",tonic_text,0,1,ok,s.tonic+1,13);
+        cell(g,1,"Tonic",tonic_text,0,s.mode!=MUSIC_PIANO,ok,s.tonic+1,13);
         cell(g,2,"Scale",scale_text,0,1,ok,s.scale+1,9);
     }
     if (!ok || s.root<0) {
@@ -743,17 +765,22 @@ void music_ui_palette_pad(unsigned pad,int down,int shift,uint64_t when,uint64_t
  }else if(down)palette_index=pad;
  palette_publish();repaint(project);
 }
+static void ui_header_key(void*g,unsigned i,const char *label,uint32_t ink){
+ int x=(int)i*107+1;
+ colour(g,0xff202020u);rect(g,x,6,105,26);
+ colour(g,ink);text(g,label,x,7,105,24,14);
+}
 static void palette_paint(void*g){
  colour(g,0xff000000u);rect(g,0,0,320,240);
- colour(g,0xffffffffu);text(g,palette_naming||palette_changes?"Cancel":"Back",0,6,106,23,14);
- text(g,palette_naming?"Delete":music_ui_shift_active()?"Reset":"Name",107,6,106,23,14);
- colour(g,0xffffc247u);text(g,palette_naming?"Done":"Save",214,6,106,23,14);
+ ui_header_key(g,0,palette_naming||palette_changes?"Cancel":"Back",0xffffffffu);
+ ui_header_key(g,1,palette_naming?"Delete":music_ui_shift_active()?"Reset":"Name",0xffffffffu);
+ ui_header_key(g,2,palette_naming?"Done":"Save",palette_naming||palette_changes?0xffffc247u:0xff888888u);
  if(palette_naming){
   char preview[96];phone_view(&palette_input,15,preview,sizeof(preview));
   text(g,"Colour name",12,37,296,28,19);
   colour(g,0xff292929u);rect(g,12,78,296,42);
   colour(g,0xffffffffu);text(g,preview,17,79,286,40,18);
-  text(g,palette_input.enabled?"Pads type   /   DATA moves":"Turn DATA to edit   /   Press to advance",12,144,296,24,13);
+  text(g,palette_input.enabled?"Press pads: type  /  Turn DATA: move":"Turn DATA: edit  /  Press DATA: advance",12,144,296,24,13);
   cell(g,0,"Input",palette_input.enabled?"Pads":"Encoder",0,0,1,0,0);
   return;
  }
@@ -769,7 +796,7 @@ static void palette_paint(void*g){
  char hex[8];snprintf(hex,sizeof(hex),"#%06X",(unsigned)(palette_drafts[palette_index].rgb&0xffffffu));
  colour(g,0xffffffffu);text_aligned(g,hex,12,171,78,21,15,0x21);
  colour(g,lighting_save_error?0xffff4040u:0xffaaaaaau);
- text_aligned(g,lighting_save_error?"Could not save palette":palette_changes?"B3 Save applies all changes":"DATA or pad to select",91,171,217,21,11,0x22);
+ text_aligned(g,lighting_save_error?"SD unavailable: changes pending":palette_changes?"B3: save all changes":"Turn DATA / press pad: select",91,171,217,21,11,0x22);
  static const char*const labels[]={"Red","Green","Blue"};
  for(unsigned k=0;k<3;++k){
   unsigned channel=(palette_drafts[palette_index].rgb>>(16-8*k))&255u;
@@ -796,7 +823,9 @@ static void mod_settings_paint(void*g){
  }
  char prev[24],next[24];
  snprintf(prev,sizeof(prev),"< %s",tabs[(mod_tab+MOD_TAB_COUNT-1)%MOD_TAB_COUNT]);snprintf(next,sizeof(next),"%s >",tabs[(mod_tab+1)%MOD_TAB_COUNT]);
- text(g,"Back",0,6,106,23,14);text(g,mod_tab==2&&music_ui_shift_active()?"Palette":prev,107,6,106,23,14);text(g,next,214,6,106,23,14);
+ ui_header_key(g,0,"Back",0xffffffffu);
+ ui_header_key(g,1,mod_tab==2&&music_ui_shift_active()?"Palette":prev,0xffffffffu);
+ ui_header_key(g,2,next,0xffffffffu);
  colour(g,0xffffc247);text_aligned(g,titles[mod_tab],12,34,220,22,16,0x21);
  for(unsigned t=0;t<MOD_TAB_COUNT;++t){colour(g,t==mod_tab?0xffffc247:0xff4a4a4a);rect(g,252+(int)t*12,43,t==mod_tab?9:6,3);}
  if(mod_tab==MOD_ABOUT_TAB){
@@ -831,21 +860,21 @@ static void mod_settings_paint(void*g){
   colour(g,0xffffffff);text_aligned(g,label,14,y,190,21,13,0x21);
   int value_width=110;
   if(mod_tab==2){
-   colour(g,0xff000000u|music_palette_rgb(value));rect(g,294,y+5,11,11);
+   colour(g,0xff000000u|music_service_rgb(i-1));rect(g,294,y+5,11,11);
    value_width=92;
   }
   colour(g,current&&mod_edit?0xffffc247:0xffffffff);text_aligned(g,name,196,y,value_width,21,13,0x22);
   if(current){k1_label=label;snprintf(value_text,sizeof(value_text),"%s",name);k1_value=value_text;}
  }
  colour(g,0xffa0a0a0);
- text_aligned(g,mod_tab==2?"Shift + B2: edit RGB palette":mod_tab==1?"Hold STOP and tap a pad to hear its end":mod_tab==3?"Sequence pulses still follow tempo":mirror_row(mod_row)?"USB: http://192.168.155.1:8080":"Standard keeps Piano, Scale and Degrees",12,172,300,13,11,0x21);
+ text_aligned(g,mod_tab==2?(music_service_colours_fallback()?"System colours overlap: using defaults":"Shift + B2: edit RGB palette"):mod_tab==1?"Hold STOP and tap a pad to hear its end":mod_tab==3?"Sequence pulses still follow tempo":mirror_row(mod_row)?"USB: http://192.168.155.1:8080":"Standard keeps Piano, Scale and Degrees",12,172,300,13,11,0x21);
  colour(g,lighting_save_error?0xffff4040:0xffa0a0a0);
  text_aligned(g,lighting_save_error?"Could not change setting":mirror_row(mod_row)?"Turns off when the mod restarts":"Saved in the project and as card default",12,185,300,13,11,0x21);
  /* K1 changes the selected row directly; the encoder selects and edits. */
  colour(g,0xff000000);rect(g,0,198,320,42);
  colour(g,mod_edit?0xffffc247:0xffffffff);text(g,k1_label,4,200,98,12,12);text(g,k1_value,4,214,98,19,16);
  colour(g,0xffa0a0a0);
- text_aligned(g,palette_row(mod_row)?"Press: open RGB editor":mod_row==mod_rows()?"Press: review":mod_edit?"Turn: change   Press: done":"Turn: row   Press: edit",116,206,196,20,13,0x21);
+ text_aligned(g,palette_row(mod_row)?"Press DATA: open":mod_row==mod_rows()?"Press DATA: review":mod_edit?"Turn DATA: change  /  Press: done":"Turn DATA: select  /  Press: edit",116,206,196,20,13,0x21);
 }
 /* AC50Core constructs the stock TempoController at +0x588. Its master
  * tempo property belongs to the sequencer and is saved by the native project. */
@@ -902,7 +931,7 @@ void music_ui_project(void *p,void *g)
     }
     int tonic,scale; music_get_key(&tonic,&scale);
     colour(g,0xff000000); rect(g,0,0,320,240);
-    colour(g,0xffffffff); text(g,"Back",4,1,98,22,14); text(g,"Key / Scale / Tempo",20,55,280,28,20);
+    ui_header_key(g,0,"Back",0xffffffffu); text(g,"Key / Scale / Tempo",20,55,280,28,20);
     char key[48]; music_key_text(tonic,scale,key,sizeof(key));
     colour(g,0xffffc247); text(g,key,10,95,300,26,20);
     colour(g,0xffffffff); text(g,"Default for pad layouts",10,137,300,18,13);
@@ -917,7 +946,7 @@ void music_ui_project(void *p,void *g)
     int available=project_tempo(&bpm)!=NULL;
     if(available)snprintf(tempo,sizeof(tempo),"%.2f BPM",bpm);
     int fine=shifted(p,1);
-    cell(g,2,fine?"Tempo Fine":"Tempo",tempo,fine,1,available,0,0);
+    cell(g,2,fine?"Master Fine":"Master Tempo",tempo,fine,1,available,0,0);
 }
 static int choice(unsigned value,int current,int lo,int hi,int relative)
 {
@@ -978,7 +1007,7 @@ int music_ui_control_at(void *event,unsigned event_shift)
                 int fine=event_shift!=0;
                 if(rel)cents+=delta*(fine?1:100);
                 else if(fine)cents=cents/100*100+(int)(v*100/128);
-                else cents=(20+(int)(v*281/128))*100+cents%100;
+                else cents=(20+((int)v*280+63)/127)*100+cents%100;
                 if(cents<2000)cents=2000;
                 if(cents>30000)cents=30000;
                 float next=cents/100.f;
@@ -1001,7 +1030,7 @@ int music_ui_control_at(void *event,unsigned event_shift)
         else {
             if (s.mode==MUSIC_MONO) return 1;
             int last=(int)role_count(&s)-1;if(role>last)role=last;
-            if (focus==1) { role=choice(v,role,0,last,rel); repaint(sample); return 1; }
+            if (focus==1) { if(!last)return 1;role=choice(v,role,0,last,rel); repaint(sample); return 1; }
             field=role_field(&s,role); current=role_value(&s,field); hi=11;
         }
     } else {
@@ -1032,7 +1061,20 @@ int music_ui_reset_knob(unsigned column,unsigned shift){
   music_set_pad_eq(pad,(v&~mask)|(defaults&mask));repaint(sample);return 1;
  }
 #endif
- if(key_page==1){int tonic,scale;music_get_key(&tonic,&scale);if(column==0)tonic=0;else if(column==1)scale=0;music_set_key(tonic,scale);repaint(project);return 1;}
+ if(key_page==1){
+  if(column==2){
+   float bpm;
+   void *controller=project_tempo(&bpm);
+   if(controller){
+    float next=shift?floorf(bpm):120.f;
+    if(next!=bpm)FN(0x1956f00,void(*)(void*,float))(controller,next);
+   }
+  }else{
+   int tonic,scale;music_get_key(&tonic,&scale);
+   music_set_key(column==0?0:tonic,column==1?0:scale);
+  }
+  repaint(project);return 1;
+ }
  if(lights){
   char name[MUSIC_NAME_BYTES];struct music_sample s;if(!settings(name,&s))return 1;
   int field,value;
@@ -1058,6 +1100,11 @@ int music_ui_button(void *event)
      * action. Page keys, encoder, Shift, transport, Tap, Knob FX stay. */
     if((key_page==1||key_page==2||key_page==4||key_page==5)&&visible(project)&&
        code!=0x0c&&code!=0x0d&&code!=0x0e&&code!=0x6f&&code!=0x31&&code!=0x51&&code!=0x52&&code!=0x50&&code!=0x35&&code!=0x00){
+        /* +/- have no action on Project subpages. Keep both edges away from
+         * the native menu beneath the subpage. */
+        if(code==0x36||code==0x37){
+            owned_buttons[code]=1;atomic_fetch_add(&held_count,1);return 1;
+        }
         key_page=0;mod_reset_confirm=mod_edit=palette_edit=0;repaint(project);music_ui_tick();report("PAGE_LEFT_BY_SCREEN_BUTTON");return 0;
     }
     if(key_page==4&&visible(project)){

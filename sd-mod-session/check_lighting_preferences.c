@@ -7,6 +7,7 @@
 #include <string.h>
 #include <unistd.h>
 int main(void){
+ assert(!music_lighting_preferences_durable()&&!music_palette_set_rgb(0,0));
  char dir[]="/tmp/am-pad-lighting-XXXXXX";assert(mkdtemp(dir));
  assert(music_lighting_preferences_open(dir)&&music_pad_lighting_mode()==MUSIC_LIGHTING_MOD);
  music_reset();assert(music_set_pad_colour(0,13)&&music_set_sequence_colour(3,5));
@@ -109,6 +110,10 @@ int main(void){
  assert(music_identity_choice(music_identity_count()-1)==15&&music_identity_index(15)==music_identity_count()-1);
  assert(music_service_rgb(MUSIC_SERVICE_SELECT)==0xffffff); /* Standard palette remains stock. */
  assert(music_set_pad_lighting_mode(MUSIC_LIGHTING_MOD)&&music_user_rgb(0)==0&&music_service_rgb(MUSIC_SERVICE_SELECT)==0x778899);
+ assert(music_palette_set_rgb(8,0x000000)&&music_service_colours_fallback());
+ assert(music_service_rgb(MUSIC_SERVICE_SELECT)==0xffffff);
+ assert(music_palette_set_rgb(8,0xff0000)&&music_service_colours_fallback());
+ assert(music_service_rgb(MUSIC_SERVICE_SELECT)==0xffffff);
  assert(music_palette_set_rgb(8,music_palette_default_rgb(8))&&music_lighting_preferences_open(dir)&&music_palette_rgb(8)==0xffffff);
  assert(music_set_pad_lighting_mode(MUSIC_LIGHTING_STANDARD));
  assert(!unlink(palette_path));f=fopen(palette_path,"wb");assert(f);fputs("AMP1",f);fclose(f);

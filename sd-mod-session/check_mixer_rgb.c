@@ -32,6 +32,9 @@ int workflow_native_pad_colours(void){return 0;}
 uint64_t workflow_palette_generation(void){return (uint64_t)workflow_colours;}
 int step_native_light(unsigned pad,uint64_t *out){(void)pad;(void)out;return 0;}
 int step_native_browser_bank(int selected){if(selected>=0)bank_fixture=(unsigned)selected;return (int)bank_fixture;}
+
+int music_ui_pad_settings_visible(void){return 0;}
+int music_ui_palette_light(unsigned pad,uint64_t *out){(void)pad;(void)out;return 0;}
 int note_native_sample_visible(void){return 1;}
 int music_ui_sequence_visible(void){return 0;}
 int step_native_sound_layout(void){return 0;}
@@ -155,6 +158,7 @@ int main(int argc,char **argv)
         send_step_lights();assert(sent[0]==0x804020);
     }
     /* Confirmed-only assignment. Pending does not recolour the physical pad. */
+    assert(mixer_control_button(control,MIXER_B2,1,ticket)&&mixer_control_button(control,MIXER_B2,0,ticket));
     assert(mixer_control_pad(control,1,1,ticket)&&mixer_control_pad(control,1,0,ticket));mixer_control_tick(control);
     publish(control,0);native_refresh(1);assert(sent[1]==0x083020);
     assert(mixer_control_confirm(control,&accepted,2,1));publish(control,0);send_step_lights();assert(sent[1]==0x804020);

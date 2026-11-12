@@ -68,6 +68,7 @@ assert 'VALUES_SHIFT_ARROW INSTALLED' in p.stderr
 assert 'TAKEOVER NATIVE_PROCESSORS_PRESERVED' in p.stderr
 assert 'TAKEOVER SCALED_ENDPOINTS_INSTALLED' not in p.stderr
 assert 'SONG_UI INSTALLED' in p.stderr  # SongScreen slots matched the pinned ELF
+assert 'MIXER BANK_LED_INSTALLED' in p.stderr
 assert 'MIXER_STEMS INSTALLED' in p.stderr  # native writer close prologue matched
 mixer_lines = [l for l in p.stderr.splitlines() if 'MIXER' in l]
 

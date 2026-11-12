@@ -1666,9 +1666,10 @@ static void left_text(void*g,const char*s,int x,int y,int w,int h,float height){
 static void right_text(void*g,const char*s,int x,int y,int w,int h,float height){text_align(g,s,x,y,w,h,height,0x22);}
 static void outline(void *g,int x,int y,int w,int h)
 {rect(g,x,y,w,1);rect(g,x,y+h-1,w,1);rect(g,x,y,1,h);rect(g,x+w-1,y,1,h);}
-static void cell(void *g,int x,const char *name,const char *value,int selected,int index,int sections)
+static void cell(void *g,int x,const char *name,const char *value,int selected,int index,int sections,int badge)
 {
-    colour(g,selected ? AMBER : WHITE);text(g,name,x+3,199,100,13,12);text(g,value,x+3,213,100,19,18);
+    colour(g,selected?0xff302412u:0xff202020u);rect(g,x+2,198,102,40);
+    colour(g,selected ? AMBER : WHITE);text(g,name,x+4,200,badge?84:98,12,12);text(g,value,x+4,214,98,19,16);
     if (selected) {rect(g,x,198,106,2);rect(g,x,198,2,32);rect(g,x+104,198,2,32);}
     if (!sections) {
         colour(g,0xff373737);rect(g,x+4,234,98,3);
@@ -1746,13 +1747,13 @@ void step_native_paint(void *p,void *g)
         char value[24];
         int bars=clamp(sequence?FIELD(sequence,0x200,int):1,1,128);
         if(shift)snprintf(value,sizeof(value),"--");else snprintf(value,sizeof(value),"%d",bars);
-        cell(g,0,shift ? "--" : "Bars",value,!shift&&focus==1,shift?0:bars-1,shift?1:0);
-        cell(g,106,shift ? "Triplet" : "Grid",shift ? (grid>=5 ? "On" : "Off") : grid_names[grid],focus==2,shift ? grid>=5 : grid%5,shift ? 2 : 5);
+        cell(g,0,shift ? "" : "Bars",shift?"":value,!shift&&focus==1,shift?0:bars-1,shift?1:0,0);
+        cell(g,106,shift ? "Triplet" : "Grid",shift ? (grid>=5 ? "On" : "Off") : grid_names[grid],focus==2,shift ? grid>=5 : grid%5,shift ? 2 : 5,1);
         int vel=scan_ok && cursor/16==page && slots[cursor%16].count==1
             ? (int)lroundf(FIELD(&slots[cursor%16].first,0x10,float)*127) : velocity;
-        if(shift)cell(g,213,"Other Sounds",show_other_sounds?"On":"Off",focus==3,show_other_sounds,2);
-        else{snprintf(value,sizeof(value),"%d",vel);cell(g,213,"Velocity",value,focus==3,vel,0);}
-        shift_badge(g,94,200,shift);shift_badge(g,200,200,shift);shift_badge(g,306,200,shift);
+        if(shift)cell(g,213,"Other Sounds",show_other_sounds?"On":"Off",focus==3,show_other_sounds,2,1);
+        else{snprintf(value,sizeof(value),"%d",vel);cell(g,213,"Velocity",value,focus==3,vel,0,1);}
+        shift_badge(g,200,200,shift);shift_badge(g,306,200,shift);
     }
     if (menu) {
         colour(g,0xff000000);rect(g,0,5,320,235);
@@ -1781,11 +1782,11 @@ void step_native_paint(void *p,void *g)
             colour(g,WHITE);snprintf(choice,sizeof(choice),"%s  |  Pad %d / 16",level_names[picker_mode],selected_pad+1);
             text(g,choice,8,164,304,16,12);
             colour(g,GREY);text(g,picker_mode==1?"Pads: select / deselect | B3: apply":"Pads: preview | B3: apply | B1/B2: cancel",2,183,316,12,10);
-            cell(g,0,"Type",picker_chop?"Chop":level_names[picker_mode],!picker_chop&&picker_focus==1,picker_mode,picker_chop?0:10);
-            snprintf(choice,sizeof(choice),"%d",selected_pad+1);cell(g,106,"Choice",choice,picker_focus==2,selected_pad,16);
+            cell(g,0,"Type",picker_chop?"Chop":level_names[picker_mode],!picker_chop&&picker_focus==1,picker_mode,picker_chop?0:10,0);
+            snprintf(choice,sizeof(choice),"%d",selected_pad+1);cell(g,106,"Choice",choice,picker_focus==2,selected_pad,16,0);
             if(picker_mode==8 || picker_mode==1){
                 snprintf(choice,sizeof(choice),"%d..%d",picker_base,clamp(picker_base+15,picker_base,picker_mode==8?picker_slice_count:120));
-                cell(g,213,"Range",choice,picker_focus==3,picker_mode==8?(picker_base-1)/16:(picker_base+120)/12,picker_mode==8?(picker_slice_count+15)/16:20);
+                cell(g,213,"Range",choice,picker_focus==3,picker_mode==8?(picker_base-1)/16:(picker_base+120)/12,picker_mode==8?(picker_slice_count+15)/16:20,0);
             }
         } else if(menu==4){
             colour(g,0xff000000);rect(g,0,5,320,235);colour(g,WHITE);

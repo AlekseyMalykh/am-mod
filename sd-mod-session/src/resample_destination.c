@@ -35,6 +35,7 @@ int resample_destination_target(struct resample_destination*d,unsigned target){
 }
 int resample_destination_bank(struct resample_destination*d,unsigned bank){
     if(!d||d->page!=RD_TARGET||bank>=8)return 0;
+    if(bank==d->bank)return 1;
     d->bank=bank;d->target_pad=128;d->error[0]=0;return 1;
 }
 int resample_destination_pad(struct resample_destination*d,unsigned pad,int down){
@@ -93,12 +94,18 @@ void resample_destination_paint(const struct resample_destination*d,const struct
     p->rect(p->user,0,5,320,235,0xff000000u);
     const char*b2="",*b3="";
     if(d->page==RD_SOURCE){b2="Seq";b3="Sample";}
-    else if(d->page==RD_TARGET){b2="Back";b3="Render";}
+    else if(d->page==RD_TARGET){b2="Source";b3="Render";}
     else if(d->page==RD_CONFIRM)b3="Replace";
     /* Header blocks, as in Chords. */
-    const char*heads[3]={"Cancel",b2,b3};
-    for(int i=0;i<3;++i){p->rect(p->user,i*107+1,6,105,26,0xff202020u);
-        p->text(p->user,heads[i],i*107+1,7,105,24,15,i==2&&d->page==RD_CONFIRM?red:white,1);}
+    const char*heads[3]={d->page==RD_CONFIRM?"Back":"Cancel",b2,b3};
+    for(int i=0;i<3;++i)if(*heads[i]){
+        uint32_t ink=white;
+        if(d->page==RD_SOURCE&&((i==1&&!d->has_sequence)||(i==2&&!d->has_sample)))ink=grey;
+        if(i==2&&d->page==RD_TARGET)ink=d->target_pad<128?amber:grey;
+        if(i==2&&d->page==RD_CONFIRM)ink=red;
+        p->rect(p->user,i*107+1,6,105,26,0xff202020u);
+        p->text(p->user,heads[i],i*107+1,7,105,24,14,ink,1);
+    }
     p->text(p->user,d->page==RD_SOURCE?"Resample":d->kind==RESAMPLE_SEQUENCE?"Resample Seq":"Resample Sample",8,40,304,28,20,white,d->page==RD_SOURCE);
     char text[112];
     if(d->page==RD_SOURCE){
@@ -118,8 +125,8 @@ void resample_destination_paint(const struct resample_destination*d,const struct
         p->text(p->user,"with its processing",170,154,138,18,11,grey,1);
     }else if(d->page==RD_TARGET||d->page==RD_CONFIRM){
         /* Source block on the left, the destination bank as a 4x4 grid laid
-         * out like the pads: recorded pads dim, the source outlined green,
-         * the chosen pad white (red when it would be replaced). */
+         * out like the pads: recorded pads dim, source outlined white,
+         * free destination green, replacement red. */
         p->rect(p->user,8,72,104,104,0xff1c1c1cu);
         p->rect(p->user,8,72,104,2,amber);p->rect(p->user,8,174,104,2,amber);p->rect(p->user,8,72,2,104,amber);p->rect(p->user,110,72,2,104,amber);
         p->text(p->user,"Source",8,78,104,18,12,grey,1);
@@ -138,18 +145,20 @@ void resample_destination_paint(const struct resample_destination*d,const struct
             unsigned i=(unsigned)((3-row)*4+col),pad=d->bank*16+i;
             int x=130+col*46,y=78+row*25,w=43,h=22;
             int used=(int)((d->occupied[pad/64]>>(pad%64))&1),chosen=pad==d->target_pad;
-            uint32_t fill=chosen?(used&&!(d->kind==RESAMPLE_SOUND&&pad==d->source_pad)?red:white):used?0xff3a3a3au:0xff1c1c1cu;
+            uint32_t fill=chosen?(used?red:0xff32c780u):used?0xff3a3a3au:0xff1c1c1cu;
             p->rect(p->user,x,y,w,h,fill);
-            if(d->kind==RESAMPLE_SOUND&&pad==d->source_pad&&!chosen){
-                p->rect(p->user,x,y,w,2,0xff32c780u);p->rect(p->user,x,y+h-2,w,2,0xff32c780u);
-                p->rect(p->user,x,y,2,h,0xff32c780u);p->rect(p->user,x+w-2,y,2,h,0xff32c780u);}
+            if(d->kind==RESAMPLE_SOUND&&pad==d->source_pad){
+                p->rect(p->user,x,y,w,2,white);p->rect(p->user,x,y+h-2,w,2,white);
+                p->rect(p->user,x,y,2,h,white);p->rect(p->user,x+w-2,y,2,h,white);}
             snprintf(text,sizeof(text),"%u",i+1);
             p->text(p->user,text,x,y+1,w,h-2,13,chosen?0xff000000u:used?white:grey,1);
         }
         if(d->target_pad<128)snprintf(text,sizeof(text),"To %c%02u: %s",'A'+d->target_pad/16,d->target_pad%16+1,
             d->page==RD_CONFIRM?"press again to replace":occupied(d)?"occupied, confirm to replace":"empty pad");
-        else snprintf(text,sizeof(text),"Press a pad (Bank: change bank)");
+        else snprintf(text,sizeof(text),"Press pad / Turn DATA: select");
         p->text(p->user,text,8,182,304,20,14,d->page==RD_CONFIRM||(d->target_pad<128&&occupied(d))?red:d->target_pad<128?white:grey,1);
+        if(d->page==RD_TARGET&&!d->error[0])
+            p->text(p->user,"K1 or PAD BANK: bank   /   Turn DATA: pad",8,210,304,19,12,grey,1);
     }else{
         if(d->kind==RESAMPLE_SEQUENCE)snprintf(text,sizeof(text),"Seq: %s",d->sequence);
         else snprintf(text,sizeof(text),"%c%02u  %s",'A'+d->source_pad/16,d->source_pad%16+1,d->sample);

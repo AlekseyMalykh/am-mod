@@ -46,7 +46,8 @@ int main(int argc,char**argv){
     resample_destination_finished(&state,sent.token,1,NULL);assert(state.page==RD_CLOSED&&state.applied); /* Commit won a late Cancel. */
     open_dialog(0,1);button(2);assert(state.page==RD_SOURCE&&!state.applied&&strstr(state.error,"empty"));button(1);assert(state.page==RD_TARGET&&state.kind==RESAMPLE_SEQUENCE);
     for(unsigned target=0;target<128;++target){assert(resample_destination_bank(&state,target/16));assert(resample_destination_pad(&state,target%16,1));assert(state.target_pad==target);assert(resample_destination_pad(&state,target%16,0));}
-    assert(resample_destination_bank(&state,7)&&state.target_pad==128);assert(!resample_destination_bank(&state,8));assert(resample_destination_target(&state,127));paint(argv[2],"seq-target");
+    assert(resample_destination_bank(&state,7)&&state.target_pad==127);
+    assert(resample_destination_bank(&state,6)&&state.target_pad==128);assert(!resample_destination_bank(&state,8));assert(resample_destination_target(&state,127));paint(argv[2],"seq-target");
     busy=1;button(2);assert(state.page==RD_TARGET&&starts==1);busy=0;button(2);assert(state.page==RD_RUNNING&&starts==2&&sent.kind==RESAMPLE_SEQUENCE&&sent.target_pad==127&&!sent.overwrite_confirmed);
     uint64_t old_token=sent.token;resample_destination_cancel(&state);resample_destination_finished(&state,old_token,0,NULL);assert(state.page==RD_CLOSED&&!state.applied);
     open_dialog(1,1);button(2);assert(resample_destination_target(&state,3));button(2);assert(state.page==RD_CONFIRM);button(0);assert(resample_destination_target(&state,4));button(2);assert(sent.target_pad==4&&!sent.overwrite_confirmed);

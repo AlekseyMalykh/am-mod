@@ -81,6 +81,7 @@ int knob_reset_native(unsigned column,unsigned shifted){
  if(!isfinite(lo)||!isfinite(hi)||value<lo||value>hi)return 0;
  /* JUCE Slider::setValue(double, sendNotificationSync). The native Value
   * binding owns parameter mutation, notifications and history. */
- FN(0x11c1d60,void(*)(void*,double,int))(p,value,1);
+ enum { SEND_NOTIFICATION_SYNC=2 };
+ FN(0x11c1d60,void(*)(void*,double,int))(p,value,SEND_NOTIFICATION_SYNC);
  fprintf(stderr,"KNOB_RESET NATIVE column=%u value=%.6g\n",column,value);return 1;
 }

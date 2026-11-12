@@ -32,7 +32,7 @@
  *   0x19a0b50 editor context (8 bytes: *ctx = sequencer)
  *   0x19a2d20 Insert(ctx, song, long step, int seq, int repeats)
  *   0x19a1880 Delete(ctx, song, long step)
- *   0x19a29e0 SetSequence(ctx, song, long step, int seq)
+ *   0x19a3a40 Clear(ctx, song)
  *   0x19a20d0 SetRepeats(ctx, song, long step, int repeats)
  * Selected step: Property<int> at controller+0x168 (value +0x1c = +0x184);
  *   0x14e19c0(property,int) sets it and notifies the list (stock 0x1575a04).
@@ -70,7 +70,9 @@ static _Atomic unsigned export_shown;    /* Song Export window visible */
 /* Local Export chooser on SongScreen. Main DATA encoder navigates;
  * B1=Cancel, B3=Do It. Native export starts only on confirmation. */
 static _Atomic unsigned export_choice; /* 0 Mixdown, 1 Sequence, 2 Stems dry, 3 Stems with FX */
-static _Atomic unsigned export_shift; /* Shift still labels Duplicate on Song steps */
+static _Atomic unsigned export_shift;
+static _Atomic unsigned clear_pending;
+static void *clear_song; /* UI thread only */
 static _Atomic unsigned export_paint_seen; /* vtable callback actually reached */
 static unsigned export_shift_seen;       /* UI thread, to request the repaint */
 /* Mix9: the choice screen is painted on SongScreen BEFORE any native B1.
@@ -111,7 +113,7 @@ static uint64_t toast_until;
 static unsigned log_count;
 static int pending_row=-1,pending_count;   /* select after the queued command lands */
 static uint64_t pending_until;
-static int last_row=-1;
+static int last_row=-1,last_repeats=-1;
 
 static uint64_t now_ms(void)
 { struct timespec t; clock_gettime(CLOCK_MONOTONIC,&t); return (uint64_t)t.tv_sec*1000u+(uint64_t)t.tv_nsec/1000000u; }
@@ -204,7 +206,7 @@ int song_ui_owns(unsigned kind,unsigned code,int shift,int down)
 {
     if(kind==PHONE_CONTROLLER){
         if(code==0x12&&song_ui_stems_modal_visible())return 1;
-        if(atomic_load(&shown) && code==K1) return 1;
+        if(atomic_load(&shown)&&(code==K1||code==DATA_ENCODER))return 1;
         /* The main DATA encoder (not K1) scrolls Export choices only when
          * our menu is active. The native name dialog keeps its own encoder. */
         return code==DATA_ENCODER && atomic_load(&export_menu_active);
@@ -224,8 +226,7 @@ int song_ui_owns(unsigned kind,unsigned code,int shift,int down)
     }
     /* Export chooser is on SongScreen, so the native B1 popup is NOT
      * opened yet. Capture B1=Cancel, B2=no action, B3=Confirm. */
-    if(atomic_load(&export_menu_active) &&
-       (code==B1||code==B2||code==B3)){
+    if(atomic_load(&export_menu_active)||atomic_load(&clear_pending)){
         atomic_fetch_or(&owned_buttons,bit);return 1;
     }
     if(code==B1 && atomic_load(&shown) && !shift &&
@@ -233,7 +234,7 @@ int song_ui_owns(unsigned kind,unsigned code,int shift,int down)
         atomic_fetch_or(&owned_buttons,bit);return 1;
     }
     if(code==B1) return 0; /* Shift+B1 remains a stock action. */
-    if(!atomic_load(&shown)||!shift) return (atomic_load(&owned_buttons)&bit)!=0;
+    if(!atomic_load(&shown)||(!shift&&code!=PLUS&&code!=MINUS))return (atomic_load(&owned_buttons)&bit)!=0;
     atomic_fetch_or(&owned_buttons,bit);
     return 1;
 }
@@ -301,10 +302,11 @@ static void delete_step(const struct song_ref *r,int step)
     void *ctx; FN(0x19a0b50,void(*)(void**,void*))(&ctx,r->sequencer);
     FN(0x19a1880,void(*)(void**,void*,long))(&ctx,r->song,(long)step);
 }
-static void set_sequence(const struct song_ref *r,int step,int seq)
+static void close_clear(void)
 {
-    void *ctx; FN(0x19a0b50,void(*)(void**,void*))(&ctx,r->sequencer);
-    FN(0x19a29e0,void(*)(void**,void*,long,int))(&ctx,r->song,(long)step,seq);
+    clear_song=NULL;
+    atomic_store(&clear_pending,0);
+    repaint(screen);
 }
 
 static int change_repeats(int delta)
@@ -321,18 +323,24 @@ static int change_repeats(int delta)
     char m[32]; snprintf(m,sizeof(m),"Repeats x%d",next); say(m);
     return 1;
 }
-static int replace_step(void)
+static void request_clear(void)
 {
-    struct song_ref r; int seq,rep;
-    if(!song_ref(&r)||!step_at(&r,r.row,&seq,&rep)) return 0;
-    int chosen=FIELD(r.controller,0x1dc,int);
-    if(chosen<0||chosen==seq) return 1;
-    int diff=(sequence_bars(&r,chosen)-sequence_bars(&r,seq))*rep;
-    if(diff>0&&!fits(&r,diff)){ say("Song would be too long"); return 1; }
-    trace("REPLACE",&r,seq,chosen);
-    set_sequence(&r,r.row,chosen);
-    say("Step replaced");
-    return 1;
+    struct song_ref r;
+    if(!song_ref(&r)||!r.count)return;
+    clear_song=r.song;
+    atomic_store(&clear_pending,1);
+    repaint(screen);
+}
+static void confirm_clear(void)
+{
+    struct song_ref r;
+    if(song_ref(&r)&&r.song==clear_song&&r.count){
+        void *ctx;
+        FN(0x19a0b50,void(*)(void**,void*))(&ctx,r.sequencer);
+        FN(0x19a3a40,void(*)(void**,void*))(&ctx,r.song);
+        pending_row=-1;
+    }
+    close_clear();
 }
 static int duplicate_step(void)
 {
@@ -361,10 +369,22 @@ static int move_step(int direction)
     return 1;
 }
 
+static void select_step(int delta)
+{
+    struct song_ref r;
+    if(!delta||!song_ref(&r)||!r.count)return;
+    int next=r.row+delta;
+    if(next<0)next=0;
+    if(next>=r.count)next=r.count-1;
+    if(next!=r.row)
+        FN(0x14e19c0,void(*)(void*,int))((char*)r.controller+0x168,next);
+}
+
 int song_ui_control(void *e)
 {
     unsigned cc=FIELD(e,8,unsigned char); int value=FIELD(e,9,unsigned char);
     if(cc==0x12&&song_ui_stems_modal_visible())return 1;
+    if(atomic_load(&clear_pending))return cc==DATA_ENCODER||cc==K1;
     if(cc==DATA_ENCODER && atomic_load(&export_menu_active)){
         /* Native DATA encoder is relative: 1..63=clockwise,
          * 65..127=counterclockwise (127 is -1). Clamp at each end. */
@@ -382,6 +402,11 @@ int song_ui_control(void *e)
         }
         return 1;
     }
+    if(atomic_load(&export_menu_active))return cc==K1;
+    if(cc==DATA_ENCODER&&atomic_load(&shown)){
+        select_step(value>64?value-128:value==64?0:value);
+        return 1;
+    }
     if(cc!=K1||!screen||!atomic_load(&shown)) return 0;
     /* K1 is an absolute knob: count movement, 4 positions per repeat.
      * The baseline resets when the Song screen appears, never on a timer. */
@@ -391,11 +416,16 @@ int song_ui_control(void *e)
     if(steps) change_repeats(steps);
     return 1;
 }
-int song_ui_button(void *e)
+int song_ui_button(void *e,int shift)
 {
     unsigned code=FIELD(e,8,unsigned char),down=FIELD(e,9,unsigned char)!=0,bit=button_bit(code);
     if(!bit) return 0;
     if(!down){ atomic_fetch_and(&owned_buttons,~bit); return 1; }
+    if(atomic_load(&clear_pending)){
+        if(code==B1)close_clear();
+        else if(code==B3)confirm_clear();
+        return 1;
+    }
     if(atomic_load(&export_menu_active)){
         if(code==B1){
             atomic_store(&export_menu_active,0u);
@@ -403,7 +433,7 @@ int song_ui_button(void *e)
             fprintf(stderr,"SONG_EXPORT MENU_CANCEL\n");
             return 1;
         }
-        if(code==B2)return 1;
+        if(code==B2||code==PLUS||code==MINUS)return 1;
         if(code==B3){
             struct song_ref song;
             if(!song_ref(&song)||!song.count)return 1;
@@ -444,9 +474,12 @@ int song_ui_button(void *e)
         return 1;
     }
     if(!screen||!atomic_load(&shown)) return 1;
-    if(code==B3) replace_step();
-    else if(code==B2) duplicate_step();
-    else move_step(code==PLUS?1:-1);
+    if(!shift){
+        if(code==PLUS||code==MINUS)select_step(code==PLUS?1:-1);
+        else return 0;
+    }else if(code==B3)duplicate_step();
+    else if(code==B2)request_clear();
+    else if(code==PLUS||code==MINUS)move_step(code==PLUS?1:-1);
     return 1;
 }
 
@@ -503,11 +536,12 @@ static void probe(void *p)
 }
 /* Step list rows (device probe 06.11): SongScreen+0x798 list -> ... ->
  * viewport content -> row components (vptr 0x6d84cf0), 320x33 each, row y
- * inside the content = index*33; the viewport shows y 38..236. */
+ * inside the content = index*33. Reserve the standard K footer below it. */
 #define ROW_VPTR 0x6d84cf0
 #define ROW_HEIGHT 33
 #define LIST_TOP 38
-#define LIST_BOTTOM 236
+#define LIST_BOTTOM 198
+#define SONG_LIST_VPTR 0x706d690
 struct row_hit { void *row; int y; };
 static unsigned find_rows(void *c,int y0,int depth,struct row_hit *out,unsigned n)
 {
@@ -521,7 +555,8 @@ static unsigned find_rows(void *c,int y0,int depth,struct row_hit *out,unsigned 
 }
 static void paint_rows(void *p,void *g,const struct song_ref *r)
 {
-    if(child_offset<0||!music_pad_lighting_mode()) return;
+    if(child_offset<0)return;
+    int custom_colours=music_pad_lighting_mode();
     void *listbox=(char*)p+0x798;
     struct row_hit rows[16]; unsigned n=find_rows(listbox,FIELD(listbox,0x24,int),0,rows,0);
     for(unsigned i=0;i<n;++i){
@@ -529,22 +564,44 @@ static void paint_rows(void *p,void *g,const struct song_ref *r)
         if(ry<0||ry%ROW_HEIGHT||!FN(0x112fd50,int(*)(void*))(row)) continue;
         int index=ry/ROW_HEIGHT,seq,rep;
         if(!step_at(r,index,&seq,&rep)) continue;
-        int top=rows[i].y,bottom=top+ROW_HEIGHT;
-        if(top<LIST_TOP) top=LIST_TOP;
-        if(bottom>LIST_BOTTOM) bottom=LIST_BOTTOM;
-        if(bottom-top<4) continue;
-        uint32_t rgb=0xff000000u|music_identity_rgb((unsigned)music_sequence_colour((unsigned)seq));
-        /* Colour bar on every row; the selected row keeps the stock highlight. */
-        colour(g,rgb); rect(g,0,top+3,4,bottom-top-6);
-        if(index==r->row||rows[i].y<LIST_TOP||rows[i].y+ROW_HEIGHT>LIST_BOTTOM) continue;
-        char name[16]; snprintf(name,sizeof(name),"Seq %c%02d",'A'+seq/16,seq%16+1);
-        colour(g,0xff000000); rect(g,8,rows[i].y+4,100,ROW_HEIGHT-8);
-        colour(g,rgb); text_at(g,name,25,rows[i].y,90,ROW_HEIGHT,15.0f,0x21); /* left, v-centred */
-        if(rep>1){
-            char bars[24]; snprintf(bars,sizeof(bars),"%d bars x%d",sequence_bars(r,seq),rep);
-            colour(g,0xff000000); rect(g,200,rows[i].y+4,100,ROW_HEIGHT-8);
-            colour(g,0xffffffff); text_at(g,bars,200,rows[i].y,96,ROW_HEIGHT,15.0f,0x22); /* right, v-centred */
+        int y=rows[i].y;
+        int top=y<LIST_TOP?LIST_TOP:y;
+        int bottom=y+ROW_HEIGHT>LIST_BOTTOM?LIST_BOTTOM:y+ROW_HEIGHT;
+        if(bottom-top<14)continue;
+        int selected=index==r->row;
+        uint32_t ink=selected?0xffffc247u:0xffaaaaaau;
+        uint32_t background=selected?0xff30343bu:0xff000000u;
+        char number[16];snprintf(number,sizeof(number),"%d",index+1);
+        colour(g,background);rect(g,4,top,21,bottom-top);
+        colour(g,ink);text(g,number,4,top,21,bottom-top,10.0f);
+        if(custom_colours){
+            uint32_t hue=music_identity_rgb((unsigned)music_sequence_colour((unsigned)seq));
+            colour(g,0xff000000u|hue);rect(g,0,top+3,3,bottom-top-6);
         }
+        if(rep>1){
+            char bars[24];snprintf(bars,sizeof(bars),"%d bar ×%d",sequence_bars(r,seq),rep);
+            colour(g,background);rect(g,247,top+2,57,bottom-top-4);
+            colour(g,ink);text_at(g,bars,248,top,54,bottom-top,11.0f,0x22);
+        }
+    }
+}
+static int song_footer_ready(void *p)
+{
+    void *list=(char*)p+0x798;
+    return FIELD(list,0,uintptr_t)==base+SONG_LIST_VPTR&&
+        FIELD(list,0x20,int)==0&&FIELD(list,0x24,int)==LIST_TOP&&
+        FIELD(list,0x28,int)==320&&FIELD(list,0x2c,int)==LIST_BOTTOM-LIST_TOP;
+}
+static void reserve_song_footer(void *p)
+{
+    void *list=(char*)p+0x798;
+    if(FIELD(list,0,uintptr_t)==base+SONG_LIST_VPTR&&
+       FIELD(list,0x20,int)==0&&FIELD(list,0x24,int)==LIST_TOP&&
+       FIELD(list,0x28,int)==320&&FIELD(list,0x2c,int)==198){
+        /* Same Component::setBounds rectangle ABI as SongScreen::resized. */
+        FN(0x1160fc0,void(*)(void*,uint64_t,uint64_t))(list,
+            (uint64_t)LIST_TOP<<32,((uint64_t)(LIST_BOTTOM-LIST_TOP)<<32)|320);
+        repaint(p);
     }
 }
 static void paint(void *p,void *g)
@@ -564,9 +621,9 @@ static void paint(void *p,void *g)
         const char *detail[]={"One stereo WAV","Combine into a sequence",
                               "Separate WAVs without mixer FX","Separate WAVs with mixer FX"};
         colour(g,0xff000000u);rect(g,0,0,320,240);
-        colour(g,0xffffffffu);text(g,"Back",0,1,106,23,14.0f);
-        colour(g,can_export?0xffffc247u:0xff777777u);text(g,"Export",213,1,107,23,14.0f);
-        colour(g,0xff252525u);rect(g,4,25,312,1);
+        colour(g,0xff202020u);rect(g,1,6,105,26);rect(g,215,6,105,26);
+        colour(g,0xffffffffu);text(g,"Back",1,7,105,24,14.0f);
+        colour(g,can_export?0xffffc247u:0xff777777u);text(g,"Export",215,7,105,24,14.0f);
         colour(g,0xffffffffu);text_at(g,"Song Export",14,31,292,28,20.0f,0x21);
         for(unsigned i=0;i<4;++i){
             int y=67+(int)i*31;
@@ -579,25 +636,48 @@ static void paint(void *p,void *g)
             text_at(g,detail[i],23,y+16,283,11,10.0f,0x21);
         }
         colour(g,0xff252525u);rect(g,12,198,296,1);
-        colour(g,0xffbbbbbbu);text(g,can_export?"Turn DATA to select   /   B3 to export":has_song?"Insert SD card to export":"Insert a sequence before exporting",12,204,296,22,12.0f);
+        colour(g,0xffbbbbbbu);text(g,can_export?"Turn DATA: select   /   B3: export":has_song?"Insert SD card to export":"Insert a sequence before exporting",12,204,296,22,12.0f);
+        return;
+    }
+    if(atomic_load(&clear_pending)){
+        colour(g,0xff000000u);rect(g,0,0,320,240);
+        colour(g,0xff202020u);rect(g,1,6,105,26);rect(g,215,6,105,26);
+        colour(g,0xffffffffu);text(g,"Cancel",1,7,105,24,14.0f);
+        colour(g,0xffff4040u);text(g,"Clear All",215,7,105,24,14.0f);
+        colour(g,0xffffffffu);text(g,"Clear all song steps?",12,74,296,29,20.0f);
+        text(g,"Sequences stay in the project",12,116,296,22,14.0f);
         return;
     }
     { struct song_ref pr; if(song_ref(&pr)) paint_rows(p,g,&pr); }
-    /* On the Song step list B2=Remove; Shift+B2=Duplicate. This label
-     * is distinct from Song Export's Mixdown/Stems, below. */
     if(atomic_load(&export_shift)){
-        colour(g,0xff000000u); rect(g,109,2,103,34);
-        colour(g,0xff00baffu); text_at(g,"Duplicate",109,2,103,34,15.0f,0x24);
+        colour(g,0xff000000u);rect(g,107,2,213,34);
+        colour(g,0xff202020u);rect(g,108,6,105,26);rect(g,215,6,105,26);
+        colour(g,0xffff4040u);text(g,"Clear All",108,7,105,24,14.0f);
+        colour(g,0xffffffffu);text(g,"Duplicate",215,7,105,24,14.0f);
     }
-    if(!(toast_until&&now_ms()<toast_until)) return;
-    if(song_ref(&r)&&step_at(&r,r.row,&seq,&rep))
-        snprintf(line,sizeof(line),"%.47s   Step %d/%d x%d",toast,r.row+1,r.count,rep);
-    else snprintf(line,sizeof(line),"%s",toast);
-    /* Transient strip after an edit; the stock list is untouched otherwise. */
-    colour(g,0xff000000); rect(g,0,224,320,16);
-    colour(g,0xffffc247); text(g,line,4,224,312,16,12.0f);
+    if(!song_footer_ready(p))return;
+    int have_step=song_ref(&r)&&step_at(&r,r.row,&seq,&rep);
+    colour(g,0xff000000u);rect(g,0,198,320,42);
+    colour(g,0xff202020u);rect(g,2,198,102,40);
+    colour(g,have_step?0xffffffffu:0xff888888u);
+    text(g,"Repeats",4,200,98,12,12.0f);
+    if(have_step)snprintf(line,sizeof(line),"×%d",rep);
+    else snprintf(line,sizeof(line),"--");
+    text(g,line,4,214,98,19,16.0f);
+    if(have_step){
+        colour(g,0xffaaaaaau);snprintf(line,sizeof(line),"Step %d / %d",r.row+1,r.count);
+        text_at(g,line,112,200,200,12,12.0f,0x21);
+        colour(g,0xff3b3b3bu);rect(g,112,235,200,2);
+        int marker=r.count>1?(int)((int64_t)196*r.row/(r.count-1)):0;
+        colour(g,0xffffc247u);rect(g,112+marker,235,4,2);
+    }
+    if(toast_until&&now_ms()<toast_until){
+        colour(g,0xffffc247u);text_at(g,toast,112,214,200,19,12.0f,0x21);
+    }else{
+        colour(g,0xffaaaaaau);text_at(g,"Turn DATA / +/−: select step",112,214,200,19,12.0f,0x21);
+    }
 }
-static void forget(void *p){ if(screen==p){ screen=NULL; atomic_store(&shown,0); } }
+static void forget(void *p){ if(screen==p){ screen=NULL; close_clear(); atomic_store(&shown,0); } }
 /* The native Create name dialog is a separate JUCE component tree.
  * Attach only to an ancestor whose paintOverChildren is the pinned native
  * no-op. A different firmware/class or an already-hooked slot is untouched.
@@ -762,7 +842,8 @@ void song_ui_tick(void)
     if(!v && atomic_load(&export_menu_active))atomic_store(&export_menu_active,0u);
     if(v!=(int)atomic_load(&shown)){ atomic_store(&shown,(unsigned)v); knob_last=-1; if(v)report("SONG_SCREEN_VISIBLE"); }
     if(toast_until&&now_ms()>=toast_until){ toast_until=0; repaint(screen); }
-    if(!v){ pending_row=-1; last_row=-1; return; } /* keep the last selection for Song Export */
+    if(!v){ if(atomic_load(&clear_pending))close_clear(); pending_row=-1; last_row=last_repeats=-1; return; } /* keep the last selection for Song Export */
+    reserve_song_footer(screen);
     struct song_ref r;
     if(!song_ref(&r)) return;
     { int chosen=FIELD(r.controller,0x1dc,int); atomic_store(&selected_sequence,chosen>=0&&chosen<128?chosen:-1); }
@@ -773,15 +854,12 @@ void song_ui_tick(void)
         }
         pending_row=-1;
     }
-    /* Browsing: show the selected step's repeats for a moment (the stock
-     * list shows only the sequence length). */
     int seq,rep;
-    if(r.row!=last_row){
-        int was=last_row; last_row=r.row;
-        if(was>=0&&!toast_until&&step_at(&r,r.row,&seq,&rep)&&rep>1){
-            char m[24]; snprintf(m,sizeof(m),"Repeats x%d",rep);
-            snprintf(toast,sizeof(toast),"%s",m); toast_until=now_ms()+1500; repaint(screen);
-        }
+    if(!step_at(&r,r.row,&seq,&rep))rep=-1;
+    if(r.row!=last_row||rep!=last_repeats){
+        last_row=r.row;
+        last_repeats=rep;
+        repaint(screen);
     }
 }
 

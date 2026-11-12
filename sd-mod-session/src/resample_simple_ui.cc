@@ -100,11 +100,11 @@ extern "C" int resample_ui_button(void*e,uint64_t ticket){
     unsigned key=code>=0x6b&&code<=0x6d?code-0x6b:code>=0x0c&&code<=0x0e?code-0x0c:3;
     if(stop_phase){
         if(!down&&key<3)dialog.held[key]=0;
-        if(down&&stop_phase==1&&key==0){
+        if(down&&stop_phase==1&&key==2){
             std::memcpy(stop_event,e,16);stop_event[8]=0x51;stop_event[9]=1;
             stop_requested=1;stop_phase=2;stop_deadline=now_ms()+3000;
             std::fprintf(stderr,"RESAMPLE STOP_REQUESTED before_submit=1\n");
-        }else if(down&&key==2){stop_phase=0;dialog.page=RD_TARGET;}
+        }else if(down&&key==0){stop_phase=stop_requested=0;dialog.page=RD_TARGET;}
         repaint();return 1;
     }
     if(capturing){if(down&&key==0)close_dialog();return 1;}
@@ -119,7 +119,15 @@ extern "C" int resample_ui_control(void*e,uint64_t ticket){
     if(!active.load())return ticket!=generation.load();
     if(ticket!=generation.load())return 1;
     if(dialog.page==RD_TARGET&&!capturing){if(cc==0x10)resample_destination_bank(&dialog,value*8/128);
-        else if(cc==0x64){int delta=value>64?(int)value-128:(int)value;int target=(int)(dialog.target_pad<128?dialog.target_pad:dialog.bank*16)+delta;if(target<0)target=0;if(target>127)target=127;resample_destination_target(&dialog,(unsigned)target);}}
+        else if(cc==0x64){
+            int delta=value>64?(int)value-128:value==64?0:(int)value;
+            if(delta){
+                int target=dialog.target_pad<128?(int)dialog.target_pad+delta:(int)dialog.bank*16+(delta<0?15:0);
+                if(target<0)target=0;
+                if(target>127)target=127;
+                resample_destination_target(&dialog,(unsigned)target);
+            }
+        }}
     repaint();return 1;
 }
 extern "C" int resample_ui_tick(int blocked){
@@ -168,8 +176,9 @@ extern "C" void resample_ui_draw(const resample_painter*p){
     if(!p||!active.load())return;
     if(stop_phase){
         p->rect(p->user,0,5,320,235,0xff000000);
-        p->text(p->user,stop_phase==1?"OK":"Stopping...",0,7,106,24,15,0xffffffff,1);
-        p->text(p->user,"Cancel",212,7,108,24,15,0xffff4040,1);
+        p->rect(p->user,1,6,105,26,0xff202020);p->rect(p->user,215,6,105,26,0xff202020);
+        p->text(p->user,"Cancel",1,7,105,24,14,0xffffffff,1);
+        p->text(p->user,stop_phase==1?"Stop & Render":"Stopping...",215,7,105,24,14,0xffffc247,1);
         p->text(p->user,"Stop playback?",8,75,304,30,23,0xffffffff,0);
         p->text(p->user,"Resampling starts after transport stops",8,124,304,36,14,0xffaaaaaa,0);return;
     }

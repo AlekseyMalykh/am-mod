@@ -196,9 +196,9 @@ int main(int argc,char**argv)
     mixer_fx_fixture_clock_ready(1);real_block(epoch,97,3,4,0,1,0);mixer_runtime_ui_tick();assert(automatic);
     real_block(epoch,97,3,4,0,1,0);mixer_session_ui_tick(automatic);c=mixer_session_control(automatic);assert(mixer_control_open(c,1,0));ticket=mixer_control_ticket(c);
     mixer_control_set_fx_editing(c,1);key(c,MIXER_KNOB,ticket);
-    mixer_control_button(c,MIXER_SHIFT,1,ticket);key(c,MIXER_B2,ticket);mixer_control_button(c,MIXER_SHIFT,0,ticket);
+    mixer_control_button(c,MIXER_SHIFT,1,ticket);key(c,MIXER_B3,ticket);mixer_control_button(c,MIXER_SHIFT,0,ticket);
     assert(mixer_control_pad(c,15,1,ticket)&&mixer_control_pad(c,15,0,ticket));
-    mixer_control_button(c,MIXER_SHIFT,1,ticket);key(c,MIXER_B2,ticket);mixer_control_button(c,MIXER_SHIFT,0,ticket);
+    mixer_control_button(c,MIXER_SHIFT,1,ticket);key(c,MIXER_B3,ticket);mixer_control_button(c,MIXER_SHIFT,0,ticket);
     mixer_session_ui_tick(automatic);mixer_runtime_ui_tick();real_block(epoch,97,3,4,0,1,0);
     mixer_runtime_ui_tick();mixer_session_ui_tick(automatic);real_block(epoch,97,3,4,0,1,0);
     compare_pcm(root_pcm[0],native_dry[0],1);compare_pcm(root_pcm[1],native_dry[1],1);

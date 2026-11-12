@@ -1,4 +1,4 @@
-"""Package the experimental r28 build over the pinned public r27r release."""
+"""Package an r28 build over the pinned public r27r release."""
 from pathlib import Path
 import argparse
 import hashlib
@@ -100,7 +100,7 @@ fi
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("base", type=Path, help="Published am-mod-r27r.zip")
-    parser.add_argument("revision", choices=("r28a", "r28b", "r28c"), help="Release revision")
+    parser.add_argument("revision", choices=("r28a", "r28b", "r28c", "r28d"), help="Release revision")
     args = parser.parse_args()
     revision = args.revision
     assert sha(args.base.read_bytes()) == BASE_SHA, "Unexpected r27r base"
@@ -122,7 +122,7 @@ def main():
         assert launcher.count(old_hash) == count, name
         launcher = launcher.replace(old_hash, sha(asset))
         files[path] = asset
-    if revision == "r28c":
+    if revision in ("r28c", "r28d"):
         launcher = protect_internal_exports(launcher)
         helper = ROOT / "build" / "screen-mirror"
         helper.parent.mkdir(exist_ok=True)
@@ -138,7 +138,7 @@ def main():
         "revision=r27r", f"revision={revision}"
     ).encode()
     manifest = json.loads(files["autorun/autorun.json"])
-    manifest["value0"]["scripts"][0]["message"] = f"Am MOD {revision} - Experimental Mixer and Stems"
+    manifest["value0"]["scripts"][0]["message"] = f"Am MOD {revision}"
     files["autorun/autorun.json"] = (json.dumps(manifest, indent=2) + "\n").encode()
     files["autorun/autorun.check"] = sha(
         files["autorun/autorun.json"] + files["autorun/autorun.sh"] + SALT
@@ -147,6 +147,13 @@ def main():
         subprocess.run(["sh", "-n", "/dev/stdin"], input=files[f"autorun/{name}"], check=True)
     for suffix in ("", ".ru"):
         files[f"README{suffix}.md"] = (REPO / "docs" / f"RELEASE_NOTES-{revision}{suffix}.md").read_bytes()
+
+    if revision == "r28d":
+        for name in ("CHANGELOG.md", "LICENSE", "NOTICE.md"):
+            files[name] = (REPO / name).read_bytes()
+        for name in ("RELEASE_NOTES-r28d.md", "RELEASE_NOTES-r28d.ru.md",
+                     "RELEASE_NOTES-r28c.md", "RELEASE_NOTES-r28c.ru.md"):
+            files["docs/" + name] = (REPO / "docs" / name).read_bytes()
 
     out = ROOT / "build" / revision / f"am-mod-{revision}.zip"
     out.parent.mkdir(parents=True, exist_ok=True)
