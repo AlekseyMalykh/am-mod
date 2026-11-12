@@ -104,29 +104,39 @@ static void fxv_strip(const struct resample_painter*p,int x,int y,int w,int h,in
     for(int g=1;g<4;++g)rect(p,x,y+g*h/4,w,1,DARK);
     unsigned n=fxv_hist.count;
     int cols=w/2;if((unsigned)cols>FXV_HIST)cols=(int)FXV_HIST;
+    int gr_h=show_key?h/4:0;               /* sidechain: reduction gets its own strip below */
+    int ph=h-gr_h;
     for(int c=0;c<cols;++c){
         int age=cols-1-c;if((unsigned)age>=n)continue;
         unsigned i=(fxv_hist.head+FXV_HIST-1-(unsigned)age)%FXV_HIST;
         int px=x+w-2-age*2;
-        if(show_in){int hi=fxv_level_h(fxv_hist.in[i],h);if(hi)rect(p,px,y+h-hi,2,1,BLUE);}
-        int ho=fxv_level_h(fxv_hist.out[i],h);if(ho)rect(p,px,y+h-ho,2,ho,0xff5a4419u);
-        if(ho)rect(p,px,y+h-ho,2,2,AMBER);
-        int hg=(int)lroundf(h*fminf(24.f,fmaxf(0.f,fxv_hist.gr[i]))/24.f);
-        if(hg)rect(p,px,y,2,hg,show_key?0xff9a6bffu:0xffff6a3cu);
+        if(show_in){int hi=fxv_level_h(fxv_hist.in[i],ph);if(hi)rect(p,px,y+ph-hi,2,1,BLUE);}
+        if(show_key){
+            int hk=fxv_level_h(fxv_hist.key[i],ph);if(hk)rect(p,px,y+ph-hk,2,hk,0xff4a1414u); /* key: filled area */
+            int ho=fxv_level_h(fxv_hist.out[i],ph);if(ho)rect(p,px,y+ph-ho,2,2,AMBER);       /* output: line only */
+            int hg=(int)lroundf(gr_h*fminf(24.f,fmaxf(0.f,fxv_hist.gr[i]))/24.f);
+            if(hg)rect(p,px,y+ph+1,2,hg,0xff9a6bffu);
+        }else{
+            int ho=fxv_level_h(fxv_hist.out[i],h);if(ho)rect(p,px,y+h-ho,2,ho,0xff5a4419u);
+            if(ho)rect(p,px,y+h-ho,2,2,AMBER);
+            int hg=(int)lroundf(h*fminf(24.f,fmaxf(0.f,fxv_hist.gr[i]))/24.f);
+            if(hg)rect(p,px,y,2,hg,0xffff6a3cu);
+        }
     }
-    if(show_key){ /* Key: a thin red line on top of everything so the signal never hides it. */
+    if(show_key){ /* Key outline: bright red line over the fill and the output. */
         int prev=-1;
         for(int c=0;c<cols;++c){
             int age=cols-1-c;if((unsigned)age>=n)continue;
             unsigned i=(fxv_hist.head+FXV_HIST-1-(unsigned)age)%FXV_HIST;
-            int py=y+h-fxv_level_h(fxv_hist.key[i],h),px=x+w-2-age*2;
+            int py=y+ph-fxv_level_h(fxv_hist.key[i],ph),px=x+w-2-age*2;
             if(prev<0)prev=py;
             int top=py<prev?py:prev;rect(p,px,top,2,abs(py-prev)+2,0xffff2a2au);prev=py;
         }
+        rect(p,x,y+ph,w,1,GREY);
     }
     if(isfinite(threshold_db)){
-        int ty=y+h-(int)lroundf(h*fmax(0.0,fmin(1.0,(threshold_db+60.0)/60.0)));
-        rect(p,x,ty,w,1,WHITE);
+        int ty=y+ph-(int)lroundf(ph*fmax(0.0,fmin(1.0,(threshold_db+60.0)/60.0)));
+        for(int dx=0;dx<w;dx+=6)rect(p,x+dx,ty,4,1,WHITE);   /* dashed: same dB scale as the key */
     }
 }
 static int fxv_idle;
@@ -252,8 +262,8 @@ static void fxv_sidechain(const struct resample_painter*p,const struct fx_stage*
     unsigned source=(unsigned)fx_sidechain_value(0,stage->parameter[0]);
     float threshold=fx_sidechain_value(1,stage->parameter[1]);
     char buf[64];
-    if(source)snprintf(buf,sizeof(buf),"Key Track %c (red)  /  output (amber)  /  GR (violet)",'A'+(int)source-1);
-    else snprintf(buf,sizeof(buf),"Key off  /  output (amber)  /  GR (violet)");
+    if(source)snprintf(buf,sizeof(buf),"Key Track %c (red)  /  output (amber)  /  threshold (white)",'A'+(int)source-1);
+    else snprintf(buf,sizeof(buf),"Key off  /  output (amber)  /  threshold (white)");
     fxv_title(p,buf,FXV_X+4,FXV_Y+1,290);
     fxv_strip(p,FXV_X+4,FXV_Y+14,FXV_W-8,FXV_H-34,0,1,threshold);
     fxv_gr_text(p,m,FXV_X+4,FXV_Y+FXV_H-18,120);
