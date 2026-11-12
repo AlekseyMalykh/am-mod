@@ -1840,6 +1840,13 @@ static void controller_ui(void *event,uint64_t route)
 {
     unsigned cc = FIELD(event,8,unsigned char), value = FIELD(event,9,unsigned char);
 #ifdef MPC_PROJECT_RECOVERY
+    if(on_ui()&&cc==0x12&&project_recovery_save_k3_external(base,screen)){
+        /* Save windows are SD-only: any K3 movement means "fully right". */
+        FIELD(event,9,unsigned char)=127;
+        forward_controller(event);
+        project_recovery_save_external(base,screen);
+        return;
+    }
     if(on_ui()&&project_recovery_save_control(base,screen,cc))return;
 #endif
 #ifdef MPC_SONG_UI

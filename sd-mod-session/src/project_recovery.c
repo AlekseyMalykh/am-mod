@@ -242,6 +242,9 @@ int project_recovery_save_external(uintptr_t image,void *p){
  }
  return F(p,storage+1,unsigned char)!=0;
 }
+int project_recovery_save_k3_external(uintptr_t image,void *p){
+ return save_screen_visible(image,p)&&!FN(0x112f6b0,int(*)(void*))(p);
+}
 int project_recovery_save_control(uintptr_t image,void *p,unsigned cc){
  if(cc!=0x12||!save_screen_visible(image,p))return 0;
  {int busy=FN(0x112f6b0,int(*)(void*))(p);static unsigned lines;
@@ -259,7 +262,15 @@ void project_recovery_save_paint(uintptr_t image,void*p,void*g){
  {static unsigned last=~0u;unsigned now=(unsigned)save_kind(image,p)|(F(p,storage,unsigned char)<<4)|(F(p,storage+1,unsigned char)<<12);
   if(now!=last){last=now;fprintf(stderr,"SAVE_SCREEN kind=%u seeded=%u external=%u busy=%d\n",(unsigned)save_kind(image,p),
    (unsigned)F(p,storage,unsigned char),(unsigned)F(p,storage+1,unsigned char),FN(0x112f6b0,int(*)(void*))(p));}}
- if(!F(p,storage,unsigned char))project_recovery_save_external(image,p);
+ /* Seed External once per screen opening, even if the native flag byte is
+  * already set: the K3 cell otherwise keeps showing "Internal". */
+ {static void *seeded_screen;static unsigned seeded_frames;
+  if(seeded_screen!=p){seeded_screen=p;seeded_frames=0;}
+  if(seeded_frames<3){++seeded_frames;
+   if(!F(p,storage+1,unsigned char)||seeded_frames==1){
+    uintptr_t setter=storage==0x11b8?0x1683280:0x16480e0;
+    FN(setter,void(*)(void*,float))(p,1.f);
+    FN(0x1149880,void(*)(void*,uint64_t,uint64_t))(p,0,F(p,0x28,uint64_t));}}}
  int external=F(p,storage+1,unsigned char)!=0;
  int project=save_kind(image,p)==SAVE_PROJECT;
  if(project&&first_save&&!save_seeded&&F(p,0x9f8,uintptr_t)==image+0x6e18e20){
