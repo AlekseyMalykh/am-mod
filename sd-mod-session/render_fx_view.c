@@ -7,6 +7,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 static FILE*out;
 static void r(void*u,int x,int y,int w,int h,uint32_t c){(void)u;
     assert(x>=0&&y>=0&&w>0&&h>0&&x+w<=320&&y+h<=240);fprintf(out,"R %d %d %d %d %08x\n",x,y,w,h,c);}
@@ -22,6 +23,10 @@ int main(int argc,char**argv)
     assert(fx_mixer_catalog_stage(index,s.rate,&project.track[0].fx.stage[0]));project.track[0].fx.count=1;
     for(int i=4;i<argc;++i){ /* optional "param=value" overrides */
         unsigned k;float v;if(sscanf(argv[i],"%u=%f",&k,&v)==2&&k<FX_CHAIN_PARAMETERS)project.track[0].fx.stage[0].parameter[k]=v;}
+    if(getenv("COMP")){
+        project.master.fx=project.track[0].fx;s.master=1;s.fx_slot=MIXER_COMP_SLOT;s.fx_parameters=!strcmp(getenv("COMP"),"edit");
+        s.comp=(struct mixer_sample_comp){1,1,1,0,0,-18,3,0,10,1200,6,4.5f};if(getenv("SHIFT"))s.shifted=1;
+    }
     static struct mixer_fx_monitor m;m.input_peak=.7f;m.output_peak=.5f;m.key_peak=.4f;m.gain_reduction_db=6;
     srand(3);
     for(unsigned i=0;i<MIXER_FX_MONITOR_FRAMES;++i){

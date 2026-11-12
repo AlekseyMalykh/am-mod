@@ -1382,8 +1382,29 @@ static void mixer_paint_text(void *g,const char *text,int x,int y,int w,int h,un
 }
 #endif
 
+#if defined(MPC_MIXER_LIVE) && defined(MPC_COMPRESSOR)
+/* The Sample-mode master compressor as a pinned row of the Mixer's Master FX page. */
+static int mixer_comp_state(struct mixer_sample_comp*k)
+{
+    struct comp_config cc;
+    k->available=0;
+    if(!compressor_ready())return 0;
+    compressor_config(&cc);
+    k->available=1;k->type=compressor_type()==COMP_OPTO?1u:0u;k->bypass=cc.bypass!=0;k->warm=cc.warm!=0;
+    k->threshold=cc.threshold;k->ratio=cc.ratio;k->gain=cc.gain;k->attack=cc.attack;k->release=cc.release;k->knee=cc.knee;
+    k->reduction=cc.bypass?0.0f:fabsf(compressor_reduction());
+    return 1;
+}
+static void mixer_comp_knob(unsigned shifted,unsigned knob,unsigned value){if(shifted)compressor_shift_knob(knob,value);else compressor_knob(knob,value);}
+static void mixer_comp_reset(unsigned shifted,unsigned knob){compressor_reset_knob(knob,shifted);}
+static void mixer_comp_type(void){compressor_select(compressor_type()==COMP_OPTO?COMP_DUCK:COMP_OPTO);}
+static const struct mixer_comp_ops mixer_comp_ops={mixer_comp_state,mixer_comp_knob,mixer_comp_reset,compressor_bypass,mixer_comp_type,compressor_warm};
+#endif
 static void music_sample_paint(void *p,void *g)
 {
+#if defined(MPC_MIXER_LIVE) && defined(MPC_COMPRESSOR)
+    mixer_control_set_comp_ops(&mixer_comp_ops);
+#endif
     if (!ui_known) { ui_thread=pthread_self(); ui_known=1; }
     if (!on_ui()) return;
     music_ui_sample(p,g); workflow_sample_paint(p,g); note_native_sample_overlay(p,g);
@@ -1397,12 +1418,6 @@ static void music_sample_paint(void *p,void *g)
         const struct resample_painter painter = {g,mixer_paint_rect,mixer_paint_text};
         mixer_control_view(control,now_ms(),&view);
         view.fx_illustrated=music_fx_view();
-#ifdef MPC_COMPRESSOR
-        {struct comp_config cc;view.sample_comp=0;view.sample_comp_gr=0;
-         if(compressor_ready()){compressor_config(&cc);
-            view.sample_comp=cc.bypass?1u:compressor_type()==COMP_OPTO?3u:2u;
-            view.sample_comp_gr=cc.bypass?0.0f:fabsf(compressor_reduction());}}
-#endif
         mixer_view_paint(&view,&painter);
     }
 #endif

@@ -25,7 +25,7 @@ static void r(void*u,int x,int y,int w,int h,uint32_t c){(void)u;
     if(trace)fprintf(trace,"R %d %d %d %d %08x\n",x,y,w,h,c);}
 static unsigned comp_status;
 static void t(void*u,const char*s,int x,int y,int w,int h,unsigned size,uint32_t c,int centre){(void)u;
-    if(!strncmp(s,"Sample Comp",11))++comp_status;
+    if(!strcmp(s,"Sample Comp")&&y>=60)++comp_status;
     assert(s&&x>=0&&y>=0&&w>0&&h>0&&x+w<=320&&y+h<=240&&size>=8);++draws;
     if(delete_probe&&y==1){
         if(!strcmp(s,"Cancel")){assert(c==0xffffffffu);delete_buttons|=1;}
@@ -153,12 +153,16 @@ int main(int argc,char**argv)
     mixer_view_paint(&s,&painter);assert(fx_headers==1&&catalog_hint);
     s.fx_catalog=0;
     s.shifted=0;s.fx_signal=NULL;
-    /* Stock Sample master compressor is shown only on the Master FX list. */
-    s.page=MIXER_KNOB_FX;s.fx_editing=1;s.sample_comp=2;s.sample_comp_gr=3.5f;
+    /* The Sample-mode compressor is a pinned row on the Master FX list only. */
+    s.page=MIXER_KNOB_FX;s.fx_editing=1;
+    s.comp.visible=1;s.comp.available=1;s.comp.type=1;s.comp.threshold=-18;s.comp.ratio=3;s.comp.gain=0;s.comp.attack=10;s.comp.release=1200;s.comp.knee=6;s.comp.reduction=3.5f;
     s.master=1;comp_status=0;mixer_view_paint(&s,&painter);assert(comp_status==1);
-    s.sample_comp=1;comp_status=0;mixer_view_paint(&s,&painter);assert(comp_status==1);
+    s.comp.bypass=1;comp_status=0;mixer_view_paint(&s,&painter);assert(comp_status==1);s.comp.bypass=0;
     s.master=0;comp_status=0;mixer_view_paint(&s,&painter);assert(comp_status==0);
-    s.sample_comp=0;s.master=1;comp_status=0;mixer_view_paint(&s,&painter);assert(comp_status==0);s.master=0;s.fx_editing=0;
+    s.master=1;s.fx_slot=MIXER_COMP_SLOT;s.fx_parameters=1;comp_status=0;mixer_view_paint(&s,&painter);assert(comp_status==0);
+    s.shifted=1;mixer_view_paint(&s,&painter);s.shifted=0;s.fx_slot=0;s.fx_parameters=0;
+    s.comp.visible=0;s.master=1;comp_status=0;mixer_view_paint(&s,&painter);assert(comp_status==0);
+    s.master=0;s.fx_editing=0;memset(&s.comp,0,sizeof(s.comp));
     s.page=MIXER_ASSIGN;s.master=1;mstr=0;mixer_view_paint(&s,&painter);assert(mstr>=2);s.master=0;
     s.page=MIXER_OVERVIEW;dynamic=1;draws=0;mixer_view_meters(&s,1,&painter);assert(draws>0&&draws<15);dynamic=0;
     /* Capture actual painter output for visual review with populated tracks. */

@@ -16,6 +16,17 @@ struct mixer_control_ops {
      * Submit runs only on control owner, never audio or input producer. */
     int(*submit)(void*,const struct mixer_project*,uint64_t expected,uint64_t*revision);
 };
+/* Optional: the Sample-mode master compressor, shown as a pinned row on Master FX.
+ * All calls run on the UI owner. state() returns 1 once the stock compressor is bound. */
+struct mixer_comp_ops {
+    int(*state)(struct mixer_sample_comp*);
+    void(*knob)(unsigned shifted,unsigned knob,unsigned value);
+    void(*reset)(unsigned shifted,unsigned knob);
+    void(*bypass)(void);
+    void(*type)(void);
+    void(*warm)(void);
+};
+void mixer_control_set_comp_ops(const struct mixer_comp_ops*);
 struct mixer_control*mixer_control_create(const struct mixer_control_ops*,double rate);
 void mixer_control_destroy(struct mixer_control*);
 /* Confirmed snapshot from the project/audio owner. Load/New/source epoch change

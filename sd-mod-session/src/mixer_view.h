@@ -17,6 +17,12 @@ enum mixer_page {MIXER_OVERVIEW,MIXER_MIX,MIXER_FX,MIXER_ROUTE,MIXER_KNOB_FX,MIX
 enum mixer_parameter {PARAM_LEVEL,PARAM_PAN,PARAM_SEND,PARAM_COLOUR,PARAMS};
 enum mixer_route_tab {MIXER_ROUTE_PADS,MIXER_ROUTE_SENDS,MIXER_ROUTE_KEYS,MIXER_ROUTE_TABS};
 enum mixer_fx_delete {MIXER_DELETE_NONE,MIXER_DELETE_EFFECT,MIXER_DELETE_POINT};
+/* The Sample-mode master compressor (Shift+Pad 5) as the Master FX page sees it. */
+#define MIXER_COMP_SLOT 7u /* fx_slot value of the pinned row on Master */
+struct mixer_sample_comp {
+    unsigned visible,available,type,bypass,warm; /* type 0 Duck, 1 OptoCat */
+    float threshold,ratio,gain,attack,release,knee,reduction;
+};
 struct mixer_view_state {
     enum mixer_page page;
     unsigned selected,primary,master,cursor,scroll,bank,fx_slot;
@@ -34,8 +40,7 @@ struct mixer_view_state {
     uint64_t name_elapsed;
     unsigned name_pads;
     const struct mixer_fx_monitor*fx_signal;
-    unsigned sample_comp; /* 0 hidden, 1 bypassed, 2 Duck, 3 OptoCat: stock Sample master compressor */
-    float sample_comp_gr; /* gain reduction in dB (positive) */
+    struct mixer_sample_comp comp; /* stock Sample master compressor, shown as a pinned Master FX row */
     unsigned fx_illustrated; /* 0 Classic; set by the host from the card setting */
     double rate;
 };
