@@ -30,7 +30,15 @@ int main(int argc,char**argv)
         m.pcm[i]=.45f*sinf(i*.11f)+.05f*sinf(i*.9f)+.04f*n;
     }
     s.fx_signal=&m;
-    out=fopen(argv[3],"w");assert(out);
-    struct resample_painter p={NULL,r,t};mixer_view_paint(&s,&p);fclose(out);
+    struct resample_painter p={NULL,r,t};
+    /* Optional history: pump level/reduction like a kick-driven duck for 6 s before the final paint. */
+    out=fopen("/dev/null","w");
+    for(unsigned k=0;k<150;++k){
+        double ph=fmod(k*.04*2.0,1.0);double duck=ph<.08?1:fmax(0.15,1-ph*1.1);
+        s.now_ms=1000+k*40;m.input_peak=.7f;m.key_peak=ph<.1?.9f:.05f;
+        m.output_peak=(float)(.7*(ph<.08?.25:fmin(1.0,.25+ph*1.1)));m.gain_reduction_db=(float)(14*(ph<.08?1:fmax(0,1-ph*1.4))*duck);
+        mixer_view_paint(&s,&p);}
+    fclose(out);out=fopen(argv[3],"w");assert(out);
+    mixer_view_paint(&s,&p);fclose(out);
     return 0;
 }

@@ -616,10 +616,11 @@ static void effect_editor(const struct mixer_view_state*s,const struct resample_
             text(p,status,249,51,57,18,11,accent,1);
         }
         const struct mixer_fx_monitor*m=s->fx_signal;
-        if(e&&!strcmp(e->category,"Dynamics")){
-            fx_dynamics(p,e,stage,m);
-        }else if(s->fx_illustrated&&fx_visual_paint(p,e,stage,m,s->rate?s->rate:48000)){
+        if(s->fx_illustrated&&fx_visual_paint(p,e,stage,m,s->rate?s->rate:48000,
+                (e?e->id:0)^(s->fx_slot<<28)^((s->master?8u:s->primary)<<24),s->now_ms)){
             /* Illustrated view drawn above; knobs and status follow. */
+        }else if(e&&!strcmp(e->category,"Dynamics")){
+            fx_dynamics(p,e,stage,m);
         }else{
             int filter=e&&!strcmp(e->category,"Filter");
             int envelope=e&&(!strcmp(e->category,"Delay")||!strcmp(e->category,"Reverb"));
