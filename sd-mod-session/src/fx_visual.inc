@@ -480,19 +480,21 @@ static void fxv_reverb(const struct resample_painter*p,const struct fx_stage*sta
 static void fxv_spring(const struct resample_painter*p,const struct fx_stage*stage)
 {
     rect(p,FXV_X,FXV_Y,FXV_W,FXV_H,0xff15181cu);
-    rect(p,FXV_X+8,FXV_Y+8,6,58,0xff6a4a30u);rect(p,FXV_X+FXV_W-14,FXV_Y+8,6,58,0xff6a4a30u);
-    double time=fxv_p(stage,1);int width=FXV_W-44;
-    int pulse=(int)((fxv_now/(6+(int)(14*time)))%(uint64_t)(width+40))-20;
+    rect(p,FXV_X+6,FXV_Y+4,FXV_W-12,FXV_H-10,0xff3a3f46u);rect(p,FXV_X+8,FXV_Y+6,FXV_W-16,FXV_H-14,0xff1c2025u);
+    for(int k=0;k<4;++k)rect(p,FXV_X+(k&1?FXV_W-14:9)+0,FXV_Y+(k&2?FXV_H-12:7),3,3,0xff9aa0a8u);
+    rect(p,FXV_X+14,FXV_Y+10,5,FXV_H-22,0xff6a4a30u);rect(p,FXV_X+FXV_W-19,FXV_Y+10,5,FXV_H-22,0xff6a4a30u);
+    double time=fxv_p(stage,1);int width=FXV_W-52;
+    int pulse=fxv_idle?-40:(int)((fxv_now/(6+(int)(14*time)))%(uint64_t)(width+40))-20;
     for(int row=0;row<2;++row){
-        int cy=FXV_Y+24+row*30,prev=cy;
+        int cy=FXV_Y+28+row*32,prev=cy;
         for(int x=0;x<width;x+=2){
             double tri=fabs(fmod(x/14.0+row*.5,1.0)*2-1)*2-1;
             double gain=1.0+.9*exp(-pow((x-pulse)/22.0,2.0));
-            int y=cy+(int)lround(7*gain*tri);
-            rect(p,FXV_X+22+x,y<prev?y:prev,2,abs(y-prev)+2,0xffc2c8d0u);prev=y;
+            int y=cy+(int)lround(8*gain*tri);
+            rect(p,FXV_X+26+x,y<prev?y:prev,2,abs(y-prev)+2,0xffc2c8d0u);prev=y;
         }
     }
-    text(p,"IN",FXV_X+6,FXV_Y+FXV_H-34,24,11,9,GREY,0);text(p,"OUT",FXV_X+FXV_W-30,FXV_Y+FXV_H-34,26,11,9,GREY,0);
+    text(p,"IN",FXV_X+10,FXV_Y+FXV_H-12,20,9,8,GREY,0);text(p,"OUT",FXV_X+FXV_W-34,FXV_Y+FXV_H-12,26,9,8,GREY,0);
 }
 
 /* ---- Drive, modulation, emulators. ---- */
@@ -535,13 +537,18 @@ static void fxv_clip_wave(const struct resample_painter*p,int x,int y,int w,int 
 static void fxv_tube(const struct resample_painter*p,const struct fx_stage*stage)
 {
     rect(p,FXV_X,FXV_Y,FXV_W,FXV_H,PANEL);
-    int px=FXV_X+6,py=FXV_Y+4;
-    rect(p,px,py,76,FXV_H-24,0xffd84a22u);rect(p,px+30,py-2,16,3,0xff80858cu);
-    static const unsigned idx[4]={0,1,2,3};
-    for(unsigned k=0;k<4;++k)fxv_knob(p,px+19+(int)(k%2)*38,py+14+(int)(k/2)*26,8,fxv_p(stage,idx[k]),0xff161616u);
-    fxv_disc(p,px+38,py+FXV_H-24-14,7,0xffb0b4bau);
-    text(p,"TUBE DRIVE",px,py+FXV_H-24-9,76,8,7,0xfff8e8d8u,1);
-    fxv_clip_wave(p,FXV_X+90,FXV_Y+6,FXV_W-96,FXV_H-30,fxv_p(stage,0),0);
+    float drive=fxv_p(stage,0);
+    for(int k=0;k<2;++k){
+        int cx=FXV_X+30+k*52,top=FXV_Y+6,h=FXV_H-24;
+        int glow=(int)lround(40+170*drive*(k?.85:1.0));
+        uint32_t hot=0xff000000u|((unsigned)(120+glow/2)<<16)|((unsigned)(40+glow/3)<<8)|20u;
+        fxv_disc_clip(p,cx,top+14,16,top,top+h,0xff262a30u);rect(p,cx-16,top+14,33,h-14,0xff262a30u);
+        fxv_disc_clip(p,cx,top+14,13,top,top+h,0xff15181cu);rect(p,cx-13,top+14,27,h-14,0xff15181cu);
+        rect(p,cx-8,top+10,17,h-26,hot);rect(p,cx-5,top+14,11,h-34,0xffffd890u);
+        rect(p,cx-16,top+h-12,33,10,0xff80858cu);rect(p,cx-16,top+h-12,33,2,0xffb0b4bau);
+    }
+    text(p,"AM MOD",FXV_X+8,FXV_Y+FXV_H-12,46,10,7,0xfff8e8d8u,0);
+    fxv_clip_wave(p,FXV_X+112,FXV_Y+6,FXV_W-118,FXV_H-14,drive,0);
 }
 static void fxv_soft_clip(const struct resample_painter*p,const struct fx_stage*stage)
 {
@@ -843,7 +850,7 @@ static void fxv_crush(const struct resample_painter*p,const struct fx_stage*stag
         previ=yi;prevo=yo;
     }
 }
-static int fx_visual_dispatch(const struct resample_painter*p,const struct fx_catalog_entry*e,
+static int fx_visual_dispatch_inner(const struct resample_painter*p,const struct fx_catalog_entry*e,
                            const struct fx_stage*stage,const struct mixer_fx_monitor*m,double rate,
                            uint32_t identity,uint64_t now_ms)
 {
@@ -886,6 +893,32 @@ static int fx_visual_dispatch(const struct resample_painter*p,const struct fx_ca
     case FX_OWN_CRUSH:fxv_crush(p,stage);return 1;
     default:return 0;
     }
+}
+
+/* Small stylised AM MOD plate in the category colour, top right of the picture. */
+static int fx_visual_dispatch(const struct resample_painter*p,const struct fx_catalog_entry*e,
+                           const struct fx_stage*stage,const struct mixer_fx_monitor*m,double rate,
+                           uint32_t identity,uint64_t now_ms)
+{
+    int ok=fx_visual_dispatch_inner(p,e,stage,m,rate,identity,now_ms);
+    if(!ok||stage->kind!=FX_STAGE_NATIVE)return ok;
+    const uint32_t DYN=0xffffc247u,SPC=0xff00e0b0u,DST=0xffff6048u,MOD=0xffb078ffu,PIT=0xff40c8e8u,LO=0xffff8c32u;
+    const char*label=0;uint32_t col=0;
+    switch(e->id){
+        case FX_OWN_SWELL:label="SLOW ATTACK";col=DYN;break;
+    case 0x6146446c:label="DELAY";col=SPC;break;case 0x61464444:label="DIFF DELAY";col=SPC;break;case 0x61465276:label="REVERB";col=SPC;break;
+    case 0x61465370:label="SPRING";col=SPC;break;case FX_OWN_SHIMMER:label="SHIMMER";col=SPC;break;case FX_OWN_REVERSE:label="REVERSE";col=SPC;break;
+    case 0x61464153:label="AMP SIM";col=DST;break;case 0x6153436c:label="SOFT CLIP";col=DST;break;
+    case 0x6146456e:label="ENSEMBLE";col=MOD;break;case 0x61464d43:label="CHORUS";col=MOD;break;case 0x61465073:label="PHASER";col=MOD;break;
+    case 0x6146466c:label="FLANGER";col=MOD;break;case 0x41435679:label="AUTO WAH";col=MOD;break;case 0x41435671:label="AUTO PAN";col=MOD;break;
+    case FX_OWN_TREMOLO:label="TREMOLO";col=MOD;break;case FX_OWN_PITCH:label="PITCH";col=PIT;break;
+    case FX_OWN_RING:label="RING MOD";col=LO;break;case FX_OWN_CRUSH:label="BIT CRUSH";col=LO;break;
+    default:return ok;}
+    int w=(int)strlen(label)*6+30,py=e->id==0x41435671?FXV_Y+FXV_H-13:FXV_Y+2;
+    rect(p,FXV_X+FXV_W-w-3,py,w,11,col);
+    text(p,"AM MOD",FXV_X+FXV_W-w-1,py,30,11,7,0xff101418u,0);
+    text(p,label,FXV_X+FXV_W-w+29,py,w-31,11,8,0xff101418u,0);
+    return ok;
 }
 
 /* With no signal (or a bypassed effect) the picture stops moving and is dimmed; it still follows the parameters. */

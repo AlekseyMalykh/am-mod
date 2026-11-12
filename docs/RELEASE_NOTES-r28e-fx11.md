@@ -15,3 +15,5 @@ Stem file names now carry the Track name: "<song>_track A_<name>.wav" (only if t
 
 - Effect screens: the value strip under the pictures is gone (values are on the parameter panel). New detailed pictures with AM MOD labels: Tape Delay (reels, rollers, heads), Tape (cassette with VU and transport), Vinyl (turntable), Sample Delay.
 - Tape cassette: two buttons PLAY/STOP (PLAY down while sound runs, STOP when it stops), reels turn only while playing, VU needle follows the signal level.
+- All remaining effect pictures get a category-coloured AM MOD plate; Spring Reverb has a tank frame, Tube Drive glowing tubes.
+- Pad text input: B2 is now Clear everywhere (mixer track name, project/sample name, search, export, Stems): first press asks (mixer shows "Sure?"), second press within 3 s empties the text. Hardware Erase still deletes one character.
