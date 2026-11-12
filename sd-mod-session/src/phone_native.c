@@ -1393,6 +1393,7 @@ static int mixer_comp_state(struct mixer_sample_comp*k)
     k->available=1;k->type=compressor_type()==COMP_OPTO?1u:0u;k->bypass=cc.bypass!=0;k->warm=cc.warm!=0;
     k->threshold=cc.threshold;k->ratio=cc.ratio;k->gain=cc.gain;k->attack=cc.attack;k->release=cc.release;k->knee=cc.knee;
     k->reduction=cc.bypass?0.0f:fabsf(compressor_reduction());
+    k->level=compressor_input_level();
     return 1;
 }
 static void mixer_comp_knob(unsigned shifted,unsigned knob,unsigned value){if(shifted)compressor_shift_knob(knob,value);else compressor_knob(knob,value);}

@@ -25,7 +25,7 @@ int main(int argc,char**argv)
         unsigned k;float v;if(sscanf(argv[i],"%u=%f",&k,&v)==2&&k<FX_CHAIN_PARAMETERS)project.track[0].fx.stage[0].parameter[k]=v;}
     if(getenv("COMP")){
         project.master.fx=project.track[0].fx;s.master=1;s.fx_slot=MIXER_COMP_SLOT;s.fx_parameters=!strcmp(getenv("COMP"),"edit");
-        s.comp=(struct mixer_sample_comp){1,1,1,0,0,-18,3,0,10,1200,6,4.5f};if(getenv("SHIFT"))s.shifted=1;
+        s.comp=(struct mixer_sample_comp){1,1,1,0,0,-18,3,0,10,1200,6,4.5f,-14.f};if(getenv("SHIFT"))s.shifted=1;
     }
     static struct mixer_fx_monitor m;m.input_peak=.7f;m.output_peak=.5f;m.key_peak=.4f;m.gain_reduction_db=6;
     srand(3);

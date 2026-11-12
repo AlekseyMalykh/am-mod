@@ -26,7 +26,7 @@ for name, compiler, flags, runner in [
         target = out / (suite + "-" + name)
         sources = ["check_mixer_" + suite + ".c", *core]
         if suite == "view":
-            sources += ["src/mixer_view.c", "src/fx_catalog.c"]
+            sources += ["src/mixer_view.c", "src/fx_catalog.c", "src/compressor_animation.c"]
         command = [compiler, "-std=c11", "-O1", "-g", "-Wall", "-Wextra", "-Werror", *flags, *sources]
         if suite == "updates":
             command += ["-Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free"]

@@ -588,24 +588,60 @@ static void fxv_tape_emu(const struct resample_painter*p,const struct fx_stage*s
 }
 
 /* ---- Am MOD's own effects (fx_own.c). Parameters are normalized 0..1 as in the DSP. ---- */
-/* OptoCat Comp: real-unit transfer curve (soft knee) + level history with the reduction in red. */
-static void fxv_opto(const struct resample_painter*p,const struct fx_stage*stage,const struct mixer_fx_monitor*m)
+/* OptoCat: the Sample compressor's cat (same sprites and motion as Shift+Pad 5), scaled into the art area,
+ * with the real-unit transfer curve and the level history next to it. */
+static struct comp_animation fxv_cat;static int fxv_cat_ready;
+static uint32_t fxv_cat_frame[320*164];
+#define FXV_CAT_W 99
+#define FXV_CAT_H 90
+static void fxv_cat_scene(const struct resample_painter*p,const struct comp_config*c,float input_db,float reduction,int x0,int y0)
 {
-    struct comp_config c;fx_own_opto_config(stage->parameter,&c);
+    if(!fxv_cat_ready){compressor_animation_init(&fxv_cat);fxv_cat_ready=1;}
+    fxv_cat.reduction=fmaxf(0.f,reduction);
+    compressor_animation_frame(&fxv_cat,fxv_cat_frame,(double)fxv_now/1000.0,input_db,c,0);
+    rect(p,x0,y0,FXV_CAT_W,FXV_CAT_H,BLACK);
+    /* Source window 164x150 at (92,12) -> 99x90, box-averaged, 6 grey levels, runs merged per row. */
+    const int sx0=92,sy0=12;const double scale=164.0/FXV_CAT_W;
+    for(int y=0;y<FXV_CAT_H;++y){
+        int ya=sy0+(int)(y*scale),yb=sy0+(int)((y+1)*scale);if(yb<=ya)yb=ya+1;if(yb>164)yb=164;
+        int run_start=0,run_level=0;
+        for(int x=0;x<=FXV_CAT_W;++x){
+            int level=0;
+            if(x<FXV_CAT_W){
+                int xa=sx0+(int)(x*scale),xb=sx0+(int)((x+1)*scale);if(xb<=xa)xb=xa+1;if(xb>320)xb=320;
+                unsigned sum=0,n=0;
+                for(int yy=ya;yy<yb;++yy)for(int xx=xa;xx<xb;++xx){sum+=fxv_cat_frame[yy*320+xx]&255;++n;}
+                unsigned v=n?sum/n:0;
+                level=v<70?0:v<105?1:v<140?2:v<180?3:v<220?4:5;
+            }
+            if(level!=run_level||x==FXV_CAT_W){
+                if(run_level){
+                    static const uint32_t shade[6]={0,0xff40454au,0xff6a7075u,0xff9aa0a6u,0xffc8ccd2u,0xfff2f4f6u};
+                    rect(p,x0+run_start,y0+y,x-run_start,1,shade[run_level]);
+                }
+                run_start=x;run_level=level;
+            }
+        }
+    }
+}
+static void fxv_opto_draw(const struct resample_painter*p,const struct comp_config*c,float input_db,float reduction,
+                          const struct mixer_fx_monitor*m)
+{
     rect(p,FXV_X,FXV_Y,FXV_W,FXV_H,PANEL);
-    const int gx=FXV_X+6,gy=FXV_Y+14,gs=72;
+    fxv_cat_scene(p,c,input_db,reduction,FXV_X+3,FXV_Y+2);
+    const int gx=FXV_X+108,gy=FXV_Y+14,gs=64;
     rect(p,gx,gy,gs,gs,WELL);
     rect(p,gx,gy+gs/2,gs,1,DARK);rect(p,gx+gs/2,gy,1,gs,DARK);
-    double slope=1.0-1.0/c.ratio,half=c.knee*.5;
+    double slope=1.0-1.0/c->ratio,half=c->knee*.5;
     for(int x=0;x<gs;++x){
-        double in=-60.0+60.0*x/(gs-1),over=in-c.threshold,gr;
-        gr=over<=-half?0:over>=half?slope*over:c.knee>0?slope*(over+half)*(over+half)/(2*c.knee):0;
-        double out=in-gr+c.gain;
+        double in=-60.0+60.0*x/(gs-1),over=in-c->threshold,gr;
+        gr=over<=-half?0:over>=half?slope*over:c->knee>0?slope*(over+half)*(over+half)/(2*c->knee):0;
+        double out=in-gr+c->gain;
         if(out<-60)out=-60;
         if(out>0)out=0;
         rect(p,gx+x,gy+gs-1-(int)lround((out+60.0)*(gs-1)/60.0),1,2,AMBER);
     }
-    rect(p,gx+(int)lround((c.threshold+60.0)*(gs-1)/60.0),gy,1,gs,LINE);
+    rect(p,gx+(int)lround((c->threshold+60.0)*(gs-1)/60.0),gy,1,gs,LINE);
     if(m){
         float di=mixer_meter_dbfs(m->input_peak),dout=mixer_meter_dbfs(m->output_peak);
         if(isfinite(di)&&isfinite(dout)){
@@ -613,12 +649,20 @@ static void fxv_opto(const struct resample_painter*p,const struct fx_stage*stage
             rect(p,dx-2,dy-2,5,5,WHITE);
         }
     }
-    fxv_title(p,"OptoCat",gx,FXV_Y+1,72);
-    fxv_title(p,"Level history  (red: reduction)",FXV_X+92,FXV_Y+1,200);
-    fxv_strip(p,FXV_X+92,FXV_Y+14,FXV_W-98,FXV_H-34,1,0,NAN);
-    fxv_gr_text(p,m,FXV_X+92,FXV_Y+FXV_H-18,120);
-    char buf[48];snprintf(buf,sizeof(buf),"%.0f dB  %.1f:1%s",(double)c.threshold,(double)c.ratio,c.warm?"  WARM":"");
-    text(p,buf,FXV_X+FXV_W-100,FXV_Y+FXV_H-18,96,12,10,WHITE,0);
+    fxv_title(p,"Transfer",gx,FXV_Y+1,64);
+    fxv_title(p,"Level history",FXV_X+180,FXV_Y+1,112);
+    fxv_strip(p,FXV_X+180,FXV_Y+14,FXV_W-184,FXV_H-34,1,0,NAN);
+    char buf[48];
+    snprintf(buf,sizeof(buf),reduction>0?"GR -%.1f dB":"GR 0.0 dB",(double)reduction);
+    text(p,buf,gx,FXV_Y+FXV_H-18,70,12,10,0xffff9a7cu,0);
+    snprintf(buf,sizeof(buf),"%.0f dB  %.1f:1%s",(double)c->threshold,(double)c->ratio,c->warm?"  WARM":"");
+    text(p,buf,FXV_X+180,FXV_Y+FXV_H-18,FXV_W-184,12,10,WHITE,0);
+}
+static void fxv_opto(const struct resample_painter*p,const struct fx_stage*stage,const struct mixer_fx_monitor*m)
+{
+    struct comp_config c;fx_own_opto_config(stage->parameter,&c);c.bypass=stage->bypass;
+    float di=m?mixer_meter_dbfs(m->input_peak):-60.f;if(!isfinite(di))di=-60.f;
+    fxv_opto_draw(p,&c,di,m?m->gain_reduction_db:0.f,m);
 }
 static void fxv_shimmer(const struct resample_painter*p,const struct fx_stage*stage,const struct mixer_fx_monitor*m)
 {

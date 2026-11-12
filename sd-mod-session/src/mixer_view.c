@@ -718,11 +718,13 @@ static void comp_editor(const struct mixer_view_state*s,const struct resample_pa
     st.parameter[3]=logf(fmaxf(1.f,k->attack))/logf(100.f);st.parameter[4]=logf(fmaxf(100.f,k->release)/100.f)/logf(40.f);
     st.parameter[5]=k->knee/12.f;st.parameter[6]=k->warm?1.f:0.f;
     struct mixer_fx_monitor m;memset(&m,0,sizeof(m));m.gain_reduction_db=k->bypass?0.f:k->reduction;
+    m.input_peak=powf(10.f,fminf(0.f,fmaxf(-90.f,k->level))/20.f);m.output_peak=m.input_peak*powf(10.f,(k->gain-m.gain_reduction_db)/20.f);
+    struct comp_config cfg={k->threshold,k->ratio,k->gain,k->bypass||!k->available,k->attack,k->release,k->knee,k->warm};
     fxv_idle=!k->available||k->bypass;fxv_now=s->now_ms;
     fxv_history_push(0x5343u,s->now_ms,&m);
     {
         struct resample_painter dim={(void*)p,fxv_dim_rect,fxv_dim_text};
-        fxv_opto(fxv_idle?&dim:p,&st,&m);
+        fxv_opto_draw(fxv_idle?&dim:p,&cfg,k->level,m.gain_reduction_db,&m);
     }
     fxv_idle=0;
     const char*label[3];char value[3][20];unsigned layer=s->shifted?2:1;

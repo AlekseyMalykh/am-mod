@@ -21,7 +21,7 @@ sed -i -E "s/^VERSION=\"[^\"]+\"/VERSION=\"$VER\"/" package_routing_candidate.py
 LOG=build/$VER-run.log; : > "$LOG"
 # 1. Проверки на хосте (ASan/UBSan): свои эффекты, вид микшера.
 F="-std=c11 -O1 -g -Wall -Wextra -Werror -Wno-misleading-indentation -fsanitize=address,undefined -fno-sanitize-recover=all"
-SRCS="src/mixer_view.c src/fx_catalog.c src/mixer_buses.c src/mixer_model.c src/mixer_meters.c src/fx_chain.c src/fx_eq.c src/fx_own.c src/compressor_dsp.c"
+SRCS="src/mixer_view.c src/fx_catalog.c src/mixer_buses.c src/mixer_model.c src/mixer_meters.c src/fx_chain.c src/fx_eq.c src/fx_own.c src/compressor_dsp.c src/compressor_animation.c"
 fail=0
 gcc $F check_fx_own.c src/fx_own.c src/compressor_dsp.c -lm -o build/check_fx_own >>"$LOG" 2>&1 && build/check_fx_own >>"$LOG" 2>&1 && echo "PASS check_fx_own" || { echo "FAIL check_fx_own"; fail=1; }
 gcc $F check_mixer_view.c $SRCS -lm -pthread -o build/check_mixer_view_host >>"$LOG" 2>&1 && build/check_mixer_view_host build >>"$LOG" 2>&1 && echo "PASS check_mixer_view" || { echo "FAIL check_mixer_view"; fail=1; }

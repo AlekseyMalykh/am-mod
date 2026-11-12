@@ -21,7 +21,7 @@ enum mixer_fx_delete {MIXER_DELETE_NONE,MIXER_DELETE_EFFECT,MIXER_DELETE_POINT};
 #define MIXER_COMP_SLOT 7u /* fx_slot value of the pinned row on Master */
 struct mixer_sample_comp {
     unsigned visible,available,type,bypass,warm; /* type 0 Duck, 1 OptoCat */
-    float threshold,ratio,gain,attack,release,knee,reduction;
+    float threshold,ratio,gain,attack,release,knee,reduction,level; /* level: input RMS dB for the cat */
 };
 struct mixer_view_state {
     enum mixer_page page;
