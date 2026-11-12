@@ -9,6 +9,7 @@ struct mixer_session { struct mixer_control *control; };
 struct mixer_control *mixer_session_control(struct mixer_session *s) { return s ? s->control : NULL; }
 int mixer_session_status(const struct mixer_session *s) { return s ? 1 : -2; }
 void mixer_session_flush_fx(struct mixer_session *s) { (void)s; }
+unsigned music_text_input(void) { return 0; }
 void mixer_session_ui_tick(struct mixer_session *s) { (void)s; }
 void note_native_repaint_sample(void) {}
 void note_native_repaint_sample_region(unsigned x,unsigned y,unsigned w,unsigned h)
