@@ -449,11 +449,11 @@ int mixer_control_button(struct mixer_control*c,enum mixer_action action,int dow
         }
         else if(c->view.page==MIXER_KNOB_FX&&c->fx_editing){struct mixer_channel*ch=selected(c);
             if(c->catalog){struct fx_stage stage;
-                if(fx_mixer_catalog_stage(c->view.cursor,c->rate,&stage)){
+                if(fx_mixer_catalog_stage(fx_mixer_filtered_index(c->view.catalog_filter,c->view.cursor),c->rate,&stage)){
                     if(stage.kind==FX_STAGE_EQ)stage.eq.count=1;
                     put_fx(c,&stage);
                 }
-            }else if(c->view.fx_slot==ch->fx.count)c->catalog=1;
+            }else if(c->view.fx_slot==ch->fx.count){c->catalog=1;c->view.cursor=0;}
             else if(c->view.fx_parameters)select_fx_page(c,ch->fx.stage+c->view.fx_slot,1,1);
             else if(c->shift){ch->fx.stage[c->view.fx_slot].bypass^=1;changed(c);}
             else c->view.fx_parameters=1;
@@ -502,7 +502,7 @@ int mixer_control_pad(struct mixer_control*c,unsigned pad,int down,uint64_t tick
         c->view.page=MIXER_KNOB_FX;c->temporary=2;c->view.fx_slot=slot;
         open_fx(c);
         if(slot<used)c->view.fx_parameters=1;
-        else c->catalog=1;
+        else{c->catalog=1;c->view.cursor=0;}
         c->message="";
         return 1;
     }
@@ -655,7 +655,7 @@ static int fx_cc(struct mixer_control*c,unsigned cc,unsigned value)
         }
         if(c->catalog){
             int next=(int)c->view.cursor+delta;
-            int last=(int)fx_mixer_catalog_count()-1;
+            int last=(int)fx_mixer_filtered_count(c->view.catalog_filter)-1;
             c->view.cursor=(unsigned)(next<0?0:next>last?last:next);
         }else if(c->view.fx_slot<ch->fx.count){
             const struct fx_stage*stage=ch->fx.stage+c->view.fx_slot;
@@ -664,7 +664,14 @@ static int fx_cc(struct mixer_control*c,unsigned cc,unsigned value)
         return 1;
     }
     if(!one(c)){c->message="Select one Track";return 1;}
-    if(c->catalog){if(cc==0x10)c->view.cursor=value*fx_mixer_catalog_count()/128;return 1;}
+    if(c->catalog){
+        if(cc==0x10)c->view.cursor=value*fx_mixer_filtered_count(c->view.catalog_filter)/128;
+        else if(cc==0x12){ /* K3: category filter (All, Filter, Dynamics ...) */
+            unsigned f=value*fx_mixer_category_count()/128;
+            if(f!=c->view.catalog_filter){c->view.catalog_filter=f;c->view.cursor=0;}
+        }
+        return 1;
+    }
     if(!c->view.fx_parameters||c->view.fx_slot>=ch->fx.count)return 1;
     struct fx_stage*s=ch->fx.stage+c->view.fx_slot;
     if(s->kind!=FX_STAGE_EQ){

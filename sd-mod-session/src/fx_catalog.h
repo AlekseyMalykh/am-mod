@@ -13,6 +13,11 @@ struct fx_catalog_entry {
 };
 unsigned fx_catalog_count(void);
 unsigned fx_mixer_catalog_count(void);
+/* Add Effect filter: 0 = All, then each effect category in catalog order. */
+unsigned fx_mixer_category_count(void);
+const char *fx_mixer_category_name(unsigned filter);
+unsigned fx_mixer_filtered_count(unsigned filter);
+unsigned fx_mixer_filtered_index(unsigned filter,unsigned position); /* real catalog index */
 const struct fx_catalog_entry *fx_mixer_catalog_at(unsigned);
 int fx_mixer_catalog_stage(unsigned,double,struct fx_stage*);
 unsigned fx_catalog_parameter_count(const struct fx_catalog_entry*);

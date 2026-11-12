@@ -63,6 +63,32 @@ static const struct fx_catalog_entry own_entries[FX_OWN_COUNT]={
  {FX_OWN_OPTO,"OptoCat Comp","Dynamics",7,{"Threshold","Ratio","Gain","Attack","Release","Knee","Warm"},{.625f,.2857f,.5f,.5f,.6738f,.5f,0.f}},
 };
 unsigned fx_mixer_catalog_count(void){return fx_catalog_count()+1+FX_OWN_COUNT;}
+static unsigned category_list(const char**out,unsigned max)
+{
+    unsigned n=0;
+    for(unsigned i=0;i<fx_mixer_catalog_count();++i){
+        const char*c=fx_mixer_catalog_at(i)->category;unsigned seen=0;
+        for(unsigned k=0;k<n;++k)if(!strcmp(out[k],c))seen=1;
+        if(!seen&&n<max)out[n++]=c;
+    }
+    return n;
+}
+unsigned fx_mixer_category_count(void){const char*c[16];return 1+category_list(c,16);}
+const char *fx_mixer_category_name(unsigned filter){const char*c[16];unsigned n=category_list(c,16);return filter==0||filter>n?"All":c[filter-1];}
+unsigned fx_mixer_filtered_count(unsigned filter)
+{
+    if(!filter)return fx_mixer_catalog_count();
+    const char*name=fx_mixer_category_name(filter);unsigned n=0;
+    for(unsigned i=0;i<fx_mixer_catalog_count();++i)if(!strcmp(fx_mixer_catalog_at(i)->category,name))++n;
+    return n;
+}
+unsigned fx_mixer_filtered_index(unsigned filter,unsigned position)
+{
+    if(!filter)return position;
+    const char*name=fx_mixer_category_name(filter);
+    for(unsigned i=0;i<fx_mixer_catalog_count();++i)if(!strcmp(fx_mixer_catalog_at(i)->category,name)&&position--==0)return i;
+    return 0;
+}
 const struct fx_catalog_entry *fx_mixer_catalog_at(unsigned i)
 {return i==fx_catalog_count()?&sidechain:i>fx_catalog_count()&&i<fx_mixer_catalog_count()?own_entries+(i-fx_catalog_count()-1):fx_catalog_at(i);}
 int fx_mixer_catalog_stage(unsigned i,double rate,struct fx_stage*out)

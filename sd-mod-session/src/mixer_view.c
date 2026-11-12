@@ -696,16 +696,17 @@ static void track_fx(const struct mixer_view_state*s,const struct resample_paint
     snprintf(counter,sizeof(counter),"%u / %u",ch->fx.count,MIXER_FX_SLOTS);
     rect(p,85,37,231,21,PANEL);
     text(p,s->fx_catalog?"Add Effect":"FX Chain",92,37,143,21,15,WHITE,0);
-    text(p,ch->fx_bypass?"CHAIN OFF":counter,240,38,69,19,10,ch->fx_bypass?SEND:GREY,1);
+    if(s->fx_catalog)text(p,fx_mixer_category_name(s->catalog_filter),240,38,69,19,10,AMBER,1);
+    else text(p,ch->fx_bypass?"CHAIN OFF":counter,240,38,69,19,10,ch->fx_bypass?SEND:GREY,1);
     if(s->fx_catalog){
-        unsigned total=fx_mixer_catalog_count();
+        unsigned total=fx_mixer_filtered_count(s->catalog_filter);
         unsigned first=s->cursor>2?s->cursor-2:0;
         if(first+6>total)first=total>6?total-6:0;
         for(unsigned row=0;row<6&&first+row<total;++row){
             unsigned index=first+row;
             int y=61+(int)row*22;
             int selected=index==s->cursor;
-            const struct fx_catalog_entry*entry=fx_mixer_catalog_at(index);
+            const struct fx_catalog_entry*entry=fx_mixer_catalog_at(fx_mixer_filtered_index(s->catalog_filter,index));
             rect(p,85,y,228,20,selected?SELECTED:PANEL);
             if(selected)rect(p,85,y,2,20,AMBER);
             text(p,entry->name,92,y,153,20,strlen(entry->name)>18?11:14,selected?AMBER:WHITE,0);
@@ -714,7 +715,7 @@ static void track_fx(const struct mixer_view_state*s,const struct resample_paint
         rect(p,315,61,2,130,DARK);
         rect(p,315,61+(int)(first*130/total),2,(int)(6*130/total),GREY);
         rect(p,85,202,231,32,PANEL);
-        fx_hint(p,"TURN DATA","Browse",202);
+        fx_hint(p,"TURN DATA","Browse  /  K3 Filter",202);
         fx_hint(p,"PRESS DATA","Add effect",217);
         return;
     }

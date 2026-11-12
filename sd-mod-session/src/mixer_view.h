@@ -26,6 +26,7 @@ struct mixer_view_state {
     unsigned pending;
     unsigned route_tab,route_focus;
     unsigned sound,fx_catalog,parameter_page,pickup,pad_lock;
+    unsigned catalog_filter; /* Add Effect category: 0 = All */
     unsigned shifted,colour_edit,fx_editing,fx_parameters,fx_delete;
     uint64_t present[2];
     const char*message;
