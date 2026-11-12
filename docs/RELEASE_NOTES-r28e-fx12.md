@@ -1,4 +1,4 @@
-# r28e-fx11 (candidate for r29a)
+# r28e-fx12 (candidate for r29a)
 
 Fix: Save Project and Save Sample windows are SD-only. K3 is forced to External when the window opens and on any K3 movement. Diagnostic logging (SAVE_SCREEN/SAVE_K3/SAVE_BUTTON) is still enabled.
 
@@ -17,3 +17,4 @@ Stem file names now carry the Track name: "<song>_track A_<name>.wav" (only if t
 - Tape cassette: two buttons PLAY/STOP (PLAY down while sound runs, STOP when it stops), reels turn only while playing, VU needle follows the signal level.
 - All remaining effect pictures get a category-coloured AM MOD plate; Spring Reverb has a tank frame, Tube Drive glowing tubes.
 - Pad text input: B2 is now Clear everywhere (mixer track name, project/sample name, search, export, Stems): first press asks (mixer shows "Sure?"), second press within 3 s empties the text. Hardware Erase still deletes one character.
+- Effect pictures redone with category colours: Soft Clipper (transfer curve + waveform), Ensemble (3 voices + sum), Multi Chorus (LFO circle), Auto Wah (pedal + sweep), Pitch Shifter (keyboard), Flanger (sweep strip), Bit Crusher (level grid), Amp Sim label layout.
