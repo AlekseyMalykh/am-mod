@@ -33,6 +33,41 @@ int main(void){
  assert(music_set_pad_lighting_mode(MUSIC_LIGHTING_MOD)&&music_identity_rgb(13)==music_palette_default_rgb(4));
  assert(music_lighting_preferences_open(dir)&&music_pad_lighting_mode()==MUSIC_LIGHTING_MOD);
  assert(!music_set_pad_lighting_mode(2));
+ /* Independent durable relation settings, old card files and write failures. */
+ assert(music_pad_link_lighting()==MUSIC_LINK_SELECTED&&music_mute_group_lighting()==MUSIC_LINK_SELECTED);
+ for(unsigned link=0;link<4;++link)for(unsigned group=0;group<4;++group){
+  assert(music_set_mute_group_lighting(group)&&music_set_pad_link_lighting(link));
+  assert(music_pad_link_lighting()==(int)link&&music_mute_group_lighting()==(int)group);
+  assert(music_set_mute_group_lighting(group)&&music_pad_link_lighting()==(int)link);
+  assert(music_lighting_preferences_open(dir));
+  assert(music_pad_link_lighting()==(int)link&&music_mute_group_lighting()==(int)group);
+  assert(music_set_mod_setting(MUSIC_SETTING_BLINK,0));
+  assert(music_lighting_preferences_open(dir)&&music_pad_link_lighting()==(int)link&&music_mute_group_lighting()==(int)group);
+ }
+ assert(!music_set_pad_link_lighting(4)&&!music_set_mute_group_lighting(4));
+ assert(music_mod_restore_recommended(0)&&music_pad_link_lighting()==MUSIC_LINK_SELECTED&&music_mute_group_lighting()==MUSIC_LINK_SELECTED);
+ assert(music_mod_restore_recommended(3));
+ /* Separate Pad Link / Mute Group colour roles and LED strength: card-level, reload-safe. */
+ assert(music_relation_colour(MUSIC_RELATION_LINK)==12&&music_relation_colour(MUSIC_RELATION_GROUP)==11&&!music_led_vivid());
+ assert(music_set_relation_colour(MUSIC_RELATION_LINK,2)&&music_set_relation_colour(MUSIC_RELATION_GROUP,5)&&music_set_led_vivid(2));
+ assert(music_lighting_preferences_open(dir));
+ assert(music_relation_colour(MUSIC_RELATION_LINK)==2&&music_relation_colour(MUSIC_RELATION_GROUP)==5&&music_led_vivid()==2);
+ assert(music_relation_rgb(MUSIC_RELATION_LINK)==music_palette_default_rgb(2)&&music_pad_link_lighting()==MUSIC_LINK_SELECTED);
+ assert(!music_set_relation_colour(MUSIC_RELATION_LINK,16)&&!music_set_relation_colour(2,0)&&!music_set_led_vivid(3));
+ assert(!music_set_relation_colour(MUSIC_RELATION_LINK,14)); /* empty custom slot */
+ assert(music_led_correct(0xffffff)==0xffffff&&music_led_correct(0x707070)==0x707070&&music_led_correct(0xff0000)==0xff0000);
+ assert((music_led_correct(0xff5a78)&255)<0x78&&((music_led_correct(0xff5a78)>>8)&255)<0x5a);
+ assert(music_set_pad_lighting_mode(MUSIC_LIGHTING_STANDARD)&&music_led_correct(0xff5a78)==0xff5a78); /* Standard mode: untouched */
+ assert(music_set_pad_lighting_mode(MUSIC_LIGHTING_MOD));
+ assert(music_mod_restore_recommended(2)&&music_relation_colour(MUSIC_RELATION_LINK)==12&&music_relation_colour(MUSIC_RELATION_GROUP)==11&&!music_led_vivid());
+ { /* An older AM_SETTINGS4 card file keeps working and gets the default roles. */
+   char file[256];snprintf(file,sizeof(file),"%s/.am-mod-settings",dir);
+   char text[64];snprintf(text,sizeof(text),"AM_SETTINGS4 %016llx 7\n",(unsigned long long)music_mod_settings_snapshot());
+   FILE*old=fopen(file,"wb");assert(old);fputs(text,old);fclose(old);
+   assert(music_lighting_preferences_open(dir)&&music_relation_colour(MUSIC_RELATION_LINK)==12&&music_pad_link_lighting()==MUSIC_LINK_BOTH);
+ }
+ puts("PASS separate Pad Link/Mute Group colours and LED strength: reload, bounds, Standard-mode bypass, old v4 file, section reset");
+ puts("PASS all16 Pad Link/Mute Group preference combinations survive reload and unrelated edits; Pads reset restores Selected/Selected");
  uint64_t defaults=music_mod_settings_snapshot();
  assert(music_tail_ms((unsigned)music_mod_setting(MUSIC_SETTING_TAIL))==1000);
  for(unsigned i=0;i<MUSIC_TAIL_CHOICES;++i){
@@ -121,5 +156,9 @@ int main(void){
  assert(!unlink(palette_path)&&!unlink(sentinel)&&!unlink(path)&&!rmdir(dir));
  assert(!music_palette_set_rgb(0,0)&&music_palette_rgb(0)==music_palette_default_rgb(0));
  assert(!music_set_pad_lighting_mode(MUSIC_LIGHTING_MOD)&&music_pad_lighting_mode()==MUSIC_LIGHTING_STANDARD);
+ int saved_link=music_pad_link_lighting(),saved_group=music_mute_group_lighting();
+ assert(!music_set_pad_link_lighting(MUSIC_LINK_OFF)&&!music_set_mute_group_lighting(0));
+ assert(music_pad_link_lighting()==saved_link&&music_mute_group_lighting()==saved_group);
+
  puts("PASS global lighting persistence, reset/project independence, legacy colour preservation, unchanged pitch/transpose, malformed/symlink handling and failed-save rollback");return 0;
 }

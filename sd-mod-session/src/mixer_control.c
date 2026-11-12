@@ -84,6 +84,7 @@ int mixer_control_open(struct mixer_control*c,int ready,int blocked)
 {
     if(!c||!ready||blocked||!c->epoch)return 0;
     clear_fx_page(c);c->name_since=0;
+    c->view.route_tab=c->view.route_focus=0;
     c->active=1;c->view.page=MIXER_OVERVIEW;c->temporary=0;c->held_tracks=0;
     c->view.cursor=c->view.scroll=c->view.colour_edit=c->view.fx_delete=0;c->message="";++c->ticket;pickup(c);return 1;
 }
@@ -200,6 +201,86 @@ static void set_colour(struct mixer_control*c,unsigned index)
 }
 static const struct mixer_mix*primary_mix(const struct mixer_control*c)
 {return c->view.master?&c->desired.master.mix:&c->desired.track[c->view.primary].mix;}
+/* Routing edits address one visible row, even if a group opened Route. */
+static void route_track(struct mixer_control*c,unsigned track)
+{
+    c->view.master=track==MIXER_TRACKS;
+    c->view.selected=c->view.master?0:1u<<track;
+    if(!c->view.master)c->view.primary=track;
+    c->held_tracks=0;pickup(c);
+}
+static void route_value(struct mixer_control*c,unsigned knob,int value)
+{
+    if(c->view.route_tab==MIXER_ROUTE_SENDS){
+        if(knob==0){route_track(c,(unsigned)value);return;}
+        if(c->view.master){c->message="Master has no send";return;}
+        if(knob==1){
+            if(!mixer_set_send_to(&c->desired,1u<<c->view.primary,(unsigned)value)){
+                c->message="Send would create a loop";return;
+            }
+        }else c->desired.track[c->view.primary].mix.send=value/100.f;
+        changed(c);
+    }else{
+        if(knob==2){route_track(c,(unsigned)value);return;}
+        struct fx_chain_config *chain=&selected(c)->fx;
+        if(knob==1){
+            unsigned last=chain->count<MIXER_FX_SLOTS?chain->count:MIXER_FX_SLOTS-1;
+            c->view.fx_slot=(unsigned)value>last?last:(unsigned)value;
+            return;
+        }
+        if(c->view.fx_slot>=chain->count||
+           chain->stage[c->view.fx_slot].kind!=FX_STAGE_SIDECHAIN){
+            c->message="Select a Sidechain or Empty slot";return;
+        }
+        chain->stage[c->view.fx_slot].parameter[0]=value/8.f;
+        changed(c);
+    }
+}
+static int route_control(struct mixer_control*c,unsigned cc,unsigned value)
+{
+    int delta=value>64?(int)value-128:value==64?0:(int)value;
+    unsigned knob=cc==0x64?(c->view.route_tab==MIXER_ROUTE_KEYS?1:c->view.route_focus):cc-0x10;
+    if(knob>2)return 1;
+    int maximum=8,current=0;
+    if(c->view.route_tab==MIXER_ROUTE_SENDS){
+        if(knob==0)current=c->view.master?8:(int)c->view.primary;
+        else if(knob==1)current=c->desired.send_to[c->view.primary];
+        else {maximum=100;current=(int)lroundf(c->desired.track[c->view.primary].mix.send*100);}
+    }else{
+        if(knob==2)current=c->view.master?8:(int)c->view.primary;
+        else if(knob==1){maximum=3;current=(int)c->view.fx_slot;}
+        else {
+            const struct fx_chain_config *chain=&selected(c)->fx;
+            if(c->view.fx_slot<chain->count&&chain->stage[c->view.fx_slot].kind==FX_STAGE_SIDECHAIN)
+                current=(int)fx_sidechain_value(0,chain->stage[c->view.fx_slot].parameter[0]);
+        }
+    }
+    int next=cc==0x64?current+delta:(int)((value*(unsigned)maximum+63)/127);
+    if(next<0)next=0;
+    if(next>maximum)next=maximum;
+    if(cc==0x64&&!delta)return 1;
+    c->view.route_focus=knob;c->message="";
+    route_value(c,knob,next);
+    return 1;
+}
+static void route_open_key(struct mixer_control*c)
+{
+    if(!c->fx_editing){c->message="Track FX unavailable";return;}
+    struct fx_chain_config *chain=&selected(c)->fx;
+    if(c->view.fx_slot>=chain->count){
+        struct fx_stage stage;
+        if(!fx_mixer_catalog_stage(fx_catalog_count(),c->rate,&stage)||
+           fx_chain_add(chain,&stage,c->rate)!=FX_OK){c->message="FX chain full";return;}
+        c->view.fx_slot=chain->count-1;changed(c);
+        c->message="Sidechain added: choose Key";return;
+    }
+    if(chain->stage[c->view.fx_slot].kind!=FX_STAGE_SIDECHAIN){
+        c->message="Select a Sidechain or Empty slot";return;
+    }
+    route_track(c,c->view.master?MIXER_TRACKS:c->view.primary);
+    c->view.page=MIXER_KNOB_FX;c->temporary=2;open_fx(c);
+    c->view.fx_parameters=1;
+}
 int mixer_control_button(struct mixer_control*c,enum mixer_action action,int down,uint64_t ticket)
 {
     if(!c||(unsigned)action>MIXER_MUTE)return 0;
@@ -256,6 +337,18 @@ int mixer_control_button(struct mixer_control*c,enum mixer_action action,int dow
         }
         return 1;
     }
+    if(c->view.page==MIXER_INSPECT){
+        if(action==MIXER_B2||action==MIXER_B3){
+            c->view.route_tab=(c->view.route_tab+(action==MIXER_B2?MIXER_ROUTE_TABS-1:1))%MIXER_ROUTE_TABS;
+            c->view.route_focus=c->view.route_tab==MIXER_ROUTE_KEYS?1:0;
+            return 1;
+        }
+        if(action==MIXER_SELECT&&c->view.route_tab){
+            if(c->view.route_tab==MIXER_ROUTE_KEYS)route_open_key(c);
+            else c->view.route_focus=(c->view.route_focus+1)%3;
+            return 1;
+        }
+    }
     if(action==MIXER_ERASE){
         const struct fx_chain_config *chain=&selected(c)->fx;
         if(!c->catalog&&c->view.fx_slot<chain->count){
@@ -278,6 +371,13 @@ int mixer_control_button(struct mixer_control*c,enum mixer_action action,int dow
     if(history){
         if(c->view.page==MIXER_INSPECT)return 1;
         c->history_request=action==MIXER_BANK_PREVIOUS?-1:1;return 1;
+    }
+    if(bank_action&&c->view.page==MIXER_INSPECT&&c->view.route_tab){
+        if(action==MIXER_BANK){
+            unsigned track=c->view.master?8:c->view.primary;
+            route_track(c,(track+(c->shift?8:1))%9);
+        }
+        return 1;
     }
     if(bank_action){
         int inspect=c->view.page==MIXER_INSPECT;
@@ -372,6 +472,13 @@ int mixer_control_pad(struct mixer_control*c,unsigned pad,int down,uint64_t tick
     if(c->naming){c->name.shift=c->shift;phone_pad(&c->name,pad+1,1,name_time());return 1;}
     int fx_pad=pad>=8&&pad<8+MIXER_FX_SLOTS;
     if(c->view.page==MIXER_KNOB_FX&&(c->view.fx_delete||(c->view.fx_parameters&&!fx_pad)))return 1;
+    if(c->view.page==MIXER_INSPECT&&c->view.route_tab){
+        if(pad<8||pad==15)route_track(c,pad==15?MIXER_TRACKS:pad);
+        else if(c->view.route_tab==MIXER_ROUTE_KEYS&&fx_pad){
+            route_value(c,1,(int)(pad-8));c->view.route_focus=1;
+        }
+        return 1;
+    }
     if(c->view.page==MIXER_ASSIGN||c->view.page==MIXER_INSPECT){unsigned sound=c->view.bank*16+pad;c->view.sound=sound;
         if(c->view.page==MIXER_ASSIGN){
             unsigned current=c->desired.output[sound];
@@ -499,6 +606,12 @@ int mixer_control_reset(struct mixer_control*c,unsigned cc,int shift,uint64_t ti
     if(c->view.page==MIXER_KNOB_FX&&cc>=0x10&&cc<=0x12){
         reset_fx_parameter(c,cc-0x10,shift);return 1;
     }
+    if(c->view.page==MIXER_INSPECT&&c->view.route_tab){
+        if(c->view.route_tab==MIXER_ROUTE_SENDS&&(cc==0x11||cc==0x12))
+            route_value(c,cc-0x10,0);
+        else if(c->view.route_tab==MIXER_ROUTE_KEYS&&cc==0x10)route_value(c,0,0);
+        return 1;
+    }
     if(c->view.page!=MIXER_OVERVIEW&&c->view.page!=MIXER_ASSIGN&&
        !(c->view.page==MIXER_KNOB_FX&&cc==0x14))return 1;
     if(cc==0x14){pickup(c);each(c,set_level,0);if(c->view.page!=MIXER_KNOB_FX)c->view.cursor=PARAM_LEVEL;}
@@ -586,6 +699,7 @@ int mixer_control_cc(struct mixer_control*c,unsigned cc,unsigned value,uint64_t 
         return 1;
     }
     if(c->view.page==MIXER_INSPECT){
+        if(c->view.route_tab)return route_control(c,cc,value);
         if(cc==0x12){c->view.bank=value*8/128;c->view.sound=c->view.bank*16+c->view.sound%16;}
         else if(cc==0x64){int delta=value>64?(int)value-128:(int)value;
             int sound=(int)c->view.sound+delta;if(sound<0)sound=0;if(sound>127)sound=127;c->view.sound=(unsigned)sound;c->view.bank=(unsigned)sound/16;}
@@ -664,7 +778,7 @@ void mixer_control_presence(struct mixer_control*c,uint64_t lo,uint64_t hi,unsig
 }
 int mixer_control_led(const struct mixer_control*c,unsigned pad,uint32_t*rgb)
 {
-    if(!c||!c->active||pad>=16||!rgb||(c->view.page!=MIXER_ASSIGN&&c->view.page!=MIXER_INSPECT))return 0;
+    if(!c||!c->active||pad>=16||!rgb||!mixer_view_sound_pads(&c->view))return 0;
     unsigned sound=c->view.bank*16+pad,output=c->model.output[sound];
     if(!(c->present[sound/64]&(UINT64_C(1)<<(sound%64))))*rgb=0;
     else if(!output)*rgb=0x181818;
@@ -678,7 +792,7 @@ int mixer_control_cursor(const struct mixer_control*c,unsigned pad)
      * Track (Master when Master is selected), shown as the blinking white
      * cursor; 1 = other loaded sound; 0 = empty. Uses the desired routing so
      * several quick presses all show before audio confirms them. */
-    if(!c||!c->active||pad>=16||(c->view.page!=MIXER_ASSIGN&&c->view.page!=MIXER_INSPECT))return -1;
+    if(!c||!c->active||pad>=16||!mixer_view_sound_pads(&c->view))return -1;
     unsigned sound=c->view.bank*16+pad,output=c->desired.output[sound];
     unsigned target=c->view.master?0:c->view.primary+1;
     if(!(c->present[sound/64]&(UINT64_C(1)<<(sound%64))))return 0;
@@ -705,7 +819,7 @@ void mixer_control_meter(struct mixer_control*c,const struct mixer_meter_snapsho
 }
 void mixer_control_view(struct mixer_control*c,uint64_t now,struct mixer_view_state*out)
 {
-    if(c&&out){*out=c->view;out->fx_signal=c->fx_signal_ms&&now>=c->fx_signal_ms&&now-c->fx_signal_ms<=250?&c->fx_signal:NULL;out->project=c->view.page==MIXER_KNOB_FX||c->view.cursor==PARAM_SEND?&c->desired:&c->model;out->meter=&c->meter;out->epoch=c->epoch;out->now_ms=now;
+    if(c&&out){*out=c->view;out->fx_signal=c->fx_signal_ms&&now>=c->fx_signal_ms&&now-c->fx_signal_ms<=250?&c->fx_signal:NULL;out->project=c->view.page==MIXER_KNOB_FX||(c->view.page==MIXER_INSPECT&&c->view.route_tab)||c->view.cursor==PARAM_SEND?&c->desired:&c->model;out->meter=&c->meter;out->epoch=c->epoch;out->now_ms=now;
         out->revision=c->revision;out->pending=c->submitted||c->dirty;out->fx_catalog=c->catalog;out->parameter_page=c->parameter_page;
         out->message=c->message;out->pickup=!c->pickup;out->present[0]=c->present[0];out->present[1]=c->present[1];}
     if(c&&out){

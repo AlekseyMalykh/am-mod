@@ -15,7 +15,7 @@
 #define MIRROR_ADDRESS "192.168.155.1"
 #endif
 #ifndef MIRROR_PORT
-#define MIRROR_PORT 8080
+#define MIRROR_PORT 8081
 #endif
 static unsigned char frame[MIRROR_BMP_BYTES];
 

@@ -45,7 +45,7 @@ static inline int pad_blink_on(uint64_t milliseconds){return milliseconds%500u<3
 
 static inline uint64_t pad_light(uint32_t rgb,float brightness)
 {
-    uint32_t bits;memcpy(&bits,&brightness,4);return (uint64_t)rgb|((uint64_t)bits<<32);
+    uint32_t bits;memcpy(&bits,&brightness,4);return (uint64_t)music_led_correct(rgb)|((uint64_t)bits<<32);
 }
 /* Selection is white briefly, then reveals the semantic/assigned base.
  * The dim phase also distinguishes selected white pads from ordinary white. */

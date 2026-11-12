@@ -20,6 +20,22 @@ struct music_project { int tonic,scale; unsigned count; struct music_sample samp
 extern const char *const music_sequence_colour_names[MUSIC_SEQUENCE_COLOURS];
 extern const uint32_t music_sequence_colours[MUSIC_SEQUENCE_COLOURS];
 enum { MUSIC_LIGHTING_STANDARD, MUSIC_LIGHTING_MOD };
+enum { MUSIC_LINK_OFF, MUSIC_LINK_SELECTED, MUSIC_LINK_PLAYING, MUSIC_LINK_BOTH };
+int music_pad_link_lighting(void);
+int music_mute_group_lighting(void);
+int music_set_pad_link_lighting(unsigned mode);
+int music_set_mute_group_lighting(unsigned enabled);
+/* Card-level colour roles for relation hints. Index = RGB palette slot
+ * 0..15 (a slot may be shared with any other role). */
+enum { MUSIC_RELATION_LINK, MUSIC_RELATION_GROUP, MUSIC_RELATION_COUNT };
+unsigned music_relation_colour(unsigned role);
+int music_set_relation_colour(unsigned role,unsigned slot);
+uint32_t music_relation_rgb(unsigned role);
+/* LED colour strength: 0 Standard (unchanged), 1 Strong, 2 Max. Removes the
+ * white component of mixed colours so they do not look washed out. */
+unsigned music_led_vivid(void);
+int music_set_led_vivid(unsigned level);
+uint32_t music_led_correct(uint32_t rgb);
 int music_pad_lighting_mode(void);
 int music_set_pad_lighting_mode(unsigned mode); /* UI owner; durable when SD available */
 void music_lighting_preferences_init(void);

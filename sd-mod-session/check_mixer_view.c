@@ -170,6 +170,12 @@ int main(int argc,char**argv)
     s.master=1;paint_trace(argv[1],"master",&s,&painter);s.master=0;
     s.page=MIXER_ASSIGN;paint_trace(argv[1],"assign",&s,&painter);
     s.page=MIXER_INSPECT;paint_trace(argv[1],"inspect",&s,&painter);
+    project.send_to[0]=3;project.track[0].mix.send=.35f;
+    project.send_to[1]=3;project.track[1].mix.send=.7f;
+    s.route_tab=MIXER_ROUTE_SENDS;paint_trace(argv[1],"routing-sends",&s,&painter);
+    s.route_tab=MIXER_ROUTE_KEYS;paint_trace(argv[1],"routing-keys",&s,&painter);
+    s.master=1;paint_trace(argv[1],"routing-master",&s,&painter);s.master=0;
+    s.route_tab=MIXER_ROUTE_PADS;
     s.page=MIXER_OVERVIEW;s.name_edit="Bass";
     paint_trace(argv[1],"rename",&s,&painter);s.name_edit=NULL;
     s.page=MIXER_KNOB_FX;s.fx_editing=1;s.fx_slot=1;

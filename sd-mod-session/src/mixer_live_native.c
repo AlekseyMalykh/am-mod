@@ -1,5 +1,8 @@
 #define _GNU_SOURCE
 #include "mixer_live.h"
+#ifdef MPC_LOOP_FEEDBACK
+#include "sample_playing.h"
+#endif
 #include <sys/mman.h>
 #include <unistd.h>
 #include <string.h>
@@ -18,6 +21,7 @@ static atomic_flag binding_lock = ATOMIC_FLAG_INIT;
 static struct mixer_native_binding binding, attached_binding;
 static uint64_t clock_serial;
 static _Thread_local uint64_t clock_scope,clock_epoch;
+static _Thread_local double clock_rate;
 /* The engine's root list holds the SubmixProgram, not the kit: the kit
  * DrumProgram is the one rendered through the Program entry inside the live
  * callsite. AuxPrograms (preview/monitor) render there too and stay native.
@@ -110,8 +114,10 @@ static void engine(void*p,void*c,unsigned n)
     uint64_t expected = atomic_load_explicit(&attached_epoch,memory_order_acquire);
     uintptr_t caller = (uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0));
     uint64_t previous_scope=clock_scope,previous_epoch=clock_epoch;
+    double previous_rate=clock_rate;
     clock_scope=caller==image+0x18dc010?++clock_serial:0;
     clock_epoch=atomic_load(&binding_epoch);
+    clock_rate=clock_scope?observe(p,n).rate:0;
     void *previous_kit=block_kit;unsigned previous_kits=block_kits;
     block_kit=NULL;block_kits=0;
     if(s&&expected){
@@ -130,17 +136,28 @@ finished:
      * call the same entry from18b556c/18b98bc and have independent lifetimes. */
     if (caller == image + 0x18dc010) {
         kit=block_kits==1?block_kit:NULL;
+#ifdef MPC_LOOP_FEEDBACK
+        if(!kit)sample_playing_render(NULL);
+#endif
         if(kit)atomic_store(&kit_vptr,*(uintptr_t*)kit);
         struct mixer_native_binding current = observe(p,n);
         current.clock_valid=position(current.position);
         publish_binding(&current);
     }
-    clock_scope=previous_scope;clock_epoch=previous_epoch;
+    clock_scope=previous_scope;clock_epoch=previous_epoch;clock_rate=previous_rate;
     block_kit=previous_kit;block_kits=previous_kits;
     atomic_fetch_sub_explicit(&callbacks,1,memory_order_seq_cst);
 }
-static void program(void*p,void*c,unsigned n){note_program(p);mixer_live_program(&ops.route,p,c,n);}
-static int sum(void*i,void*s,void*d,const void*r,unsigned n){return mixer_route_sum(&ops.route,i,s,d,r,n);}
+static void program(void*p,void*c,unsigned n){
+ note_program(p);
+ mixer_live_program(&ops.route,p,c,n);
+#ifdef MPC_LOOP_FEEDBACK
+ if(clock_scope&&block_kits==1&&block_kit==p)sample_playing_render(p);
+#endif
+}
+static int sum(void*i,void*s,void*d,const void*r,unsigned n){
+ return mixer_route_sum(&ops.route,i,s,d,r,n);
+}
 static void stage(void*p,void*b,unsigned n,unsigned s){mixer_route_stage(&ops.route,p,b,n,s);}
 static void*ptr(void*p,unsigned offset){void*v;memcpy(&v,(char*)p+offset,8);return v;}
 static void*final_output(void*e)

@@ -1,5 +1,9 @@
 /* Owned Project menu extensions. NO_MOD_OFF omits the manual exit row. */
 .arch armv8.3-a
+/* SCREEN_MIRROR_ROW: seventh native row after Mod Settings; tagged request 3. */
+#if defined(NOTE_UI) && defined(PAD_LIGHTING_MENU) && defined(NO_MOD_OFF) && defined(SCREEN_MIRROR_ROW)
+#define MIRROR 1
+#endif
 .text
 .global project_append
 .type project_append,%function
@@ -20,7 +24,7 @@ project_append:
  mov x1,x20
  bl list_append                  // Separate Key / Scale / Tempo row, preserving Mod Off.
 #ifdef PAD_LIGHTING_MENU
-#ifndef NO_MOD_OFF
+#if !defined(NO_MOD_OFF) || defined(MIRROR)
  mov x0,x19
  mov x1,x20
  bl list_append                  // Global Pad Lighting preferences.
@@ -32,10 +36,10 @@ project_append:
  sub x3,x2,x1
 #ifdef NOTE_UI
 #ifdef PAD_LIGHTING_MENU
-#ifdef NO_MOD_OFF
+#if defined(NO_MOD_OFF) && !defined(MIRROR)
  cmp x3,#0x300
 #else
- cmp x3,#0x380
+ cmp x3,#0x380                  // Seven MenuItem objects (Mod Off or Screen Mirror last).
 #endif
 #else
  cmp x3,#0x300
@@ -53,7 +57,14 @@ project_append:
  ldr x2,[x0,#16]
 #endif
 #ifdef PAD_LIGHTING_MENU
-#ifdef NO_MOD_OFF
+#ifdef MIRROR
+ sub x0,x2,#0x80
+ adr x1,mirror_title
+ bl .Lrename
+ ldr x0,[x19,#0xc0]
+ ldr x2,[x0,#16]
+ sub x0,x2,#0x100
+#elif defined(NO_MOD_OFF)
  sub x0,x2,#0x80
 #else
  sub x0,x2,#0x100
@@ -62,7 +73,7 @@ project_append:
  bl .Lrename
  ldr x0,[x19,#0xc0]
  ldr x2,[x0,#16]
-#ifdef NO_MOD_OFF
+#if defined(NO_MOD_OFF) && !defined(MIRROR)
  sub x0,x2,#0x100
 #else
  sub x0,x2,#0x180
@@ -118,6 +129,10 @@ project_dispatch:
 #ifdef PAD_LIGHTING_MENU
  cmp w0,#5
  b.eq .Llighting
+#ifdef MIRROR
+ cmp w0,#6
+ b.eq .Lmirror
+#endif
 #ifndef NO_MOD_OFF
  cmp w0,#6
 #endif
@@ -173,6 +188,13 @@ project_dispatch:
  orr x0,x0,#2
  bl music_project_bridge
  b .Loff_done
+#ifdef MIRROR
+.Lmirror:
+ ldr x0,[x19]
+ orr x0,x0,#3                  // Tagged UI request: Screen Mirror page.
+ bl music_project_bridge
+ b .Loff_done
+#endif
 #endif
 .Lkey:
  ldr x0,[x19]
@@ -191,6 +213,9 @@ music_title: .asciz "Key / Scale"
 #endif
 #ifdef PAD_LIGHTING_MENU
 lighting_title: .asciz "Mod Settings"
+#ifdef MIRROR
+mirror_title: .asciz "Screen Mirror"
+#endif
 #endif
 #endif
 #ifndef NO_MOD_OFF

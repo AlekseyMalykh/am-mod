@@ -455,7 +455,7 @@ static void (*native_bank_light)(void*,unsigned,unsigned);
 static pthread_mutex_t bank_light_lock=PTHREAD_MUTEX_INITIALIZER;
 static void *bank_light_sender;
 static unsigned bank_light_seen,bank_light_values[BANK_LED_COUNT];
-static int bank_lights_hidden;
+static int bank_light_tracks=-1;
 
 static void mixer_bank_light(void *sender,unsigned value,unsigned code)
 {
@@ -465,20 +465,27 @@ static void mixer_bank_light(void *sender,unsigned value,unsigned code)
     }
     unsigned index=code-BANK_LED_FIRST;
     pthread_mutex_lock(&bank_light_lock);
-    if(bank_light_sender!=sender){bank_light_sender=sender;bank_light_seen=0;}
+    int new_sender=bank_light_sender!=sender;
+    if(new_sender){bank_light_sender=sender;bank_light_seen=0;}
     bank_light_values[index]=value;
     bank_light_seen|=1u<<index;
-    native_bank_light(sender,bank_lights_hidden?0:value,code);
+    native_bank_light(sender,bank_light_tracks<0?value:(bank_light_tracks>>index)&1u,code);
+    if(new_sender&&bank_light_tracks>=0)
+        for(unsigned i=0;i<BANK_LED_COUNT;++i)if(i!=index)
+            native_bank_light(sender,((unsigned)bank_light_tracks>>i)&1u,BANK_LED_FIRST+i);
     pthread_mutex_unlock(&bank_light_lock);
 }
-static void mixer_bank_lights_hide(int hidden)
+static void mixer_bank_lights_tracks(int tracks)
 {
     if(!native_bank_light)return;
     pthread_mutex_lock(&bank_light_lock);
-    if(bank_lights_hidden!=hidden){
-        bank_lights_hidden=hidden;
-        for(unsigned i=0;i<BANK_LED_COUNT;++i)if(bank_light_seen&(1u<<i))
-            native_bank_light(bank_light_sender,hidden?0:bank_light_values[i],BANK_LED_FIRST+i);
+    if(bank_light_tracks!=tracks){
+        bank_light_tracks=tracks;
+        if(bank_light_sender)for(unsigned i=0;i<BANK_LED_COUNT;++i){
+            unsigned value=tracks<0?((bank_light_seen&(1u<<i))?bank_light_values[i]:0):
+                ((unsigned)tracks>>i)&1u;
+            native_bank_light(bank_light_sender,value,BANK_LED_FIRST+i);
+        }
     }
     pthread_mutex_unlock(&bank_light_lock);
 }
@@ -530,14 +537,16 @@ static void mixer_publish_route(void)
     atomic_store(&mixer_route, state ? (mixer_binding << 2) | state : 0);
     struct mixer_view_state view = {0};
     mixer_control_view(control,now_ms(),&view);
-    mixer_bank_lights_hide((state&MIXER_OPEN)&&view.page!=MIXER_ASSIGN&&view.page!=MIXER_INSPECT);
+    int tracks=(state&MIXER_OPEN)&&!mixer_view_sound_pads(&view)
+        ? (view.master?0:(int)(view.selected&0xffu)) : -1;
+    mixer_bank_lights_tracks(tracks);
     /* Device report: the Sample pad colours stayed lit in the Mixer. Outside
      * Assign/Inspect the pads select Tracks: pads 1-8 = Track A-H in their
      * colours (selected bright), pads 9-12 = FX slots, pad 16 = Master. */
     if ((state & MIXER_OPEN) && view.name_edit) {
         for(unsigned i=0;i<16;++i)atomic_store(&mixer_select_lights[i],mixer_control_name_light(control,i));
         atomic_store(&mixer_select_enabled,1);
-    } else if ((state & MIXER_OPEN) && (view.page == MIXER_ASSIGN || view.page == MIXER_INSPECT)) {
+    } else if ((state & MIXER_OPEN) && mixer_view_sound_pads(&view)) {
         /* The sound chooser identifies loaded pads by their Sample hues.
          * Assigned pads alternate between the white cursor and their hue. */
         unsigned phase=(unsigned)(now_ms()%1200);
@@ -561,7 +570,7 @@ static void mixer_publish_route(void)
         /* Fall through: the routing palette below still claims the pads (and
          * native fallbacks) underneath; mixer_light shows this cursor first. */
     }
-    else if ((state & MIXER_OPEN) && view.project && view.page != MIXER_ASSIGN && view.page != MIXER_INSPECT) {
+    else if ((state & MIXER_OPEN) && view.project && !mixer_view_sound_pads(&view)) {
         for (unsigned i=0;i<16;++i) {
             uint64_t light = 0;
             if (i < 8) {
@@ -581,7 +590,7 @@ static void mixer_publish_route(void)
         }
         atomic_store(&mixer_select_enabled, 1);
     } else atomic_store(&mixer_select_enabled, 0);
-    if ((state & MIXER_OPEN) && (view.page == MIXER_ASSIGN || view.page == MIXER_INSPECT)) {
+    if ((state & MIXER_OPEN) && mixer_view_sound_pads(&view)) {
         /* Use the existing shared bank model so native playback indications
          * refer to the same sixteen sounds as the Mixer palette. */
         int bank = step_native_browser_bank(-1);
@@ -1119,6 +1128,35 @@ static void song_name_bind(void)
 }
 #endif
 
+/* UI-only: Sample can remain visible behind several native/mod overlays.
+ * Keep relation hints separate from the broader playback colour context. */
+static int sample_relations_visible(void)
+{
+    if(!music_pad_lighting_mode())return 0; /* Standard lighting never shows relations. */
+    if(!note_native_sample_visible()||!music_ui_chords_available()||music_ui_sequence_visible()
+       ||music_ui_knob_fx_active()||music_ui_pad_settings_visible()
+       ||workflow_blocks_sample_controls()||workflow_native_pad_colours()
+       ||step_native_active()||atomic_load(&naming_active)
+       ||atomic_load(&native_mute_mode)||atomic_load(&native_buttons_down[0x09]))return 0;
+#ifdef MPC_MIXER_LIVE
+    if(atomic_load(&mixer_route)&MIXER_OPEN)return 0;
+#endif
+#ifdef MPC_COMPRESSOR
+    if(compressor_ui_active())return 0;
+#endif
+#ifdef MPC_CHORDS
+    if(chords_active())return 0;
+#endif
+#ifdef MPC_RESAMPLE_TRIAL
+    if(resample_ui_active()||resample_running())return 0;
+#endif
+#ifdef MPC_REAR_ROUTING
+    if(rear_ui_pad_owns()||rear_ui_input_config_visible())return 0;
+#endif
+    unsigned on=0,mode=0,origin=0;
+    music_lighting_levels_state(&on,&mode,&origin);
+    return !on;
+}
 static void tick(void *unused)
 {
     (void)unused;
@@ -1187,6 +1225,7 @@ static void tick(void *unused)
     /* EQ page spectrum: ~15 repaints per second while audio or falling bars. */
     {static uint64_t spectrum_ms;uint64_t t=now_ms();if(t-spectrum_ms>=66&&pad_eq_spectrum_dirty()){spectrum_ms=t;note_native_repaint_sample();}}
 #endif
+    step_native_relation_context(sample_relations_visible());
     step_native_native_mute(atomic_load(&native_mute_mode));
     step_native_playback_context(note_native_context(),music_transposition(),
         (note_native_sample_visible()

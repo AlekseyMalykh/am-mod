@@ -9,3 +9,4 @@ uint32_t music_service_rgb(unsigned role){
 uint32_t music_user_rgb(unsigned raw){return music_sequence_colours[music_colour_effective(raw)];}
 int music_cursor_on(uint64_t phase,unsigned duty){return phase%800u<800u*duty/1000u;}
 int music_mod_setting(unsigned field){return field==MUSIC_SETTING_BLINK?2:0;}
+uint32_t music_led_correct(uint32_t rgb){return rgb;}

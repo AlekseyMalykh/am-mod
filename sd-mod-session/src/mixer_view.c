@@ -274,7 +274,12 @@ static void header(const struct mixer_view_state*s,const struct resample_painter
         lit[2]=s->shifted?(s->master?s->project->master.fx_bypass:s->project->track[s->primary].fx_bypass)!=0:soloed;
         off=0;
     }
-    if(s->page==MIXER_INSPECT){names[1]="";names[2]="";}
+    if(s->page==MIXER_INSPECT){
+        static const char *previous[]={"< Sidechain","< Pads","< Sends"};
+        static const char *next[]={"Sends >","Sidechain >","Pads >"};
+        unsigned tab=s->route_tab<MIXER_ROUTE_TABS?s->route_tab:0;
+        names[1]=previous[tab];names[2]=next[tab];lit[2]=0;off=0;
+    }
     if(s->page==MIXER_ASSIGN){
         names[1]=s->shifted?"":s->pad_lock?"Pad Lock: On":"Pad Lock: Off";
     }
@@ -731,8 +736,92 @@ static void track_fx(const struct mixer_view_state*s,const struct resample_paint
     }
     if(stage)fx_hint(p,"ERASE","Remove effect",217);
 }
+static void route_connections(const struct mixer_view_state*s,const struct resample_painter*p)
+{
+    rect(p,0,36,320,204,BLACK);
+    const struct mixer_channel *ch=s->master?&s->project->master:s->project->track+s->primary;
+    char label[64],value[32];
+    int sends=s->route_tab==MIXER_ROUTE_SENDS;
+    text(p,sends?"Routing / Sends":"Routing / Sidechain",8,38,193,22,17,WHITE,0);
+    text(p,s->master?"Master":ch->name,204,39,108,20,12,AMBER,1);
+    if(sends){
+        text(p,"FROM",8,59,101,12,10,GREY,0);
+        text(p,"TO",153,59,96,12,10,GREY,0);
+        text(p,"SEND",262,59,50,12,10,GREY,1);
+        for(unsigned i=0;i<MIXER_TRACKS;++i){
+            int y=73+(int)i*14,active=!s->master&&i==s->primary;
+            unsigned to=s->project->send_to[i];
+            float amount=s->project->track[i].mix.send;
+            uint32_t ink=to&&amount>0?SEND:GREY;
+            rect(p,4,y,312,13,active?SELECTED:PANEL);
+            rect(p,6,y+2,2,9,0xff000000u|s->project->track[i].colour);
+            snprintf(label,sizeof(label),"%c  %s",'A'+i,s->project->track[i].name);
+            track_title(p,label,12,y,96,13,11,active?AMBER:WHITE,0,s->name_elapsed);
+            rect(p,113,y+6,29,1,ink);
+            text(p,">",139,y,10,13,11,ink,1);
+            if(to)snprintf(label,sizeof(label),"%c  %s",'A'+to-1,s->project->track[to-1].name);
+            else snprintf(label,sizeof(label),"Off");
+            track_title(p,label,154,y,100,13,11,to?WHITE:GREY,0,s->name_elapsed);
+            snprintf(value,sizeof(value),"%.0f%%",amount*100);
+            text(p,value,263,y,49,13,11,to?WHITE:GREY,1);
+        }
+        char from[12],to[12],amount[16];
+        snprintf(from,sizeof(from),s->master?"Master":"Track %c",'A'+s->primary);
+        unsigned destination=s->project->send_to[s->primary];
+        if(s->master)snprintf(to,sizeof(to),"--");
+        else if(destination)snprintf(to,sizeof(to),"Track %c",'A'+destination-1);
+        else snprintf(to,sizeof(to),"Off");
+        if(s->master)snprintf(amount,sizeof(amount),"--");
+        else snprintf(amount,sizeof(amount),"%.0f%%",ch->mix.send*100);
+        knob_cell(p,0,"From",from,s->route_focus==0,0);
+        knob_cell(p,1,"To",to,s->route_focus==1,0);
+        knob_cell(p,2,"Send",amount,s->route_focus==2,0);
+        knob_steps(p,0,s->master?8:(int)s->primary,9,AMBER);
+        knob_steps(p,1,s->master?-1:(int)destination,9,AMBER);
+        knob_scale(p,2,s->master?0:ch->mix.send,0);
+    }else{
+        text(p,"KEY SOURCE",8,61,96,12,10,KEY,0);
+        text(p,"TARGET FX SLOT",136,61,176,12,10,GREY,0);
+        for(unsigned slot=0;slot<MIXER_FX_SLOTS;++slot){
+            int y=77+(int)slot*26,active=slot==s->fx_slot;
+            const struct fx_stage *stage=slot<ch->fx.count?ch->fx.stage+slot:NULL;
+            int sidechain=stage&&stage->kind==FX_STAGE_SIDECHAIN;
+            unsigned key=sidechain?(unsigned)fx_sidechain_value(0,stage->parameter[0]):0;
+            uint32_t ink=sidechain&&key?KEY:GREY;
+            rect(p,4,y,312,24,active?SELECTED:PANEL);
+            if(active)rect(p,4,y,2,24,AMBER);
+            if(key)snprintf(label,sizeof(label),"%c  %s",'A'+key-1,s->project->track[key-1].name);
+            else snprintf(label,sizeof(label),sidechain?"Off":"--");
+            track_title(p,label,11,y,96,24,12,ink,0,s->name_elapsed);
+            for(int x=112;x<137;x+=6)rect(p,x,y+11,3,1,ink);
+            text(p,">",137,y,10,24,12,ink,1);
+            snprintf(label,sizeof(label),"%u  %s",slot+1,sidechain?"Sidechain":stage?fx_catalog_stage_name(stage):"Empty");
+            text(p,label,152,y,158,13,12,stage?WHITE:GREY,0);
+            if(sidechain)snprintf(label,sizeof(label),stage->bypass||ch->fx_bypass?"Bypassed":"Threshold %.1f dB",fx_sidechain_value(1,stage->parameter[1]));
+            else snprintf(label,sizeof(label),stage?"No external key input":"Press DATA: add sidechain");
+            text(p,label,152,y+13,158,11,9,sidechain&&(stage->bypass||ch->fx_bypass)?SEND:GREY,0);
+        }
+        const struct fx_stage *stage=s->fx_slot<ch->fx.count?ch->fx.stage+s->fx_slot:NULL;
+        int sidechain=stage&&stage->kind==FX_STAGE_SIDECHAIN;
+        unsigned key=sidechain?(unsigned)fx_sidechain_value(0,stage->parameter[0]):0;
+        if(!sidechain)snprintf(value,sizeof(value),"--");
+        else if(key)snprintf(value,sizeof(value),"Track %c",'A'+key-1);
+        else snprintf(value,sizeof(value),"Off");
+        knob_cell(p,0,"Key",value,0,0);
+        snprintf(value,sizeof(value),"Slot %u",s->fx_slot+1);knob_cell(p,1,"FX",value,1,0);
+        snprintf(value,sizeof(value),s->master?"Master":"Track %c",'A'+s->primary);
+        knob_cell(p,2,"To",value,0,0);
+        knob_steps(p,0,sidechain?(int)key:-1,9,KEY);
+        knob_steps(p,1,(int)s->fx_slot,4,AMBER);
+        knob_steps(p,2,s->master?8:(int)s->primary,9,AMBER);
+    }
+    text(p,s->message&&*s->message?s->message:sends?
+         "Turn DATA: change / Press: focus":"DATA: FX slot / Press: add or edit",
+         8,185,304,12,10,s->message&&*s->message?AMBER:GREY,0);
+}
 void mixer_view_context(const struct mixer_view_state*s,const struct resample_painter*p)
 {
+    if(s->page==MIXER_INSPECT&&s->route_tab){route_connections(s,p);return;}
     rect(p,80,36,240,162,BLACK);
     if(s->page==MIXER_ASSIGN||s->page==MIXER_INSPECT){
         unsigned target=s->master?0:s->primary+1;
@@ -785,6 +874,7 @@ void mixer_view_meters(const struct mixer_view_state*s,unsigned mask,const struc
 {
     if(!s||!s->project||!p||!p->rect||!p->text)return;
 
+    if(s->page==MIXER_INSPECT&&s->route_tab)return;
     if(s->page==MIXER_OVERVIEW){
         for(unsigned i=0;i<8;++i)if(mask&(1u<<i)){
             int x=(int)(i%4)*80,y=i<4?121:44;
@@ -853,6 +943,7 @@ void mixer_view_paint(const struct mixer_view_state*s,const struct resample_pain
         if(s->fx_slot<ch->fx.count){effect_editor(s,p,ch->fx.stage+s->fx_slot);return;}
     }
     if(s->page==MIXER_ASSIGN||s->page==MIXER_INSPECT||s->page==MIXER_KNOB_FX){
-        mixer_view_channel_strip(s,s->master?8:s->primary,0,80,p);mixer_view_context(s,p);}
+        if(s->page!=MIXER_INSPECT||!s->route_tab)mixer_view_channel_strip(s,s->master?8:s->primary,0,80,p);
+        mixer_view_context(s,p);}
     else {mixer_view_overview(s,p);footer(s,p);}
 }
