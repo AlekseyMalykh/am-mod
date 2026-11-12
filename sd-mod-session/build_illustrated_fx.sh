@@ -24,7 +24,7 @@ F="-std=c11 -O1 -g -Wall -Wextra -Werror -Wno-misleading-indentation -fsanitize=
 SRCS="src/mixer_view.c src/fx_catalog.c src/mixer_buses.c src/mixer_model.c src/mixer_meters.c src/fx_chain.c src/fx_eq.c src/fx_own.c src/compressor_dsp.c"
 fail=0
 gcc $F check_fx_own.c src/fx_own.c src/compressor_dsp.c -lm -o build/check_fx_own >>"$LOG" 2>&1 && build/check_fx_own >>"$LOG" 2>&1 && echo "PASS check_fx_own" || { echo "FAIL check_fx_own"; fail=1; }
-gcc $F check_mixer_view.c $SRCS -lm -pthread -o build/check_mixer_view_host build >>"$LOG" 2>&1 && build/check_mixer_view_host >>"$LOG" 2>&1 && echo "PASS check_mixer_view" || { echo "FAIL check_mixer_view"; fail=1; }
+gcc $F check_mixer_view.c $SRCS -lm -pthread -o build/check_mixer_view_host >>"$LOG" 2>&1 && build/check_mixer_view_host build >>"$LOG" 2>&1 && echo "PASS check_mixer_view" || { echo "FAIL check_mixer_view"; fail=1; }
 # 2. Сборка библиотеки и проверки r28e.
 python3 build_mixer_r27r.py 2>&1 | tee -a "$LOG"
 for v in verify_pad_lighting.py verify_mixer_control.py verify_mixer_step1.py verify_mixer_rgb.py \

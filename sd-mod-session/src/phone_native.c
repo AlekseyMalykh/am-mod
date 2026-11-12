@@ -1397,10 +1397,12 @@ static void music_sample_paint(void *p,void *g)
         const struct resample_painter painter = {g,mixer_paint_rect,mixer_paint_text};
         mixer_control_view(control,now_ms(),&view);
         view.fx_illustrated=music_fx_view();
+#ifdef MPC_COMPRESSOR
         {struct comp_config cc;view.sample_comp=0;view.sample_comp_gr=0;
          if(compressor_ready()){compressor_config(&cc);
             view.sample_comp=cc.bypass?1u:compressor_type()==COMP_OPTO?3u:2u;
             view.sample_comp_gr=cc.bypass?0.0f:fabsf(compressor_reduction());}}
+#endif
         mixer_view_paint(&view,&painter);
     }
 #endif
