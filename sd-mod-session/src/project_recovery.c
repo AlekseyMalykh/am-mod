@@ -243,7 +243,10 @@ int project_recovery_save_external(uintptr_t image,void *p){
  return F(p,storage+1,unsigned char)!=0;
 }
 int project_recovery_save_control(uintptr_t image,void *p,unsigned cc){
- if(cc!=0x12||!save_screen_visible(image,p)||FN(0x112f6b0,int(*)(void*))(p))return 0;
+ if(cc!=0x12||!save_screen_visible(image,p))return 0;
+ {int busy=FN(0x112f6b0,int(*)(void*))(p);static unsigned lines;
+  if(lines<40){++lines;fprintf(stderr,"SAVE_K3 busy=%d external_before=%u\n",busy,(unsigned)F(p,storage_offset(image,p)+1,unsigned char));}
+  if(busy)return 0;}
  project_recovery_save_external(image,p);
  return 1;
 }
@@ -253,6 +256,9 @@ void project_recovery_save_paint(uintptr_t image,void*p,void*g){
  /* SaveProjectScreen caches its editor/storage separately from Things.
   * Seed its native controls once, then preserve subsequent user edits. */
  unsigned storage=storage_offset(image,p);
+ {static unsigned last=~0u;unsigned now=(unsigned)save_kind(image,p)|(F(p,storage,unsigned char)<<4)|(F(p,storage+1,unsigned char)<<12);
+  if(now!=last){last=now;fprintf(stderr,"SAVE_SCREEN kind=%u seeded=%u external=%u busy=%d\n",(unsigned)save_kind(image,p),
+   (unsigned)F(p,storage,unsigned char),(unsigned)F(p,storage+1,unsigned char),FN(0x112f6b0,int(*)(void*))(p));}}
  if(!F(p,storage,unsigned char))project_recovery_save_external(image,p);
  int external=F(p,storage+1,unsigned char)!=0;
  int project=save_kind(image,p)==SAVE_PROJECT;
@@ -287,7 +293,9 @@ int project_recovery_save_button(uintptr_t image,void*p,void*event){
  unsigned code=F(event,8,unsigned char),down=F(event,9,unsigned char)!=0;if(code>=112)return 0;
  if(save_owned[code]){if(!down)save_owned[code]=0;return 1;}
  if(!down||p!=save_surface||!save_screen_visible(image,p)||FN(0x112f6b0,int(*)(void*))(p))return 0;
- if(code==0x0e&&!project_recovery_save_external(image,p)){
+ int external_ok=1;
+ if(code==0x0e){external_ok=project_recovery_save_external(image,p);fprintf(stderr,"SAVE_BUTTON code=0e external_ok=%d kind=%u\n",external_ok,(unsigned)save_kind(image,p));}
+ if(code==0x0e&&!external_ok){
   save_owned[code]=1;
   FN(0x1149880,void(*)(void*,uint64_t,uint64_t))(p,0,F(p,0x28,uint64_t));return 1;
  }
