@@ -9,4 +9,6 @@ Text input: naming, search and export windows (project, sample, track names in t
 
 Fixed: Stems export failed with SD_EXPORT_UNAVAILABLE when the export destination was External (card Samples/User/Export); Stems always go to Samples/User/Export on the SD card, whichever destination the Export window shows, in a folder named after the song. First Mod Settings tab renamed Pads -> Quick.
 
-Stems: the stock mixdown WAV is moved into the song folder as "<song> - Master.wav" instead of staying in Samples/Export. Pads default now also routes pad presses (previously it showed Pads but pads did not respond until K1 was toggled).
+Stems: the stock mixdown WAV is moved into the song folder as "<song>_Master.wav" instead of staying in Samples/Export. Pads default now also routes pad presses (previously it showed Pads but pads did not respond until K1 was toggled).
+
+Stem file names now carry the Track name: "<song>_track A_<name>.wav" (only if the Track was renamed), "<song>_Master.wav".
