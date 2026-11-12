@@ -191,13 +191,17 @@ Errors load(void*saver,const uint64_t*file){
 }
 extern "C" int startup_song_export_ready(void){
  char root[PATH_MAX],folder[PATH_MAX];
- if(!card_root(root)||std::snprintf(folder,sizeof(folder),"%s/Samples/Export",root)>=(int)sizeof(folder))return 0;
+ if(!card_root(root)||std::snprintf(folder,sizeof(folder),"%s/Samples/Export",root)>=(int)sizeof(folder)){
+  std::fprintf(stderr,"STARTUP_PROJECT SONG_EXPORT_NOT_READY reason=card_root\n");return 0;}
  const char *native="/data/UserContent/Samples/User/Export";
  struct stat card,alias;
  struct statvfs fs;
- return !stat(folder,&card)&&S_ISDIR(card.st_mode)&&!stat(native,&alias)&&
-        card.st_dev==alias.st_dev&&card.st_ino==alias.st_ino&&
-        !statvfs(native,&fs)&&!(fs.f_flag&ST_RDONLY);
+ int card_ok=!stat(folder,&card)&&S_ISDIR(card.st_mode);
+ int alias_ok=!stat(native,&alias);
+ int same=card_ok&&alias_ok&&card.st_dev==alias.st_dev&&card.st_ino==alias.st_ino;
+ int writable=!statvfs(native,&fs)&&!(fs.f_flag&ST_RDONLY);
+ if(!(card_ok&&alias_ok&&same&&writable))std::fprintf(stderr,"STARTUP_PROJECT SONG_EXPORT_NOT_READY card_dir=%d native=%d same_inode=%d writable=%d folder=%s\n",card_ok,alias_ok,same,writable,folder);
+ return card_ok&&alias_ok&&same&&writable;
 }
 extern "C" int startup_project_loading(void){return phase.load()==1||phase.load()==2;}
 extern "C" void startup_project_ready(void){
