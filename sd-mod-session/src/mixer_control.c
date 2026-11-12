@@ -378,8 +378,9 @@ int mixer_control_button(struct mixer_control*c,enum mixer_action action,int dow
        (action==MIXER_SELECT||action==MIXER_B2||action==MIXER_B3)){
         if(action==MIXER_SELECT){
             if(!c->view.fx_parameters){
-                if(comp_available())c->view.fx_parameters=1;
-                else c->message="Open the compressor once (Shift+Pad 5)";
+                if(!comp_available())c->message="Open the compressor once (Shift+Pad 5)";
+                else if(c->shift){if(comp_ops->bypass)comp_ops->bypass();} /* Shift+DATA: Bypass, as on the other slots */
+                else c->view.fx_parameters=1;
             }
         }else if(c->view.fx_parameters){
             if(action==MIXER_B2){

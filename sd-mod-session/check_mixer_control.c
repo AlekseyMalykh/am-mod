@@ -213,6 +213,11 @@ static void master_comp_row(void)
     mixer_control_button(c,MIXER_SHIFT,0,ticket);
     assert(mixer_control_reset(c,0x11,0,ticket)&&fake.reset==1);
     button(c,MIXER_B1);assert(!view(c).fx_parameters&&view(c).fx_slot==MIXER_COMP_SLOT);
+    { /* Shift+DATA on the pinned row toggles the Sample compressor Bypass without opening it */
+        unsigned before=fake.bypass;
+        mixer_control_button(c,MIXER_SHIFT,1,ticket);button(c,MIXER_SELECT);mixer_control_button(c,MIXER_SHIFT,0,ticket);
+        assert(fake.bypass==(before^1u)&&!view(c).fx_parameters);
+    }
     /* Not on a Track: the pinned row exists on Master only. */
     button(c,MIXER_B1);pad(c,0,1);pad(c,0,0);assert(!view(c).master&&!view(c).comp.visible);
     mixer_control_destroy(c);mixer_control_set_comp_ops(NULL);
