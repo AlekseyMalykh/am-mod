@@ -1,6 +1,7 @@
 #include "mixer_view.h"
 #include "fx_catalog.h"
 #include "fx_own.h"
+#include "compressor.h"
 #include "shift_badge.h"
 #include "spectrum_plot.h"
 #include "mixer_sample_feedback.h"

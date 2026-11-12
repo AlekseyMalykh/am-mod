@@ -566,6 +566,37 @@ static void fxv_tape_emu(const struct resample_painter*p,const struct fx_stage*s
 }
 
 /* ---- Am MOD's own effects (fx_own.c). Parameters are normalized 0..1 as in the DSP. ---- */
+/* OptoCat Comp: real-unit transfer curve (soft knee) + level history with the reduction in red. */
+static void fxv_opto(const struct resample_painter*p,const struct fx_stage*stage,const struct mixer_fx_monitor*m)
+{
+    struct comp_config c;fx_own_opto_config(stage->parameter,&c);
+    rect(p,FXV_X,FXV_Y,FXV_W,FXV_H,PANEL);
+    const int gx=FXV_X+6,gy=FXV_Y+14,gs=72;
+    rect(p,gx,gy,gs,gs,WELL);
+    rect(p,gx,gy+gs/2,gs,1,DARK);rect(p,gx+gs/2,gy,1,gs,DARK);
+    double slope=1.0-1.0/c.ratio,half=c.knee*.5;
+    for(int x=0;x<gs;++x){
+        double in=-60.0+60.0*x/(gs-1),over=in-c.threshold,gr;
+        gr=over<=-half?0:over>=half?slope*over:c.knee>0?slope*(over+half)*(over+half)/(2*c.knee):0;
+        double out=in-gr+c.gain;
+        if(out<-60)out=-60;if(out>0)out=0;
+        rect(p,gx+x,gy+gs-1-(int)lround((out+60.0)*(gs-1)/60.0),1,2,AMBER);
+    }
+    rect(p,gx+(int)lround((c.threshold+60.0)*(gs-1)/60.0),gy,1,gs,LINE);
+    if(m){
+        float di=mixer_meter_dbfs(m->input_peak),dout=mixer_meter_dbfs(m->output_peak);
+        if(isfinite(di)&&isfinite(dout)){
+            int dx=gx+(int)lround((fmax(-60.f,di)+60.f)*(gs-1)/60.f),dy=gy+gs-1-(int)lround((fmax(-60.f,dout)+60.f)*(gs-1)/60.f);
+            rect(p,dx-2,dy-2,5,5,WHITE);
+        }
+    }
+    fxv_title(p,"OptoCat",gx,FXV_Y+1,72);
+    fxv_title(p,"Level history  (red: reduction)",FXV_X+92,FXV_Y+1,200);
+    fxv_strip(p,FXV_X+92,FXV_Y+14,FXV_W-98,FXV_H-34,1,0,NAN);
+    fxv_gr_text(p,m,FXV_X+92,FXV_Y+FXV_H-18,120);
+    char buf[48];snprintf(buf,sizeof(buf),"%.0f dB  %.1f:1%s",(double)c.threshold,(double)c.ratio,c.warm?"  WARM":"");
+    text(p,buf,FXV_X+FXV_W-100,FXV_Y+FXV_H-18,96,12,10,WHITE,0);
+}
 static void fxv_shimmer(const struct resample_painter*p,const struct fx_stage*stage,const struct mixer_fx_monitor*m)
 {
     rect(p,FXV_X,FXV_Y,FXV_W,FXV_H,WELL);
@@ -743,6 +774,7 @@ static int fx_visual_paint(const struct resample_painter*p,const struct fx_catal
     case 0x41435671:fxv_auto_pan(p,stage);return 1;     /* Auto Pan */
     case 0x56456678:fxv_vinyl(p,stage);return 1;        /* Vinyl */
     case 0x54456678:fxv_tape_emu(p,stage);return 1;     /* Tape */
+    case FX_OWN_OPTO:fxv_opto(p,stage,m);return 1;
     case FX_OWN_SHIMMER:fxv_shimmer(p,stage,m);return 1;
     case FX_OWN_PITCH:fxv_pitch(p,stage);return 1;
     case FX_OWN_REVERSE:fxv_reverse(p,stage);return 1;

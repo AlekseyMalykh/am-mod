@@ -1,4 +1,5 @@
 #include "fx_own.h"
+#include "compressor.h"
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,6 +21,7 @@ struct fx_own {
     /* Tremolo / ring phase, swell state, crusher hold */
     double phase;float gain_state,env;int open;
     unsigned hold_count;float hold[2];
+    struct comp_opto opto;struct comp_config opto_config;
 };
 static int pow2_at_least(unsigned n){unsigned s=64;while(s<n)s<<=1;return (int)s;}
 static float flush(float x){return fabsf(x)<1e-20f?0.f:x;}
@@ -45,6 +47,14 @@ static float pitch_tick(struct pitchc *s,float in,double ratio,double window)
     double g1=.5-.5*cos(TAU*s->phase),g2=.5-.5*cos(TAU*p2);
     float o=(float)(pitch_tap(s,1+s->phase*window)*g1+pitch_tap(s,1+p2*window)*g2);
     s->w=(s->w+1)&s->mask;return o;
+}
+void fx_own_opto_config(const float *p,struct comp_config *c)
+{
+    float v[7];for(unsigned i=0;i<7;++i)v[i]=fminf(1.f,fmaxf(0.f,p[i]));
+    memset(c,0,sizeof(*c));
+    c->threshold=-48.f+48.f*v[0];c->ratio=1.f+7.f*v[1];c->gain=-6.f+12.f*v[2];
+    c->attack=powf(100.f,v[3]);c->release=100.f*powf(40.f,v[4]);c->knee=12.f*v[5];
+    c->warm=v[6]>=.5f?1u:0u;c->bypass=0;
 }
 int fx_own_is(uint32_t id){return id>=FX_OWN_SHIMMER&&id<FX_OWN_SHIMMER+FX_OWN_COUNT;}
 int fx_own_pitch_semitones(float v){v=fminf(1.f,fmaxf(0.f,v));return (int)lroundf(v*48.f)-24;}
@@ -79,6 +89,7 @@ void *fx_own_create(uint32_t id,double rate,const float *parameters)
         s->damp=.1f+.85f*s->p[5];
         s->pre_len=(unsigned)(rate*.2*s->p[6])+1;s->pre=calloc(s->pre_len,sizeof(float));ok&=s->pre!=NULL;
     }
+    if(id==FX_OWN_OPTO){comp_opto_init(&s->opto,rate);fx_own_opto_config(s->p,&s->opto_config);}
     if(!ok){fx_own_destroy(s);return NULL;}
     return s;
 }
@@ -173,10 +184,26 @@ static void crush(struct fx_own *s,float *x,size_t frames)
         for(unsigned c=0;c<2;++c)x[n*2+c]=x[n*2+c]*(1-mix)+s->hold[c]*mix;
     }
 }
-void fx_own_process(void *object,float *samples,size_t frames)
+static float opto(struct fx_own *s,float *x,size_t frames)
 {
-    struct fx_own *s=object;if(!s||!samples)return;
+    float lo=1.f;float a[256],b[256];
+    for(size_t at=0;at<frames;){
+        size_t n=frames-at<256?frames-at:256;
+        for(size_t i=0;i<n;++i){a[i]=x[(at+i)*2];b[i]=x[(at+i)*2+1];}
+        float *in[2]={a,b};
+        if(comp_opto_process(&s->opto,&s->opto_config,in,in,2,n)){
+            for(size_t i=0;i<n;++i){x[(at+i)*2]=a[i];x[(at+i)*2+1]=b[i];}
+            float g=powf(10.f,-s->opto.gr/20.f);if(g<lo)lo=g;
+        }
+        at+=n;
+    }
+    return lo;
+}
+float fx_own_process(void *object,float *samples,size_t frames)
+{
+    struct fx_own *s=object;if(!s||!samples)return 1.f;
     switch(s->id){
+    case FX_OWN_OPTO:return opto(s,samples,frames);
     case FX_OWN_SHIMMER:shimmer(s,samples,frames);break;
     case FX_OWN_PITCH:pitch_shift(s,samples,frames);break;
     case FX_OWN_REVERSE:reverse(s,samples,frames);break;
@@ -186,4 +213,5 @@ void fx_own_process(void *object,float *samples,size_t frames)
     case FX_OWN_CRUSH:crush(s,samples,frames);break;
     default:break;
     }
+    return 1.f;
 }

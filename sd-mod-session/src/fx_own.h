@@ -15,12 +15,17 @@ extern "C" {
 #define FX_OWN_SWELL   0x414d4f05u
 #define FX_OWN_RING    0x414d4f06u
 #define FX_OWN_CRUSH   0x414d4f07u
-#define FX_OWN_COUNT 7u
+#define FX_OWN_OPTO    0x414d4f08u
+#define FX_OWN_COUNT 8u
 int fx_own_is(uint32_t id);
 void *fx_own_create(uint32_t id,double rate,const float *parameters /* normalized 0..1 */);
 void fx_own_destroy(void *);
-/* Interleaved stereo, in place. */
-void fx_own_process(void *,float *samples,size_t frames);
+/* Interleaved stereo, in place. Returns the lowest linear gain applied (1 = no reduction),
+ * which the mixer shows as gain reduction. */
+float fx_own_process(void *,float *samples,size_t frames);
+struct comp_config;
+/* OptoCat Comp: normalized parameters -> the same ranges as the Sample compressor. */
+void fx_own_opto_config(const float *normalized,struct comp_config *out);
 /* Display helpers shared with the screens. */
 int fx_own_pitch_semitones(float normalized);   /* Pitch Shifter interval */
 int fx_own_shimmer_semitones(float normalized); /* Shimmer interval */

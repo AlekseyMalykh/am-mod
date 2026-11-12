@@ -11,10 +11,10 @@ R = Path(__file__).resolve().parent
 out = R / "build/mixer-model"
 out.mkdir(parents=True, exist_ok=True)
 tracked = ["src/mixer_model.c", "src/mixer_model.h", "check_mixer_model.c",
-           "src/fx_chain.c", "src/fx_own.c", "src/fx_chain.h", "src/fx_eq.c", "src/fx_eq.h", "verify_mixer_model.py"]
+           "src/fx_chain.c", "src/fx_own.c", "src/compressor_dsp.c", "src/fx_chain.h", "src/fx_eq.c", "src/fx_eq.h", "verify_mixer_model.py"]
 digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
 before = {p: digest(R / p) for p in tracked}
-sources = ["check_mixer_model.c", "src/mixer_model.c", "src/fx_chain.c", "src/fx_own.c", "src/fx_eq.c"]
+sources = ["check_mixer_model.c", "src/mixer_model.c", "src/fx_chain.c", "src/fx_own.c", "src/compressor_dsp.c", "src/fx_eq.c"]
 sysroot = os.environ.get("MPC_QEMU_SYSROOT", "/home/user/mpc-rootfs-user-20260808")
 checks = []
 fixtures = []

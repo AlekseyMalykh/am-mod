@@ -127,7 +127,7 @@ static void program_process(struct fx_program *p,float *samples,size_t frames,un
             const float*key=keys&&source?keys[source-1]:NULL;
             minimum_gain=sidechain_process(&s->duck,samples,frames,key?key+offset:NULL,monitored);
         }
-        else if(!s->bypass&&s->own)fx_own_process(s->own,samples,frames);
+        else if(!s->bypass&&s->own)minimum_gain=fx_own_process(s->own,samples,frames);
         else if(!s->bypass)p->backend.process(p->backend.user,s->native,samples,frames);
         if(monitored)tap(user,samples,frames,1,minimum_gain);
     }

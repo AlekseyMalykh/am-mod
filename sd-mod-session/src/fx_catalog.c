@@ -55,6 +55,7 @@ static const struct fx_catalog_entry own_entries[FX_OWN_COUNT]={
  {FX_OWN_SWELL,"Slow Attack","Dynamics",3,{"Attack","Sensitivity","Mix"},{.5f,.5f,1.f}},
  {FX_OWN_RING,"Ring Modulator","Modulation",2,{"Frequency","Mix"},{.4f,.5f}},
  {FX_OWN_CRUSH,"Bit Crusher","Drive",3,{"Bits","Rate","Mix"},{.6f,.2f,1.f}},
+ {FX_OWN_OPTO,"OptoCat Comp","Dynamics",7,{"Threshold","Ratio","Gain","Attack","Release","Knee","Warm"},{.625f,.2857f,.5f,.5f,.6738f,.5f,0.f}},
 };
 unsigned fx_mixer_catalog_count(void){return fx_catalog_count()+1+FX_OWN_COUNT;}
 const struct fx_catalog_entry *fx_mixer_catalog_at(unsigned i)

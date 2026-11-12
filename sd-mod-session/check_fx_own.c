@@ -8,14 +8,15 @@
 #define printf(...) (fprintf(stderr,__VA_ARGS__),fflush(stderr))
 #define RATE 48000.0
 #define TAU 6.283185307179586
-static float defaults[7][8]={
+static float defaults[8][8]={
  {.35f,.6f,.5f,.8f,.5f,.5f,.1f,0},  /* shimmer: +12 */
  {.75f,.5f,1,0,0,0,0,0},            /* pitch +12 */
  {.4f,.3f,.5f,.7f,0,0,0,0},         /* reverse */
  {.35f,.6f,0,.5f,0,0,0,0},          /* tremolo */
  {.5f,.5f,1,0,0,0,0,0},             /* slow attack */
  {.4f,.5f,0,0,0,0,0,0},             /* ring */
- {.6f,.5f,1,0,0,0,0,0}};            /* crush */
+ {.6f,.5f,1,0,0,0,0,0},             /* crush */
+ {.625f,.2857f,.5f,.5f,.6738f,.5f,0,0}}; /* optocat */
 static double goertzel(const float *x,size_t n,double hz){
     double w=TAU*hz/RATE,c=2*cos(w),s1=0,s2=0;for(size_t i=0;i<n;++i){double s=x[i]+c*s1-s2;s2=s1;s1=s;}
     return sqrt(s1*s1+s2*s2-c*s1*s2)*2/n;}
@@ -94,6 +95,17 @@ int main(void){
     {float d[8]={0,0,1};void*fx=fx_own_create(FX_OWN_CRUSH,RATE,d);size_t n=4800;float*b=sine(n,200,.9f);run(fx,b,n);
      float seen[64];unsigned count=0;for(size_t i=0;i<n;++i){unsigned f=0;for(unsigned j=0;j<count;++j)if(fabsf(seen[j]-b[i*2])<1e-6f)f=1;if(!f){assert(count<64);seen[count++]=b[i*2];}}
      printf("crush 2-bit: %u distinct levels\n",count);assert(count<=5);free(b);fx_own_destroy(fx);}
+    {   /* OptoCat: loud tone is reduced and the reduction is reported; below threshold nothing happens. */
+        float d[8]={.625f,.2857f,.5f,.1f,.3f,.5f,0,0};void*fx=fx_own_create(FX_OWN_OPTO,RATE,d);assert(fx);
+        size_t n=(size_t)RATE*2;float*loud=sine(n,300,.9f);float lo=1;
+        for(size_t at=0;at<n;at+=256){size_t m=n-at<256?n-at:256;float g=fx_own_process(fx,loud+at*2,m);if(at>n/2&&g<lo)lo=g;}
+        float peak=0;for(size_t i=n*3/2;i<n*2;++i)peak=fmaxf(peak,fabsf(loud[i]));
+        printf("optocat: min gain %.3f, tail peak %.3f\n",lo,peak);assert(lo<.8f&&peak<.8f&&isfinite(peak));
+        free(loud);fx_own_destroy(fx);
+        void*q=fx_own_create(FX_OWN_OPTO,RATE,d);float*quiet=sine(n,300,.02f);float qlo=1;
+        for(size_t at=0;at<n;at+=256){size_t m=n-at<256?n-at:256;float g=fx_own_process(q,quiet+at*2,m);if(at>n/2&&g<qlo)qlo=g;}
+        assert(qlo>.97f);free(quiet);fx_own_destroy(q);
+    }
     puts("PASS Am MOD own effects: Shimmer (octave tail, amount 0 removes it, max settings decay), Pitch +/-12, Reverse swell, Tremolo, Slow Attack, Ring Mod, Bit Crusher, bounds and finite output");
     return 0;
 }

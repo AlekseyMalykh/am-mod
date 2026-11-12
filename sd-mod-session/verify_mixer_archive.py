@@ -8,7 +8,7 @@ import subprocess
 R = Path(__file__).resolve().parent
 out = R / "build/mixer-archive"
 out.mkdir(parents=True, exist_ok=True)
-sources = ["src/mixer_model.c", "src/fx_eq.c", "src/fx_chain.c","src/fx_own.c",
+sources = ["src/mixer_model.c", "src/fx_eq.c", "src/fx_chain.c","src/fx_own.c", "src/compressor_dsp.c",
            "src/mixer_archive.cc", "check_mixer_archive.cc"]
 tracked = sources + ["src/mixer_archive.h", "src/mixer_model.h", "verify_mixer_archive.py",
     "check_mixer_archive_native.c", "check_mixer_archive_native.cc", "check_fx_native.c",
