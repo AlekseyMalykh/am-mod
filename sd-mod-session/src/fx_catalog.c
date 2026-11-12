@@ -40,6 +40,11 @@ unsigned fx_catalog_parameter_count(const struct fx_catalog_entry*e)
 }
 int fx_catalog_parameter_index(const struct fx_catalog_entry*e,unsigned position)
 {
+    if(e&&e->id==FX_SIDECHAIN_ID){
+        /* Display order: Attack, Threshold, Ratio | Shift: Key Track, Release, Mix (storage order is unchanged). */
+        static const int order[6]={3,1,2,0,4,5};
+        return position<6?order[position]:-1;
+    }
     if(e)for(unsigned i=0;i<e->count;++i)
         if(e->parameter[i]&&*e->parameter[i]&&position--==0)return (int)i;
     return -1;

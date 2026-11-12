@@ -278,7 +278,7 @@ static void route_open_key(struct mixer_control*c)
         if(!fx_mixer_catalog_stage(fx_catalog_count(),c->rate,&stage)||
            fx_chain_add(chain,&stage,c->rate)!=FX_OK){c->message="FX chain full";return;}
         c->view.fx_slot=chain->count-1;changed(c);
-        c->message="Sidechain added: choose Key";return;
+        c->message="Sidechain added: Shift+K1 = Key";return;
     }
     if(chain->stage[c->view.fx_slot].kind!=FX_STAGE_SIDECHAIN){
         c->message="Select a Sidechain or Empty slot";return;
