@@ -379,11 +379,33 @@ static void fxv_sample_delay(const struct resample_painter*p,const struct fx_sta
         if(!fxv_idle)rect(p,sx,base-20,1,24,WHITE);
     }
 }
+static void fxv_shelf(const struct resample_painter*p,int x,int w,unsigned seed)
+{
+    const uint32_t WOOD=0xff7a4a26u,WOOD2=0xff5c3819u;
+    rect(p,x,FXV_Y,w,FXV_H,WOOD2);
+    for(int row=0;row<2;++row){
+        int y=FXV_Y+3+row*45,h=42;
+        rect(p,x+3,y,w-6,h,0xff1d1410u);
+        int sx=x+4;
+        while(sx<x+w-7){
+            seed=seed*1664525u+1013904223u;
+            int sw=2+(int)(seed>>20&1),sh=h-6-(int)(seed>>22&7);
+            static const uint32_t col[6]={0xffc23a2eu,0xffd9c9a0u,0xff2f6f9fu,0xffe0a030u,0xff3a3f46u,0xff5a8a4au};
+            uint32_t c=col[(seed>>12)%6];
+            if((seed>>26&7)==0){sx+=3;continue;}  /* a gap now and then */
+            rect(p,sx,y+h-sh,sw,sh,c);rect(p,sx,y+h-sh,sw,1,0xff000000u|((c>>1)&0x7f7f7fu));
+            sx+=sw+1;
+        }
+        rect(p,x+3,y+h,w-6,2,WOOD);
+    }
+}
 static void fxv_vinyl(const struct resample_painter*p,const struct fx_stage*stage)
 {
-    rect(p,FXV_X,FXV_Y,FXV_W,FXV_H,0xffc3c7cdu);
-    rect(p,FXV_X,FXV_Y+FXV_H-2,FXV_W,2,0xff8f949bu);
-    int cx=FXV_X+128,cy=FXV_Y+47;
+    const int TW=188,x0=FXV_X+(FXV_W-TW)/2;
+    fxv_shelf(p,FXV_X,x0-FXV_X-2,7u);fxv_shelf(p,x0+TW+2,FXV_X+FXV_W-(x0+TW+2),19u);
+    rect(p,x0,FXV_Y,TW,FXV_H,0xffc3c7cdu);
+    rect(p,x0,FXV_Y+FXV_H-2,TW,2,0xff8f949bu);
+    int cx=x0+54,cy=FXV_Y+47;
     fxv_disc(p,cx,cy,44,0xff4a4f56u);fxv_disc(p,cx,cy,42,0xff101114u);
     for(int r=18;r<=40;r+=3)for(int a=0;a<48;++a){double t=a*.1309;rect(p,cx+(int)lround(cos(t)*r),cy+(int)lround(sin(t)*r),1,1,0xff23252au);}
     double ang=fxv_idle?0:fxv_now*.0035*(1+(fxv_p(stage,2)-.5)*.3);
@@ -392,17 +414,16 @@ static void fxv_vinyl(const struct resample_painter*p,const struct fx_stage*stag
     fxv_disc(p,cx,cy,14,0xffc23a2eu);
     text(p,"AM MOD",cx-14,cy-9,28,9,7,0xfff0e8d0u,1);text(p,"33 RPM",cx-14,cy+1,28,9,6,0xfff0e8d0u,1);
     fxv_disc(p,cx,cy,2,0xffc3c7cdu);
-    /* short tonearm from the pivot at the top right, counterweight behind it */
-    int px=FXV_X+240,py=FXV_Y+18;
+    int px=x0+TW-16,py=FXV_Y+18;
     fxv_disc(p,px,py,10,0xff8f949bu);fxv_disc(p,px,py,6,0xffd9dce2u);
     double wob=fxv_idle?0:sin(fxv_now*.004)*.02;
-    double hx=FXV_X+152,hy=FXV_Y+32+wob*20;
+    double hx=cx+26,hy=FXV_Y+30+wob*20;
     fxv_line(p,px,py,hx,hy,3,0xff5a5f68u);
-    fxv_line(p,px,py,px+14,py-10,5,0xff3a3f46u);
+    fxv_line(p,px,py,px+10,py-8,5,0xff3a3f46u);
     rect(p,(int)hx-5,(int)hy-2,10,6,0xff101114u);
-    rect(p,FXV_X+270,FXV_Y+34,5,18,0xff8f949bu);
-    fxv_disc(p,FXV_X+16,FXV_Y+FXV_H-16,8,0xff5a5f68u);fxv_disc(p,FXV_X+16,FXV_Y+FXV_H-16,2,0xffd9dce2u);
-    for(int i=0;i<3;++i)rect(p,FXV_X+192+i*30,FXV_Y+FXV_H-14,24,8,i==0?0xff3a7a40u:(i==1?0xff7a3a3au:0xff5a5f68u));
+    rect(p,x0+TW-10,FXV_Y+40,5,18,0xff8f949bu);
+    fxv_disc(p,x0+12,FXV_Y+FXV_H-14,7,0xff5a5f68u);fxv_disc(p,x0+12,FXV_Y+FXV_H-14,2,0xffd9dce2u);
+    for(int i=0;i<3;++i)rect(p,x0+100+i*28,FXV_Y+FXV_H-14,24,8,i==0?0xff3a7a40u:(i==1?0xff7a3a3au:0xff5a5f68u));
     unsigned seed=(unsigned)(fxv_now/90);int sparks=(int)lround(6*fxv_p(stage,1));
     for(int k=0;k<sparks;++k){seed=seed*1664525u+1013904223u;rect(p,hx-6+(int)(seed>>9&15),hy+6+(int)(seed>>13&7),2,2,AMBER);}
 }
