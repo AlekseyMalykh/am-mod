@@ -1327,11 +1327,14 @@ static void activate(void *p, size_t editor_offset)
         note("NAMING_READY r10b_UI_FIFO feedback100ms encoder_and_plus_minus_preserved");
         /* Default input is a Mod Setting (Pads unless set to Encoder). The
          * window repaints on its own; K1 still switches at any time. */
-        if(music_text_input()&&!atomic_load(&input_fault)&&state.length<=PHONE_MAX_CHARS){
-            phone_enable(&state,1);
+        int stems_name=0;
 #ifdef MPC_SONG_UI
-            song_ui_stems_input_mode(1);
+        /* Song/Stems export keeps its own Encoder/Pads footer state and
+         * confirm/arm sequence: leave it exactly as released (Encoder). */
+        stems_name=song_ui_stems_name_pending()||song_ui_stems_name_active();
 #endif
+        if(music_text_input()&&!stems_name&&!atomic_load(&input_fault)&&state.length<=PHONE_MAX_CHARS){
+            phone_enable(&state,1);
             lights();
             note("PADS_ON default");
         }
