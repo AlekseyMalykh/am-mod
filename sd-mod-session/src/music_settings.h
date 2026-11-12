@@ -33,6 +33,9 @@ int music_set_relation_colour(unsigned role,unsigned slot);
 uint32_t music_relation_rgb(unsigned role);
 /* LED colour strength: 0 Standard (unchanged), 1 Strong, 2 Max. Removes the
  * white component of mixed colours so they do not look washed out. */
+/* Mixer effect screens: 1 Illustrated (default), 0 Classic (plain traces). Card-wide. */
+unsigned music_fx_view(void);
+int music_set_fx_view(unsigned view);
 unsigned music_led_vivid(void);
 int music_set_led_vivid(unsigned level);
 uint32_t music_led_correct(uint32_t rgb);

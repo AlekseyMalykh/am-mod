@@ -30,6 +30,8 @@ int music_mute_group_lighting(void){return (int)((atomic_load(&relation_lighting
 static _Atomic unsigned relation_colours=(12u)|(11u<<4); /* link Cyan, group Amber. */
 static _Atomic unsigned led_vivid;
 unsigned music_led_vivid(void){return atomic_load(&led_vivid);}
+static _Atomic unsigned fx_view=1; /* 1 Illustrated (default), 0 Classic; card file .am-mod-fx-view */
+unsigned music_fx_view(void){return atomic_load(&fx_view);}
 unsigned music_relation_colour(unsigned role){return role<MUSIC_RELATION_COUNT?(atomic_load(&relation_colours)>>(4*role))&15u:0;}
 uint32_t music_relation_rgb(unsigned role){
  unsigned slot=music_relation_colour(role);
@@ -215,6 +217,12 @@ int music_lighting_preferences_open(const char *directory){
   }
   close(fd);
  }
+ unsigned view=1;
+ {int vf=openat(dir,".am-mod-fx-view",O_RDONLY|O_CLOEXEC|O_NOFOLLOW|O_NONBLOCK);
+  if(vf>=0){char t[16]={0};struct stat vs;ssize_t vn=read(vf,t,sizeof(t)-1);
+   if(!fstat(vf,&vs)&&S_ISREG(vs.st_mode)&&vn==12&&!memcmp(t,"AM_FXVIEW ",10)&&(t[10]=='0'||t[10]=='1')&&t[11]=='\n')view=(unsigned)(t[10]-'0');
+   close(vf);}}
+ atomic_store(&fx_view,view);
  if(lighting_directory>=0)close(lighting_directory);
  lighting_directory=dir;
  load_palette(dir);
@@ -304,6 +312,12 @@ int music_set_relation_colour(unsigned role,unsigned slot){
  if(role>=MUSIC_RELATION_COUNT||slot>=MUSIC_PALETTE_SLOTS||!music_palette_present(slot))return 0;
  unsigned v=atomic_load(&relation_colours);v=(v&~(15u<<(4*role)))|(slot<<(4*role));
  return save_card_settings(atomic_load(&mod_settings),atomic_load(&relation_lighting),v,atomic_load(&led_vivid));
+}
+int music_set_fx_view(unsigned view){
+ if(view>1)return 0;
+ char text[13];snprintf(text,sizeof(text),"AM_FXVIEW %u\n",view);
+ if(!save_preference(".am-mod-fx-view",text,12))return 0;
+ atomic_store(&fx_view,view);return 1;
 }
 int music_set_led_vivid(unsigned level){
  return level<=2&&save_card_settings(atomic_load(&mod_settings),atomic_load(&relation_lighting),atomic_load(&relation_colours),level);

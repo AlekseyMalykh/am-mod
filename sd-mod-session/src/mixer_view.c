@@ -557,6 +557,7 @@ static void eq_knob_bars(const struct mixer_view_state*s,const struct resample_p
         }
     }
 }
+#include "fx_visual.inc"
 static void effect_editor(const struct mixer_view_state*s,const struct resample_painter*p,const struct fx_stage*stage)
 {
     const struct fx_catalog_entry*e=fx_catalog_find(stage->kind==FX_STAGE_EQ?0:stage->native_id);
@@ -617,6 +618,8 @@ static void effect_editor(const struct mixer_view_state*s,const struct resample_
         const struct mixer_fx_monitor*m=s->fx_signal;
         if(e&&!strcmp(e->category,"Dynamics")){
             fx_dynamics(p,e,stage,m);
+        }else if(s->fx_illustrated&&fx_visual_paint(p,e,stage,m,s->rate?s->rate:48000)){
+            /* Illustrated view drawn above; knobs and status follow. */
         }else{
             int filter=e&&!strcmp(e->category,"Filter");
             int envelope=e&&(!strcmp(e->category,"Delay")||!strcmp(e->category,"Reverb"));

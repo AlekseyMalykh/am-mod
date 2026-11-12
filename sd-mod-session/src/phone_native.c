@@ -1396,6 +1396,7 @@ static void music_sample_paint(void *p,void *g)
         struct mixer_view_state view;
         const struct resample_painter painter = {g,mixer_paint_rect,mixer_paint_text};
         mixer_control_view(control,now_ms(),&view);
+        view.fx_illustrated=music_fx_view();
         mixer_view_paint(&view,&painter);
     }
 #endif

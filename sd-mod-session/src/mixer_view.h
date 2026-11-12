@@ -33,6 +33,7 @@ struct mixer_view_state {
     uint64_t name_elapsed;
     unsigned name_pads;
     const struct mixer_fx_monitor*fx_signal;
+    unsigned fx_illustrated; /* 0 Classic; set by the host from the card setting */
     double rate;
 };
 /* Routing Pads addresses sounds; Sends/Sidechain address Mixer tracks. */

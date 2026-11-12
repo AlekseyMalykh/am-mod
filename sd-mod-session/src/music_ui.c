@@ -716,6 +716,8 @@ void music_ui_sample(void *p,void *g)
 }
 static int link_row(unsigned row){return mod_tab==0&&row==1;}
 static int group_row(unsigned row){return mod_tab==0&&row==2;}
+static int fxview_row(unsigned row){return mod_tab==0&&row==3;}
+static const char *const fxview_names[]={"Classic","Illustrated"};
 static const char *const link_modes[]={"Off","Selected","Playing","Both"};
 static int mirror_enabled(void){return access(SCREEN_MIRROR_FLAG,F_OK)==0;}
 static int mirror_set(int enabled){
@@ -741,12 +743,16 @@ static int row_disabled(unsigned row){
  if(music_pad_lighting_mode())return 0;
  return link_row(row)||group_row(row)||(mod_tab==2&&row<mod_rows());
 }
-static unsigned mod_rows(void){return mod_tab==MOD_ABOUT_TAB?0:mod_tab==2?MUSIC_SERVICE_COUNT+MUSIC_RELATION_COUNT+2:mod_tab==1?3:mod_tab==0?3:1;}
+static unsigned mod_rows(void){return mod_tab==MOD_ABOUT_TAB?0:mod_tab==2?MUSIC_SERVICE_COUNT+MUSIC_RELATION_COUNT+2:mod_tab==1?3:mod_tab==0?4:1;}
 static unsigned mod_field(unsigned row){return mod_tab==1?(row==2?MUSIC_SETTING_TAIL:MUSIC_SETTING_WAVE+row):mod_tab==3?MUSIC_SETTING_BLINK:MUSIC_SETTING_LIGHTING;}
 static int palette_row(unsigned row){return mod_tab==2&&row==0;}
-static unsigned mod_value(void){return vivid_row(mod_row)?music_led_vivid():relation_row(mod_row)?music_relation_colour(relation_role(mod_row)):link_row(mod_row)?(unsigned)music_pad_link_lighting():group_row(mod_row)?(unsigned)music_mute_group_lighting():mod_tab==2?music_service_colour(mod_row-1):(unsigned)music_mod_setting(mod_field(mod_row));}
+static unsigned mod_value(void){return fxview_row(mod_row)?music_fx_view():vivid_row(mod_row)?music_led_vivid():relation_row(mod_row)?music_relation_colour(relation_role(mod_row)):link_row(mod_row)?(unsigned)music_pad_link_lighting():group_row(mod_row)?(unsigned)music_mute_group_lighting():mod_tab==2?music_service_colour(mod_row-1):(unsigned)music_mod_setting(mod_field(mod_row));}
 static void mod_change(unsigned value,int relative){
  if(mod_tab==MOD_ABOUT_TAB||palette_row(mod_row)||mod_row==mod_rows()||row_disabled(mod_row))return;
+ if(fxview_row(mod_row)){
+  lighting_save_error=!music_set_fx_view((unsigned)choice(value,(int)music_fx_view(),0,1,relative));
+  repaint(project);return;
+ }
  if(vivid_row(mod_row)){
   lighting_save_error=!music_set_led_vivid((unsigned)choice(value,(int)music_led_vivid(),0,2,relative));
   repaint(project);return;
@@ -886,12 +892,12 @@ static void mod_settings_paint(void*g){
    if(current){k1_label="Restore";k1_value="Press";}
    continue;
   }
-  const char*label=mod_tab==0?(link_row(i)?"Pad Link":group_row(i)?"Mute Group":"Pad lighting"):mod_tab==1?sample_labels[i]:mod_tab==2?(vivid_row(i)?"LED strength":services[i-1]):"Cursor pulse";
+  const char*label=mod_tab==0?(link_row(i)?"Pad Link":group_row(i)?"Mute Group":fxview_row(i)?"FX view":"Pad lighting"):mod_tab==1?sample_labels[i]:mod_tab==2?(vivid_row(i)?"LED strength":services[i-1]):"Cursor pulse";
   unsigned field=mod_field(i);
-  unsigned value=vivid_row(i)?music_led_vivid():relation_row(i)?music_relation_colour(relation_role(i)):link_row(i)?(unsigned)music_pad_link_lighting():group_row(i)?(unsigned)music_mute_group_lighting():mod_tab==2?music_service_colour(i-1):(unsigned)music_mod_setting(field);
+  unsigned value=fxview_row(i)?music_fx_view():vivid_row(i)?music_led_vivid():relation_row(i)?music_relation_colour(relation_role(i)):link_row(i)?(unsigned)music_pad_link_lighting():group_row(i)?(unsigned)music_mute_group_lighting():mod_tab==2?music_service_colour(i-1):(unsigned)music_mod_setting(field);
   char duration[16];
   if(field==MUSIC_SETTING_TAIL){if(music_tail_ms(value))snprintf(duration,sizeof(duration),"%u ms",music_tail_ms(value));else snprintf(duration,sizeof(duration),"Off");}
-  const char*name=mod_tab==0?(link_row(i)?link_modes[value]:group_row(i)?link_modes[value]:(value?"Am MOD":"Standard")):field==MUSIC_SETTING_TAIL?duration:mod_tab==1?(value?"Pad colour":"Original"):mod_tab==2?(vivid_row(i)?vivid_names[value]:music_palette_name(value)):speeds[value];
+  const char*name=mod_tab==0?(link_row(i)?link_modes[value]:group_row(i)?link_modes[value]:fxview_row(i)?fxview_names[value]:(value?"Am MOD":"Standard")):field==MUSIC_SETTING_TAIL?duration:mod_tab==1?(value?"Pad colour":"Original"):mod_tab==2?(vivid_row(i)?vivid_names[value]:music_palette_name(value)):speeds[value];
   colour(g,off?0xff606060:0xffffffff);text_aligned(g,label,14,y,190,21,13,0x21);
   int value_width=110;
   if(mod_tab==2&&!vivid_row(i)){
@@ -902,9 +908,9 @@ static void mod_settings_paint(void*g){
   if(current){k1_label=label;snprintf(value_text,sizeof(value_text),"%s",name);k1_value=value_text;}
  }
  colour(g,0xffa0a0a0);
- text_aligned(g,row_disabled(mod_row)?"Off: set Pad lighting to Am MOD (Pads tab)":mod_tab==2?(relation_row(mod_row)||vivid_row(mod_row)?(music_pad_lighting_mode()?(vivid_row(mod_row)?"Washed-out colours: Strong or Max":"Blinks with the pad's own colour"):"Used only with Pad lighting: Am MOD"):music_service_colours_fallback()?"System colours overlap: using defaults":"Shift + B2: edit RGB palette"):mod_tab==1?"Hold STOP and tap a pad to hear its end":mod_tab==3?"Sequence pulses still follow tempo":link_row(mod_row)?"Sample: selected links / playing double pulse":group_row(mod_row)?"Sample: group blinks when selected / flashes when playing":"Standard keeps Piano, Scale and Degrees",12,172,300,13,11,0x21);
+ text_aligned(g,fxview_row(mod_row)?"Mixer effects: Illustrated pictures or Classic traces":row_disabled(mod_row)?"Off: set Pad lighting to Am MOD (Pads tab)":mod_tab==2?(relation_row(mod_row)||vivid_row(mod_row)?(music_pad_lighting_mode()?(vivid_row(mod_row)?"Washed-out colours: Strong or Max":"Blinks with the pad's own colour"):"Used only with Pad lighting: Am MOD"):music_service_colours_fallback()?"System colours overlap: using defaults":"Shift + B2: edit RGB palette"):mod_tab==1?"Hold STOP and tap a pad to hear its end":mod_tab==3?"Sequence pulses still follow tempo":link_row(mod_row)?"Sample: selected links / playing double pulse":group_row(mod_row)?"Sample: group blinks when selected / flashes when playing":"Standard keeps Piano, Scale and Degrees",12,172,300,13,11,0x21);
  colour(g,lighting_save_error?0xffff4040:0xffa0a0a0);
- text_aligned(g,lighting_save_error?"Could not change setting":link_row(mod_row)||group_row(mod_row)?"Saved on this card; applies to all projects":"Saved in the project and as card default",12,185,300,13,11,0x21);
+ text_aligned(g,lighting_save_error?"Could not change setting":link_row(mod_row)||group_row(mod_row)||fxview_row(mod_row)?"Saved on this card; applies to all projects":"Saved in the project and as card default",12,185,300,13,11,0x21);
  /* K1 changes the selected row directly; the encoder selects and edits. */
  colour(g,0xff000000);rect(g,0,198,320,42);
  colour(g,mod_edit?0xffffc247:0xffffffff);text(g,k1_label,4,200,98,12,12);text(g,k1_value,4,214,98,19,16);
