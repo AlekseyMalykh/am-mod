@@ -262,8 +262,8 @@ static void fxv_sidechain(const struct resample_painter*p,const struct fx_stage*
     unsigned source=(unsigned)fx_sidechain_value(0,stage->parameter[0]);
     float threshold=fx_sidechain_value(1,stage->parameter[1]);
     char buf[64];
-    if(source)snprintf(buf,sizeof(buf),"Key Track %c (red)  /  output (amber)  /  threshold (white)",'A'+(int)source-1);
-    else snprintf(buf,sizeof(buf),"Key off  /  output (amber)  /  threshold (white)");
+    if(source)snprintf(buf,sizeof(buf),"Key %c (red)  Out (amber)  Threshold (white)",'A'+(int)source-1);
+    else snprintf(buf,sizeof(buf),"Key off  Out (amber)  Threshold (white)");
     fxv_title(p,buf,FXV_X+4,FXV_Y+1,290);
     fxv_strip(p,FXV_X+4,FXV_Y+14,FXV_W-8,FXV_H-34,0,1,threshold);
     fxv_gr_text(p,m,FXV_X+4,FXV_Y+FXV_H-18,120);

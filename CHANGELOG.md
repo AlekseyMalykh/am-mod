@@ -8,6 +8,15 @@
 - Diagnostic ZIP export, full report copying and a prefilled GitHub issue draft with manual attachment and submission.
 - Bounded log collection skips links and includes only known diagnostic filenames.
 
+## r28e-fx2 — pre-release
+
+- Illustrated mixer effect screens (Mod Settings → Pads → FX view), eight new effects including OptoCat Comp, the Sample compressor pinned on Master FX with a lamp under MSTR.
+- Add Effect category filter on K3, Sidechain Compressor screen with red key and white threshold, Attack on K1 and Key Track on Shift+K1, Chain Bypass on Shift+B2, named Amp Sim cabinets.
+- Solo overrides Mute; double Stop restarts mixer effects.
+- Fixes: Gate and Limiter lines at 100 %, idle and bypassed pictures, Tape needles, empty Shift cells, OptoCat level history and knee display.
+
+[English notes](docs/RELEASE_NOTES-r28e-fx2.md) · [Русский](docs/RELEASE_NOTES-r28e-fx2.ru.md).
+
 ## r28d — release
 
 - Song step numbers, persistent Repeats footer, bounded selection, Clear All confirmation and Shift + B3 Duplicate.

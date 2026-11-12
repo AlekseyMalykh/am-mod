@@ -4,7 +4,7 @@
 
 [English](README.md) · **Русский**
 
-[**Скачать r28d**](https://github.com/AlekseyMalykh/am-mod/releases/tag/r28d) · [**Скачать r27r**](https://github.com/AlekseyMalykh/am-mod/releases/tag/r27r) (предыдущий стабильный релиз) · [Отзывы и помощь](docs/FEEDBACK.ru.md) · [Известные проблемы](docs/KNOWN_ISSUES.ru.md) · [Обсуждения](https://github.com/AlekseyMalykh/am-mod/discussions)
+[**Скачать r28e-fx2**](https://github.com/AlekseyMalykh/am-mod/releases/tag/r28e-fx2) (предрелиз) · [**Скачать r28d**](https://github.com/AlekseyMalykh/am-mod/releases/tag/r28d) (стабильный) · [**Скачать r27r**](https://github.com/AlekseyMalykh/am-mod/releases/tag/r27r) (предыдущий стабильный релиз) · [Отзывы и помощь](docs/FEEDBACK.ru.md) · [Известные проблемы](docs/KNOWN_ISSUES.ru.md) · [Обсуждения](https://github.com/AlekseyMalykh/am-mod/discussions)
 
 Am MOD — мод сообщества для Akai MPC Sample (прошивка **1.3.0.12**), который запускается с
 SD-карты. Поверх штатного приложения он добавляет шаговый секвенсор на пэдах, режим
@@ -20,7 +20,26 @@ SD-карты. Поверх штатного приложения он доба�
 > изменяет копию приложения, которая уже есть на вашем MPC Sample. Используйте на свой
 > риск. См. [NOTICE](NOTICE.md).
 
-## Релиз r28d
+## Предрелиз r28e-fx2: эффекты микшера с картинками
+
+<table>
+<tr>
+<td width="50%"><b>OptoCat Comp</b><br><img src="docs/media/fx/optocat.gif" alt="OptoCat Comp" width="100%"></td>
+<td width="50%"><b>Sidechain Compressor</b><br><img src="docs/media/fx/sidechain.gif" alt="Sidechain Compressor" width="100%"></td>
+</tr>
+<tr>
+<td width="50%"><b>Shimmer Reverb</b><br><img src="docs/media/fx/shimmer-reverb.gif" alt="Shimmer Reverb" width="100%"></td>
+<td width="50%"><b>Tape</b><br><img src="docs/media/fx/tape.gif" alt="Tape" width="100%"></td>
+</tr>
+</table>
+<p align="center"><sub>Кадры отрисованы рисовальщиком мода на тестовом сигнале; проверка на устройстве ещё впереди.</sub></p>
+
+**Новое:** анимированная картинка, зависящая от параметров, для каждого эффекта микшера (Mod Settings → Pads → FX view), восемь новых эффектов, включая OptoCat Comp, компрессор Sample, закреплённый на Master FX, фильтр категорий в Add Effect (K3), понятнее экран Sidechain (Attack на K1, Key на Shift+K1), Chain Bypass на Shift+B2, названия кабинетов Amp Sim, **Solo главнее Mute** и **двойной Stop, который перезапускает эффекты микшера** (останавливает ушедший в нарастание Tape Delay).
+**Исправлено:** линии порога на 100 % у Gate и Limiter, картинки без сигнала и в bypass, стрелки Tape, пустые ячейки Shift, история уровня OptoCat.
+
+Перед обновлением сделайте резервную копию проектов и сэмплов; проекты с новыми эффектами не открываются в старых версиях. [Изменения, установка и как пользоваться](docs/RELEASE_NOTES-r28e-fx2.ru.md)
+
+## Стабильный релиз r28d
 
 r28d объединяет микшер, эффекты, стемы, Screen Mirror и RGB-палитру с исправлениями Song, групповых уровней, Pad Lock, сбросов параметров, подсветки и ресемплинга. EQ поддерживает четыре точки с подтверждением удаления. В Song появились постоянная панель Repeats, номера шагов и Clear All. Дизайн продолжает дорабатываться.
 

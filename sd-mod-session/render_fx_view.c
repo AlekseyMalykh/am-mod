@@ -44,7 +44,23 @@ int main(int argc,char**argv)
         m.output_peak=(float)(.7*(ph<.08?.25:fmin(1.0,.25+ph*1.1)));m.gain_reduction_db=(float)(14*(ph<.08?1:fmax(0,1-ph*1.4))*duck);
         mixer_view_paint(&s,&p);}
     if(getenv("IDLE")){s.now_ms+=2000;m.input_peak=m.output_peak=m.key_peak=0;m.gain_reduction_db=0;mixer_view_paint(&s,&p);s.now_ms+=40;mixer_view_paint(&s,&p);}
-    fclose(out);out=fopen(argv[3],"w");assert(out);
+    fclose(out);
+    if(getenv("ANIM")){ /* ANIM=N: write N frames argv[3]_000.txt.. at 80 ms steps, same kick-driven signal */
+        unsigned n=(unsigned)atoi(getenv("ANIM"));
+        for(unsigned f=0;f<n;++f){
+            out=fopen("/dev/null","w");
+            for(unsigned step=0;step<2;++step){unsigned k=150+f*2+step;
+                double ph=fmod(k*.04*2.0,1.0);double duck=ph<.08?1:fmax(0.15,1-ph*1.1);
+                s.now_ms=1000+k*40;m.input_peak=.7f;m.key_peak=ph<.1?.9f:.05f;
+                m.output_peak=(float)(.7*(ph<.08?.25:fmin(1.0,.25+ph*1.1)));m.gain_reduction_db=(float)(14*(ph<.08?1:fmax(0,1-ph*1.4))*duck);
+                mixer_view_paint(&s,&p);}
+            fclose(out);
+            char name[512];snprintf(name,sizeof(name),"%s_%03u.txt",argv[3],f);out=fopen(name,"w");assert(out);
+            mixer_view_paint(&s,&p);fclose(out);
+        }
+        return 0;
+    }
+    out=fopen(argv[3],"w");assert(out);
     mixer_view_paint(&s,&p);fclose(out);
     return 0;
 }
