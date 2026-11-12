@@ -250,11 +250,138 @@ static void fxv_sidechain(const struct resample_painter*p,const struct fx_stage*
     snprintf(buf,sizeof(buf),"Threshold %.1f dB",threshold);
     text(p,buf,FXV_X+FXV_W-134,FXV_Y+FXV_H-18,130,12,10,WHITE,0);
 }
+
+/* ---- Delay and reverb: animated from the paint clock; parameters drive the picture. ---- */
+static uint64_t fxv_now;
+#define CYAN 0xff40c8e0u
+static float fxv_p(const struct fx_stage*stage,unsigned i){return fmaxf(0.f,fminf(1.f,stage->parameter[i]));}
+static void fxv_disc(const struct resample_painter*p,int cx,int cy,int r,uint32_t c)
+{
+    for(int y=-r;y<=r;++y){int w=(int)lround(sqrt((double)(r*r-y*y)));rect(p,cx-w,cy+y,2*w+1,1,c);}
+}
+static void fxv_params_text(const struct resample_painter*p,const char*s,int right)
+{
+    text(p,s,right?FXV_X+FXV_W-200:FXV_X+4,FXV_Y+FXV_H-18,right?196:290,12,10,WHITE,0);
+}
+static void fxv_delay(const struct resample_painter*p,const struct fx_stage*stage)
+{
+    rect(p,FXV_X,FXV_Y,FXV_W,FXV_H,PANEL);
+    float fb=fxv_p(stage,3);int spacing=16+(int)lround(56*fxv_p(stage,0));
+    for(int lane=0;lane<2;++lane){
+        int base=FXV_Y+14+lane*36+32;uint32_t col=lane?CYAN:AMBER;
+        rect(p,FXV_X+4,base,FXV_W-8,1,DARK);
+        for(int k=0;k<9;++k){
+            int x=FXV_X+10+k*spacing+lane*spacing/2;if(x>FXV_X+FXV_W-14)break;
+            double amp=pow(fb,k);int h=(int)lround(30*amp);if(h<1)h=1;
+            rect(p,x,base-h,7,h,k?0xff5a4419u:col);rect(p,x,base-h,7,2,col);
+        }
+    }
+    int span=FXV_W-20;int px=FXV_X+10+(int)((fxv_now/16)%(uint64_t)span);
+    rect(p,px,FXV_Y+10,1,FXV_H-30,WHITE);
+    char b[48];snprintf(b,sizeof(b),"Time %.0f%%  Feedback %.0f%%  Mix %.0f%%",fxv_p(stage,0)*100,fb*100,fxv_p(stage,9)*100);
+    fxv_params_text(p,b,0);
+}
+static void fxv_diff_delay(const struct resample_painter*p,const struct fx_stage*stage)
+{
+    rect(p,FXV_X,FXV_Y,FXV_W,FXV_H,PANEL);
+    int base=FXV_Y+FXV_H-22;float fb=fxv_p(stage,2),dif=fxv_p(stage,4);int spread=60+(int)lround(200*fxv_p(stage,1));
+    rect(p,FXV_X+4,base,FXV_W-8,1,DARK);
+    rect(p,FXV_X+12,base-62,4,62,AMBER);
+    unsigned seed=12345;int n=14+(int)lround(46*dif);
+    int sweep=(int)((fxv_now/10)%(uint64_t)(spread+40));
+    for(int i=0;i<n;++i){
+        seed=seed*1664525u+1013904223u;double u=pow((seed>>8&0xffff)/65535.0,.8);
+        int x=FXV_X+22+(int)lround(u*spread);if(x-FXV_X-22>sweep)continue;
+        seed=seed*1664525u+1013904223u;double r=(seed>>8&0xffff)/65535.0;
+        double amp=pow(1-u,2.4-fb*1.6)*(.35+.65*r);int h=(int)lround(58*amp);if(h<2)h=2;
+        rect(p,x,base-h,3,h,amp>.5?AMBER:0xff7a5f22u);
+    }
+    rect(p,FXV_X+22+(sweep<spread?sweep:spread),FXV_Y+8,1,FXV_H-30,WHITE);
+    char b[48];snprintf(b,sizeof(b),"Delay %.0f%%  Diffusion %.0f%%  Feedback %.0f%%",fxv_p(stage,1)*100,dif*100,fb*100);
+    fxv_params_text(p,b,0);
+}
+static void fxv_tape_delay(const struct resample_painter*p,const struct fx_stage*stage)
+{
+    rect(p,FXV_X,FXV_Y,FXV_W,FXV_H,0xff1c2026u);
+    rect(p,FXV_X+40,FXV_Y+4,FXV_W-80,FXV_H-24,0xff2b3037u);
+    rect(p,FXV_X+52,FXV_Y+8,FXV_W-104,14,0xffe8dcb8u);
+    text(p,"AM MOD  TAPE ECHO",FXV_X+56,FXV_Y+9,FXV_W-112,12,9,0xff2b2b2bu,0);
+    int cy=FXV_Y+46;
+    double wow=fxv_p(stage,6),speed=.0022+.0045*fxv_p(stage,8);
+    for(int side=0;side<2;++side){
+        int cx=FXV_X+(side?FXV_W-92:92);
+        fxv_disc(p,cx,cy,22,0xff0c0e10u);fxv_disc(p,cx,cy,17,0xff3a2c1eu);fxv_disc(p,cx,cy,9,0xffc8ccd4u);fxv_disc(p,cx,cy,3,0xff1c2026u);
+        double ang=fxv_now*speed*(1+.12*wow*sin(fxv_now*.01))+side;
+        for(int k=0;k<3;++k){double a=ang+k*2.0943951;
+            for(int rr=3;rr<=16;rr+=3)rect(p,cx+(int)lround(cos(a)*rr)-1,cy+(int)lround(sin(a)*rr)-1,3,3,0xffc8ccd4u);}
+    }
+    rect(p,FXV_X+92,cy+22,FXV_W-184,2,0xff6a4a30u);
+    for(int i=0;i<3;++i)rect(p,FXV_X+FXV_W/2-22+i*16,cy+16,10,14,0xff80858cu);
+    char b[48];snprintf(b,sizeof(b),"Time %.0f%%  Feedback %.0f%%  Tone %.0f%%",fxv_p(stage,8)*100,fxv_p(stage,4)*100,fxv_p(stage,14)*100);
+    fxv_params_text(p,b,0);
+}
+static void fxv_sample_delay(const struct resample_painter*p,const struct fx_stage*stage)
+{
+    rect(p,FXV_X,FXV_Y,FXV_W,FXV_H,WELL);
+    int shift[2]={(int)lround(40*fxv_p(stage,0)),(int)lround(40*fxv_p(stage,1))};
+    for(int lane=0;lane<2;++lane){
+        int cy=FXV_Y+24+lane*30;uint32_t col=lane?CYAN:AMBER;int prev=cy;
+        rect(p,FXV_X+4,cy,FXV_W-8,1,DARK);
+        for(int x=0;x<FXV_W-60;x+=2){
+            double ph=(x-shift[lane])*.09+fxv_now*.003;
+            int y=cy-(int)lround(11*sin(ph));
+            rect(p,FXV_X+20+x,y<prev?y:prev,2,abs(y-prev)+2,col);prev=y;
+        }
+        text(p,lane?"R":"L",FXV_X+6,cy-6,12,12,10,col,0);
+    }
+    rect(p,FXV_X+20+shift[0],FXV_Y+60,abs(shift[1]-shift[0])+1,1,WHITE);
+    char b[48];snprintf(b,sizeof(b),"Left %.0f%%  Right %.0f%%%s",fxv_p(stage,0)*100,fxv_p(stage,1)*100,fxv_p(stage,2)>.5f?"  Linked":"");
+    fxv_params_text(p,b,0);
+}
+static void fxv_reverb(const struct resample_painter*p,const struct fx_stage*stage,unsigned time_i,unsigned size_i,unsigned mix_i)
+{
+    rect(p,FXV_X,FXV_Y,FXV_W,FXV_H,WELL);
+    int cx=FXV_X+FXV_W/2,cy=FXV_Y+40;
+    double time=fxv_p(stage,time_i),size=size_i==99?1.0:.4+.6*fxv_p(stage,size_i);
+    double cycle=3200+4000*time;
+    for(int k=0;k<6;++k){
+        double age=fmod(fxv_now/cycle+k/6.0,1.0),sc=(.06+.94*age)*size;
+        int hw=(int)lround(130*sc),hh=(int)lround(34*sc);
+        uint32_t c=0xff000000u|(((unsigned)lround(0x71*(1-age)+8*age)&255)<<16)|(((unsigned)lround(0xc1*(1-age)+13*age)&255)<<8)|((unsigned)lround(0xe8*(1-age)+18*age)&255);
+        rect(p,cx-hw,cy-hh,2*hw+1,1,c);rect(p,cx-hw,cy+hh,2*hw+1,1,c);
+        rect(p,cx-hw,cy-hh,1,2*hh+1,c);rect(p,cx+hw,cy-hh,1,2*hh+1,c);
+    }
+    fxv_disc(p,cx,cy,4,AMBER);
+    rect(p,FXV_X+4,FXV_Y+FXV_H-26,FXV_W-8,4,DARK);
+    rect(p,FXV_X+4,FXV_Y+FXV_H-26,(int)lround((FXV_W-8)*time),4,AMBER);
+    char b[48];snprintf(b,sizeof(b),"Time %.0f%%  Mix %.0f%%",time*100,fxv_p(stage,mix_i)*100);
+    fxv_params_text(p,b,0);
+}
+static void fxv_spring(const struct resample_painter*p,const struct fx_stage*stage)
+{
+    rect(p,FXV_X,FXV_Y,FXV_W,FXV_H,0xff15181cu);
+    rect(p,FXV_X+8,FXV_Y+8,6,58,0xff6a4a30u);rect(p,FXV_X+FXV_W-14,FXV_Y+8,6,58,0xff6a4a30u);
+    double time=fxv_p(stage,1);int width=FXV_W-44;
+    int pulse=(int)((fxv_now/(6+(int)(14*time)))%(uint64_t)(width+40))-20;
+    for(int row=0;row<2;++row){
+        int cy=FXV_Y+24+row*30,prev=cy;
+        for(int x=0;x<width;x+=2){
+            double tri=fabs(fmod(x/14.0+row*.5,1.0)*2-1)*2-1;
+            double gain=1.0+.9*exp(-pow((x-pulse)/22.0,2.0));
+            int y=cy+(int)lround(7*gain*tri);
+            rect(p,FXV_X+22+x,y<prev?y:prev,2,abs(y-prev)+2,0xffc2c8d0u);prev=y;
+        }
+    }
+    text(p,"IN",FXV_X+6,FXV_Y+FXV_H-34,24,11,9,GREY,0);text(p,"OUT",FXV_X+FXV_W-30,FXV_Y+FXV_H-34,26,11,9,GREY,0);
+    char b[48];snprintf(b,sizeof(b),"Pre %.0f%%  Time %.0f%%  Mix %.0f%%",fxv_p(stage,0)*100,time*100,fxv_p(stage,5)*100);
+    fxv_params_text(p,b,0);
+}
 static int fx_visual_paint(const struct resample_painter*p,const struct fx_catalog_entry*e,
                            const struct fx_stage*stage,const struct mixer_fx_monitor*m,double rate,
                            uint32_t identity,uint64_t now_ms)
 {
     if(!e||!stage)return 0;
+    fxv_now=now_ms;
     if(stage->kind==FX_STAGE_SIDECHAIN){fxv_history_push(identity,now_ms,m);fxv_sidechain(p,stage,m);return 1;}
     if(stage->kind!=FX_STAGE_NATIVE)return 0;
     switch(e->id){
@@ -266,6 +393,12 @@ static int fx_visual_paint(const struct resample_painter*p,const struct fx_catal
     case 0x61465075:fxv_history_push(identity,now_ms,m);fxv_pumper(p,stage,m);return 1;    /* Pumper */
     case 0x61465472:fxv_history_push(identity,now_ms,m);fxv_transient(p,stage,m);return 1; /* Transient */
     case 0x61464e47:fxv_history_push(identity,now_ms,m);fxv_gate(p,stage,m);return 1;      /* Noise Gate */
+    case 0x6146446c:fxv_delay(p,stage);return 1;        /* Delay */
+    case 0x61464444:fxv_diff_delay(p,stage);return 1;   /* Diff Delay */
+    case 0x41435658:fxv_tape_delay(p,stage);return 1;   /* Tape Delay */
+    case 0x534d444c:fxv_sample_delay(p,stage);return 1; /* Sample Delay */
+    case 0x61465276:fxv_reverb(p,stage,4,3,8);return 1; /* Reverb */
+    case 0x61465370:fxv_spring(p,stage);return 1;       /* Spring Reverb */
     default:return 0;
     }
 }
