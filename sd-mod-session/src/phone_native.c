@@ -385,6 +385,8 @@ static int on_ui(void) { return ui_known && pthread_equal(ui_thread, pthread_sel
  * producer carries a binding number and retains ownership until release. */
 enum { MIXER_READY = 1, MIXER_OPEN = 2 };
 static struct mixer_session *mixer_ui_session;
+/* Set by the button hook on a double Stop; the UI owner forwards it to the session. */
+static _Atomic unsigned mixer_flush_request;
 static struct mixer_entry mixer_entry;
 static uint64_t mixer_binding;
 static _Atomic uint64_t mixer_route, mixer_pending;
@@ -519,6 +521,7 @@ static int mixer_bank_lights_install(void)
 
 static void mixer_publish_route(void)
 {
+    if (atomic_exchange(&mixer_flush_request, 0) && mixer_ui_session) mixer_session_flush_fx(mixer_ui_session);
     struct mixer_control *control = mixer_session_control(mixer_ui_session);
     {
         static unsigned last = ~0u, lines;
@@ -2167,6 +2170,12 @@ static void buttons(void *event)
         atomic_store(&step_confirm_forwarded,0);
     }
     if(native_code==0x51)atomic_store(&stop_requested,native_down);
+#ifdef MPC_MIXER_LIVE
+    /* Stock double Stop = all sounds off: also restart the Mixer's FX (feedback loops, tails). */
+    if(native_code==0x51&&native_down){static uint64_t last_stop_ms;uint64_t now=now_ms();
+        if(last_stop_ms&&now-last_stop_ms<1200)atomic_store(&mixer_flush_request,1);
+        last_stop_ms=now;}
+#endif
     if(native_code==0x51&&native_down){pthread_mutex_lock(&stop_template_mutex);memcpy(stop_template,event,16);stop_template_ready=1;pthread_mutex_unlock(&stop_template_mutex);}
 #ifdef MPC_KNOB_RESET
     knob_reset_button(native_code,native_down);

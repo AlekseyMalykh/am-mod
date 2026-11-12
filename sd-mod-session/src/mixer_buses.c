@@ -9,6 +9,7 @@
 
 struct mixer_bus_update {
     uint64_t revision;
+    unsigned flush; /* rebuild every FX program in place (double Stop), same revision */
     double rate;
     unsigned char output[MIXER_PADS];
     unsigned solo;
@@ -124,7 +125,7 @@ static void accept_update(struct mixer_buses*b)
     if(u)for(unsigned i=0;i<9;++i)if(!same_fx(b->config+i,u->config+i)&&!u->fx[i])return;
     u=atomic_exchange_explicit(&b->pending,NULL,memory_order_acquire);
     if(!u)return;
-    if(u->revision>b->target_revision){
+    if(u->flush||u->revision>b->target_revision){
         memcpy(b->previous_output,b->output,sizeof(b->output));memcpy(b->output,u->output,sizeof(b->output));
         memcpy(b->previous_gain,b->gain,sizeof(b->gain));memcpy(b->gain,u->gain,sizeof(b->gain));
         for(unsigned i=0;i<MIXER_TRACKS;++i)
@@ -134,10 +135,10 @@ static void accept_update(struct mixer_buses*b)
         memcpy(b->order,u->order,sizeof(b->order));
         memcpy(b->previous_output_gate,b->output_gate,sizeof(b->output_gate));
         memcpy(b->output_gate,u->output_gate,sizeof(b->output_gate));
-        b->previous_solo=b->solo;b->solo=u->solo;b->target_revision=u->revision;
+        b->previous_solo=b->solo;b->solo=u->solo;if(!u->flush)b->target_revision=u->revision;
         b->ramp_position=0;b->ramp_total=(unsigned)(b->rate*.005);if(!b->ramp_total)b->ramp_total=1;
         b->transition=1;
-        for(unsigned i=0;i<9;++i)if(!same_fx(b->config+i,u->config+i)){
+        for(unsigned i=0;i<9;++i)if((u->flush&&u->fx[i])||!same_fx(b->config+i,u->config+i)){
             /* All slots were checked before consuming the packet. Only this
              * audio owner publishes here, so the nine-slot commit cannot fail. */
             if(fx_exchange_publish(b->fx[i],u->fx[i])==FX_OK)u->fx[i]=NULL;
@@ -394,13 +395,14 @@ fail:mixer_buses_update_destroy(u);return NULL;
 struct mixer_bus_update*mixer_buses_update_prepare(const struct mixer_project*p,uint64_t part,double rate,
     uint64_t revision,const struct fx_backend*backend,enum mixer_bus_result*error)
 {return mixer_buses_update_prepare_delta(p,part,rate,revision,backend,NULL,error);}
+void mixer_buses_update_flush(struct mixer_bus_update*u){if(u)u->flush=1;}
 void mixer_buses_update_destroy(struct mixer_bus_update*u)
 {
     if(u){for(unsigned i=0;i<9;++i)fx_program_destroy(u->fx[i]);free(u);}
 }
 enum mixer_bus_result mixer_buses_publish(struct mixer_buses*b,struct mixer_bus_update*u)
 {
-    if(!b||!u||u->rate!=b->rate||u->revision<=atomic_load_explicit(&b->applied_revision,memory_order_acquire))return MIXER_BUS_INVALID;
+    if(!b||!u||u->rate!=b->rate||(!u->flush&&u->revision<=atomic_load_explicit(&b->applied_revision,memory_order_acquire)))return MIXER_BUS_INVALID;
     struct mixer_bus_update*expected=NULL;
     return atomic_compare_exchange_strong_explicit(&b->pending,&expected,u,memory_order_release,memory_order_relaxed)?MIXER_BUS_OK:MIXER_BUS_STATE;
 }

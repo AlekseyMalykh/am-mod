@@ -17,6 +17,7 @@ struct mixer_session {
     const char *error=nullptr;
     int(*healthy)(void*)=nullptr;void *health_user=nullptr;
     bool queued=false,published=false;
+    std::atomic<bool> flush{false};
     std::atomic<int> status{0};
     uint64_t last_complete_ms=0; /* UI tick only */
 };
@@ -41,6 +42,7 @@ extern "C" mixer_session*mixer_session_create(uint64_t epoch,uint64_t part,doubl
 extern "C" mixer_control*mixer_session_control(mixer_session*s){return s?s->control:nullptr;}
 extern "C" void mixer_session_health(mixer_session*s,int(*healthy)(void*),void*user)
 {if(s){s->healthy=healthy;s->health_user=user;}}
+extern "C" void mixer_session_flush_fx(mixer_session*s){if(s)s->flush.store(true,std::memory_order_release);}
 extern "C" mixer_live*mixer_session_live(mixer_session*s){return s?s->live:nullptr;}
 extern "C" int mixer_session_status(const mixer_session*s){return s?s->status.load(std::memory_order_acquire):-2;}
 extern "C" void mixer_session_owner_tick(mixer_session*s)
@@ -55,6 +57,11 @@ extern "C" void mixer_session_owner_tick(mixer_session*s)
         if(s->healthy&&!s->healthy(s->health_user)){s->status.store(-2,std::memory_order_release);return;}
         if(mixer_archive_replace(&s->inflight,s->expected)!=MIXER_EDIT_OK){s->status.store(-1,std::memory_order_release);return;}
         s->confirmed=s->inflight;s->revision=s->target;s->published=false;
+    }
+    if(s->flush.load(std::memory_order_acquire)&&!s->queued&&!s->published){
+        /* Double Stop: restart every FX program (feedback loops, tails) from silence. */
+        enum mixer_bus_result r=mixer_live_flush_fx(s->live,&s->confirmed,s->part);
+        if(r!=MIXER_BUS_STATE)s->flush.store(false,std::memory_order_release);
     }
     if(!s->queued||s->published)return;
     if(s->expected!=s->revision){s->status.store(-1,std::memory_order_release);return;}

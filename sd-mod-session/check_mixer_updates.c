@@ -72,6 +72,21 @@ static void effects(void)
     mixer_buses_collect(b);mixer_buses_destroy(b);assert(created==destroyed);
     puts("PASS unchanged FX retain history across mix edits; changed FX crossfade from the same input, with all processor destruction off audio");
 }
+static void flush_fx(void)
+{
+    mixer_defaults(&p);p.output[0]=1;p.track[0].fx.count=1;p.track[0].fx.stage[0].kind=FX_STAGE_NATIVE;p.track[0].fx.stage[0].native_id=1;
+    struct fx_backend backend={NULL,create,destroy,process};enum mixer_bus_result error;
+    unsigned before=created;
+    struct mixer_buses*b=mixer_buses_prepare(&p,0,8000,64,&backend,&error);assert(b);
+    block(b,40);block(b,40);close_to(sample(b,0,39),.27f); /* state has built up: second call */
+    struct mixer_bus_update*u=mixer_buses_update_prepare_delta(&p,0,8000,1,&backend,NULL,&error);assert(u&&error==MIXER_BUS_OK);
+    mixer_buses_update_flush(u);assert(mixer_buses_publish(b,u)==MIXER_BUS_OK);
+    block(b,40);block(b,40);mixer_buses_collect(b);
+    close_to(sample(b,0,39),.27f);                   /* same two-call history again: the program restarted from scratch */
+    assert(created==before+2);                         /* exactly one new processor was built */
+    mixer_buses_collect(b);mixer_buses_destroy(b);assert(created==destroyed);
+    puts("PASS double-Stop flush rebuilds FX programs at the same revision, off the audio thread, restarting their state");
+}
 static struct mixer_buses*shared;
 static _Atomic unsigned finished;
 static void*producer(void*unused)
@@ -90,4 +105,4 @@ static void concurrent(void)
     assert(!pthread_join(thread,NULL)&&mixer_buses_applied_revision(shared)==100);mixer_buses_destroy(shared);
     puts("PASS concurrent control/audio publication, coherent complete snapshots and bounded processing without RT allocation/free");
 }
-int main(void){for(unsigned i=0;i<64;++i)input[i]=.25f;ramps();effects();concurrent();return 0;}
+int main(void){for(unsigned i=0;i<64;++i)input[i]=.25f;ramps();effects();flush_fx();concurrent();return 0;}
