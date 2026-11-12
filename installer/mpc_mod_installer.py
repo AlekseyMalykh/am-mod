@@ -38,12 +38,15 @@ import subprocess
 import sys
 import tempfile
 import threading
+import urllib.parse
 import urllib.request
+import webbrowser
 import zipfile
 from pathlib import Path, PurePosixPath
 
-__version__ = "1.0.3"
+__version__ = "1.1.0"
 REPO = "AlekseyMalykh/am-mod"
+GITHUB_URL = f"https://github.com/{REPO}"
 VERSION_FILE = "MPC_MOD_VERSION.json"
 AUTORUN = "autorun"
 # Files that make the MPC run the package. They are written last, so an
@@ -92,6 +95,7 @@ class Package:
         if bad:
             raise InstallError(f"{name} is damaged (first bad entry: {bad}).")
         self.files: dict[str, bytes] = {}
+        self.notes = ""
         for info in zf.infolist():
             if info.is_dir():
                 continue
@@ -100,6 +104,9 @@ class Package:
                 raise InstallError(f"Unsafe path in package: {info.filename}")
             if len(p.parts) == 2 and p.parts[0] == AUTORUN:
                 self.files[p.parts[1]] = zf.read(info)
+            elif info.filename in ("README.ru.md", "README.md"):
+                if info.file_size <= 262144 and (info.filename == "README.ru.md" or not self.notes):
+                    self.notes = zf.read(info).decode("utf-8", "replace")
             elif p.parts[0] == AUTORUN:
                 raise InstallError(f"Unexpected nested file in autorun/: {info.filename}")
         missing = REQUIRED - set(self.files)
@@ -138,22 +145,107 @@ class Package:
         return sorted(self.files, key=lambda n: (rank.get(n, -1), n))
 
 
-def latest_release(log=print) -> Package:
-    """Download the newest am-mod-*.zip asset from GitHub Releases."""
-    url = f"https://api.github.com/repos/{REPO}/releases/latest"
-    req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json",
-                                               "User-Agent": "am-mod-installer"})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        rel = json.load(r)
-    assets = [a for a in rel.get("assets", []) if a["name"].startswith(("am-mod-", "mpc-sample-")) and a["name"].endswith(".zip")]
+def release_info(tag: str = "latest") -> dict:
+    """Fetch notes without downloading a package."""
+    endpoint = "latest" if tag == "latest" else "tags/" + urllib.parse.quote(tag, safe="")
+    req = urllib.request.Request(f"https://api.github.com/repos/{REPO}/releases/{endpoint}",
+                                 headers={"Accept": "application/vnd.github+json",
+                                          "User-Agent": "am-mod-installer"})
+    with urllib.request.urlopen(req, timeout=30) as response:
+        return json.load(response)
+
+
+def download_release(rel: dict, log=print) -> Package:
+    assets = [a for a in rel.get("assets", [])
+              if a["name"].startswith(("am-mod-", "mpc-sample-")) and a["name"].endswith(".zip")]
     if not assets:
         raise InstallError(f"Release {rel.get('tag_name')} has no am-mod-*.zip asset.")
-    a = assets[0]
-    log(f"Downloading {a['name']} ({a['size'] // 1024} KB) from release {rel.get('tag_name')}...")
-    req = urllib.request.Request(a["browser_download_url"], headers={"User-Agent": "am-mod-installer"})
-    with urllib.request.urlopen(req, timeout=120) as r:
-        data = r.read(MAX_PACKAGE + 1)
-    return Package(data, a["name"])
+    asset = assets[0]
+    log(f"Downloading {asset['name']} ({asset['size'] // 1024} KB) from release {rel.get('tag_name')}...")
+    req = urllib.request.Request(asset["browser_download_url"], headers={"User-Agent": "am-mod-installer"})
+    with urllib.request.urlopen(req, timeout=120) as response:
+        data = response.read(MAX_PACKAGE + 1)
+    return Package(data, asset["name"])
+
+
+def latest_release(log=print) -> Package:
+    """Download the latest stable mod package."""
+    return download_release(release_info(), log)
+
+
+# Only launcher diagnostics and installer metadata are collected.
+DIAGNOSTIC_FILES = (
+    VERSION_FILE,
+    "autorun/MPC_MOD_EVENTS.txt",
+    "autorun/MPC_CLONE_TRIAL.txt",
+    "autorun/MPC_CLONE_ALREADY_ATTEMPTED.txt",
+)
+MAX_LOG = 2 << 20
+
+
+def diagnostic_files(card: Card | None) -> tuple[dict[str, bytes], list[str]]:
+    files, warnings = {}, []
+    if card is None:
+        return files, ["No SD card selected. Only the report and installer log will be included."]
+    root = card.root.resolve()
+    for name in DIAGNOSTIC_FILES:
+        path = root / name
+        try:
+            if path.is_symlink() or path.parent.is_symlink():
+                warnings.append(f"Skipped link: {name}")
+                continue
+            if not path.exists():
+                continue
+            if not path.is_file() or root not in path.resolve().parents:
+                warnings.append(f"Skipped non-regular file: {name}")
+                continue
+            with path.open("rb") as source:
+                size = os.fstat(source.fileno()).st_size
+                source.seek(max(0, size - MAX_LOG))
+                data = source.read(MAX_LOG)
+            if size > MAX_LOG:
+                data = b"[Earlier log content omitted; last 2 MiB follow]\n" + data
+            files["sd/" + name] = data
+        except OSError as error:
+            warnings.append(f"Could not read {name}: {error.strerror or type(error).__name__}")
+    if not any(name.endswith(".txt") for name in files):
+        warnings.append("No MPC journals found. Reproduce the problem on the MPC, then reconnect its SD card.")
+    return files, warnings
+
+
+def bug_report(title: str, steps: str, expected: str, actual: str,
+               card: Card | None, revision: str) -> str:
+    return (f"# {title.strip()}\n\n"
+            f"Mod: {revision}\nFirmware: 1.3.0.12 (installer target; confirm on the MPC)\n"
+            f"Installer: {__version__} / {platform.system()} {platform.release()}\n"
+            f"SD filesystem: {card.fs if card else 'not selected'}\n\n"
+            f"## Steps to reproduce\n{steps.strip()}\n\n"
+            f"## Expected behaviour\n{expected.strip()}\n\n"
+            f"## Actual behaviour\n{actual.strip()}\n")
+
+
+def issue_url(title: str, report: str) -> str:
+    # Keep the URL short enough for browser/OS handoff. Full text is in report.md.
+    suffix = "\n\nFull report: report.md in the diagnostic ZIP. Review and attach the ZIP before submitting."
+    title = "[Bug] " + title.strip()[:80]
+    body = report[:1000]
+    while True:
+        url = GITHUB_URL + "/issues/new?" + urllib.parse.urlencode({"title": title, "body": body + suffix})
+        if len(url) <= 1900:
+            return url
+        body = body[:-100]
+
+
+
+def save_diagnostics(destination: Path, report: str, files: dict[str, bytes],
+                     installer_log: str, warnings: list[str]) -> None:
+    """Write a local reviewable ZIP. Opening/submitting GitHub is a separate step."""
+    with zipfile.ZipFile(destination, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("report.md", report)
+        archive.writestr("installer.log", installer_log[-262144:])
+        archive.writestr("collection.txt", "\n".join(warnings) or "All available diagnostic files collected.")
+        for name, data in files.items():
+            archive.writestr(name, data)
 
 
 # --------------------------------------------------------------------------
@@ -479,8 +571,8 @@ def gui() -> None:
 
     win = tk.Tk()
     win.title(f"AM Mod installer {__version__}")
-    win.minsize(640, 420)
-    state = {"pkg": None, "cards": []}
+    win.minsize(800, 600)
+    state = {"pkg": None, "cards": [], "release": None}
     frm = ttk.Frame(win, padding=12)
     frm.pack(fill="both", expand=True)
     frm.columnconfigure(1, weight=1)
@@ -496,12 +588,52 @@ def gui() -> None:
     combo = ttk.Combobox(frm, textvariable=card_var, state="readonly")
     combo.grid(row=1, column=1, sticky="ew", padx=6, pady=(10, 0))
 
-    out = tk.Text(frm, height=14, wrap="word")
-    out.grid(row=3, column=0, columnspan=3, sticky="nsew", pady=10)
+    links = ttk.Frame(frm)
+    links.grid(row=2, column=0, columnspan=3, sticky="w", pady=(10, 0))
+    ttk.Button(links, text="GitHub", command=lambda: webbrowser.open(GITHUB_URL)).pack(side="left")
+    ttk.Button(links, text="All releases", command=lambda: webbrowser.open(GITHUB_URL + "/releases")).pack(side="left", padx=6)
+
+    tabs = ttk.Notebook(frm)
+    tabs.grid(row=3, column=0, columnspan=3, sticky="nsew", pady=10)
     frm.rowconfigure(3, weight=1)
+    install_tab = ttk.Frame(tabs)
+    news_tab = ttk.Frame(tabs)
+    tabs.add(install_tab, text="Installation log")
+    tabs.add(news_tab, text="Release news")
+    install_tab.rowconfigure(0, weight=1)
+    install_tab.columnconfigure(0, weight=1)
+    out = tk.Text(install_tab, height=12, wrap="word", state="disabled")
+    out.grid(row=0, column=0, sticky="nsew")
+    scroll = ttk.Scrollbar(install_tab, command=out.yview)
+    scroll.grid(row=0, column=1, sticky="ns")
+    out.configure(yscrollcommand=scroll.set)
+    news_tab.rowconfigure(1, weight=1)
+    news_tab.columnconfigure(0, weight=1)
+    news_title = tk.StringVar(value="Latest release notes")
+    ttk.Label(news_tab, textvariable=news_title).grid(row=0, column=0, sticky="w", pady=6)
+    notes = tk.Text(news_tab, height=12, wrap="word", state="disabled")
+    notes.grid(row=1, column=0, sticky="nsew")
+    news_scroll = ttk.Scrollbar(news_tab, command=notes.yview)
+    news_scroll.grid(row=1, column=1, sticky="ns")
+    notes.configure(yscrollcommand=news_scroll.set)
+    news_buttons = ttk.Frame(news_tab)
+    news_buttons.grid(row=2, column=0, columnspan=2, sticky="w", pady=6)
+
+    def show_notes(title: str, body: str) -> None:
+        news_title.set(title)
+        notes.configure(state="normal")
+        notes.delete("1.0", "end")
+        notes.insert("1.0", body or "No release notes available. Open All releases on GitHub.")
+        notes.configure(state="disabled")
+
+    def append_log(msg: str) -> None:
+        out.configure(state="normal")
+        out.insert("end", msg + "\n")
+        out.see("end")
+        out.configure(state="disabled")
 
     def log(msg: str) -> None:
-        win.after(0, lambda: (out.insert("end", msg + "\n"), out.see("end")))
+        win.after(0, lambda: append_log(msg))
 
     def refresh() -> None:
         state["cards"] = list_cards()
@@ -516,6 +648,8 @@ def gui() -> None:
         state["pkg"] = p
         pkg_var.set(f"{p.name}  ({p.revision})")
         log(f"Package OK: {p.name}, revision {p.revision}.")
+        show_notes(f"Selected package: {p.revision}", p.notes)
+        tabs.select(news_tab)
 
     def pick() -> None:
         f = filedialog.askopenfilename(title="Mod package", filetypes=[("Zip", "*.zip")])
@@ -529,7 +663,7 @@ def gui() -> None:
         def worker():
             try:
                 fn()
-            except (InstallError, OSError) as e:
+            except (InstallError, OSError, ValueError) as e:
                 error = str(e)
                 log(f"ERROR: {error}")
                 win.after(0, lambda message=error: messagebox.showerror("AM Mod", message))
@@ -537,6 +671,44 @@ def gui() -> None:
 
     def latest() -> None:
         run(lambda: (lambda p: win.after(0, lambda: set_pkg(p)))(latest_release(log)))
+
+    def refresh_news() -> None:
+        news_refresh.configure(state="disabled")
+
+        def fetch() -> None:
+            try:
+                release = release_info()
+            except (OSError, ValueError) as error:
+                message = str(error)
+                def failed():
+                    news_refresh.configure(state="normal")
+                    log("Release news unavailable: " + message)
+                    if not state["pkg"]:
+                        show_notes("Release news unavailable",
+                                   "Check your connection, or open All releases in a browser.\n"
+                                   "Notes from a local ZIP are available after selecting it.")
+                win.after(0, failed)
+                return
+
+            def ready():
+                state["release"] = release
+                news_refresh.configure(state="normal")
+                news_download.configure(state="normal")
+                show_notes(f"Latest release: {release.get('tag_name', '?')}  "
+                           f"{release.get('published_at', '')[:10]}", release.get("body", ""))
+            win.after(0, ready)
+        threading.Thread(target=fetch, daemon=True).start()
+
+    def download_news() -> None:
+        release = state["release"]
+        if release:
+            run(lambda: (lambda p: win.after(0, lambda: set_pkg(p)))(download_release(release, log)))
+
+    news_refresh = ttk.Button(news_buttons, text="Refresh news", command=refresh_news)
+    news_refresh.pack(side="left")
+    news_download = ttk.Button(news_buttons, text="Download this release",
+                               command=download_news, state="disabled")
+    news_download.pack(side="left", padx=6)
 
     def selected() -> Card | None:
         i = combo.current()
@@ -557,6 +729,94 @@ def gui() -> None:
         if c and messagebox.askyesno("Remove", f"Remove the mod from {c.root}?"):
             run(lambda: remove(c, log))
 
+    def report_bug() -> None:
+        dialog = tk.Toplevel(win)
+        dialog.title("Report a bug")
+        dialog.transient(win)
+        dialog.grab_set()
+        panel = ttk.Frame(dialog, padding=12)
+        panel.pack(fill="both", expand=True)
+        panel.columnconfigure(1, weight=1)
+        card = selected()
+        revision = installed_revision(card.root) if card else "unknown"
+        revision_var = tk.StringVar(value=revision)
+        title_var = tk.StringVar()
+        ttk.Label(panel, text="Summary").grid(row=0, column=0, sticky="w")
+        ttk.Entry(panel, textvariable=title_var, width=65).grid(row=0, column=1, sticky="ew", pady=4)
+        ttk.Label(panel, text="Installed mod version").grid(row=1, column=0, sticky="w")
+        ttk.Entry(panel, textvariable=revision_var).grid(row=1, column=1, sticky="ew", pady=4)
+        fields = []
+        for row, label in enumerate(("Steps to reproduce", "Expected behaviour", "Actual behaviour"), 2):
+            ttk.Label(panel, text=label).grid(row=row, column=0, sticky="nw", pady=4)
+            widget = tk.Text(panel, height=3, width=60, wrap="word")
+            widget.grid(row=row, column=1, sticky="ew", pady=4)
+            fields.append(widget)
+        include_logs = tk.BooleanVar(value=True)
+        ttk.Checkbutton(panel, text="Include available SD journals and installer log",
+                        variable=include_logs).grid(row=5, column=0, columnspan=2, sticky="w", pady=4)
+        preview = tk.Text(panel, height=6, width=80, wrap="word", state="disabled")
+        preview.grid(row=6, column=0, columnspan=2, sticky="ew", pady=4)
+
+        def preview_files(*_args):
+            files, warnings = diagnostic_files(card) if include_logs.get() else ({}, [])
+            listing = ["SD: " + (str(card.root) if card else "not selected"),
+                       "Archive: report.md, collection.txt, installer.log"]
+            listing += [f"{name} ({len(data) // 1024} KB)" for name, data in files.items()]
+            listing += warnings
+            preview.configure(state="normal")
+            preview.delete("1.0", "end")
+            preview.insert("1.0", "\n".join(listing))
+            preview.configure(state="disabled")
+
+        include_logs.trace_add("write", preview_files)
+        preview_files()
+        ttk.Label(panel, text="Review the ZIP before sharing. Logs may contain project names and file paths.\n"
+                  "Save the ZIP, then attach it to the GitHub issue and submit in your browser.",
+                  wraplength=660).grid(row=7, column=0, columnspan=2, sticky="w", pady=6)
+        result_var = tk.StringVar()
+        ttk.Label(panel, textvariable=result_var, wraplength=660).grid(row=8, column=0, columnspan=2, sticky="w")
+        prepared = {"body": "", "title": ""}
+
+        def save_report():
+            title = title_var.get().strip()
+            values = [widget.get("1.0", "end").strip() for widget in fields]
+            if not title or not all(values):
+                messagebox.showwarning("Report", "Fill in the summary, steps, expected and actual behaviour.", parent=dialog)
+                return
+            filename = filedialog.asksaveasfilename(parent=dialog, title="Save diagnostic ZIP",
+                       defaultextension=".zip", filetypes=[("Diagnostic ZIP", "*.zip")],
+                       initialfile="am-mod-report-" + _dt.datetime.now().strftime("%Y%m%d-%H%M%S") + ".zip")
+            if not filename:
+                return
+            try:
+                files, warnings = diagnostic_files(card) if include_logs.get() else ({}, [])
+                report = bug_report(title, *values, card, revision_var.get().strip() or "unknown")
+                installer_log = out.get("1.0", "end") if include_logs.get() else "Excluded by user."
+                save_diagnostics(Path(filename), report, files, installer_log, warnings)
+            except (OSError, ValueError) as error:
+                messagebox.showerror("Report", str(error), parent=dialog)
+                return
+            prepared.update(body=report, title=title)
+            result_var.set("Saved: " + filename + "\nAttach this ZIP to your issue.")
+            open_issue.configure(state="normal")
+            copy_report.configure(state="normal")
+
+        def copy_text():
+            dialog.clipboard_clear()
+            dialog.clipboard_append(prepared["body"])
+            result_var.set("Full report copied. Paste it into GitHub and attach the saved ZIP.")
+
+        buttons = ttk.Frame(panel)
+        buttons.grid(row=9, column=0, columnspan=2, sticky="e", pady=(8, 0))
+        ttk.Button(buttons, text="Save diagnostic ZIP...", command=save_report).pack(side="left")
+        copy_report = ttk.Button(buttons, text="Copy report", command=copy_text, state="disabled")
+        copy_report.pack(side="left", padx=6)
+        open_issue = ttk.Button(buttons, text="Open GitHub issue", state="disabled",
+                               command=lambda: webbrowser.open(issue_url(prepared["title"], prepared["body"])))
+        open_issue.pack(side="left")
+        ttk.Button(buttons, text="Close", command=dialog.destroy).pack(side="left", padx=(6, 0))
+
+    ttk.Button(links, text="Report a bug...", command=report_bug).pack(side="left")
     ttk.Button(bar, text="Open .zip...", command=pick).pack(side="left")
     ttk.Button(bar, text="Latest release", command=latest).pack(side="left", padx=(6, 0))
     ttk.Button(frm, text="Refresh", command=refresh).grid(row=1, column=2, sticky="e", pady=(10, 0))
@@ -570,6 +830,7 @@ def gui() -> None:
     log("Start: insert the card and power on, or insert it after the normal screen appears. The mod starts automatically.")
     log("Exit: save your project, then use the MPC power button. Older packages may also offer Project > Mod Off.")
     refresh()
+    win.after(100, refresh_news)
     win.mainloop()
 
 

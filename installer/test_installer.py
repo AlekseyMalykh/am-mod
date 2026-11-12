@@ -59,6 +59,66 @@ class InstallerTest(unittest.TestCase):
         with self.assertRaises(m.InstallError):
             m.Package(b"not a zip", "x.zip")
 
+    def test_package_release_notes_available_offline(self):
+        package = m.Package(make_package({"README.md": b"English notes",
+                                         "README.ru.md": "Русские заметки".encode()}), "release.zip")
+        self.assertEqual(package.notes, "Русские заметки")
+        self.assertNotIn("README.ru.md", package.files)
+
+    def test_diagnostics_only_collect_known_logs_and_preserve_card(self):
+        autorun = self.card / "autorun"
+        autorun.mkdir()
+        (autorun / "MPC_MOD_EVENTS.txt").write_text("event log")
+        (autorun / "MPC_CLONE_TRIAL.txt").write_text("native log")
+        (autorun / "private.txt").write_text("private")
+        before = {str(p.relative_to(self.card)): p.read_bytes()
+                  for p in self.card.rglob("*") if p.is_file()}
+        files, warnings = m.diagnostic_files(self.card_obj())
+        destination = Path(self.tmp.name) / "diagnostics.zip"
+        report = m.bug_report("Ошибка", "1. Open Mixer", "Sound", "Silence", self.card_obj(), "r28d")
+        m.save_diagnostics(destination, report, files, "installer output", warnings)
+        with zipfile.ZipFile(destination) as archive:
+            self.assertIsNone(archive.testzip())
+            self.assertEqual(set(archive.namelist()),
+                             {"report.md", "collection.txt", "installer.log",
+                              "sd/autorun/MPC_MOD_EVENTS.txt", "sd/autorun/MPC_CLONE_TRIAL.txt"})
+            self.assertIn("Ошибка", archive.read("report.md").decode())
+        self.assertEqual(before, {str(p.relative_to(self.card)): p.read_bytes()
+                                 for p in self.card.rglob("*") if p.is_file()})
+
+    def test_diagnostics_bound_large_logs_and_handle_missing_card(self):
+        autorun = self.card / "autorun"
+        autorun.mkdir()
+        (autorun / "MPC_MOD_EVENTS.txt").write_bytes(b"x" * (m.MAX_LOG + 10) + b"LAST")
+        files, warnings = m.diagnostic_files(self.card_obj())
+        data = files["sd/autorun/MPC_MOD_EVENTS.txt"]
+        self.assertTrue(data.endswith(b"LAST"))
+        self.assertLess(len(data), m.MAX_LOG + 100)
+        self.assertEqual(m.diagnostic_files(None)[0], {})
+        self.assertTrue(m.diagnostic_files(None)[1])
+
+    @unittest.skipIf(os.name == "nt", "symlink creation needs privileges on Windows")
+    def test_diagnostics_skip_symlinks(self):
+        autorun = self.card / "autorun"
+        autorun.mkdir()
+        private = Path(self.tmp.name) / "private.txt"
+        private.write_text("secret")
+        (autorun / "MPC_MOD_EVENTS.txt").symlink_to(private)
+        files, warnings = m.diagnostic_files(self.card_obj())
+        self.assertFalse(files)
+        self.assertTrue(any("link" in warning for warning in warnings))
+
+    def test_issue_url_keeps_unicode_reports_within_browser_limit(self):
+        from urllib.parse import parse_qs, urlparse
+        report = "Очень длинное описание ошибки " * 1000
+        url = m.issue_url("Новая ошибка " * 100, report)
+        self.assertLessEqual(len(url), 1900)
+        parsed = urlparse(url)
+        self.assertEqual(parsed.netloc, "github.com")
+        query = parse_qs(parsed.query)
+        self.assertTrue(query["title"][0].startswith("[Bug] Новая"))
+        self.assertIn("report.md", query["body"][0])
+
     def test_install_backup_remove(self):
         (self.card / "autorun").mkdir()
         (self.card / "autorun" / "other.sh").write_text("someone else's package")

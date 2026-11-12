@@ -1,5 +1,13 @@
 # Changelog
 
+## Installer 1.1.0
+
+- GitHub and release history links, latest release news and a download action for the displayed release.
+- Offline release notes from a selected ZIP.
+- A local bug report form with an editable mod version, diagnostic file list and optional SD/installer logs.
+- Diagnostic ZIP export, full report copying and a prefilled GitHub issue draft with manual attachment and submission.
+- Bounded log collection skips links and includes only known diagnostic filenames.
+
 ## r28d — release
 
 - Song step numbers, persistent Repeats footer, bounded selection, Clear All confirmation and Shift + B3 Duplicate.

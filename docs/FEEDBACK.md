@@ -2,6 +2,14 @@
 
 [Русский](FEEDBACK.ru.md)
 
+## Installer 1.1.0 news and bug reports
+
+**GitHub** opens the repository and **All releases** opens release history. **Release news** shows the latest stable release description, including features and fixes. **Refresh news** reloads it and **Download this release** downloads that displayed release. Selecting a local ZIP shows its bundled README offline.
+
+To report a problem, connect the MPC SD card to the computer, select it in the main window and choose **Report a bug**. Enter the installed mod version, reproduction steps, expected behaviour and actual behaviour. Review the listed journals, then choose **Save diagnostic ZIP**. The archive includes the report, installer log, installed-version metadata and available `autorun/MPC_MOD_EVENTS.txt`, `autorun/MPC_CLONE_TRIAL.txt` and `autorun/MPC_CLONE_ALREADY_ATTEMPTED.txt`. Log collection can be disabled.
+
+Review the ZIP for project names and file paths before sharing. **Open GitHub issue** opens a draft. Attach the ZIP in the browser and submit it. For long descriptions, use **Copy report** to paste the complete report into the issue. Submitting requires a GitHub account.
+
 - **Something is broken:** [report a bug](https://github.com/AlekseyMalykh/am-mod/issues/new?template=bug_report.yml).
 - **A concrete feature request:** [suggest a feature](https://github.com/AlekseyMalykh/am-mod/issues/new?template=feature_request.yml).
 - **Early ideas:** [Ideas discussions](https://github.com/AlekseyMalykh/am-mod/discussions/categories/ideas).

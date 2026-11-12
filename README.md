@@ -116,6 +116,8 @@ Every feature with its controls and status: [docs/FEATURES.md](docs/FEATURES.md)
 You need an MPC Sample on firmware **1.3.0.12** (the mod checks the app's SHA-256 and
 refuses to start on any other version) and a compatible SD card with a supported volume name: exFAT, or experimental FAT32 starting with r26e.
 
+Installer **1.1.0** adds release news, GitHub links and a diagnostic bug report form. [Installer 1.1.0 instructions](docs/INSTALLER-1.1.0.md).
+
 **Installer (Windows):** download `MPC-Sample-Mod-Installer.exe` and the
 `am-mod-*.zip` package from [Releases](../../releases), run the installer, pick the zip
 (or press *Latest release*) and the SD card, press **Install**.
