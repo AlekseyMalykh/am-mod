@@ -38,6 +38,7 @@ int main(int argc,char**argv)
         s.now_ms=1000+k*40;m.input_peak=.7f;m.key_peak=ph<.1?.9f:.05f;
         m.output_peak=(float)(.7*(ph<.08?.25:fmin(1.0,.25+ph*1.1)));m.gain_reduction_db=(float)(14*(ph<.08?1:fmax(0,1-ph*1.4))*duck);
         mixer_view_paint(&s,&p);}
+    if(getenv("IDLE")){s.now_ms+=2000;m.input_peak=m.output_peak=m.key_peak=0;m.gain_reduction_db=0;mixer_view_paint(&s,&p);s.now_ms+=40;mixer_view_paint(&s,&p);}
     fclose(out);out=fopen(argv[3],"w");assert(out);
     mixer_view_paint(&s,&p);fclose(out);
     return 0;
