@@ -23,7 +23,9 @@ static void r(void*u,int x,int y,int w,int h,uint32_t c){(void)u;
     if(c==0xffff4040u&&y+h==194&&h==5)send_width=(unsigned)w;
     if(c==0xffffffffu&&w==1&&y==92&&h==12)++threshold_line;
     if(trace)fprintf(trace,"R %d %d %d %d %08x\n",x,y,w,h,c);}
+static unsigned comp_status;
 static void t(void*u,const char*s,int x,int y,int w,int h,unsigned size,uint32_t c,int centre){(void)u;
+    if(!strncmp(s,"Sample Comp",11))++comp_status;
     assert(s&&x>=0&&y>=0&&w>0&&h>0&&x+w<=320&&y+h<=240&&size>=8);++draws;
     if(delete_probe&&y==1){
         if(!strcmp(s,"Cancel")){assert(c==0xffffffffu);delete_buttons|=1;}
@@ -151,6 +153,12 @@ int main(int argc,char**argv)
     mixer_view_paint(&s,&painter);assert(fx_headers==1&&catalog_hint);
     s.fx_catalog=0;
     s.shifted=0;s.fx_signal=NULL;
+    /* Stock Sample master compressor is shown only on the Master FX list. */
+    s.page=MIXER_KNOB_FX;s.fx_editing=1;s.sample_comp=2;s.sample_comp_gr=3.5f;
+    s.master=1;comp_status=0;mixer_view_paint(&s,&painter);assert(comp_status==1);
+    s.sample_comp=1;comp_status=0;mixer_view_paint(&s,&painter);assert(comp_status==1);
+    s.master=0;comp_status=0;mixer_view_paint(&s,&painter);assert(comp_status==0);
+    s.sample_comp=0;s.master=1;comp_status=0;mixer_view_paint(&s,&painter);assert(comp_status==0);s.master=0;s.fx_editing=0;
     s.page=MIXER_ASSIGN;s.master=1;mstr=0;mixer_view_paint(&s,&painter);assert(mstr>=2);s.master=0;
     s.page=MIXER_OVERVIEW;dynamic=1;draws=0;mixer_view_meters(&s,1,&painter);assert(draws>0&&draws<15);dynamic=0;
     /* Capture actual painter output for visual review with populated tracks. */

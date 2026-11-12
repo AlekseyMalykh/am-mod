@@ -732,6 +732,13 @@ static void track_fx(const struct mixer_view_state*s,const struct resample_paint
         else if(!effect&&i==ch->fx.count)text(p,"+ ADD",263,y,48,24,9,ink,1);
     }
     if(s->message&&*s->message)text(p,s->message,89,174,222,20,11,AMBER,0);
+    else if(s->master&&s->sample_comp){
+        /* Stock Sample master compressor (Shift+Pad 5): read-only status next to the chain. */
+        char line[48];
+        if(s->sample_comp==1)snprintf(line,sizeof(line),"Sample Comp: OFF");
+        else snprintf(line,sizeof(line),"Sample Comp %s  GR %.1f dB",s->sample_comp==3?"OptoCat":"Duck",(double)s->sample_comp_gr);
+        text(p,line,89,174,222,20,11,s->sample_comp==1?GREY:AMBER,0);
+    }
     else text(p,"+ / −: Track   /   Pads 9–12: FX",89,174,222,20,10,GREY,0);
     rect(p,85,202,231,32,PANEL);
     if(s->shifted){

@@ -33,6 +33,8 @@ struct mixer_view_state {
     uint64_t name_elapsed;
     unsigned name_pads;
     const struct mixer_fx_monitor*fx_signal;
+    unsigned sample_comp; /* 0 hidden, 1 bypassed, 2 Duck, 3 OptoCat: stock Sample master compressor */
+    float sample_comp_gr; /* gain reduction in dB (positive) */
     unsigned fx_illustrated; /* 0 Classic; set by the host from the card setting */
     double rate;
 };
