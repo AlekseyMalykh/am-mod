@@ -279,10 +279,6 @@ static void fxv_disc(const struct resample_painter*p,int cx,int cy,int r,uint32_
 {
     for(int y=-r;y<=r;++y){int w=(int)lround(sqrt((double)(r*r-y*y)));rect(p,cx-w,cy+y,2*w+1,1,c);}
 }
-static void fxv_params_text(const struct resample_painter*p,const char*s,int right)
-{
-    text(p,s,right?FXV_X+FXV_W-200:FXV_X+4,FXV_Y+FXV_H-18,right?196:290,12,10,WHITE,0);
-}
 static void fxv_delay(const struct resample_painter*p,const struct fx_stage*stage)
 {
     rect(p,FXV_X,FXV_Y,FXV_W,FXV_H,PANEL);
@@ -298,8 +294,6 @@ static void fxv_delay(const struct resample_painter*p,const struct fx_stage*stag
     }
     int span=FXV_W-20;int px=FXV_X+10+(int)((fxv_now/16)%(uint64_t)span);
     if(!fxv_idle)rect(p,px,FXV_Y+10,1,FXV_H-30,WHITE);
-    char b[48];snprintf(b,sizeof(b),"Time %.0f%%  Feedback %.0f%%  Mix %.0f%%",fxv_p(stage,0)*100,fb*100,fxv_p(stage,9)*100);
-    fxv_params_text(p,b,0);
 }
 static void fxv_diff_delay(const struct resample_painter*p,const struct fx_stage*stage)
 {
@@ -317,46 +311,135 @@ static void fxv_diff_delay(const struct resample_painter*p,const struct fx_stage
         rect(p,x,base-h,3,h,amp>.5?AMBER:0xff7a5f22u);
     }
     if(!fxv_idle)rect(p,FXV_X+22+(sweep<spread?sweep:spread),FXV_Y+8,1,FXV_H-30,WHITE);
-    char b[48];snprintf(b,sizeof(b),"Delay %.0f%%  Diffusion %.0f%%  Feedback %.0f%%",fxv_p(stage,1)*100,dif*100,fb*100);
-    fxv_params_text(p,b,0);
+}
+static void fxv_line(const struct resample_painter*p,double x0,double y0,double x1,double y1,int w,uint32_t c)
+{
+    double dx=x1-x0,dy=y1-y0;int n=(int)(fmax(fabs(dx),fabs(dy)))+1;
+    for(int i=0;i<=n;++i){double t=(double)i/n;rect(p,(int)lround(x0+dx*t)-w/2,(int)lround(y0+dy*t)-w/2,w,w,c);}
+}
+static void fxv_disc_clip(const struct resample_painter*p,int cx,int cy,int r,int y0,int y1,uint32_t c)
+{
+    for(int y=-r;y<=r;++y){if(cy+y<y0||cy+y>=y1)continue;int w=(int)lround(sqrt((double)(r*r-y*y)));rect(p,cx-w,cy+y,2*w+1,1,c);}
+}
+/* External tangent between a reel pack (c1,r1) and a roller (c2,r2) on the lower side; returns the two touch points. */
+static void fxv_tangent(double x1,double y1,double r1,double x2,double y2,double r2,double*ax,double*ay,double*bx,double*by)
+{
+    double dx=x2-x1,dy=y2-y1,l=sqrt(dx*dx+dy*dy),ux=dx/l,uy=dy/l,nx=-uy,ny=ux;
+    if(ny<0){nx=-nx;ny=-ny;}
+    double s=(r1-r2)/l,c=sqrt(1-s*s),mx=-s*ux+c*nx,my=-s*uy+c*ny;
+    *ax=x1+r1*mx;*ay=y1+r1*my;*bx=x2+r2*mx;*by=y2+r2*my;
+}
+static void fxv_reel(const struct resample_painter*p,int cx,int cy,int pack,int hub,double ang,uint32_t tape)
+{
+    fxv_disc(p,cx,cy,pack,tape);fxv_disc(p,cx,cy,hub,0xffd9dce2u);fxv_disc(p,cx,cy,hub-3,0xff1c2026u);
+    for(int k=0;k<6;++k){double a=ang+k*1.0472;
+        rect(p,cx+(int)lround(cos(a)*(hub-2))-1,cy+(int)lround(sin(a)*(hub-2))-1,3,3,0xffd9dce2u);}
 }
 static void fxv_tape_delay(const struct resample_painter*p,const struct fx_stage*stage)
 {
-    rect(p,FXV_X,FXV_Y,FXV_W,FXV_H,0xff1c2026u);
-    rect(p,FXV_X+40,FXV_Y+4,FXV_W-80,FXV_H-24,0xff2b3037u);
-    rect(p,FXV_X+52,FXV_Y+8,FXV_W-104,14,0xffe8dcb8u);
-    text(p,"AM MOD  TAPE ECHO",FXV_X+56,FXV_Y+9,FXV_W-112,12,9,0xff2b2b2bu,0);
-    int cy=FXV_Y+46;
-    double wow=fxv_p(stage,6),speed=.0022+.0045*fxv_p(stage,8);
-    for(int side=0;side<2;++side){
-        int cx=FXV_X+(side?FXV_W-92:92);
-        fxv_disc(p,cx,cy,22,0xff0c0e10u);fxv_disc(p,cx,cy,17,0xff3a2c1eu);fxv_disc(p,cx,cy,9,0xffc8ccd4u);fxv_disc(p,cx,cy,3,0xff1c2026u);
-        double ang=fxv_now*speed*(1+.12*wow*sin(fxv_now*.01))+side;
-        for(int k=0;k<3;++k){double a=ang+k*2.0943951;
-            for(int rr=3;rr<=16;rr+=3)rect(p,cx+(int)lround(cos(a)*rr)-1,cy+(int)lround(sin(a)*rr)-1,3,3,0xffc8ccd4u);}
-    }
-    rect(p,FXV_X+92,cy+22,FXV_W-184,2,0xff6a4a30u);
-    for(int i=0;i<3;++i)rect(p,FXV_X+FXV_W/2-22+i*16,cy+16,10,14,0xff80858cu);
-    char b[48];snprintf(b,sizeof(b),"Time %.0f%%  Feedback %.0f%%  Tone %.0f%%",fxv_p(stage,8)*100,fxv_p(stage,4)*100,fxv_p(stage,14)*100);
-    fxv_params_text(p,b,0);
+    const uint32_t WOOD=0xff7a4a26u,WOOD2=0xff5c3819u,STEEL=0xff9aa0a8u,TAPE=0xff4a3524u;
+    rect(p,FXV_X,FXV_Y,FXV_W,FXV_H,0xff1d2126u);
+    rect(p,FXV_X,FXV_Y,22,FXV_H,WOOD);rect(p,FXV_X+FXV_W-22,FXV_Y,22,FXV_H,WOOD);
+    for(int k=0;k<5;++k){rect(p,FXV_X+3+k*4,FXV_Y,1,FXV_H,WOOD2);rect(p,FXV_X+FXV_W-20+k*4,FXV_Y,1,FXV_H,WOOD2);}
+    rect(p,FXV_X+70,FXV_Y+4,156,13,0xffe8dcb8u);
+    text(p,"AM MOD  TAPE ECHO",FXV_X+72,FXV_Y+4,152,13,9,0xff2b2b2bu,1);
+    double speed=.0022+.0045*fxv_p(stage,8),wow=fxv_p(stage,6);
+    int cy=FXV_Y+44,lx=FXV_X+78,rx=FXV_X+FXV_W-78;
+    double ang=fxv_idle?0:fxv_now*speed*(1+.12*wow*sin(fxv_now*.01));
+    int pl=24,pr=17;
+    double tl,tr;tl=pl;tr=pr;
+    double rlx=FXV_X+108,rrx=FXV_X+FXV_W-108,rly=FXV_Y+80;
+    double ax,ay,bx,by;
+    fxv_tangent(lx,cy,tl,rlx,rly,4,&ax,&ay,&bx,&by);
+    fxv_line(p,ax,ay,bx,by,2,TAPE);
+    fxv_tangent(rx,cy,tr,rrx,rly,4,&ax,&ay,&bx,&by);
+    fxv_line(p,ax,ay,bx,by,2,TAPE);
+    fxv_line(p,rlx,rly+4,rrx,rly+4,2,TAPE);
+    fxv_reel(p,lx,cy,(int)tl,9,ang,TAPE);fxv_reel(p,rx,cy,(int)tr,9,-ang,TAPE);
+    fxv_disc(p,(int)rlx,(int)rly,4,STEEL);fxv_disc(p,(int)rrx,(int)rly,4,STEEL);
+    fxv_disc(p,(int)rlx,(int)rly,1,0xff1d2126u);fxv_disc(p,(int)rrx,(int)rly,1,0xff1d2126u);
+    for(int i=0;i<4;++i){int x=FXV_X+FXV_W/2-30+i*17;
+        rect(p,x,rly-12,12,12,i==0?SEND:STEEL);rect(p,x,rly-12,12,3,i==0?0xffff9080u:0xffd9dce2u);}
 }
 static void fxv_sample_delay(const struct resample_painter*p,const struct fx_stage*stage)
 {
-    rect(p,FXV_X,FXV_Y,FXV_W,FXV_H,WELL);
-    int shift[2]={(int)lround(40*fxv_p(stage,0)),(int)lround(40*fxv_p(stage,1))};
+    rect(p,FXV_X,FXV_Y,FXV_W,FXV_H,0xff12161au);
+    rect(p,FXV_X+70,FXV_Y+4,156,13,0xff2f3a45u);
+    text(p,"AM MOD  SAMPLE DELAY",FXV_X+72,FXV_Y+4,152,13,9,0xffd8dde4u,1);
     for(int lane=0;lane<2;++lane){
-        int cy=FXV_Y+24+lane*30;uint32_t col=lane?CYAN:AMBER;int prev=cy;
-        rect(p,FXV_X+4,cy,FXV_W-8,1,DARK);
-        for(int x=0;x<FXV_W-60;x+=2){
-            double ph=(x-shift[lane])*.09+fxv_now*.003;
-            int y=cy-(int)lround(11*sin(ph));
-            rect(p,FXV_X+20+x,y<prev?y:prev,2,abs(y-prev)+2,col);prev=y;
-        }
-        text(p,lane?"R":"L",FXV_X+6,cy-6,12,12,10,col,0);
+        int base=FXV_Y+(lane?76:52);uint32_t col=lane?CYAN:AMBER;
+        float off=fxv_p(stage,lane);int step=6+(int)lround(26*off);
+        rect(p,FXV_X+10,base,FXV_W-20,1,DARK);
+        for(int x=FXV_X+10;x<FXV_X+FXV_W-10;x+=8)rect(p,x,base+1,1,3,LINE);
+        rect(p,FXV_X+12,base-16,5,16,col);
+        int n=0;
+        for(int x=FXV_X+12+step;x<FXV_X+FXV_W-14&&n<8;x+=step,++n){int h=(int)lround(16*pow(.72,n+1));if(h<2)h=2;rect(p,x,base-h,5,h,col);}
+        int sx=FXV_X+12+(int)((fxv_now/14+lane*70)%(uint64_t)(FXV_W-30));
+        if(!fxv_idle)rect(p,sx,base-20,1,24,WHITE);
     }
-    rect(p,FXV_X+20+shift[0],FXV_Y+60,abs(shift[1]-shift[0])+1,1,WHITE);
-    char b[48];snprintf(b,sizeof(b),"Left %.0f%%  Right %.0f%%%s",fxv_p(stage,0)*100,fxv_p(stage,1)*100,fxv_p(stage,2)>.5f?"  Linked":"");
-    fxv_params_text(p,b,0);
+}
+static void fxv_vinyl(const struct resample_painter*p,const struct fx_stage*stage)
+{
+    rect(p,FXV_X,FXV_Y,FXV_W,FXV_H,0xffc3c7cdu);
+    rect(p,FXV_X,FXV_Y+FXV_H-2,FXV_W,2,0xff8f949bu);
+    int cx=FXV_X+112,cy=FXV_Y+47;
+    fxv_disc(p,cx,cy,44,0xff4a4f56u);fxv_disc(p,cx,cy,42,0xff101114u);
+    for(int r=18;r<=40;r+=3)for(int a=0;a<48;++a){double t=a*.1309;rect(p,cx+(int)lround(cos(t)*r),cy+(int)lround(sin(t)*r),1,1,0xff23252au);}
+    double ang=fxv_idle?0:fxv_now*.0035*(1+(fxv_p(stage,2)-.5)*.3);
+    for(int k=0;k<2;++k){double t=ang+k*3.1416;
+        for(int r=20;r<=38;r+=2)rect(p,cx+(int)lround(cos(t)*r),cy+(int)lround(sin(t)*r),1,1,0xff5a5f68u);}
+    fxv_disc(p,cx,cy,14,0xffc23a2eu);
+    text(p,"AM MOD",cx-14,cy-9,28,9,7,0xfff0e8d0u,1);text(p,"33 RPM",cx-14,cy+1,28,9,6,0xfff0e8d0u,1);
+    fxv_disc(p,cx,cy,2,0xffc3c7cdu);
+    /* short tonearm from the pivot at the top right, counterweight behind it */
+    int px=FXV_X+250,py=FXV_Y+20;
+    fxv_disc(p,px,py,10,0xff8f949bu);fxv_disc(p,px,py,6,0xffd9dce2u);
+    double wob=fxv_idle?0:sin(fxv_now*.004)*.02;
+    double hx=FXV_X+192,hy=FXV_Y+54+wob*20;
+    fxv_line(p,px,py,hx,hy,3,0xff5a5f68u);
+    fxv_line(p,px,py,px+14,py-10,5,0xff3a3f46u);
+    rect(p,(int)hx-5,(int)hy-2,10,6,0xff101114u);
+    rect(p,FXV_X+270,FXV_Y+34,5,18,0xff8f949bu);
+    fxv_disc(p,FXV_X+16,FXV_Y+FXV_H-16,8,0xff5a5f68u);fxv_disc(p,FXV_X+16,FXV_Y+FXV_H-16,2,0xffd9dce2u);
+    for(int i=0;i<3;++i)rect(p,FXV_X+176+i*30,FXV_Y+FXV_H-14,24,8,i==0?0xff3a7a40u:(i==1?0xff7a3a3au:0xff5a5f68u));
+    unsigned seed=(unsigned)(fxv_now/90);int sparks=(int)lround(6*fxv_p(stage,1));
+    for(int k=0;k<sparks;++k){seed=seed*1664525u+1013904223u;rect(p,hx-6+(int)(seed>>9&15),hy+6+(int)(seed>>13&7),2,2,AMBER);}
+}
+static void fxv_tape_emu(const struct resample_painter*p,const struct fx_stage*stage)
+{
+    rect(p,FXV_X,FXV_Y,FXV_W,FXV_H,0xff1d2126u);
+    int bx=FXV_X+74,by=FXV_Y+1,bw=148,bh=92;double wow=fxv_p(stage,0);
+    rect(p,bx,by,bw,bh,0xffe6dcc0u);rect(p,bx,by,bw,2,0xfffff4d8u);rect(p,bx,by+bh-2,bw,2,0xffb8ad90u);
+    rect(p,bx+6,by+4,bw-12,22,0xffc23a2eu);
+    text(p,"AM MOD  C-60",bx+10,by+5,100,12,9,0xfff6eedcu,0);
+    text(p,"SIDE A",bx+10,by+16,40,9,7,0xfff6eedcu,0);text(p,"NR",bx+bw-30,by+16,20,9,7,0xfff6eedcu,0);
+    int wx=bx+20,wy=by+30,ww=108,wh=32;
+    rect(p,wx,wy,ww,wh,0xff0d1013u);
+    double ang=fxv_idle?0:fxv_now*.0026*(1+.15*wow*sin(fxv_now*.012));
+    int lcx=wx+24,rcx=wx+ww-24,cy=wy+wh/2;
+    fxv_disc_clip(p,lcx,cy,21,wy+1,wy+wh-1,0xff4a3524u);
+    fxv_disc_clip(p,rcx,cy,11,wy+1,wy+wh-1,0xff4a3524u);
+    fxv_reel(p,lcx,cy,8,8,ang,0xff4a3524u);fxv_reel(p,rcx,cy,8,8,-ang,0xff4a3524u);
+    fxv_disc_clip(p,lcx,cy,8,wy+1,wy+wh-1,0xffd9dce2u);fxv_disc_clip(p,lcx,cy,5,wy+1,wy+wh-1,0xff1c2026u);
+    fxv_disc_clip(p,rcx,cy,8,wy+1,wy+wh-1,0xffd9dce2u);fxv_disc_clip(p,rcx,cy,5,wy+1,wy+wh-1,0xff1c2026u);
+    for(int k=0;k<3;++k){double a=ang+k*2.0944;
+        rect(p,lcx+(int)lround(cos(a)*4)-1,cy+(int)lround(sin(a)*4)-1,2,2,0xffd9dce2u);
+        rect(p,rcx+(int)lround(cos(-a)*4)-1,cy+(int)lround(sin(-a)*4)-1,2,2,0xffd9dce2u);}
+    rect(p,bx+30,by+bh-24,bw-60,18,0xff8e856e);
+    rect(p,bx+40,by+bh-18,8,6,0xff23272d);rect(p,bx+bw-48,by+bh-18,8,6,0xff23272d);
+    /* VU meter at the left */
+    int vx=FXV_X+8,vy=FXV_Y+22,vw=56,vh=40;
+    rect(p,vx,vy,vw,vh,0xffe8e0c0u);rect(p,vx+2,vy+2,vw-4,vh-4,0xfff6eedcu);
+    int pxv=vx+vw/2,pyv=vy+vh-6;
+    for(int t=-3;t<=3;++t){double a=t*.3;rect(p,pxv+(int)lround(sin(a)*24),pyv-(int)lround(cos(a)*24),1,3,t>1?0xffb02a1eu:0xff6a5a40u);}
+    double a=fxv_idle?-.6:(-.8+1.6*(.5+.5*sin(fxv_now*.004)))*(.6+.4*(1-wow));
+    fxv_line(p,pxv,pyv,pxv+sin(a)*22,pyv-cos(a)*22,1,BLACK);
+    rect(p,pxv-2,pyv-2,5,4,BLACK);
+    text(p,"VU",vx,vy+vh-12,vw,10,7,0xff6a5a40u,1);
+    /* transport at the right */
+    const char*lab[3]={"REC","PLAY","HI-FI"};uint32_t colr[3]={0xffc23a2eu,0xff4a4f56u,0xff4a4f56u};
+    for(int i=0;i<3;++i){int y=FXV_Y+12+i*24;rect(p,FXV_X+FXV_W-62,y,54,18,colr[i]);rect(p,FXV_X+FXV_W-62,y,54,2,0xffd86a5eu);
+        text(p,lab[i],FXV_X+FXV_W-62,y+4,54,10,8,0xfff0f0f0u,1);}
 }
 static void fxv_reverb(const struct resample_painter*p,const struct fx_stage*stage,unsigned time_i,unsigned size_i,unsigned mix_i)
 {
@@ -378,8 +461,6 @@ static void fxv_reverb(const struct resample_painter*p,const struct fx_stage*sta
     int bw=FXV_W-8;
     rect(p,FXV_X+4,FXV_Y+FXV_H-30,bw,3,DARK);rect(p,FXV_X+4,FXV_Y+FXV_H-30,(int)lround(bw*time),3,AMBER);
     rect(p,FXV_X+4,FXV_Y+FXV_H-26,bw,3,DARK);rect(p,FXV_X+4,FXV_Y+FXV_H-26,(int)lround(bw*mix),3,CYAN);
-    char b[48];snprintf(b,sizeof(b),"Time %.0f%%  Mix %.0f%%",time*100,mix*100);
-    fxv_params_text(p,b,0);
 }
 static void fxv_spring(const struct resample_painter*p,const struct fx_stage*stage)
 {
@@ -397,8 +478,6 @@ static void fxv_spring(const struct resample_painter*p,const struct fx_stage*sta
         }
     }
     text(p,"IN",FXV_X+6,FXV_Y+FXV_H-34,24,11,9,GREY,0);text(p,"OUT",FXV_X+FXV_W-30,FXV_Y+FXV_H-34,26,11,9,GREY,0);
-    char b[48];snprintf(b,sizeof(b),"Pre %.0f%%  Time %.0f%%  Mix %.0f%%",fxv_p(stage,0)*100,time*100,fxv_p(stage,5)*100);
-    fxv_params_text(p,b,0);
 }
 
 /* ---- Drive, modulation, emulators. ---- */
@@ -424,9 +503,6 @@ static void fxv_amp(const struct resample_painter*p,const struct fx_stage*stage,
     text(p,"AM-30",FXV_X+FXV_W/2-24,FXV_Y+49,48,12,10,0xffe8d8a0u,1);
     float lamp=m?fminf(1.f,m->output_peak*1.6f):0.f;
     fxv_disc(p,FXV_X+FXV_W-30,FXV_Y+17,4,lamp>.1f?0xffff3030u:0xff401010u);
-    char b[64];snprintf(b,sizeof(b),"Drive %.0f%%  Treble %.0f%%  Cab %s",fxv_p(stage,0)*100,fxv_p(stage,7)*100,
-                        fx_catalog_choice_name(fx_catalog_find(0x61464153u),9,stage->parameter[9]));
-    fxv_params_text(p,b,0);
 }
 static void fxv_clip_wave(const struct resample_painter*p,int x,int y,int w,int h,double drive,double hard)
 {
@@ -451,16 +527,12 @@ static void fxv_tube(const struct resample_painter*p,const struct fx_stage*stage
     fxv_disc(p,px+38,py+FXV_H-24-14,7,0xffb0b4bau);
     text(p,"TUBE DRIVE",px,py+FXV_H-24-9,76,8,7,0xfff8e8d8u,1);
     fxv_clip_wave(p,FXV_X+90,FXV_Y+6,FXV_W-96,FXV_H-30,fxv_p(stage,0),0);
-    char b[48];snprintf(b,sizeof(b),"Drive %.0f%%  Sat %.0f%%  Out %.0f%%",fxv_p(stage,0)*100,fxv_p(stage,2)*100,fxv_p(stage,3)*100);
-    fxv_params_text(p,b,0);
 }
 static void fxv_soft_clip(const struct resample_painter*p,const struct fx_stage*stage)
 {
     rect(p,FXV_X,FXV_Y,FXV_W,FXV_H,PANEL);
     fxv_title(p,"Input (grey) and clipped output (amber)",FXV_X+4,FXV_Y+1,280);
     fxv_clip_wave(p,FXV_X+4,FXV_Y+14,FXV_W-8,FXV_H-34,fxv_p(stage,0),fxv_p(stage,1)>.5f);
-    char b[48];snprintf(b,sizeof(b),"Drive %.0f%%  Shape %.0f%%  Mix %.0f%%",fxv_p(stage,0)*100,fxv_p(stage,1)*100,fxv_p(stage,3)*100);
-    fxv_params_text(p,b,0);
 }
 static void fxv_lanes(const struct resample_painter*p,int lanes,double rate,double depth,uint32_t c0,uint32_t c1)
 {
@@ -478,15 +550,11 @@ static void fxv_lanes(const struct resample_painter*p,int lanes,double rate,doub
 static void fxv_ensemble(const struct resample_painter*p,const struct fx_stage*stage)
 {
     fxv_lanes(p,6,fxv_p(stage,0),fxv_p(stage,1),AMBER,0xffc07040u);
-    char b[48];snprintf(b,sizeof(b),"Rate %.0f%%  Depth %.0f%%  Mix %.0f%%",fxv_p(stage,0)*100,fxv_p(stage,1)*100,fxv_p(stage,5)*100);
-    fxv_params_text(p,b,0);
 }
 static void fxv_chorus(const struct resample_painter*p,const struct fx_stage*stage)
 {
     int voices=2+(int)lround(4*fxv_p(stage,5));
     fxv_lanes(p,voices,fxv_p(stage,0),fxv_p(stage,1),AMBER,0xffa070e8u);
-    char b[48];snprintf(b,sizeof(b),"Rate %.0f%%  Depth %.0f%%  Voices %d",fxv_p(stage,0)*100,fxv_p(stage,1)*100,voices);
-    fxv_params_text(p,b,0);
 }
 static void fxv_phaser(const struct resample_painter*p,const struct fx_stage*stage)
 {
@@ -502,8 +570,6 @@ static void fxv_phaser(const struct resample_painter*p,const struct fx_stage*sta
     for(int k=0;k<4;++k){int cx=FXV_X+30+k*70;
         fxv_disc(p,cx,FXV_Y+FXV_H-34,8,(fxv_now/200)%4==(uint64_t)k?AMBER:0xff50441eu);
         if(k<3)rect(p,cx+9,FXV_Y+FXV_H-35,52,2,GREY);}
-    char b[48];snprintf(b,sizeof(b),"Rate %.0f%%  Depth %.0f%%  Feedback %.0f%%",fxv_p(stage,0)*100,fxv_p(stage,1)*100,fb*100);
-    fxv_params_text(p,b,0);
 }
 static void fxv_flanger(const struct resample_painter*p,const struct fx_stage*stage)
 {
@@ -515,8 +581,6 @@ static void fxv_flanger(const struct resample_painter*p,const struct fx_stage*st
         int y=FXV_Y+14+(int)lround(44*(1-v));
         rect(p,FXV_X+4+x,y<prev?y:prev,2,abs(y-prev)+2,AMBER);prev=y;
     }
-    char b[48];snprintf(b,sizeof(b),"Rate %.0f%%  Depth %.0f%%  Feedback %.0f%%",fxv_p(stage,0)*100,fxv_p(stage,1)*100,fb*100);
-    fxv_params_text(p,b,0);
 }
 static void fxv_auto_wah(const struct resample_painter*p,const struct fx_stage*stage,const struct mixer_fx_monitor*m)
 {
@@ -534,8 +598,6 @@ static void fxv_auto_wah(const struct resample_painter*p,const struct fx_stage*s
     int px=FXV_X+FXV_W/2,tilt=(int)lround((centre-.5)*34);
     rect(p,px-40,FXV_Y+FXV_H-30,80,6,0xff30343au);
     for(int k=-38;k<=38;k+=2)rect(p,px+k,FXV_Y+FXV_H-36-(int)lround(k*tilt/60.0),2,5,0xffb0b4bcu);
-    char b[48];snprintf(b,sizeof(b),"Sens %.0f%%  Res %.0f%%  Center %.0f%%",fxv_p(stage,9)*100,res*100,fxv_p(stage,13)*100);
-    fxv_params_text(p,b,0);
 }
 static void fxv_auto_pan(const struct resample_painter*p,const struct fx_stage*stage)
 {
@@ -552,49 +614,6 @@ static void fxv_auto_pan(const struct resample_painter*p,const struct fx_stage*s
     int ox=FXV_X+FXV_W/2+(int)lround(pos*80);
     fxv_disc(p,ox,FXV_Y+40,7,AMBER);
     rect(p,FXV_X+70,FXV_Y+FXV_H-28,FXV_W-140,2,GREY);
-    char b[48];snprintf(b,sizeof(b),"Rate %.0f%%  Mix %.0f%%",fxv_p(stage,8)*100,fxv_p(stage,12)*100);
-    fxv_params_text(p,b,0);
-}
-static void fxv_vinyl(const struct resample_painter*p,const struct fx_stage*stage)
-{
-    rect(p,FXV_X,FXV_Y,FXV_W,FXV_H,0xff261a10u);
-    int cx=FXV_X+100,cy=FXV_Y+37;
-    fxv_disc(p,cx,cy,34,0xff0a0a0cu);
-    for(int r=14;r<=32;r+=6){for(int a=0;a<24;++a){double t=a*.2618;rect(p,cx+(int)lround(cos(t)*r),cy+(int)lround(sin(t)*r),1,1,0xff1e1e22u);}}
-    fxv_disc(p,cx,cy,11,0xffb83828u);fxv_disc(p,cx,cy,2,BLACK);
-    double ang=fxv_now*.0035*(1+(fxv_p(stage,2)-.5)*.3);
-    for(int k=0;k<3;++k){double t=ang+k*2.0944;rect(p,cx+(int)lround(cos(t)*27)-1,cy+(int)lround(sin(t)*27)-1,3,3,0xff4a4a54u);}
-    int ax=FXV_X+250,ay=FXV_Y+8;
-    for(int k=0;k<=36;k+=2){int x=ax-(int)lround(k*1.4),y=ay+(int)lround(k*1.9);rect(p,x,y,3,3,0xffb0b4bcu);}
-    fxv_disc(p,ax,ay,6,0xff70747au);
-    unsigned seed=(unsigned)(fxv_now/90);int sparks=(int)lround(6*fxv_p(stage,1));
-    for(int k=0;k<sparks;++k){seed=seed*1664525u+1013904223u;rect(p,FXV_X+192+(int)(seed>>9&15),FXV_Y+72+(int)(seed>>13&7),2,2,AMBER);}
-    char b[48];snprintf(b,sizeof(b),"Tone %.0f%%  Crackle %.0f%%  Pitch %.0f%%",fxv_p(stage,0)*100,fxv_p(stage,1)*100,fxv_p(stage,2)*100);
-    fxv_params_text(p,b,0);
-}
-static void fxv_tape_emu(const struct resample_painter*p,const struct fx_stage*stage)
-{
-    rect(p,FXV_X,FXV_Y,FXV_W,FXV_H,0xff22252au);
-    int cy=FXV_Y+38;double wow=fxv_p(stage,0);
-    for(int side=0;side<2;++side){
-        int cx=FXV_X+(side?FXV_W-76:76);
-        fxv_disc(p,cx,cy,30,0xffc0c4ccu);fxv_disc(p,cx,cy,24,0xff202226u);
-        double ang=fxv_now*.0026*(1+.15*wow*sin(fxv_now*.012))+side;
-        for(int k=0;k<3;++k){double t=ang+k*2.0944;for(int rr=4;rr<=22;rr+=3)rect(p,cx+(int)lround(cos(t)*rr)-1,cy+(int)lround(sin(t)*rr)-1,3,3,0xffc0c4ccu);}
-        fxv_disc(p,cx,cy,5,0xffc0c4ccu);
-    }
-    rect(p,FXV_X+76,cy+32,FXV_W-152,2,0xff6a4a30u);
-    /* Two VU meters in the gap between the reels; the needles swing around a pivot at the bottom. */
-    for(int k=0;k<2;++k){
-        int x=FXV_X+112+k*42,top=FXV_Y+8,pivot_x=x+17,pivot_y=top+23;
-        rect(p,x,top,34,26,0xffe8e0c0u);
-        for(int t=-2;t<=2;++t){double a=t*.38;rect(p,pivot_x+(int)lround(sin(a)*19),pivot_y-(int)lround(cos(a)*19),1,2,0xff6a5a40u);}
-        double a=(-.8+1.6*(.5+.5*sin(fxv_now*.004+k*1.3)))*(.6+.4*(1-wow));
-        for(int r=0;r<=18;++r)rect(p,pivot_x+(int)lround(sin(a)*r),pivot_y-(int)lround(cos(a)*r),1,1,k?0xffb02a1eu:BLACK);
-        rect(p,pivot_x-1,pivot_y-1,3,3,BLACK);
-    }
-    char b[48];snprintf(b,sizeof(b),"Wow %.0f%%  Noise %.0f%%  Pitch %.0f%%",wow*100,fxv_p(stage,1)*100,fxv_p(stage,2)*100);
-    fxv_params_text(p,b,0);
 }
 
 /* ---- Am MOD's own effects (fx_own.c). Parameters are normalized 0..1 as in the DSP. ---- */
@@ -706,9 +725,6 @@ static void fxv_shimmer(const struct resample_painter*p,const struct fx_stage*st
         rect(p,x,y,2,2,c);if(up>.4)rect(p,x-1,y+2,4,1,c);
     }
     fxv_disc(p,cx,cy+22,3,AMBER);
-    int st=fx_own_shimmer_semitones(stage->parameter[3]);
-    char b[64];snprintf(b,sizeof(b),"%+d st  Shimmer %.0f%%  Decay %.0f%%  Mix %.0f%%",st,amount*100,decay*100,fxv_p(stage,0)*100);
-    fxv_params_text(p,b,0);
 }
 static void fxv_pitch(const struct resample_painter*p,const struct fx_stage*stage)
 {
@@ -725,8 +741,6 @@ static void fxv_pitch(const struct resample_painter*p,const struct fx_stage*stag
         }
         text(p,lane?"OUT":"IN",FXV_X+6,cy-6,30,12,10,c,0);
     }
-    char b[64];snprintf(b,sizeof(b),"%+d st  Detune %+.0f ct  Mix %.0f%%",st,cents,fxv_p(stage,2)*100);
-    fxv_params_text(p,b,0);
 }
 static void fxv_reverse(const struct resample_painter*p,const struct fx_stage*stage)
 {
@@ -747,8 +761,6 @@ static void fxv_reverse(const struct resample_painter*p,const struct fx_stage*st
     int px=FXV_X+10+(int)((fxv_now/(int)(8+time*10))%(uint64_t)span);
     if(!fxv_idle)rect(p,px,FXV_Y+8,1,FXV_H-34,GREY);
     text(p,"<",FXV_X+FXV_W-30,FXV_Y+2,20,16,14,AMBER,0);
-    char b[64];snprintf(b,sizeof(b),"Time %.0f ms  Feedback %.0f%%  Mix %.0f%%",time*1000,fb*100/.85,fxv_p(stage,2)*100);
-    fxv_params_text(p,b,0);
 }
 static void fxv_tremolo(const struct resample_painter*p,const struct fx_stage*stage)
 {
@@ -766,8 +778,6 @@ static void fxv_tremolo(const struct resample_painter*p,const struct fx_stage*st
         rect(p,FXV_X+8+x,w,2,2,0xff4a525au);
         prevt=top;prevw=bot;
     }
-    char b[64];snprintf(b,sizeof(b),"Rate %.1f Hz  Depth %.0f%%  Shape %.0f%%",hz,depth*100,shape*100);
-    fxv_params_text(p,b,0);
 }
 static void fxv_swell(const struct resample_painter*p,const struct fx_stage*stage)
 {
@@ -785,8 +795,6 @@ static void fxv_swell(const struct resample_painter*p,const struct fx_stage*stag
     }
     int px=FXV_X+12+(int)((fxv_now/14)%(uint64_t)w);
     if(!fxv_idle)rect(p,px,FXV_Y+8,1,FXV_H-34,WHITE);
-    char b[64];snprintf(b,sizeof(b),"Attack %.0f ms  Sensitivity %.0f%%",attack*1000,fxv_p(stage,1)*100);
-    fxv_params_text(p,b,0);
 }
 static void fxv_ring(const struct resample_painter*p,const struct fx_stage*stage)
 {
@@ -803,8 +811,6 @@ static void fxv_ring(const struct resample_painter*p,const struct fx_stage*stage
         }
         text(p,names[lane],FXV_X+4,cy-6,54,12,9,c,0);
     }
-    char b[64];snprintf(b,sizeof(b),"Frequency %.0f Hz  Mix %.0f%%",fc,fxv_p(stage,1)*100);
-    fxv_params_text(p,b,0);
 }
 static void fxv_crush(const struct resample_painter*p,const struct fx_stage*stage)
 {
@@ -821,8 +827,6 @@ static void fxv_crush(const struct resample_painter*p,const struct fx_stage*stag
         rect(p,FXV_X+8+x,yo<prevo?yo:prevo,2,abs(yo-prevo)+2,AMBER);
         previ=yi;prevo=yo;
     }
-    char b[64];snprintf(b,sizeof(b),"%d-bit  Rate 1/%d  Mix %.0f%%",bits,factor,fxv_p(stage,2)*100);
-    fxv_params_text(p,b,0);
 }
 static int fx_visual_dispatch(const struct resample_painter*p,const struct fx_catalog_entry*e,
                            const struct fx_stage*stage,const struct mixer_fx_monitor*m,double rate,

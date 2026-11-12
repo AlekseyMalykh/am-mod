@@ -1,4 +1,4 @@
-# r28e-fx10 (candidate for r29a)
+# r28e-fx11 (candidate for r29a)
 
 Fix: Save Project and Save Sample windows are SD-only. K3 is forced to External when the window opens and on any K3 movement. Diagnostic logging (SAVE_SCREEN/SAVE_K3/SAVE_BUTTON) is still enabled.
 
@@ -12,3 +12,5 @@ Fixed: Stems export failed with SD_EXPORT_UNAVAILABLE when the export destinatio
 Stems: the stock mixdown WAV is moved into the song folder as "<song>_Master.wav" instead of staying in Samples/Export. Pads default now also routes pad presses (previously it showed Pads but pads did not respond until K1 was toggled).
 
 Stem file names now carry the Track name: "<song>_track A_<name>.wav" (only if the Track was renamed), "<song>_Master.wav".
+
+- Effect screens: the value strip under the pictures is gone (values are on the parameter panel). New detailed pictures with AM MOD labels: Tape Delay (reels, rollers, heads), Tape (cassette with VU and transport), Vinyl (turntable), Sample Delay.
