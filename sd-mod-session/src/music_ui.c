@@ -852,8 +852,8 @@ static void palette_paint(void*g){
 }
 static void mod_settings_paint(void*g){
  if(palette_edit){palette_paint(g);return;}
- static const char*const tabs[]={"Pads","Sample","Colours","Cursor","About"};
- static const char*const titles[]={"Pad lighting","Sample","System colours","Selected pad","About"};
+ static const char*const tabs[]={"Quick","Sample","Colours","Cursor","About"};
+ static const char*const titles[]={"Quick settings","Sample","System colours","Selected pad","About"};
  static const char*const sample_labels[]={"Waveform tint","Spectrum tint","Preview from end"};
  static const char*const services[]={"Cursor / selection","Free target","Occupied target","Original value","Play position","Muted","Pad Link","Mute Group"};
  static const char*const speeds[]={"Steady","Slow","Normal","Fast"};
@@ -914,7 +914,7 @@ static void mod_settings_paint(void*g){
   if(current){k1_label=label;snprintf(value_text,sizeof(value_text),"%s",name);k1_value=value_text;}
  }
  colour(g,0xffa0a0a0);
- text_aligned(g,textin_row(mod_row)?"Naming, search and export windows open in Pads or Encoder":fxview_row(mod_row)?"Mixer effects: Illustrated pictures or Classic traces":row_disabled(mod_row)?"Off: set Pad lighting to Am MOD (Pads tab)":mod_tab==2?(relation_row(mod_row)||vivid_row(mod_row)?(music_pad_lighting_mode()?(vivid_row(mod_row)?"Washed-out colours: Strong or Max":"Blinks with the pad's own colour"):"Used only with Pad lighting: Am MOD"):music_service_colours_fallback()?"System colours overlap: using defaults":"Shift + B2: edit RGB palette"):mod_tab==1?"Hold STOP and tap a pad to hear its end":mod_tab==3?"Sequence pulses still follow tempo":link_row(mod_row)?"Sample: selected links / playing double pulse":group_row(mod_row)?"Sample: group blinks when selected / flashes when playing":"Standard keeps Piano, Scale and Degrees",12,172,300,13,11,0x21);
+ text_aligned(g,textin_row(mod_row)?"Naming, search and export windows open in Pads or Encoder":fxview_row(mod_row)?"Mixer effects: Illustrated pictures or Classic traces":row_disabled(mod_row)?"Off: set Pad lighting to Am MOD (Quick tab)":mod_tab==2?(relation_row(mod_row)||vivid_row(mod_row)?(music_pad_lighting_mode()?(vivid_row(mod_row)?"Washed-out colours: Strong or Max":"Blinks with the pad's own colour"):"Used only with Pad lighting: Am MOD"):music_service_colours_fallback()?"System colours overlap: using defaults":"Shift + B2: edit RGB palette"):mod_tab==1?"Hold STOP and tap a pad to hear its end":mod_tab==3?"Sequence pulses still follow tempo":link_row(mod_row)?"Sample: selected links / playing double pulse":group_row(mod_row)?"Sample: group blinks when selected / flashes when playing":"Standard keeps Piano, Scale and Degrees",12,172,300,13,11,0x21);
  colour(g,lighting_save_error?0xffff4040:0xffa0a0a0);
  text_aligned(g,lighting_save_error?"Could not change setting":link_row(mod_row)||group_row(mod_row)||fxview_row(mod_row)||textin_row(mod_row)?"Saved on this card; applies to all projects":"Saved in the project and as card default",12,185,300,13,11,0x21);
  /* K1 changes the selected row directly; the encoder selects and edits. */

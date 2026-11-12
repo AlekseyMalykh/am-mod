@@ -203,6 +203,14 @@ extern "C" int startup_song_export_ready(void){
  if(!(card_ok&&alias_ok&&same&&writable))std::fprintf(stderr,"STARTUP_PROJECT SONG_EXPORT_NOT_READY card_dir=%d native=%d same_inode=%d writable=%d folder=%s\n",card_ok,alias_ok,same,writable,folder);
  return card_ok&&alias_ok&&same&&writable;
 }
+extern "C" int startup_song_export_external(const char*path){
+ char root[PATH_MAX],prefix[PATH_MAX];
+ if(!path||!card_root(root)||std::snprintf(prefix,sizeof(prefix),"%s/Samples/User/Export/",root)>=(int)sizeof(prefix))return 0;
+ size_t n=std::strlen(prefix);
+ if(std::strncmp(path,prefix,n)||std::strstr(path+n,".."))return 0;
+ prefix[n-1]=0;struct stat st;struct statvfs fs;
+ return !stat(prefix,&st)&&S_ISDIR(st.st_mode)&&!statvfs(prefix,&fs)&&!(fs.f_flag&ST_RDONLY);
+}
 extern "C" int startup_project_loading(void){return phase.load()==1||phase.load()==2;}
 extern "C" void startup_project_ready(void){
  unsigned waiting=1;

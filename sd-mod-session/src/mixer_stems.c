@@ -152,7 +152,8 @@ static void begin(void *context,void *writer,const char *path,unsigned rate,int 
     }
 #ifdef MPC_EARLY_STARTUP
     static const char export_path[]="/data/UserContent/Samples/User/Export/";
-    if(strncmp(path,export_path,sizeof(export_path)-1)||!startup_song_export_ready()){
+    int internal_ok=!strncmp(path,export_path,sizeof(export_path)-1)&&startup_song_export_ready();
+    if(!internal_ok&&!startup_song_export_external(path)){
         fprintf(stderr,"STEMS SD_EXPORT_UNAVAILABLE path=%s prefix_ok=%d\n",path,!strncmp(path,export_path,sizeof(export_path)-1));return;
     }
 #endif

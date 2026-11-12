@@ -1126,6 +1126,7 @@ static void song_name_bind(void)
         activate(candidate,0);
         if(editor==candidate&&visible()){
             song_ui_stems_name_opened();
+            song_ui_stems_input_mode(state.enabled);
             song_ui_stems_name_modal_attach(editor);
         }
     }
@@ -1327,13 +1328,7 @@ static void activate(void *p, size_t editor_offset)
         note("NAMING_READY r10b_UI_FIFO feedback100ms encoder_and_plus_minus_preserved");
         /* Default input is a Mod Setting (Pads unless set to Encoder). The
          * window repaints on its own; K1 still switches at any time. */
-        int stems_name=0;
-#ifdef MPC_SONG_UI
-        /* Song/Stems export keeps its own Encoder/Pads footer state and
-         * confirm/arm sequence: leave it exactly as released (Encoder). */
-        stems_name=song_ui_stems_name_pending()||song_ui_stems_name_active();
-#endif
-        if(music_text_input()&&!stems_name&&!atomic_load(&input_fault)&&state.length<=PHONE_MAX_CHARS){
+        if(music_text_input()&&!atomic_load(&input_fault)&&state.length<=PHONE_MAX_CHARS){
             phone_enable(&state,1);
             lights();
             note("PADS_ON default");
@@ -1696,7 +1691,7 @@ static void name_cursor_paint(void*p,void*g){
     if(on_ui()&&song_ui_stems_name_pending()&&valid_editor(p)
         &&(!editor||editor==p||!visible())){
         activate(p,0);
-        if(editor==p)song_ui_stems_name_opened();
+        if(editor==p){song_ui_stems_name_opened();song_ui_stems_input_mode(state.enabled);}
     }
     if(on_ui()&&p==editor&&song_ui_stems_modal_visible())
         song_ui_stems_name_modal_attach(p);
