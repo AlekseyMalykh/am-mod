@@ -412,6 +412,8 @@ int mixer_control_button(struct mixer_control*c,enum mixer_action action,int dow
         }
     }else if(action==MIXER_B2&&c->view.page==MIXER_KNOB_FX&&c->view.fx_parameters&&!c->shift){
         selected(c)->fx.stage[c->view.fx_slot].bypass^=1;changed(c);
+    }else if(action==MIXER_B2&&c->view.page==MIXER_KNOB_FX&&c->view.fx_parameters&&c->fx_editing){
+        selected(c)->fx_bypass^=1;changed(c); /* Shift+B2 on an effect page: Chain Bypass */
     }else if(action==MIXER_B2&&c->view.page==MIXER_OVERVIEW){
         if(!c->shift){
             clear_fx_page(c);c->view.page=MIXER_INSPECT;c->temporary=1;return 1;
@@ -423,7 +425,7 @@ int mixer_control_button(struct mixer_control*c,enum mixer_action action,int dow
         c->view.pad_lock^=1;
     }else if(action==MIXER_B3){
         if(c->view.page==MIXER_KNOB_FX&&c->fx_editing){
-            if(c->shift){selected(c)->fx_bypass^=1;changed(c);}
+            if(c->shift){if(!c->view.fx_parameters){selected(c)->fx_bypass^=1;changed(c);}}
             else group_gate(c,1);
         }else if(c->view.page==MIXER_OVERVIEW&&c->shift){
             for(unsigned i=0;i<MIXER_TRACKS;++i)if(c->desired.track[i].mix.solo){

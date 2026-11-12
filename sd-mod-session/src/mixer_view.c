@@ -286,9 +286,10 @@ static void header(const struct mixer_view_state*s,const struct resample_painter
         names[1]=s->shifted?"":s->pad_lock?"Pad Lock: On":"Pad Lock: Off";
     }
     if(s->page==MIXER_KNOB_FX&&s->fx_parameters){
-        names[0]="FX List";names[1]=s->shifted?"":"Bypass";
+        names[0]="FX List";names[1]=s->shifted?"Chain Bypass":"Bypass";
         const struct mixer_channel*ch=s->master?&s->project->master:s->project->track+s->primary;
-        lit[1]=!s->shifted&&s->fx_slot<ch->fx.count&&ch->fx.stage[s->fx_slot].bypass;
+        lit[1]=s->shifted?ch->fx_bypass!=0:s->fx_slot<ch->fx.count&&ch->fx.stage[s->fx_slot].bypass;
+        if(s->shifted){names[2]="";lit[2]=0;}
         if(s->shifted&&s->fx_slot<ch->fx.count&&ch->fx.stage[s->fx_slot].kind==FX_STAGE_EQ){
             names[2]="+ EQ Point";lit[2]=0;
             add_eq_disabled=ch->fx.stage[s->fx_slot].eq.count>=MIXER_EQ_POINTS;

@@ -146,6 +146,13 @@ static void fx_slots(void)
     ack(c);assert(accepted.track[1].fx_bypass==1&&!accepted.track[1].mix.mute);
     button(c,MIXER_B1);assert(view(c).page==MIXER_OVERVIEW);
     pad(c,8,1);pad(c,8,0);assert(view(c).fx_parameters&&view(c).fx_slot==0);
+    /* On an effect page B2 is the effect Bypass; Shift+B2 is Chain Bypass. */
+    mixer_control_button(c,MIXER_SHIFT,1,ticket);button(c,MIXER_B2);mixer_control_button(c,MIXER_SHIFT,0,ticket);
+    ack(c);assert(accepted.track[1].fx_bypass==0);
+    mixer_control_button(c,MIXER_SHIFT,1,ticket);button(c,MIXER_B3);mixer_control_button(c,MIXER_SHIFT,0,ticket);
+    ack(c);assert(accepted.track[1].fx_bypass==0);
+    mixer_control_button(c,MIXER_SHIFT,1,ticket);button(c,MIXER_B2);mixer_control_button(c,MIXER_SHIFT,0,ticket);
+    ack(c);assert(accepted.track[1].fx_bypass==1);
     unsigned bank=view(c).bank;
     button(c,MIXER_BANK);assert(view(c).bank==bank);
     button(c,MIXER_BANK_PREVIOUS);assert(view(c).fx_parameters&&view(c).primary==0&&view(c).fx_slot==0);
