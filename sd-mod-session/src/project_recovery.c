@@ -264,10 +264,17 @@ void project_recovery_save_paint(uintptr_t image,void*p,void*g){
    (unsigned)F(p,storage,unsigned char),(unsigned)F(p,storage+1,unsigned char),FN(0x112f6b0,int(*)(void*))(p));}}
  /* Seed External once per screen opening, even if the native flag byte is
   * already set: the K3 cell otherwise keeps showing "Internal". */
- {static void *seeded_screen;static unsigned seeded_frames;
+ {static void *seeded_screen;static unsigned seeded_frames;static uint64_t last_reseed;
   if(seeded_screen!=p){seeded_screen=p;seeded_frames=0;}
-  if(seeded_frames<3){++seeded_frames;
-   if(!F(p,storage+1,unsigned char)||seeded_frames==1){
+  int unseeded=!F(p,storage+1,unsigned char);
+  uint64_t now=milliseconds();
+  /* Keep enforcing External for as long as the window is open: the native code can reset the
+   * flag later (name edits, repaint, storage refresh), which showed Internal again in r29a. */
+  int again=seeded_frames>=3&&unseeded&&now-last_reseed>120&&!FN(0x112f6b0,int(*)(void*))(p);
+  if(seeded_frames<3||again){
+   if(seeded_frames<3)++seeded_frames;
+   else{last_reseed=now;fprintf(stderr,"SAVE_RESEED kind=%u storage=0x%x\n",(unsigned)save_kind(image,p),storage);}
+   if(unseeded||seeded_frames==1){
     uintptr_t setter=storage==0x11b8?0x1683280:0x16480e0;
     FN(setter,void(*)(void*,float))(p,1.f);
     FN(0x1149880,void(*)(void*,uint64_t,uint64_t))(p,0,F(p,0x28,uint64_t));}}}
