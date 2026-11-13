@@ -366,10 +366,54 @@ int music_ui_tick(void)
 static void colour(void *g,uint32_t c) { FN(0x102d5e0,void(*)(void*,uint32_t))(g,c); }
 static void rect(void *g,int x,int y,int w,int h)
 { FN(0x102e000,void(*)(void*,int,int,int,int))(g,x,y,w,h); }
+/* Research log (r29f): the stock KNOB FX screen holds the chosen effect, its
+ * Bypass state and the target pads somewhere in its object tree. While the
+ * screen is painted, log which 8-byte words changed (root object + one level
+ * of readable child objects) so the fields can be decoded from the card log. */
+static int mem_readable(const void*q,size_t n){
+    static int pf[2]={-1,-1};
+    if(pf[0]<0&&pipe2(pf,O_NONBLOCK|O_CLOEXEC)){pf[0]=pf[1]=-1;return 0;}
+    ssize_t w=write(pf[1],q,n);if(w<0)return 0;
+    char tmp[512];while(w>0){ssize_t r=read(pf[0],tmp,(size_t)w>sizeof(tmp)?sizeof(tmp):(size_t)w);if(r<=0)break;w-=r;}
+    return 1;
+}
+#define KFX_ROOT 0x400
+#define KFX_CHILD 0x100
+#define KFX_KIDS 32
+static void knob_fx_research(void*p){
+    static unsigned char root_prev[KFX_ROOT];static int have;
+    static uintptr_t kid_ptr[KFX_KIDS];static unsigned char kid_prev[KFX_KIDS][KFX_CHILD];
+    static uint64_t last_ms;static unsigned lines;
+    struct timespec ts;clock_gettime(CLOCK_MONOTONIC,&ts);
+    uint64_t now=(uint64_t)ts.tv_sec*1000+(uint64_t)ts.tv_nsec/1000000;
+    if(now-last_ms<120||lines>=900||!mem_readable(p,KFX_ROOT))return;
+    last_ms=now;
+    unsigned char cur[KFX_ROOT];memcpy(cur,p,KFX_ROOT);
+    unsigned printed=0;
+    for(unsigned o=0;o+8<=KFX_ROOT;o+=8){
+        uint64_t a,b;memcpy(&a,root_prev+o,8);memcpy(&b,cur+o,8);
+        if(have&&a!=b&&printed<40){fprintf(stderr,"KNOBFX root+%03x %016llx -> %016llx\n",o,(unsigned long long)a,(unsigned long long)b);++printed;++lines;}
+    }
+    if(!have)fprintf(stderr,"KNOBFX first snapshot root=%p type=%016llx\n",p,(unsigned long long)FIELD(p,0,uintptr_t));
+    unsigned k=0;
+    for(unsigned o=8;o+8<=KFX_ROOT&&k<KFX_KIDS;o+=8){
+        uintptr_t c;memcpy(&c,cur+o,8);
+        if(c<0x10000||(c&7)||!mem_readable((void*)c,KFX_CHILD))continue;
+        if(kid_ptr[k]!=c){kid_ptr[k]=c;memcpy(kid_prev[k],(void*)c,KFX_CHILD);if(have)fprintf(stderr,"KNOBFX kid%u@root+%03x -> %p (new)\n",k,o,(void*)c);++k;continue;}
+        unsigned char now_bytes[KFX_CHILD];memcpy(now_bytes,(void*)c,KFX_CHILD);
+        for(unsigned co=0;co+8<=KFX_CHILD&&printed<40;co+=8){
+            uint64_t a,b;memcpy(&a,kid_prev[k]+co,8);memcpy(&b,now_bytes+co,8);
+            if(have&&a!=b){fprintf(stderr,"KNOBFX kid%u@root+%03x+%02x %016llx -> %016llx\n",k,o,co,(unsigned long long)a,(unsigned long long)b);++printed;++lines;}
+        }
+        memcpy(kid_prev[k],now_bytes,KFX_CHILD);++k;
+    }
+    memcpy(root_prev,cur,KFX_ROOT);have=1;
+}
 static void knob_underlay(void*p,void*g){
     uintptr_t type=FIELD(p,0,uintptr_t);
     if(type!=base+0x6e1e258)return;
     knob_fx_root=p;atomic_store(&knob_fx_visible,visible(p));
+    if(atomic_load(&knob_fx_visible))knob_fx_research(p);
     if(!atomic_load(&knob_fx_visible))return;
     /* This overlay's stock paint is empty. Cover the complete footer before
      * children paint, including gaps and the parent screen's focus bracket. */
