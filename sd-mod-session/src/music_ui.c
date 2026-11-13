@@ -570,8 +570,6 @@ static int eq_control(unsigned cc,unsigned value){
 /* Weak no-op defaults: host tests link music_ui.c without workflow_ui.c. */
 __attribute__((weak)) const char*workflow_storage_tab(void*files_root){(void)files_root;return NULL;}
 __attribute__((weak)) void workflow_storage_tab_painted(void){}
-/* With pad text input B2 reads Clear (Sure? once armed); NULL keeps the stock caption. */
-__attribute__((weak)) const char*phone_native_erase_label(void){return NULL;}
 void music_ui_tab(void *p,void *g)
 {
     if (FIELD(p,0,uintptr_t)!=base+0x706e940) return;
@@ -598,7 +596,6 @@ void music_ui_tab(void *p,void *g)
     if (FIELD(root,0,uintptr_t)==base+0x6e1fe48) return;
     const char *title=FIELD(p,0xb8,const char*);
     if (!title || !*title || strnlen(title,96)>=96) return;
-    if (!strcmp(title,"Erase")) { const char*clear=phone_native_erase_label(); if (clear) title=clear; }
     if(FIELD(root,0,uintptr_t)==base+SAMPLE_VPTR&&(uintptr_t)p-(uintptr_t)root==0xe50&&shifted(root,0)&&!music_ui_repeat_active()){
         title="Stereo > Mono";count=0;index=-1;
     }

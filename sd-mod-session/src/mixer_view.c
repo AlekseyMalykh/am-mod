@@ -301,7 +301,7 @@ static void header(const struct mixer_view_state*s,const struct resample_painter
         names[2]=s->shifted?(s->comp.warm?"Warm: On":"Warm: Off"):(s->comp.type?"Type: Opto":"Type: Duck");lit[2]=0;off=0;
     }
     if(s->page==MIXER_KNOB_FX&&s->fx_catalog){names[0]="FX List";names[1]="";names[2]="";lit[2]=0;}
-    if(s->name_edit){names[0]="Cancel";names[1]=s->name_pads?(s->name_clear_armed?"Sure?":"Clear"):"Erase";names[2]="Save";lit[1]=lit[2]=off=0;}
+    if(s->name_edit){names[0]="Cancel";names[1]=s->shifted?"Clear":"Erase";names[2]="Save";lit[1]=lit[2]=off=0;}
     else if(s->shifted&&s->page==MIXER_OVERVIEW){names[1]="Rename";names[2]="Clear Solo";lit[2]=0;}
     for(unsigned i=0;i<3;++i){int x=i==2?213:(int)i*106,w=i==0?106:107;
         uint32_t active=i==1?(0xff000000u|MIXER_MUTE_RGB):(s->shifted&&s->page==MIXER_KNOB_FX?SEND:0xff000000u|MIXER_SOLO_RGB);

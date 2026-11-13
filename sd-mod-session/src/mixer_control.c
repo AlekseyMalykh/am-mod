@@ -12,7 +12,7 @@ struct mixer_control {
     unsigned history_start,history_count,history_pos;
     int history_request,history_step;
     struct phone_input name;
-    unsigned naming,name_clear_armed;
+    unsigned naming;
     char name_preview[80];
     struct mixer_view_state view,back;
     struct mixer_meter_snapshot meter;
@@ -312,18 +312,15 @@ int mixer_control_button(struct mixer_control*c,enum mixer_action action,int dow
     if(!down)return 1;
     c->owned_buttons|=bit;c->message="";
     if(c->naming){
-        if(action!=MIXER_B2)c->name_clear_armed=0;
         if(action==MIXER_B1)c->naming=0;
         else if(action==MIXER_B3){
             char name[MIXER_NAME_BYTES]={0};
             if(!phone_utf8(&c->name,name,sizeof(name))){c->message="Name required (max 31 bytes)";return 1;}
             if(strcmp(selected(c)->name,name)){memcpy(selected(c)->name,name,sizeof(name));c->name_since=0;changed(c);}
             c->naming=0;
-        }else if(action==MIXER_B2&&c->name.enabled){
-            /* With pad input B2 is Clear: the first press asks, the second empties the name. */
-            if(c->name_clear_armed){phone_move(&c->name,(int)c->name.length);while(c->name.length&&phone_delete(&c->name,0));c->name_clear_armed=0;}
-            else c->name_clear_armed=1;
-            return 1;
+        }else if(action==MIXER_ERASE&&c->shift){
+            /* Shift+Erase clears the whole name, as in Search. */
+            phone_move(&c->name,(int)c->name.length);while(c->name.length&&phone_delete(&c->name,0));
         }else if(action==MIXER_ERASE||action==MIXER_B2)phone_delete(&c->name,!c->name.enabled&&c->name.cursor<c->name.length);
         else if(action==MIXER_SELECT||action==MIXER_BANK_NEXT)phone_move(&c->name,1);
         else if(action==MIXER_BANK_PREVIOUS)phone_move(&c->name,-1);
@@ -453,7 +450,7 @@ int mixer_control_button(struct mixer_control*c,enum mixer_action action,int dow
         }
         if(!one(c)){c->message="Select one Track";return 1;}
         phone_init(&c->name,MIXER_NAME_BYTES-1);
-        if(phone_sync(&c->name,selected(c)->name,0)){c->naming=1;c->name_clear_armed=0;if(name_pads_default)phone_enable(&c->name,1);}
+        if(phone_sync(&c->name,selected(c)->name,0)){c->naming=1;if(name_pads_default)phone_enable(&c->name,1);}
     }else if(action==MIXER_B2&&c->view.page==MIXER_ASSIGN&&!c->shift){
         c->view.pad_lock^=1;
     }else if(action==MIXER_B3){
@@ -886,7 +883,7 @@ void mixer_control_view(struct mixer_control*c,uint64_t now,struct mixer_view_st
         if(c->naming){
             phone_tick(&c->name,name_time());
             phone_view(&c->name,13,c->name_preview,sizeof(c->name_preview));
-            out->name_edit=c->name_preview;out->name_pads=c->name.enabled;out->name_clear_armed=c->name_clear_armed;
+            out->name_edit=c->name_preview;out->name_pads=c->name.enabled;
         }
         out->shifted=c->shift;out->fx_editing=c->fx_editing;out->rate=c->rate;}
 }

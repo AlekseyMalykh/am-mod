@@ -38,7 +38,7 @@ struct mixer_view_state {
     const char*message;
     const char*name_edit;
     uint64_t name_elapsed;
-    unsigned name_pads,name_clear_armed;
+    unsigned name_pads;
     const struct mixer_fx_monitor*fx_signal;
     struct mixer_sample_comp comp; /* stock Sample master compressor, shown as a pinned Master FX row */
     unsigned fx_illustrated; /* 0 Classic; set by the host from the card setting */

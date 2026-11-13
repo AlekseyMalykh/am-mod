@@ -253,7 +253,6 @@ int project_recovery_save_control(uintptr_t image,void *p,unsigned cc){
  project_recovery_save_external(image,p);
  return 1;
 }
-const char*phone_native_erase_label(void) __attribute__((weak));
 void project_recovery_save_paint(uintptr_t image,void*p,void*g){
  if(!save_screen_visible(image,p))return;
  save_surface=p;
@@ -290,12 +289,6 @@ void project_recovery_save_paint(uintptr_t image,void*p,void*g){
   paint_text(image,g,"Insert SD card to save",3,172,314,23);
   return;
  }
- {const char*clear=phone_native_erase_label?phone_native_erase_label():0;
-  if(clear){ /* pad input: the B2 Erase key reads Clear, then Sure? until confirmed */
-   FN(0x102d5e0,void(*)(void*,uint32_t))(g,0xff000000);
-   FN(0x102e000,void(*)(void*,int,int,int,int))(g,107,0,107,30);
-   FN(0x102d5e0,void(*)(void*,uint32_t))(g,0xffffffff);
-   paint_text(image,g,clear,107,4,107,23);}}
  if(!project||!first_save||!save_prompt)return;
  FN(0x102d5e0,void(*)(void*,uint32_t))(g,0xff000000);
  FN(0x102e000,void(*)(void*,int,int,int,int))(g,0,0,106,30);

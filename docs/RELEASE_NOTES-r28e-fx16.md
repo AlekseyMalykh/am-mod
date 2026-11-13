@@ -1,4 +1,4 @@
-# r28e-fx15 (candidate for r29a)
+# r28e-fx16 (candidate for r29a)
 
 Fix: Save Project and Save Sample windows are SD-only. K3 is forced to External when the window opens and on any K3 movement. Diagnostic logging (SAVE_SCREEN/SAVE_K3/SAVE_BUTTON) is still enabled.
 
@@ -16,9 +16,8 @@ Stem file names now carry the Track name: "<song>_track A_<name>.wav" (only if t
 - Effect screens: the value strip under the pictures is gone (values are on the parameter panel). New detailed pictures with AM MOD labels: Tape Delay (reels, rollers, heads), Tape (cassette with VU and transport), Vinyl (turntable), Sample Delay.
 - Tape cassette: two buttons PLAY/STOP (PLAY down while sound runs, STOP when it stops), reels turn only while playing, VU needle follows the signal level.
 - All remaining effect pictures get a category-coloured AM MOD plate; Spring Reverb has a tank frame, Tube Drive glowing tubes.
-- Pad text input: B2 is now Clear everywhere (mixer track name, project/sample name, search, export, Stems): first press asks (mixer shows "Sure?"), second press within 3 s empties the text. Hardware Erase still deletes one character.
 - Effect pictures redone with category colours: Soft Clipper (transfer curve + waveform), Ensemble (3 voices + sum), Multi Chorus (LFO circle), Auto Wah (pedal + sweep), Pitch Shifter (keyboard), Flanger (sweep strip), Bit Crusher (level grid), Amp Sim label layout.
 - Vinyl: the tonearm head now rests on the record.
-- Pad input: B2 caption reads Clear / Sure? on the Save Project/Sample screens and tab-button editors.
 - Vinyl: a narrower turntable with record shelves on both sides.
 - Vinyl: realistic tonearm proportions (pivot near the rim, arm about 1.4 record radii), volume/tone knobs.
+- Pad text input: Shift+Erase clears the whole text in every window (mixer track name, Save, Search, export, Stems), as in Search; the B2 "Clear/Sure?" experiment is removed so all windows behave the same.

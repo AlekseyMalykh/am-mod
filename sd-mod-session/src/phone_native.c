@@ -1786,24 +1786,11 @@ WRAP1(right_action,H_RIGHT)
 #define WRAP0(name,id) static void name(void *p) { \
     int b=before_native(p); ++internal; ORIG(id,void(*)(void*))(p); \
     --internal; after_native(b); }
-/* With pad input the B2 soft key is Clear: the first press arms it, a second press within 3 s empties the
- * whole text. Hardware Erase stays a one-character backspace. Returns 1 when the press was consumed. */
-static uint64_t clear_armed_ms;
-const char*phone_native_erase_label(void)
+/* Shift+Erase empties the whole text in every pad-input window (Search does the same). */
+static void clear_all_text(void)
 {
-    if(!atomic_load(&naming_active)||!state.enabled)return NULL;
-    return clear_armed_ms&&now_ms()-clear_armed_ms<3000?"Sure?":"Clear";
-}
-static int clear_confirm_press(void)
-{
-    if(!atomic_load(&naming_active)||!state.enabled)return 0;
-    uint64_t now=now_ms();
-    if(clear_armed_ms&&now-clear_armed_ms<3000){
-        clear_armed_ms=0;
-        ++internal;phone_move(&state,(int)state.length);while(state.length&&phone_delete(&state,0));--internal;
-        write_native();repaint();note("PADS_CLEAR");
-    }else{clear_armed_ms=now;repaint();}
-    return 1;
+    ++internal;phone_move(&state,(int)state.length);while(state.length&&phone_delete(&state,0));--internal;
+    write_native();repaint();note("PADS_CLEAR");
 }
 WRAP0(clear_action,H_CLEAR)
 static void erase_action(void *p)
@@ -1814,7 +1801,6 @@ static void erase_action(void *p)
     if(valid_editor(p)&&(song_ui_stems_name_pending()||
        (p==editor&&song_ui_stems_modal_visible())))return;
 #endif
-    if(valid_editor(p)&&clear_confirm_press())return;
     int boundary=before_native(p);
     ++internal;
     ORIG(H_ERASE,void(*)(void*))(p);
@@ -1948,7 +1934,7 @@ static void buttons_ui(void *event,uint64_t route)
        )){
         /* Erase deletes in both input modes: before the cursor with pads, the
          * selected character with the encoder. Both edges are consumed. */
-        if(down&&code==0x0d&&state.enabled){clear_confirm_press();return;}
+        if(down&&state.enabled&&(state.shift||atomic_load(&native_buttons_down[0x31]))){clear_all_text();return;}
         if(down&&(state.enabled||read_native())){
             ++internal;phone_delete(&state,!state.enabled&&state.cursor<state.length);--internal;
             write_native();repaint();

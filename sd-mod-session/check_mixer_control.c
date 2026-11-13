@@ -249,6 +249,8 @@ static void send_name_history(void)
     mixer_control_set_name_pads_default(1);ticket=mixer_control_ticket(c);
     mixer_control_button(c,MIXER_SHIFT,1,ticket);button(c,MIXER_B2);
     assert(view(c).name_edit&&view(c).name_pads);
+    button(c,MIXER_ERASE); /* Shift+Erase clears the whole name */
+    assert(view(c).name_edit&&!strcmp(view(c).name_edit,"|"));
     mixer_control_set_name_pads_default(0);
     mixer_control_destroy(c);
 }
