@@ -268,9 +268,11 @@ static void palette_publish(void){
  }
  atomic_store(&palette_pad_ticket,palette_ticket);
 }
+static void knob_fx_research(void*);
 int music_ui_tick(void)
 {
     atomic_store(&knob_fx_visible,visible(knob_fx_root));
+    if(knob_fx_root)knob_fx_research(knob_fx_root); /* r29g: poll while the stock screen exists, not only on paint */
 #ifdef MPC_PROJECT_RECOVERY
     /* "Restored: <name>" (5 s after an autoload) was drawn only when some
      * native part repainted, so it showed partly, blinked under repainting
@@ -378,8 +380,8 @@ static int mem_readable(const void*q,size_t n){
     return 1;
 }
 #define KFX_ROOT 0x400
-#define KFX_CHILD 0x100
-#define KFX_KIDS 32
+#define KFX_CHILD 0x180
+#define KFX_KIDS 48
 static void knob_fx_research(void*p){
     static unsigned char root_prev[KFX_ROOT];static int have;
     static uintptr_t kid_ptr[KFX_KIDS];static unsigned char kid_prev[KFX_KIDS][KFX_CHILD];
