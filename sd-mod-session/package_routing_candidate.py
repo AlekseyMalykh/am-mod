@@ -27,6 +27,12 @@ def main():
  mirror=helper.read_bytes();mirror_old=sha(original['autorun/screen-mirror']);assert mirror!=original['autorun/screen-mirror']
  text=files['autorun/mod-launcher.sh'].decode();assert text.count(mirror_old)==2
  files['autorun/mod-launcher.sh']=text.replace(mirror_old,sha(mirror)).encode();files['autorun/screen-mirror']=mirror
+ # The early DRM splash prints the version compiled into it; rebuild it so the boot screen matches this package.
+ splash_path=ROOT/'build'/'boot-splash'
+ subprocess.run(['aarch64-linux-gnu-gcc','-O2','-static','-Wall','-Wextra','-Werror','src/early_drm_splash.c','-o',str(splash_path)],cwd=ROOT,check=True)
+ splash=splash_path.read_bytes();splash_old=sha(original['autorun/boot-splash']);assert splash!=original['autorun/boot-splash']
+ text=files['autorun/mod-launcher.sh'].decode();assert text.count(splash_old)>=1
+ files['autorun/mod-launcher.sh']=text.replace(splash_old,sha(splash)).encode();files['autorun/boot-splash']=splash
  entry=files['autorun/autorun.sh'].decode()
  assert entry.count(sha(original['autorun/mod-launcher.sh']))==1 and entry.count('revision=r28d')==1
  files['autorun/autorun.sh']=entry.replace(sha(original['autorun/mod-launcher.sh']),sha(files['autorun/mod-launcher.sh'])).replace('revision=r28d',f'revision={VERSION}').encode()
@@ -38,7 +44,7 @@ def main():
  for name in ('autorun.sh','mod-launcher.sh'):
   subprocess.run(['sh','-n','/dev/stdin'],input=files[f'autorun/{name}'],check=True)
  changed=sorted(n for n in files if n.startswith('autorun/') and files[n]!=original[n])
- assert changed==sorted('autorun/'+n for n in ('phone-input.so','mod-launcher.sh','autorun.sh','autorun.json','autorun.check','screen-mirror'))
+ assert changed==sorted('autorun/'+n for n in ('phone-input.so','mod-launcher.sh','autorun.sh','autorun.json','autorun.check','screen-mirror','boot-splash'))
  out=ROOT/'build'/VERSION;out.mkdir(exist_ok=True)
  target=out/f'am-mod-{VERSION}.zip'
  with zipfile.ZipFile(target,'x',zipfile.ZIP_DEFLATED) as z:
