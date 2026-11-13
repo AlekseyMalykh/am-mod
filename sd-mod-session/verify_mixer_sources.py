@@ -9,7 +9,7 @@ expected='b6584cba76e416e432ad202509099d34373dc2c3d6a8fb625f5678bf0193b508'
 assert sha(stock)==expected
 root=os.environ.get('MPC_QEMU_SYSROOT','/home/user/mpc-rootfs-user-20260808')
 out=R/'build/mixer-sources';out.mkdir(parents=True,exist_ok=True)
-sources=['check_mixer_sources_native.c','src/mixer_sources.cc','src/resample_queue.cc','src/pad_source_abi.S','src/mixer_archive.cc','src/mixer_model.c','src/fx_chain.c','src/fx_eq.c']
+sources=['check_mixer_sources_native.c','src/mixer_sources.cc','src/resample_queue.cc','src/pad_source_abi.S','src/mixer_archive.cc','src/mixer_model.c','src/fx_chain.c', 'src/fx_own.c', 'src/compressor_dsp.c','src/fx_eq.c']
 tracked=sources+['check_fx_native.c','src/mixer_sources.h','src/resample_queue.h','src/mixer_archive.h','verify_mixer_sources.py']
 before={p:sha(R/p) for p in tracked};checks=[]
 for mode,flags in [('normal',[]),('ubsan',['-fsanitize=undefined','-static-libubsan','-fno-sanitize-recover=all'])]:

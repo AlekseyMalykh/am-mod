@@ -54,6 +54,8 @@ struct mixer_bus_update *mixer_buses_update_prepare(const struct mixer_project*,
 struct mixer_bus_update *mixer_buses_update_prepare_delta(const struct mixer_project*,uint64_t part_id,
     double rate,uint64_t revision,const struct fx_backend*,const struct fx_chain_config previous[9],enum mixer_bus_result*);
 void mixer_buses_update_destroy(struct mixer_bus_update*);
+/* Mark a prepare_delta(previous=NULL) update as a state reset: same revision, all FX programs replaced. */
+void mixer_buses_update_flush(struct mixer_bus_update*);
 enum mixer_bus_result mixer_buses_publish(struct mixer_buses*,struct mixer_bus_update*);
 /* Control owner: frees retired packets/processors, never called from audio. */
 void mixer_buses_collect(struct mixer_buses*);

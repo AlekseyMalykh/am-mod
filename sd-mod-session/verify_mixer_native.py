@@ -22,7 +22,7 @@ if digest(stock) != expected:
     raise RuntimeError("Native audit requires the exact pinned 1.3.0.12 ELF")
 tracked = [R / "check_mixer_native.c", R / "check_fx_native.c", R / "src/mixer_meters.c",
            R / "src/mixer_meters.h", R / "src/mixer_buses.c", R / "src/mixer_buses.h",
-           R / "src/mixer_model.c", R / "src/mixer_model.h", R / "src/fx_chain.c", R / "src/fx_eq.c", Path(__file__).resolve()]
+           R / "src/mixer_model.c", R / "src/mixer_model.h", R / "src/fx_chain.c", R / "src/fx_own.c", R / "src/compressor_dsp.c", R / "src/fx_eq.c", Path(__file__).resolve()]
 before = {str(p.relative_to(R)): digest(p) for p in tracked}
 checks = []
 for name, flags in [("normal", []), ("ubsan", ["-fsanitize=undefined", "-static-libubsan", "-fno-sanitize-recover=all"])]:
@@ -30,7 +30,7 @@ for name, flags in [("normal", []), ("ubsan", ["-fsanitize=undefined", "-static-
     subprocess.run(["aarch64-linux-gnu-gcc", "-std=c11", "-O1", "-g", "-Wall",
                     "-Wextra", "-Werror", "-mbranch-protection=standard", *flags,
                     "check_mixer_native.c", "src/mixer_meters.c", "src/mixer_buses.c", "src/mixer_model.c",
-                    "src/fx_chain.c", "src/fx_eq.c", "-ldl", "-lm", "-o", str(target)], cwd=R, check=True)
+                    "src/fx_chain.c", "src/fx_own.c", "src/compressor_dsp.c", "src/fx_eq.c", "-ldl", "-lm", "-o", str(target)], cwd=R, check=True)
     result = subprocess.run(["qemu-aarch64", "-L", sysroot, str(target), str(stock)],
                             cwd=R, capture_output=True, text=True, timeout=30,
                             preexec_fn=lambda: resource.setrlimit(resource.RLIMIT_CORE, (0, 0)))

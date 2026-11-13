@@ -25,7 +25,7 @@ for name,source,flags in [('core','check_pad_render.c',[]),
     ('native','check_pad_render_native.c',[])]:
     executable=OUT/('check-pad-render-'+name)
     subprocess.run(['aarch64-linux-gnu-gcc','-O1','-g','-Wall','-Wextra','-Werror',
-        '-mbranch-protection=standard',*flags,source,'src/pad_render.c','src/fx_chain.c','src/fx_eq.c',
+        '-mbranch-protection=standard',*flags,source,'src/pad_render.c','src/fx_chain.c', 'src/fx_own.c', 'src/compressor_dsp.c','src/fx_eq.c',
         '-lstdc++','-lm','-ldl','-o',str(executable)],cwd=R,check=True)
     command=['qemu-aarch64','-L',str(ROOT),str(executable)]
     if name=='native':command.append(str(STOCK))
@@ -45,7 +45,7 @@ executable=OUT/'check-pad-sample-source'
 subprocess.run(['aarch64-linux-gnu-gcc','-O1','-g','-Wall','-Wextra','-Werror','-Ibuild','-mbranch-protection=standard',
     'check_pad_sample_source.c','check_pad_sample_source_support.S','check_chop_pcm_support.S','check_steps_support.S','src/step_abi.S',
     *support,str(source_object),'src/pad_source_abi.S',
-    'src/pad_render.c','src/fx_chain.c','src/fx_eq.c','-lstdc++','-ldl','-lpthread','-lm','-o',str(executable)],cwd=R,check=True)
+    'src/pad_render.c','src/fx_chain.c', 'src/fx_own.c', 'src/compressor_dsp.c','src/fx_eq.c','-lstdc++','-ldl','-lpthread','-lm','-o',str(executable)],cwd=R,check=True)
 result=subprocess.run(['qemu-aarch64','-L',str(ROOT),str(executable),str(STOCK)],cwd=R,capture_output=True,text=True,timeout=60)
 (OUT/'sample-source.log').write_text(result.stdout+result.stderr);result.check_returncode()
 checks.append({'name':'native-sample-source','passed':True,'results':[s for s in result.stdout.splitlines() if s.startswith('PASS')]})

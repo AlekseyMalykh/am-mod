@@ -146,6 +146,13 @@ static void fx_slots(void)
     ack(c);assert(accepted.track[1].fx_bypass==1&&!accepted.track[1].mix.mute);
     button(c,MIXER_B1);assert(view(c).page==MIXER_OVERVIEW);
     pad(c,8,1);pad(c,8,0);assert(view(c).fx_parameters&&view(c).fx_slot==0);
+    /* On an effect page B2 is the effect Bypass; Shift+B2 is Chain Bypass. */
+    mixer_control_button(c,MIXER_SHIFT,1,ticket);button(c,MIXER_B2);mixer_control_button(c,MIXER_SHIFT,0,ticket);
+    ack(c);assert(accepted.track[1].fx_bypass==0);
+    mixer_control_button(c,MIXER_SHIFT,1,ticket);button(c,MIXER_B3);mixer_control_button(c,MIXER_SHIFT,0,ticket);
+    ack(c);assert(accepted.track[1].fx_bypass==0);
+    mixer_control_button(c,MIXER_SHIFT,1,ticket);button(c,MIXER_B2);mixer_control_button(c,MIXER_SHIFT,0,ticket);
+    ack(c);assert(accepted.track[1].fx_bypass==1);
     unsigned bank=view(c).bank;
     button(c,MIXER_BANK);assert(view(c).bank==bank);
     button(c,MIXER_BANK_PREVIOUS);assert(view(c).fx_parameters&&view(c).primary==0&&view(c).fx_slot==0);
@@ -171,6 +178,51 @@ static void fx_slots(void)
 
     mixer_control_destroy(c);puts("PASS Mixer FX slots, copy/paste, EQ navigation during edits, parameter resets, deletion and bypass");
 }
+
+static struct {unsigned bypass,type,warm,reset;unsigned knob[2][3];int available;} fake;
+static int fake_state(struct mixer_sample_comp*k){k->available=fake.available;k->type=fake.type;k->bypass=fake.bypass;k->warm=fake.warm;k->ratio=3;return fake.available;}
+static void fake_knob(unsigned sh,unsigned k,unsigned v){fake.knob[sh][k]=v;}
+static void fake_reset(unsigned sh,unsigned k){(void)sh;(void)k;++fake.reset;}
+static void fake_bypass(void){fake.bypass^=1;}
+static void fake_type(void){fake.type^=1;}
+static void fake_warm(void){fake.warm^=1;}
+static void master_comp_row(void)
+{
+    static const struct mixer_comp_ops comp={fake_state,fake_knob,fake_reset,fake_bypass,fake_type,fake_warm};
+    mixer_defaults(&accepted);++revision;++epoch;
+    struct mixer_control_ops ops={NULL,submit};
+    struct mixer_control*c=mixer_control_create(&ops,48000);assert(c);
+    assert(mixer_control_confirm(c,&accepted,revision,epoch)&&mixer_control_open(c,1,0));
+    mixer_control_set_comp_ops(&comp);
+    uint64_t ticket=mixer_control_ticket(c);
+    mixer_control_set_fx_editing(c,1);
+    pad(c,15,1);pad(c,15,0);assert(view(c).master);
+    button(c,MIXER_KNOB);assert(view(c).page==MIXER_KNOB_FX&&view(c).comp.visible);
+    /* Empty chain: slot 0 is "+ ADD"; one more step reaches the pinned Sample compressor. */
+    cc(c,0x64,1);assert(view(c).fx_slot==MIXER_COMP_SLOT);
+    cc(c,0x64,1);assert(view(c).fx_slot==MIXER_COMP_SLOT);
+    cc(c,0x64,127);assert(view(c).fx_slot==0);cc(c,0x64,1);
+    fake.available=0;button(c,MIXER_SELECT);assert(!view(c).fx_parameters);
+    fake.available=1;button(c,MIXER_SELECT);assert(view(c).fx_parameters&&view(c).comp.available);
+    cc(c,0x10,100);assert(fake.knob[0][0]==100);
+    mixer_control_button(c,MIXER_SHIFT,1,ticket);cc(c,0x12,50);mixer_control_button(c,MIXER_SHIFT,0,ticket);assert(fake.knob[1][2]==50);
+    button(c,MIXER_B2);assert(fake.bypass==1&&view(c).comp.bypass);
+    button(c,MIXER_B3);assert(fake.type==1);
+    mixer_control_button(c,MIXER_SHIFT,1,ticket);button(c,MIXER_B3);assert(fake.warm==1);
+    button(c,MIXER_B2);ack(c);assert(accepted.master.fx_bypass==1&&fake.bypass==1);
+    mixer_control_button(c,MIXER_SHIFT,0,ticket);
+    assert(mixer_control_reset(c,0x11,0,ticket)&&fake.reset==1);
+    button(c,MIXER_B1);assert(!view(c).fx_parameters&&view(c).fx_slot==MIXER_COMP_SLOT);
+    { /* Shift+DATA on the pinned row toggles the Sample compressor Bypass without opening it */
+        unsigned before=fake.bypass;
+        mixer_control_button(c,MIXER_SHIFT,1,ticket);button(c,MIXER_SELECT);mixer_control_button(c,MIXER_SHIFT,0,ticket);
+        assert(fake.bypass==(before^1u)&&!view(c).fx_parameters);
+    }
+    /* Not on a Track: the pinned row exists on Master only. */
+    button(c,MIXER_B1);pad(c,0,1);pad(c,0,0);assert(!view(c).master&&!view(c).comp.visible);
+    mixer_control_destroy(c);mixer_control_set_comp_ops(NULL);
+    puts("PASS Master FX: pinned Sample compressor row, knobs, Bypass, Type, Warm, reset and Chain Bypass");
+}
 static void send_name_history(void)
 {
     mixer_defaults(&accepted);++revision;++epoch;
@@ -183,12 +235,23 @@ static void send_name_history(void)
     cc(c,0x11,127);ack(c);assert(accepted.track[0].mix.send==1);
     mixer_control_button(c,MIXER_SHIFT,1,ticket);
     cc(c,0x11,32);ack(c);assert(accepted.send_to[0]==2);
-    button(c,MIXER_B2);assert(view(c).name_edit);
+    button(c,MIXER_B2);assert(view(c).name_edit&&!view(c).name_pads); /* default: Encoder */
     mixer_control_button(c,MIXER_SHIFT,0,ticket);
     cc(c,0x64,1);button(c,MIXER_B3);ack(c);assert(!strcmp(accepted.track[0].name,"Urack A"));
     mixer_control_button(c,MIXER_SHIFT,1,ticket);
     button(c,MIXER_BANK_PREVIOUS);ack(c);assert(!strcmp(accepted.track[0].name,"Track A"));
     button(c,MIXER_BANK_NEXT);ack(c);assert(!strcmp(accepted.track[0].name,"Urack A"));
+    mixer_control_destroy(c);
+    /* Mod Setting "Text input: Pads": the track-name editor opens in Pads mode. */
+    mixer_defaults(&accepted);++revision;++epoch;
+    c=mixer_control_create(&ops,48000);assert(c);
+    assert(mixer_control_confirm(c,&accepted,revision,epoch)&&mixer_control_open(c,1,0));
+    mixer_control_set_name_pads_default(1);ticket=mixer_control_ticket(c);
+    mixer_control_button(c,MIXER_SHIFT,1,ticket);button(c,MIXER_B2);
+    assert(view(c).name_edit&&view(c).name_pads);
+    button(c,MIXER_ERASE); /* Shift+Erase clears the whole name */
+    assert(view(c).name_edit&&!strcmp(view(c).name_edit,"|"));
+    mixer_control_set_name_pads_default(0);
     mixer_control_destroy(c);
 }
 static void group_fader_limits(void)
@@ -227,9 +290,69 @@ static void group_fader_limits(void)
     mixer_control_destroy(c);++epoch;
     puts("PASS group fader continues in both directions after individual tracks hit their limits");
 }
+static void routing_controls(void)
+{
+    mixer_defaults(&accepted);++revision;++epoch;
+    struct mixer_control_ops ops={NULL,submit};
+    struct mixer_control*c=mixer_control_create(&ops,48000);assert(c);
+    assert(mixer_control_confirm(c,&accepted,revision,epoch)&&mixer_control_open(c,1,0));
+    mixer_control_set_fx_editing(c,1);
+    pad(c,0,1);pad(c,1,1);pad(c,0,0);pad(c,1,0);
+    assert(view(c).selected==3);
+    button(c,MIXER_B2);button(c,MIXER_B3);
+    assert(view(c).page==MIXER_INSPECT&&view(c).route_tab==MIXER_ROUTE_SENDS);
+    cc(c,0x11,32); /* A -> B, before the audio acknowledgement. */
+    assert(view(c).project->send_to[0]==2&&view(c).project->send_to[1]==0);
+    cc(c,0x12,64);ack(c);
+    assert(accepted.send_to[0]==2&&accepted.track[0].mix.send==.5f&&accepted.track[1].mix.send==0);
+    unsigned sound_before=view(c).sound,bank_before=view(c).bank;
+    pad(c,3,1);pad(c,3,0);assert(view(c).primary==3&&view(c).selected==8);
+    assert(view(c).sound==sound_before);
+    pad(c,0,1);pad(c,0,0);assert(view(c).primary==0&&view(c).bank==bank_before);
+
+    cc(c,0x10,16);assert(view(c).primary==1&&view(c).selected==2);
+    unsigned before=submissions;
+    cc(c,0x11,16);mixer_control_tick(c);
+    assert(submissions==before&&accepted.send_to[1]==0&&!strcmp(mixer_control_message(c),"Send would create a loop"));
+    cc(c,0x11,48);cc(c,0x12,127);ack(c);
+    assert(accepted.send_to[1]==3&&accepted.track[1].mix.send==1);
+    assert(mixer_control_reset(c,0x11,0,mixer_control_ticket(c)));ack(c);
+    assert(!accepted.send_to[1]);
+    cc(c,0x10,127);assert(view(c).master);
+    before=submissions;cc(c,0x12,50);mixer_control_tick(c);assert(submissions==before);
+    button(c,MIXER_B3);assert(view(c).route_tab==MIXER_ROUTE_KEYS);
+    pad(c,2,1);pad(c,2,0);assert(view(c).primary==2&&!view(c).master);
+    pad(c,15,1);pad(c,15,0);assert(view(c).master);
+    uint32_t rgb;assert(!mixer_control_led(c,0,&rgb)&&mixer_control_cursor(c,0)==-1);
+
+    button(c,MIXER_SELECT);ack(c);
+    assert(accepted.master.fx.count==1&&accepted.master.fx.stage[0].kind==FX_STAGE_SIDECHAIN);
+    cc(c,0x10,32);ack(c);
+    assert(fx_sidechain_value(0,accepted.master.fx.stage[0].parameter[0])==2);
+    assert(accepted.send_to[1]==0); /* A detector link creates no audio send. */
+    cc(c,0x64,64);assert(view(c).fx_slot==0);
+    assert(mixer_control_reset(c,0x10,0,mixer_control_ticket(c)));ack(c);
+    assert(!fx_sidechain_value(0,accepted.master.fx.stage[0].parameter[0]));
+    cc(c,0x10,127);ack(c);
+    assert(fx_sidechain_value(0,accepted.master.fx.stage[0].parameter[0])==8);
+    button(c,MIXER_SELECT);
+    assert(view(c).page==MIXER_KNOB_FX&&view(c).fx_parameters&&view(c).master);
+    button(c,MIXER_B1);button(c,MIXER_B1);
+    assert(view(c).page==MIXER_OVERVIEW);
+    uint64_t ticket=mixer_control_ticket(c);
+    mixer_control_button(c,MIXER_SHIFT,1,ticket);button(c,MIXER_BANK_PREVIOUS);
+    mixer_control_button(c,MIXER_SHIFT,0,ticket);ack(c);
+    assert(!fx_sidechain_value(0,accepted.master.fx.stage[0].parameter[0]));
+    mixer_control_button(c,MIXER_SHIFT,1,ticket);button(c,MIXER_BANK_NEXT);
+    mixer_control_button(c,MIXER_SHIFT,0,ticket);ack(c);
+    assert(fx_sidechain_value(0,accepted.master.fx.stage[0].parameter[0])==8);
+    mixer_control_destroy(c);
+    puts("PASS Routing sends isolate active rows, reject loops, restore defaults and create detector-only Sidechain links with FX editor access");
+}
 int main(void)
 {
     group_fader_limits();
+    master_comp_row();
     mixer_defaults(&accepted);accepted.track[0].mix.level_db=-3;accepted.track[1].mix.level_db=-9;accepted.track[2].mix.level_db=-6;
     struct mixer_control_ops ops={NULL,submit};struct mixer_control*c=mixer_control_create(&ops,48000);assert(c);
     assert(!mixer_control_open(c,0,0));assert(mixer_control_confirm(c,&accepted,revision,epoch));assert(!mixer_control_open(c,1,1));assert(mixer_control_open(c,1,0));
@@ -362,5 +485,5 @@ int main(void)
     assert(!mixer_control_button(c,MIXER_NATIVE_MODE,1,ticket)&&!mixer_control_active(c));assert(mixer_control_ticket(c)!=ticket);
     assert(mixer_control_button(c,MIXER_B2,0,ticket));assert(mixer_control_pad(c,3,0,ticket));assert(!mixer_control_button(c,MIXER_B2,1,mixer_control_ticket(c)));assert(!mixer_control_cc(c,0x10,1,ticket));
     assert(mixer_control_open(c,1,0));ticket=mixer_control_ticket(c);++epoch;++revision;assert(mixer_control_confirm(c,&accepted,revision,epoch)&&!mixer_control_active(c));assert(mixer_control_ticket(c)!=ticket);
-    mixer_control_destroy(c);puts("PASS coalesced confirmed edits, busy retry, B1 exit to Sample, mode exit, stale tickets/paired release recovery and Load/New epoch invalidation");colour_controls();fx_slots();send_name_history();return 0;
+    mixer_control_destroy(c);puts("PASS coalesced confirmed edits, busy retry, B1 exit to Sample, mode exit, stale tickets/paired release recovery and Load/New epoch invalidation");colour_controls();fx_slots();send_name_history();routing_controls();return 0;
 }

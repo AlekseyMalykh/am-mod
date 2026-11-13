@@ -8,6 +8,8 @@
 struct mixer_session { struct mixer_control *control; };
 struct mixer_control *mixer_session_control(struct mixer_session *s) { return s ? s->control : NULL; }
 int mixer_session_status(const struct mixer_session *s) { return s ? 1 : -2; }
+void mixer_session_flush_fx(struct mixer_session *s) { (void)s; }
+unsigned music_text_input(void) { return 0; }
 void mixer_session_ui_tick(struct mixer_session *s) { (void)s; }
 void note_native_repaint_sample(void) {}
 void note_native_repaint_sample_region(unsigned x,unsigned y,unsigned w,unsigned h)
@@ -19,6 +21,8 @@ int music_pad_lighting_mode(void) { return 1; }
 int music_pad_colour(unsigned pad) { return (int)(pad%16); }
 uint32_t music_user_rgb(unsigned raw) { return 0x102030u+raw; }
 uint32_t music_service_rgb(unsigned role) { (void)role; return 0xffffffu; }
+uint32_t music_led_correct(uint32_t rgb) { return rgb; }
+uint32_t music_relation_rgb(unsigned role) { (void)role; return 0xffffffu; }
 int music_ui_active(void) { return 0; }
 static uint64_t fixture_palette_ticket;
 uint64_t music_ui_palette_ticket(void) { return fixture_palette_ticket; }
@@ -143,6 +147,10 @@ int main(void)
     mixer_entry_init(&mixer_entry,500);
     mixer_publish_route();
     native_bank_light=receive_bank_light;
+    mixer_bank_lights_tracks(0x81);
+    mixer_bank_light((void*)0x4000,1,BANK_LED_FIRST+5);
+    assert(bank_led[BANK_LED_FIRST]&&bank_led[BANK_LED_FIRST+7]&&!bank_led[BANK_LED_FIRST+5]);
+    mixer_bank_lights_tracks(-1);
     for(unsigned i=0;i<BANK_LED_COUNT;++i)
         mixer_bank_light((void*)0x4000,i==5,BANK_LED_FIRST+i);
     assert(bank_led[BANK_LED_FIRST+5]==1);
@@ -155,7 +163,7 @@ int main(void)
     /* PAD FX + KNOB FX opens the Mixer; neither press nor release is native. */
     button(1,1);button(0,1);button(1,0);button(0,0);drain();
     assert(mixer_control_active(session.control)&&stock_down[1]==1&&stock_up[1]==1&&stock_down[0]==1&&stock_up[0]==1);
-    assert(!bank_led[BANK_LED_FIRST+5]);
+    assert(bank_led[BANK_LED_FIRST]==1&&!bank_led[BANK_LED_FIRST+5]);
     mixer_bank_light((void*)0x4000,0,BANK_LED_FIRST+5);
     mixer_bank_light((void*)0x4000,1,BANK_LED_FIRST+6);
     mixer_bank_light((void*)0x4000,1,0x41);
@@ -178,6 +186,29 @@ int main(void)
     struct mixer_view_state view;
     mixer_control_view(session.control,0,&view);
     assert(view.page==MIXER_OVERVIEW && view.primary==4 && !stock_pad[0] && !stock_pad[1]);
+    for(unsigned i=0;i<BANK_LED_COUNT;++i)assert(bank_led[BANK_LED_FIRST+i]==(i==4));
+    /* All three Routing tabs use the real production input and RGB owner. */
+    unsigned original_bank=view.bank;
+    button(0x0d,1);button(0x0d,0);button(0x0e,1);button(0x0e,0);drain();
+    mixer_control_view(session.control,0,&view);
+    assert(view.page==MIXER_INSPECT&&view.route_tab==MIXER_ROUTE_SENDS);
+    assert(!mixer_view_sound_pads(&view));
+    assert(bank_led[BANK_LED_FIRST+4]==1&&!bank_led[BANK_LED_FIRST+6]);
+    uint64_t ignored;assert(!mixer_leds_light(0,0,&ignored));
+    assert(atomic_load(&mixer_select_lights[4])==pad_light(view.project->track[4].colour,1.f));
+    pad(1,1);pad(1,0);drain();mixer_control_view(session.control,0,&view);
+    assert(view.primary==1&&view.bank==original_bank&&bank_led[BANK_LED_FIRST+1]);
+    button(0x0e,1);button(0x0e,0);drain();
+    pad(15,1);pad(15,0);drain();mixer_control_view(session.control,0,&view);
+    assert(view.route_tab==MIXER_ROUTE_KEYS&&view.master);
+    for(unsigned i=0;i<BANK_LED_COUNT;++i)assert(!bank_led[BANK_LED_FIRST+i]);
+    pad(4,1);pad(4,0);pad(9,1);pad(9,0);drain();mixer_control_view(session.control,0,&view);
+    assert(view.primary==4&&!view.master&&view.fx_slot==0); /* First free slot clamps. */
+    button(0x0d,1);button(0x0d,0);button(0x0d,1);button(0x0d,0);drain();
+    mixer_control_view(session.control,0,&view);assert(mixer_view_sound_pads(&view));
+    assert(bank_led[BANK_LED_FIRST+6]);
+    button(0x0c,1);button(0x0c,0);drain();
+    puts("PASS Routing Pads owns sounds/bank, Sends and Sidechain own Track RGB/selection/A-H including Master and FX slots; transitions restore the pad bank");
     uint64_t empty_fx=pad_light(0x808080u,.22f);
     for(unsigned i=8;i<12;++i)assert(atomic_load(&mixer_select_lights[i])==empty_fx);
     for(unsigned i=0;i<3;++i){
@@ -188,6 +219,16 @@ int main(void)
         for(unsigned slot=0;slot<4;++slot)
             assert(atomic_load(&mixer_select_lights[8+slot])==(slot<=i?pad_light(mixer_fx_slot_rgb(slot),.90f):empty_fx));
     }
+    pad(4,1);pad(5,1);pad(5,0);pad(4,0);drain();
+    for(unsigned i=0;i<BANK_LED_COUNT;++i)assert(bank_led[BANK_LED_FIRST+i]==(i==4||i==5));
+    button(0,1);button(0,0);drain();
+    for(unsigned i=0;i<BANK_LED_COUNT;++i)assert(bank_led[BANK_LED_FIRST+i]==(i==4||i==5));
+    pad(15,1);pad(15,0);drain();
+    for(unsigned i=0;i<BANK_LED_COUNT;++i)assert(!bank_led[BANK_LED_FIRST+i]);
+    mixer_bank_light((void*)0x4000,1,BANK_LED_FIRST+2);
+    assert(!bank_led[BANK_LED_FIRST+2]);
+    mixer_bank_light((void*)0x4000,0,BANK_LED_FIRST+2);
+    button(0x0c,1);button(0x0c,0);drain();
     pad(4,1);pad(5,1);pad(5,0);pad(4,0);drain();
     for(unsigned i=8;i<12;++i)assert(atomic_load(&mixer_select_lights[i])==empty_fx);
     pad(4,1);pad(4,0);drain();

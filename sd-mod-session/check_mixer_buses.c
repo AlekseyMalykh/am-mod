@@ -66,6 +66,22 @@ static void controls(void)
     compare(value(b,0,0,0),.5f);compare(value(b,1,0,0),.5f);compare(value(b,MIXER_METER_DIRECT,0,0),0);
     compare(value(b,MIXER_METER_MASTER,0,0),1);
     assert(project.track[0].mix.mute&&project.output[2]==0);mixer_buses_destroy(b);
+    /* Solo overrides Mute: both tracks muted and soloed still play; unsoloed muted tracks stay silent. */
+    s->fields[0]=MIXER_SCENE_MUTE|MIXER_SCENE_SOLO;
+    s->track[0].mute=1;s->track[0].solo=1;project.track[1].mix.mute=1;project.track[1].mix.solo=1;
+    b=mixer_buses_prepare(&project,11,48000,128,NULL,&error);assert(b);
+    assert(mixer_buses_begin(b,2)==MIXER_BUS_OK);
+    for(unsigned pad=0;pad<3;++pad)assert(mixer_buses_accumulate(b,pad,pcm,NULL,1,0)==MIXER_BUS_OK);
+    assert(mixer_buses_finish(b,NULL,0)==MIXER_BUS_OK);
+    compare(value(b,0,0,0),.5f);compare(value(b,1,0,0),.5f);compare(value(b,MIXER_METER_MASTER,0,0),1);
+    mixer_buses_destroy(b);
+    project.track[1].mix.solo=0;
+    b=mixer_buses_prepare(&project,11,48000,128,NULL,&error);assert(b);
+    assert(mixer_buses_begin(b,2)==MIXER_BUS_OK);
+    for(unsigned pad=0;pad<3;++pad)assert(mixer_buses_accumulate(b,pad,pcm,NULL,1,0)==MIXER_BUS_OK);
+    assert(mixer_buses_finish(b,NULL,0)==MIXER_BUS_OK);
+    compare(value(b,0,0,0),.5f);compare(value(b,1,0,0),0);
+    mixer_buses_destroy(b);
     b=prepare();assert(mixer_buses_begin(b,2)==MIXER_BUS_OK);
     for(unsigned pad=0;pad<3;++pad)assert(mixer_buses_accumulate(b,pad,pcm,NULL,1,0)==MIXER_BUS_OK);
     assert(mixer_buses_finish(b,NULL,0)==MIXER_BUS_OK);compare(value(b,0,0,0),0);compare(value(b,MIXER_METER_MASTER,0,0),.5f);

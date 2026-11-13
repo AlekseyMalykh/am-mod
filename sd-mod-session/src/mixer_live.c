@@ -103,6 +103,23 @@ enum mixer_bus_result mixer_live_publish(struct mixer_live*s,const struct mixer_
     error=MIXER_BUS_STATE;
 fail:destroy_update(u);return error;
 }
+/* Double Stop (all sounds off): rebuild every FX program so feedback loops and tails restart from silence.
+ * Control owner only; returns MIXER_BUS_STATE while another update is still pending (caller retries). */
+enum mixer_bus_result mixer_live_flush_fx(struct mixer_live*s,const struct mixer_project*p,uint64_t part)
+{
+    if(!s||!p||!mixer_project_valid(p))return MIXER_BUS_INVALID;
+    if(atomic_load_explicit(&s->pending,memory_order_relaxed))return MIXER_BUS_STATE;
+    struct mixer_project t,m;split(p,&t,&m);enum mixer_bus_result error;
+    struct live_update*u=calloc(1,sizeof(*u));if(!u)return MIXER_BUS_RESOURCE;
+    uint64_t revision=s->submitted_revision?s->submitted_revision:1;
+    u->track=mixer_buses_update_prepare_delta(&t,part,s->rate,revision,&s->backend,NULL,&error);if(!u->track)goto fail;
+    u->master=mixer_buses_update_prepare_delta(&m,0,s->rate,revision,&s->backend,NULL,&error);if(!u->master)goto fail;
+    mixer_buses_update_flush(u->track);mixer_buses_update_flush(u->master);
+    struct live_update*expected=NULL;
+    if(atomic_compare_exchange_strong_explicit(&s->pending,&expected,u,memory_order_release,memory_order_relaxed))return MIXER_BUS_OK;
+    error=MIXER_BUS_STATE;
+fail:destroy_update(u);return error;
+}
 void mixer_live_collect(struct mixer_live*s)
 {
     if(s){destroy_update(atomic_exchange_explicit(&s->retired,NULL,memory_order_acquire));

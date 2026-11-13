@@ -8,7 +8,7 @@ import subprocess
 R = Path(__file__).resolve().parent
 out = R / "build/mixer-buses"
 out.mkdir(parents=True, exist_ok=True)
-sources = ["check_mixer_buses.c", "src/mixer_buses.c", "src/mixer_model.c", "src/mixer_meters.c", "src/fx_chain.c", "src/fx_eq.c"]
+sources = ["check_mixer_buses.c", "src/mixer_buses.c", "src/mixer_model.c", "src/mixer_meters.c", "src/fx_chain.c", "src/fx_own.c", "src/compressor_dsp.c", "src/fx_eq.c"]
 tracked = sources + ["src/mixer_buses.h", "src/mixer_model.h", "src/mixer_meters.h", "verify_mixer_buses.py"]
 sha = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
 before = {p: sha(R / p) for p in tracked}

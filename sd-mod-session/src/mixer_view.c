@@ -1,5 +1,7 @@
 #include "mixer_view.h"
 #include "fx_catalog.h"
+#include "fx_own.h"
+#include "compressor.h"
 #include "shift_badge.h"
 #include "spectrum_plot.h"
 #include "mixer_sample_feedback.h"
@@ -274,27 +276,38 @@ static void header(const struct mixer_view_state*s,const struct resample_painter
         lit[2]=s->shifted?(s->master?s->project->master.fx_bypass:s->project->track[s->primary].fx_bypass)!=0:soloed;
         off=0;
     }
-    if(s->page==MIXER_INSPECT){names[1]="";names[2]="";}
+    if(s->page==MIXER_INSPECT){
+        static const char *previous[]={"< Sidechain","< Pads","< Sends"};
+        static const char *next[]={"Sends >","Sidechain >","Pads >"};
+        unsigned tab=s->route_tab<MIXER_ROUTE_TABS?s->route_tab:0;
+        names[1]=previous[tab];names[2]=next[tab];lit[2]=0;off=0;
+    }
     if(s->page==MIXER_ASSIGN){
         names[1]=s->shifted?"":s->pad_lock?"Pad Lock: On":"Pad Lock: Off";
     }
     if(s->page==MIXER_KNOB_FX&&s->fx_parameters){
-        names[0]="FX List";names[1]=s->shifted?"":"Bypass";
+        names[0]="FX List";names[1]=s->shifted?"Chain Bypass":"Bypass";
         const struct mixer_channel*ch=s->master?&s->project->master:s->project->track+s->primary;
-        lit[1]=!s->shifted&&s->fx_slot<ch->fx.count&&ch->fx.stage[s->fx_slot].bypass;
+        lit[1]=s->shifted?ch->fx_bypass!=0:s->fx_slot<ch->fx.count&&ch->fx.stage[s->fx_slot].bypass;
+        if(s->shifted){names[2]="";lit[2]=0;}
         if(s->shifted&&s->fx_slot<ch->fx.count&&ch->fx.stage[s->fx_slot].kind==FX_STAGE_EQ){
             names[2]="+ EQ Point";lit[2]=0;
             add_eq_disabled=ch->fx.stage[s->fx_slot].eq.count>=MIXER_EQ_POINTS;
         }
     }
+    if(s->page==MIXER_KNOB_FX&&s->fx_parameters&&s->master&&s->fx_slot==MIXER_COMP_SLOT&&s->comp.visible){
+        names[1]=s->shifted?"Chain Bypass":"Bypass";
+        lit[1]=s->shifted?s->project->master.fx_bypass!=0:s->comp.bypass!=0;
+        names[2]=s->shifted?(s->comp.warm?"Warm: On":"Warm: Off"):(s->comp.type?"Type: Opto":"Type: Duck");lit[2]=0;off=0;
+    }
     if(s->page==MIXER_KNOB_FX&&s->fx_catalog){names[0]="FX List";names[1]="";names[2]="";lit[2]=0;}
-    if(s->name_edit){names[0]="Cancel";names[1]="Erase";names[2]="Save";lit[1]=lit[2]=off=0;}
+    if(s->name_edit){names[0]="Cancel";names[1]=s->shifted?"Clear":"Erase";names[2]="Save";lit[1]=lit[2]=off=0;}
     else if(s->shifted&&s->page==MIXER_OVERVIEW){names[1]="Rename";names[2]="Clear Solo";lit[2]=0;}
     for(unsigned i=0;i<3;++i){int x=i==2?213:(int)i*106,w=i==0?106:107;
         uint32_t active=i==1?(0xff000000u|MIXER_MUTE_RGB):(s->shifted&&s->page==MIXER_KNOB_FX?SEND:0xff000000u|MIXER_SOLO_RGB);
         int gates=!s->name_edit&&!s->shifted&&(s->page==MIXER_OVERVIEW||s->page==MIXER_ASSIGN||s->page==MIXER_KNOB_FX);
         uint32_t ink=i&&(off||(i==2&&(add_eq_disabled||(s->master&&gates))))?GREY:lit[i]?active:i==2&&gates?GREY:WHITE;
-        mixer_key(p,names[i],x+2,1,w-4,18,14,ink,lit[i]);}
+        mixer_key(p,names[i],x+2,1,w-4,18,strlen(names[i])>10?12:14,ink,lit[i]);}
     unsigned group=0;for(unsigned i=0;i<8;++i)if(s->selected&(1u<<i))++group;
     int overview=s->page==MIXER_OVERVIEW&&!s->name_edit;
     if(overview){
@@ -331,7 +344,12 @@ static void header(const struct mixer_view_state*s,const struct resample_painter
         rect(p,x,22+(int)c*6,w,5,DARK);
         if(fill>0)rect(p,x,22+(int)c*6,fill,5,(s->meter->clip_mask&(1u<<9))?SEND:AMBER);
     }else text(p,"N/A",x,21,w,13,8,GREY,1);
-    if(overview)master_fader(s,p,x,w);
+    if(overview){
+        /* FX lamp under MSTR, same as the Track cells: lit when the Master chain holds an effect. */
+        const struct mixer_channel*master=&s->project->master;
+        mixer_key(p,"fx",215,31,24,12,10,fx_ink(master),master->fx.count!=0);
+        master_fader(s,p,x,w);
+    }
 }
 static void knob_cell(const struct resample_painter*p,unsigned column,const char*label,
                       const char*value,int focused,unsigned alternate)
@@ -552,6 +570,7 @@ static void eq_knob_bars(const struct mixer_view_state*s,const struct resample_p
         }
     }
 }
+#include "fx_visual.inc"
 static void effect_editor(const struct mixer_view_state*s,const struct resample_painter*p,const struct fx_stage*stage)
 {
     const struct fx_catalog_entry*e=fx_catalog_find(stage->kind==FX_STAGE_EQ?0:stage->native_id);
@@ -610,7 +629,10 @@ static void effect_editor(const struct mixer_view_state*s,const struct resample_
             text(p,status,249,51,57,18,11,accent,1);
         }
         const struct mixer_fx_monitor*m=s->fx_signal;
-        if(e&&!strcmp(e->category,"Dynamics")){
+        if(s->fx_illustrated&&fx_visual_paint(p,e,stage,m,s->rate?s->rate:48000,
+                (e?e->id:0)^(s->fx_slot<<28)^((s->master?8u:s->primary)<<24),s->now_ms)){
+            /* Illustrated view drawn above; knobs and status follow. */
+        }else if(e&&!strcmp(e->category,"Dynamics")){
             fx_dynamics(p,e,stage,m);
         }else{
             int filter=e&&!strcmp(e->category,"Filter");
@@ -638,10 +660,11 @@ static void effect_editor(const struct mixer_view_state*s,const struct resample_
             signal_meter(p,"Input",m?m->input_peak:0,138,8,BLUE,NAN);
             signal_meter(p,"Output",m?m->output_peak:0,155,8,AMBER,NAN);
         }
+        int layer=s->shifted&&fx_catalog_shift_layer(e,s->parameter_page);
         for(unsigned knob=0;knob<3;++knob){
             unsigned position=s->parameter_page*6+knob;
-            if(fx_catalog_parameter_index(e,position+3)>=0)alternate[knob]=s->shifted?2:1;
-            int index=fx_catalog_parameter_index(e,position+(s->shifted?3:0));
+            if(fx_catalog_parameter_index(e,position+3)>=0)alternate[knob]=layer?2:1;
+            int index=fx_catalog_parameter_index(e,position+(layer?3:0));
             if(index<0)continue;
             label[knob]=e->parameter[index];
             if(stage->kind==FX_STAGE_SIDECHAIN){
@@ -651,9 +674,11 @@ static void effect_editor(const struct mixer_view_state*s,const struct resample_
                     if(v)snprintf(value[knob],sizeof(value[knob]),"Track %c",'A'+(int)v-1);
                     else snprintf(value[knob],sizeof(value[knob]),"Off");
                 }else snprintf(value[knob],sizeof(value[knob]),formats[index],v);
-            }else snprintf(value[knob],sizeof(value[knob]),"%.0f%%",stage->parameter[index]*100.f);
+            }else if(fx_catalog_choice_count(e,(unsigned)index))
+                snprintf(value[knob],sizeof(value[knob]),"%s",fx_catalog_choice_name(e,(unsigned)index,stage->parameter[index]));
+            else snprintf(value[knob],sizeof(value[knob]),"%.0f%%",stage->parameter[index]*100.f);
         }
-        snprintf(status,sizeof(status),"%s%s",pages>1?"Turn or press DATA: page   ":"",s->shifted?"Shift layer":"");
+        snprintf(status,sizeof(status),"%s%s",pages>1?"Turn or press DATA: page   ":"",layer?"Shift layer":"");
     }
     if(!is_eq)text(p,s->message&&*s->message?s->message:status,10,171,300,13,10,GREY,1);
     for(unsigned i=0;i<3;++i)knob_cell(p,i,label[i],value[i],0,alternate[i]);
@@ -661,7 +686,7 @@ static void effect_editor(const struct mixer_view_state*s,const struct resample_
         if(stage->eq.count)eq_knob_bars(s,p,&stage->eq);
         else if(s->shifted)knob_scale(p,2,(stage->eq.output_db+24)/36,0);
     }else for(unsigned k=0;k<3;++k){
-        int index=fx_catalog_parameter_index(e,s->parameter_page*6+(s->shifted?3:0)+k);
+        int index=fx_catalog_parameter_index(e,s->parameter_page*6+(s->shifted&&fx_catalog_shift_layer(e,s->parameter_page)?3:0)+k);
         if(index<0)continue;
         if(stage->kind==FX_STAGE_SIDECHAIN&&index==0)
             knob_steps(p,k,(int)fx_sidechain_value(0,stage->parameter[0]),9,AMBER);
@@ -674,6 +699,54 @@ static void fx_hint(const struct resample_painter*p,const char*label,const char*
     text(p,label,92,y,67,15,10,AMBER,0);
     text(p,action,162,y,151,15,10,WHITE,0);
 }
+/* Parameter page of the pinned Sample compressor: the same settings as the Shift+Pad 5 screen. */
+static void comp_editor(const struct mixer_view_state*s,const struct resample_painter*p)
+{
+    const struct mixer_sample_comp*k=&s->comp;
+    const struct mixer_channel*ch=&s->project->master;
+    rect(p,0,36,320,204,BLACK);
+    rect(p,6,37,308,34,PANEL);rect(p,6,37,2,34,AMBER);
+    text(p,"SAMPLE",13,39,45,12,10,AMBER,0);
+    track_title(p,ch->name,60,39,175,12,10,GREY,0,s->name_elapsed);
+    if(!k->available)text(p,"N/A",237,39,69,12,10,GREY,1);
+    else if(k->bypass||ch->fx_bypass)text(p,"BYPASS",237,39,69,12,10,SEND,1);
+    text(p,"Sample Comp",13,50,229,20,18,WHITE,0);
+    text(p,k->type?"OptoCat":"Duck",249,51,57,18,11,AMBER,1);
+    rect(p,6,72,308,112,PANEL);
+    struct fx_stage st;memset(&st,0,sizeof(st));st.kind=FX_STAGE_NATIVE;st.native_id=FX_OWN_OPTO;
+    st.parameter[0]=(k->threshold+48.f)/48.f;st.parameter[1]=(k->ratio-1.f)/7.f;st.parameter[2]=(k->gain+6.f)/12.f;
+    st.parameter[3]=logf(fmaxf(1.f,k->attack))/logf(100.f);st.parameter[4]=logf(fmaxf(100.f,k->release)/100.f)/logf(40.f);
+    st.parameter[5]=k->knee/12.f;st.parameter[6]=k->warm?1.f:0.f;
+    struct mixer_fx_monitor m;memset(&m,0,sizeof(m));m.gain_reduction_db=k->bypass?0.f:k->reduction;
+    m.input_peak=powf(10.f,fminf(0.f,fmaxf(-90.f,k->level))/20.f);m.output_peak=m.input_peak*powf(10.f,(k->gain-m.gain_reduction_db)/20.f);
+    struct comp_config cfg={k->threshold,k->ratio,k->gain,k->bypass||!k->available,k->attack,k->release,k->knee,k->warm};
+    fxv_idle=!k->available||k->bypass;fxv_now=s->now_ms;
+    fxv_history_push(0x5343u,s->now_ms,&m);
+    {
+        struct resample_painter dim={(void*)p,fxv_dim_rect,fxv_dim_text};
+        fxv_opto_draw(fxv_idle?&dim:p,&cfg,k->level,m.gain_reduction_db,&m);
+    }
+    fxv_idle=0;
+    const char*label[3];char value[3][20];unsigned layer=s->shifted?2:1;
+    if(s->shifted){
+        label[0]="Attack";label[1]="Release";label[2]="Knee";
+        snprintf(value[0],sizeof(value[0]),"%.0f ms",(double)k->attack);
+        snprintf(value[1],sizeof(value[1]),"%.0f ms",(double)k->release);
+        snprintf(value[2],sizeof(value[2]),"%.1f dB",(double)k->knee);
+    }else{
+        label[0]="Threshold";label[1]="Ratio";label[2]="Gain";
+        snprintf(value[0],sizeof(value[0]),"%.1f dB",(double)k->threshold);
+        snprintf(value[1],sizeof(value[1]),"%.1f:1",(double)k->ratio);
+        snprintf(value[2],sizeof(value[2]),"%+.1f dB",(double)k->gain);
+    }
+    text(p,s->message&&*s->message?s->message:k->available?(s->shifted?"Shift layer":"Hold Shift: Attack / Release / Knee"):"Open the compressor once (Shift+Pad 5)",10,171,300,13,10,GREY,1);
+    for(unsigned i=0;i<3;++i)knob_cell(p,i,label[i],value[i],0,layer);
+    for(unsigned i=0;i<3;++i){
+        double v=st.parameter[s->shifted?3+i:i];
+        knob_scale(p,i,fmax(0.0,fmin(1.0,v)),0);
+    }
+    mixer_view_meters(s,1u<<8,p);
+}
 static void track_fx(const struct mixer_view_state*s,const struct resample_painter*p)
 {
     const struct mixer_channel*ch=s->master?&s->project->master:s->project->track+s->primary;
@@ -683,16 +756,17 @@ static void track_fx(const struct mixer_view_state*s,const struct resample_paint
     snprintf(counter,sizeof(counter),"%u / %u",ch->fx.count,MIXER_FX_SLOTS);
     rect(p,85,37,231,21,PANEL);
     text(p,s->fx_catalog?"Add Effect":"FX Chain",92,37,143,21,15,WHITE,0);
-    text(p,ch->fx_bypass?"CHAIN OFF":counter,240,38,69,19,10,ch->fx_bypass?SEND:GREY,1);
+    if(s->fx_catalog)text(p,fx_mixer_category_name(s->catalog_filter),240,38,69,19,10,AMBER,1);
+    else text(p,ch->fx_bypass?"CHAIN OFF":counter,240,38,69,19,10,ch->fx_bypass?SEND:GREY,1);
     if(s->fx_catalog){
-        unsigned total=fx_mixer_catalog_count();
+        unsigned total=fx_mixer_filtered_count(s->catalog_filter);
         unsigned first=s->cursor>2?s->cursor-2:0;
         if(first+6>total)first=total>6?total-6:0;
         for(unsigned row=0;row<6&&first+row<total;++row){
             unsigned index=first+row;
             int y=61+(int)row*22;
             int selected=index==s->cursor;
-            const struct fx_catalog_entry*entry=fx_mixer_catalog_at(index);
+            const struct fx_catalog_entry*entry=fx_mixer_catalog_at(fx_mixer_filtered_index(s->catalog_filter,index));
             rect(p,85,y,228,20,selected?SELECTED:PANEL);
             if(selected)rect(p,85,y,2,20,AMBER);
             text(p,entry->name,92,y,153,20,strlen(entry->name)>18?11:14,selected?AMBER:WHITE,0);
@@ -700,39 +774,143 @@ static void track_fx(const struct mixer_view_state*s,const struct resample_paint
         }
         rect(p,315,61,2,130,DARK);
         rect(p,315,61+(int)(first*130/total),2,(int)(6*130/total),GREY);
-        rect(p,85,202,231,32,PANEL);
-        fx_hint(p,"TURN DATA","Browse",202);
-        fx_hint(p,"PRESS DATA","Add effect",217);
+        rect(p,85,202,124,32,PANEL);
+        text(p,"TURN DATA",92,202,52,15,10,AMBER,0);text(p,"Browse",146,202,60,15,10,WHITE,0);
+        text(p,"PRESS DATA",92,217,52,15,10,AMBER,0);text(p,"Add effect",146,217,60,15,10,WHITE,0);
+        knob_cell(p,2,"K3  Filter",fx_mixer_category_name(s->catalog_filter),1,0);
         return;
     }
+    const int comp_row=s->master&&s->comp.visible;
+    const int pitch=comp_row?22:27,row_h=pitch-3;
     for(unsigned i=0;i<MIXER_FX_SLOTS;++i){
         const struct fx_stage*effect=i<ch->fx.count?ch->fx.stage+i:NULL;
-        int y=62+(int)i*27;
+        int y=62+(int)i*pitch;
         int selected=i==s->fx_slot;
         uint32_t ink=0xff000000u|mixer_fx_slot_rgb(i);
         char number[2]={(char)('1'+i),0};
-        rect(p,85,y,231,24,selected?SELECTED:PANEL);
-        if(selected)rect(p,85,y,2,24,ink);
-        rect(p,92,y+4,19,16,WELL);
-        text(p,number,92,y+4,19,16,12,ink,1);
+        int badge=(row_h-16)/2;
+        rect(p,85,y,231,row_h,selected?SELECTED:PANEL);
+        if(selected)rect(p,85,y,2,row_h,ink);
+        rect(p,92,y+badge,19,16,WELL);
+        text(p,number,92,y+badge,19,16,12,ink,1);
         const char*name=effect?fx_catalog_stage_name(effect):"Empty";
         int width=effect&&!effect->bypass?193:143;
-        text(p,name,117,y,width,24,strlen(name)>18&&width<160?11:14,effect?WHITE:GREY,0);
-        if(effect&&effect->bypass)text(p,"BYPASS",263,y,48,24,9,SEND,1);
-        else if(!effect&&i==ch->fx.count)text(p,"+ ADD",263,y,48,24,9,ink,1);
+        text(p,name,117,y,width,row_h,strlen(name)>18&&width<160?11:14,effect?WHITE:GREY,0);
+        if(effect&&effect->bypass)text(p,"BYPASS",263,y,48,row_h,9,SEND,1);
+        else if(!effect&&i==ch->fx.count)text(p,"+ ADD",263,y,48,row_h,9,ink,1);
+    }
+    if(comp_row){
+        /* Pinned Master row: the Sample-mode compressor (the same one as Shift+Pad 5). */
+        const struct mixer_sample_comp*k=&s->comp;
+        int y=62+(int)MIXER_FX_SLOTS*pitch,selected=s->fx_slot==MIXER_COMP_SLOT;
+        rect(p,85,y,231,row_h,selected?SELECTED:PANEL);
+        if(selected)rect(p,85,y,2,row_h,AMBER);
+        rect(p,92,y+(row_h-16)/2,19,16,WELL);
+        text(p,"S",92,y+(row_h-16)/2,19,16,12,AMBER,1);
+        text(p,"Sample Comp",117,y,110,row_h,14,k->available?WHITE:GREY,0);
+        char tag[16];
+        if(!k->available)snprintf(tag,sizeof(tag),"N/A");
+        else if(k->bypass)snprintf(tag,sizeof(tag),"BYPASS");
+        else snprintf(tag,sizeof(tag),"%s",k->type?"OPTO":"DUCK");
+        text(p,tag,255,y,56,row_h,9,k->bypass||!k->available?(k->bypass?SEND:GREY):AMBER,1);
+        if(k->available&&!k->bypass){char gr[16];snprintf(gr,sizeof(gr),"-%.1f",(double)k->reduction);text(p,gr,225,y,32,row_h,9,GREY,1);}
     }
     if(s->message&&*s->message)text(p,s->message,89,174,222,20,11,AMBER,0);
-    else text(p,"+ / −: Track   /   Pads 9–12: FX",89,174,222,20,10,GREY,0);
+    else text(p,s->master&&s->comp.visible?"S = Sample compressor (Shift+Pad 5)":"+ / −: Track   /   Pads 9–12: FX",89,174,222,20,10,GREY,0);
     rect(p,85,202,231,32,PANEL);
     if(s->shifted){
         fx_hint(p,"SHIFT + DATA","Turn move / Press bypass",202);
     }else{
-        fx_hint(p,"DATA",stage?"Turn select / Press open":"Turn select / Press add",202);
+        fx_hint(p,"DATA",stage||s->fx_slot==MIXER_COMP_SLOT?"Turn select / Press open":"Turn select / Press add",202);
     }
     if(stage)fx_hint(p,"ERASE","Remove effect",217);
 }
+static void route_connections(const struct mixer_view_state*s,const struct resample_painter*p)
+{
+    rect(p,0,36,320,204,BLACK);
+    const struct mixer_channel *ch=s->master?&s->project->master:s->project->track+s->primary;
+    char label[64],value[32];
+    int sends=s->route_tab==MIXER_ROUTE_SENDS;
+    text(p,sends?"Routing / Sends":"Routing / Sidechain",8,38,193,22,17,WHITE,0);
+    text(p,s->master?"Master":ch->name,204,39,108,20,12,AMBER,1);
+    if(sends){
+        text(p,"FROM",8,59,101,12,10,GREY,0);
+        text(p,"TO",153,59,96,12,10,GREY,0);
+        text(p,"SEND",262,59,50,12,10,GREY,1);
+        for(unsigned i=0;i<MIXER_TRACKS;++i){
+            int y=73+(int)i*14,active=!s->master&&i==s->primary;
+            unsigned to=s->project->send_to[i];
+            float amount=s->project->track[i].mix.send;
+            uint32_t ink=to&&amount>0?SEND:GREY;
+            rect(p,4,y,312,13,active?SELECTED:PANEL);
+            rect(p,6,y+2,2,9,0xff000000u|s->project->track[i].colour);
+            snprintf(label,sizeof(label),"%c  %s",'A'+i,s->project->track[i].name);
+            track_title(p,label,12,y,96,13,11,active?AMBER:WHITE,0,s->name_elapsed);
+            rect(p,113,y+6,29,1,ink);
+            text(p,">",139,y,10,13,11,ink,1);
+            if(to)snprintf(label,sizeof(label),"%c  %s",'A'+to-1,s->project->track[to-1].name);
+            else snprintf(label,sizeof(label),"Off");
+            track_title(p,label,154,y,100,13,11,to?WHITE:GREY,0,s->name_elapsed);
+            snprintf(value,sizeof(value),"%.0f%%",amount*100);
+            text(p,value,263,y,49,13,11,to?WHITE:GREY,1);
+        }
+        char from[12],to[12],amount[16];
+        snprintf(from,sizeof(from),s->master?"Master":"Track %c",'A'+s->primary);
+        unsigned destination=s->project->send_to[s->primary];
+        if(s->master)snprintf(to,sizeof(to),"--");
+        else if(destination)snprintf(to,sizeof(to),"Track %c",'A'+destination-1);
+        else snprintf(to,sizeof(to),"Off");
+        if(s->master)snprintf(amount,sizeof(amount),"--");
+        else snprintf(amount,sizeof(amount),"%.0f%%",ch->mix.send*100);
+        knob_cell(p,0,"From",from,s->route_focus==0,0);
+        knob_cell(p,1,"To",to,s->route_focus==1,0);
+        knob_cell(p,2,"Send",amount,s->route_focus==2,0);
+        knob_steps(p,0,s->master?8:(int)s->primary,9,AMBER);
+        knob_steps(p,1,s->master?-1:(int)destination,9,AMBER);
+        knob_scale(p,2,s->master?0:ch->mix.send,0);
+    }else{
+        text(p,"KEY SOURCE",8,61,96,12,10,KEY,0);
+        text(p,"TARGET FX SLOT",136,61,176,12,10,GREY,0);
+        for(unsigned slot=0;slot<MIXER_FX_SLOTS;++slot){
+            int y=77+(int)slot*26,active=slot==s->fx_slot;
+            const struct fx_stage *stage=slot<ch->fx.count?ch->fx.stage+slot:NULL;
+            int sidechain=stage&&stage->kind==FX_STAGE_SIDECHAIN;
+            unsigned key=sidechain?(unsigned)fx_sidechain_value(0,stage->parameter[0]):0;
+            uint32_t ink=sidechain&&key?KEY:GREY;
+            rect(p,4,y,312,24,active?SELECTED:PANEL);
+            if(active)rect(p,4,y,2,24,AMBER);
+            if(key)snprintf(label,sizeof(label),"%c  %s",'A'+key-1,s->project->track[key-1].name);
+            else snprintf(label,sizeof(label),sidechain?"Off":"--");
+            track_title(p,label,11,y,96,24,12,ink,0,s->name_elapsed);
+            for(int x=112;x<137;x+=6)rect(p,x,y+11,3,1,ink);
+            text(p,">",137,y,10,24,12,ink,1);
+            snprintf(label,sizeof(label),"%u  %s",slot+1,sidechain?"Sidechain":stage?fx_catalog_stage_name(stage):"Empty");
+            text(p,label,152,y,158,13,12,stage?WHITE:GREY,0);
+            if(sidechain)snprintf(label,sizeof(label),stage->bypass||ch->fx_bypass?"Bypassed":"Threshold %.1f dB",fx_sidechain_value(1,stage->parameter[1]));
+            else snprintf(label,sizeof(label),stage?"No external key input":"Press DATA: add sidechain");
+            text(p,label,152,y+13,158,11,9,sidechain&&(stage->bypass||ch->fx_bypass)?SEND:GREY,0);
+        }
+        const struct fx_stage *stage=s->fx_slot<ch->fx.count?ch->fx.stage+s->fx_slot:NULL;
+        int sidechain=stage&&stage->kind==FX_STAGE_SIDECHAIN;
+        unsigned key=sidechain?(unsigned)fx_sidechain_value(0,stage->parameter[0]):0;
+        if(!sidechain)snprintf(value,sizeof(value),"--");
+        else if(key)snprintf(value,sizeof(value),"Track %c",'A'+key-1);
+        else snprintf(value,sizeof(value),"Off");
+        knob_cell(p,0,"Key",value,0,0);
+        snprintf(value,sizeof(value),"Slot %u",s->fx_slot+1);knob_cell(p,1,"FX",value,1,0);
+        snprintf(value,sizeof(value),s->master?"Master":"Track %c",'A'+s->primary);
+        knob_cell(p,2,"To",value,0,0);
+        knob_steps(p,0,sidechain?(int)key:-1,9,KEY);
+        knob_steps(p,1,(int)s->fx_slot,4,AMBER);
+        knob_steps(p,2,s->master?8:(int)s->primary,9,AMBER);
+    }
+    text(p,s->message&&*s->message?s->message:sends?
+         "Turn DATA: change / Press: focus":"DATA: FX slot / Press: add or edit",
+         8,185,304,12,10,s->message&&*s->message?AMBER:GREY,0);
+}
 void mixer_view_context(const struct mixer_view_state*s,const struct resample_painter*p)
 {
+    if(s->page==MIXER_INSPECT&&s->route_tab){route_connections(s,p);return;}
     rect(p,80,36,240,162,BLACK);
     if(s->page==MIXER_ASSIGN||s->page==MIXER_INSPECT){
         unsigned target=s->master?0:s->primary+1;
@@ -785,6 +963,7 @@ void mixer_view_meters(const struct mixer_view_state*s,unsigned mask,const struc
 {
     if(!s||!s->project||!p||!p->rect||!p->text)return;
 
+    if(s->page==MIXER_INSPECT&&s->route_tab)return;
     if(s->page==MIXER_OVERVIEW){
         for(unsigned i=0;i<8;++i)if(mask&(1u<<i)){
             int x=(int)(i%4)*80,y=i<4?121:44;
@@ -850,9 +1029,11 @@ void mixer_view_paint(const struct mixer_view_state*s,const struct resample_pain
     }
     if(s->page==MIXER_KNOB_FX&&s->fx_parameters){
         const struct mixer_channel*ch=s->master?&s->project->master:s->project->track+s->primary;
+        if(s->master&&s->fx_slot==MIXER_COMP_SLOT&&s->comp.visible){comp_editor(s,p);return;}
         if(s->fx_slot<ch->fx.count){effect_editor(s,p,ch->fx.stage+s->fx_slot);return;}
     }
     if(s->page==MIXER_ASSIGN||s->page==MIXER_INSPECT||s->page==MIXER_KNOB_FX){
-        mixer_view_channel_strip(s,s->master?8:s->primary,0,80,p);mixer_view_context(s,p);}
+        if(s->page!=MIXER_INSPECT||!s->route_tab)mixer_view_channel_strip(s,s->master?8:s->primary,0,80,p);
+        mixer_view_context(s,p);}
     else {mixer_view_overview(s,p);footer(s,p);}
 }

@@ -1,4 +1,5 @@
 #include "fx_chain.h"
+#include "fx_own.h"
 #include <math.h>
 #include <stdatomic.h>
 #include <stdlib.h>
@@ -7,7 +8,7 @@ struct sidechain {
     unsigned source;
     float threshold,slope,attack,release,mix,gain;
 };
-struct fx_instance { unsigned kind,bypass; struct fx_eq eq; struct sidechain duck; void *native; };
+struct fx_instance { unsigned kind,bypass; struct fx_eq eq; struct sidechain duck; void *native; void *own; };
 struct fx_program { unsigned count; double rate; struct fx_backend backend; struct fx_instance stage[FX_CHAIN_MAX]; };
 struct fx_exchange {
     _Atomic(struct fx_program*) pending,retired;
@@ -99,6 +100,7 @@ struct fx_program *fx_program_prepare(const struct fx_chain_config *c,double rat
         if(s->kind==FX_STAGE_EQ){struct fx_eq_config config=s->eq;config.bypass|=s->bypass;
             if(!fx_eq_init(&t->eq,rate,&config))goto fail;}
         else if(s->kind==FX_STAGE_SIDECHAIN)sidechain_init(&t->duck,s->parameter,rate);
+        else if(fx_own_is(s->native_id)){t->own=fx_own_create(s->native_id,rate,s->parameter);if(!t->own)goto fail;}
         else {if(!backend||!backend->create||!backend->destroy||!backend->process)goto fail;
             t->native=backend->create(backend->user,s->native_id,rate,s->parameter);if(!t->native)goto fail;}
     }
@@ -108,7 +110,7 @@ fail:fx_program_destroy(p);return NULL;
 void fx_program_destroy(struct fx_program *p)
 {
     if(!p)return;
-    for(unsigned i=0;i<p->count;++i)if(p->stage[i].native)p->backend.destroy(p->backend.user,p->stage[i].native);
+    for(unsigned i=0;i<p->count;++i){if(p->stage[i].own)fx_own_destroy(p->stage[i].own);else if(p->stage[i].native)p->backend.destroy(p->backend.user,p->stage[i].native);}
     free(p);
 }
 static void program_process(struct fx_program *p,float *samples,size_t frames,unsigned slot,fx_stage_tap tap,void *user,
@@ -125,6 +127,7 @@ static void program_process(struct fx_program *p,float *samples,size_t frames,un
             const float*key=keys&&source?keys[source-1]:NULL;
             minimum_gain=sidechain_process(&s->duck,samples,frames,key?key+offset:NULL,monitored);
         }
+        else if(!s->bypass&&s->own)minimum_gain=fx_own_process(s->own,samples,frames);
         else if(!s->bypass)p->backend.process(p->backend.user,s->native,samples,frames);
         if(monitored)tap(user,samples,frames,1,minimum_gain);
     }

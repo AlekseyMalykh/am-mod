@@ -23,7 +23,9 @@ static void r(void*u,int x,int y,int w,int h,uint32_t c){(void)u;
     if(c==0xffff4040u&&y+h==194&&h==5)send_width=(unsigned)w;
     if(c==0xffffffffu&&w==1&&y==92&&h==12)++threshold_line;
     if(trace)fprintf(trace,"R %d %d %d %d %08x\n",x,y,w,h,c);}
+static unsigned comp_status;
 static void t(void*u,const char*s,int x,int y,int w,int h,unsigned size,uint32_t c,int centre){(void)u;
+    if(!strcmp(s,"Sample Comp")&&y>=60)++comp_status;
     assert(s&&x>=0&&y>=0&&w>0&&h>0&&x+w<=320&&y+h<=240&&size>=8);++draws;
     if(delete_probe&&y==1){
         if(!strcmp(s,"Cancel")){assert(c==0xffffffffu);delete_buttons|=1;}
@@ -151,6 +153,16 @@ int main(int argc,char**argv)
     mixer_view_paint(&s,&painter);assert(fx_headers==1&&catalog_hint);
     s.fx_catalog=0;
     s.shifted=0;s.fx_signal=NULL;
+    /* The Sample-mode compressor is a pinned row on the Master FX list only. */
+    s.page=MIXER_KNOB_FX;s.fx_editing=1;
+    s.comp.visible=1;s.comp.available=1;s.comp.type=1;s.comp.threshold=-18;s.comp.ratio=3;s.comp.gain=0;s.comp.attack=10;s.comp.release=1200;s.comp.knee=6;s.comp.reduction=3.5f;
+    s.master=1;comp_status=0;mixer_view_paint(&s,&painter);assert(comp_status==1);
+    s.comp.bypass=1;comp_status=0;mixer_view_paint(&s,&painter);assert(comp_status==1);s.comp.bypass=0;
+    s.master=0;comp_status=0;mixer_view_paint(&s,&painter);assert(comp_status==0);
+    s.master=1;s.fx_slot=MIXER_COMP_SLOT;s.fx_parameters=1;comp_status=0;mixer_view_paint(&s,&painter);assert(comp_status==0);
+    s.shifted=1;mixer_view_paint(&s,&painter);s.shifted=0;s.fx_slot=0;s.fx_parameters=0;
+    s.comp.visible=0;s.master=1;comp_status=0;mixer_view_paint(&s,&painter);assert(comp_status==0);
+    s.master=0;s.fx_editing=0;memset(&s.comp,0,sizeof(s.comp));
     s.page=MIXER_ASSIGN;s.master=1;mstr=0;mixer_view_paint(&s,&painter);assert(mstr>=2);s.master=0;
     s.page=MIXER_OVERVIEW;dynamic=1;draws=0;mixer_view_meters(&s,1,&painter);assert(draws>0&&draws<15);dynamic=0;
     /* Capture actual painter output for visual review with populated tracks. */
@@ -170,6 +182,12 @@ int main(int argc,char**argv)
     s.master=1;paint_trace(argv[1],"master",&s,&painter);s.master=0;
     s.page=MIXER_ASSIGN;paint_trace(argv[1],"assign",&s,&painter);
     s.page=MIXER_INSPECT;paint_trace(argv[1],"inspect",&s,&painter);
+    project.send_to[0]=3;project.track[0].mix.send=.35f;
+    project.send_to[1]=3;project.track[1].mix.send=.7f;
+    s.route_tab=MIXER_ROUTE_SENDS;paint_trace(argv[1],"routing-sends",&s,&painter);
+    s.route_tab=MIXER_ROUTE_KEYS;paint_trace(argv[1],"routing-keys",&s,&painter);
+    s.master=1;paint_trace(argv[1],"routing-master",&s,&painter);s.master=0;
+    s.route_tab=MIXER_ROUTE_PADS;
     s.page=MIXER_OVERVIEW;s.name_edit="Bass";
     paint_trace(argv[1],"rename",&s,&painter);s.name_edit=NULL;
     s.page=MIXER_KNOB_FX;s.fx_editing=1;s.fx_slot=1;

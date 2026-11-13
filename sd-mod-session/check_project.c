@@ -67,7 +67,9 @@ memcpy(base+0x1643908,&b,4);
 
 #ifdef TEST_PHONE
 #ifdef TEST_LIGHTING_MENU
-#ifdef TEST_NO_MOD_OFF
+#ifdef TEST_SCREEN_MIRROR
+ const char *labels[]={"Load Project","Save Project","New Project","SD Card Access","Key / Scale / Tempo","Mod Settings","Screen Mirror"};const int rows=7;
+#elif defined(TEST_NO_MOD_OFF)
  const char *labels[]={"Load Project","Save Project","New Project","SD Card Access","Key / Scale / Tempo","Mod Settings"};const int rows=6;
 #else
  const char *labels[]={"Load Project","Save Project","New Project","SD Card Access","Key / Scale","Pad Lighting","Mod Off"};const int rows=7;
@@ -115,11 +117,17 @@ memcpy(base+0x1643908,&b,4);
  row=4;captured_project=0;click(&context);assert(captured_project==(uintptr_t)screen);
 #ifdef TEST_LIGHTING_MENU
  row=5;captured_project=0;click(&context);assert(captured_project==((uintptr_t)screen|2));row=6;
+#ifdef TEST_SCREEN_MIRROR
+ captured_project=0;click(&context);assert(captured_project==((uintptr_t)screen|3));
+ row=7;captured_project=0;click(&context);assert(!captured_project); /* beyond the last row: stock path only */
+#endif
 #else
  row=5;
 #endif
  captured_project=0;click(&context);
-#ifdef TEST_NO_MOD_OFF
+#if defined(TEST_SCREEN_MIRROR)
+ (void)captured_project;
+#elif defined(TEST_NO_MOD_OFF)
  assert(!captured_project);
 #else
  assert(captured_project==((uintptr_t)screen|1));
@@ -142,7 +150,9 @@ memcpy(base+0x1643908,&b,4);
 
 #ifdef TEST_PHONE
 #ifdef TEST_LIGHTING_MENU
-#ifdef TEST_NO_MOD_OFF
+#if defined(TEST_SCREEN_MIRROR)
+ printf("PASS native Project seven independently owned rows, Key4/Lighting5/Screen Mirror6 (tag 3), no Mod Off, six-row viewport, stock commands and256 lifecycle cycles across two PIE bases\n");
+#elif defined(TEST_NO_MOD_OFF)
  printf("PASS native Project six independently owned rows, Key4/Lighting5, no Mod Off row or exit dispatch, stock commands and256 lifecycle cycles across two PIE bases\n");
 #else
  printf("PASS native Project seven independently owned rows, Key4/Lighting5/Off6, six-row viewport, stock commands and256 lifecycle cycles across two PIE bases\n");

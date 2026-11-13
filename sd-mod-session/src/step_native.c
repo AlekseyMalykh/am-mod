@@ -181,8 +181,15 @@ static _Atomic unsigned playback_mask;
  * numeric snapshot, never the mutable program or playback mode. */
 static _Atomic int playback_colour_bank=-1;
 static uint64_t playback_until[16],playback_muted_until[16];
-static _Atomic unsigned playback_muted_mask,sample_palette_enabled;
+static _Atomic unsigned playback_muted_mask,sample_palette_enabled,sample_relations_enabled;
+void step_native_relation_context(int enabled){atomic_store(&sample_relations_enabled,!!enabled);}
 static _Atomic uint64_t sample_palette[16];
+/* Pad Link "Playing": brief flash when a linked target starts sounding. UI owner only. */
+static uint64_t link_flash_until[16];
+static uint64_t group_flash_until[16];
+static unsigned link_prev_active;
+static const void *link_prev_program;
+static int link_prev_bank=-1;
 static _Atomic unsigned sample_native_rgb[16];
 static void *sample_focus_program;
 static int sample_focus_index=-1,sample_focus_bank=-1;
@@ -197,6 +204,46 @@ static void sample_palette_publish(void *things,void *program,int bank,int enabl
  if(program!=sample_focus_program||focus!=sample_focus_index||bank!=sample_focus_bank||now<sample_focus_since){
   sample_focus_program=program;sample_focus_index=focus;sample_focus_bank=bank;sample_focus_since=now;
  }
+#ifdef MPC_LOOP_FEEDBACK
+ int relations=atomic_load(&sample_relations_enabled)&&music_pad_lighting_mode();
+ unsigned group_mode=relations?(unsigned)music_mute_group_lighting():MUSIC_LINK_OFF;
+ unsigned link_mode=relations?(unsigned)music_pad_link_lighting():MUSIC_LINK_OFF,selected_links=0,playing_links=0,group_peers=0;
+ if(relations&&program&&!mute_mode&&focus>=0){
+  selected_links=sample_playing_links(program,(unsigned)focus,(unsigned)bank);
+  if(group_mode&MUSIC_LINK_SELECTED)group_peers=sample_playing_group(program,(unsigned)focus,(unsigned)bank);
+ }
+ if(program&&!mute_mode&&(link_mode&MUSIC_LINK_PLAYING))
+  /* Target activity owns playback colour, independent of whether its source
+   * has finished already. This includes delayed starts and a changed cursor. */
+  for(unsigned source=0;source<128;++source)
+   playing_links|=sample_playing_links(program,source,(unsigned)bank);
+#endif
+#ifdef MPC_LOOP_FEEDBACK
+ /* Rising edges of target activity inside one unchanged bank. A bank or
+  * Program change only resynchronizes, so it never flashes. */
+ unsigned active_edges=0,group_edges=0;
+ static unsigned group_prev_trigger;
+ {
+  unsigned active_now=0;
+  if(program&&!mute_mode)for(unsigned i=0;i<16;++i)if(sample_playing_active(program,(unsigned)bank*16+i))active_now|=1u<<i;
+  unsigned trigger_now=active_now;
+  for(unsigned i=0;i<16;++i){
+   unsigned native=atomic_load(&sample_native_rgb[i]),top=(native>>16)&255;
+   if(((native>>8)&255)>top)top=(native>>8)&255;
+   if((native&255)>top)top=native&255;
+   if((top>=96&&native!=0xff7700u)||now<playback_until[i])trigger_now|=1u<<i;
+  }
+  if(program==link_prev_program&&bank==link_prev_bank){active_edges=active_now&~link_prev_active;group_edges=trigger_now&~group_prev_trigger;}
+  else{memset(link_flash_until,0,sizeof(link_flash_until));memset(group_flash_until,0,sizeof(group_flash_until));}
+  link_prev_program=program;link_prev_bank=bank;link_prev_active=active_now;group_prev_trigger=trigger_now;
+ }
+ /* Mute Group "Playing": the peers of a pad that just started flash the group colour. */
+ if(program&&!mute_mode&&(group_mode&MUSIC_LINK_PLAYING))
+  for(unsigned i=0;i<16;++i)if(group_edges&(1u<<i)){
+   unsigned peers=sample_playing_group(program,(unsigned)bank*16+i,(unsigned)bank);
+   for(unsigned j=0;j<16;++j)if(peers&(1u<<j))group_flash_until[j]=now+300;
+  }
+#endif
  for(unsigned i=0;i<16;++i){
   unsigned n=(unsigned)bank*16+i;void*p=program?FN(0x286bbe0,void*(*)(void*,int))(program,(int)n):NULL;
   int used=p&&FN(0x2804760,int(*)(void*))(p);
@@ -232,6 +279,20 @@ static void sample_palette_publish(void *things,void *program,int bank,int enabl
   if(((native>>8)&255)>top)top=(native>>8)&255;
   if((native&255)>top)top=native&255;
   int hot=used&&!muted&&top>=96&&native!=0xff7700u;
+#ifdef MPC_LOOP_FEEDBACK
+  int selected_link=(link_mode&MUSIC_LINK_SELECTED)&&(selected_links&(1u<<i));
+  int group_peer=!!(group_peers&(1u<<i));
+  if(used&&!muted){
+   /* The selected pad's relatives alternate between their own colour and the
+    * relation colour from Mod Settings > Colours (Mute Group / Pad Link).
+    * Only in Am MOD lighting mode; both stop when the selection changes. */
+   int other=(now-sample_focus_since)%1000<500;uint32_t own=rgb;
+   if(group_peer){rgb=other?music_relation_rgb(MUSIC_RELATION_GROUP):own;strength=.85f;}
+   if(selected_link){rgb=other?music_relation_rgb(MUSIC_RELATION_LINK):own;strength=.85f;}
+  }
+  if(used&&!muted&&(link_mode&MUSIC_LINK_PLAYING)&&(playing_links&(1u<<i))&&(active_edges&(1u<<i))&&!(now<playback_until[i]))
+   link_flash_until[i]=now+300;
+#endif
   if(hot)strength=1.f;
   if(used&&now<playback_until[i]){rgb=now<playback_muted_until[i]||muted?PAD_MUTED:rgb;strength=rgb==PAD_MUTED?.65f:1.f;hot=rgb!=PAD_MUTED;}
   /* Device report: an empty pad that the sequence plays must still show the
@@ -243,8 +304,22 @@ static void sample_palette_publish(void *things,void *program,int bank,int enabl
   if(sustained){
    /* A playing unselected pad must visibly turn OFF, not merely blend back
     * into the .45 content brightness shared by all loaded pads. */
-   if(now%800<400)strength=muted?.65f:.95f;
+   unsigned phase=(unsigned)(now%800);
+   int linked=(link_mode&MUSIC_LINK_PLAYING)&&(playing_links&(1u<<i));
+   if(linked&&!muted)rgb=music_relation_rgb(MUSIC_RELATION_LINK);
+   if(linked?(phase<140||(phase>=240&&phase<380)):phase<400)strength=muted?.65f:.95f;
    else{rgb=0;strength=0;}
+  }
+  if(used&&!muted&&now<link_flash_until[i]){rgb=music_relation_rgb(MUSIC_RELATION_LINK);strength=1.f;sustained=0;}
+  if(used&&!muted&&now<group_flash_until[i]){rgb=music_relation_rgb(MUSIC_RELATION_GROUP);strength=1.f;sustained=0;}
+  if(used&&!muted&&(group_peer||selected_link)){
+   /* Playback must not hide the relation blink: the phase is locked to the
+    * moment of selection (relation colour first), and each half-period is
+    * re-asserted after the playing/flash logic above. */
+   int rel_phase=(now-sample_focus_since)%1000<500;
+   uint32_t own=music_identity_rgb((unsigned)music_pad_colour(n));
+   if(rel_phase){rgb=music_relation_rgb(selected_link?MUSIC_RELATION_LINK:MUSIC_RELATION_GROUP);if(strength<.85f)strength=.85f;sustained=0;}
+   else if(rgb==0||rgb==PAD_MUTED){rgb=own;strength=.85f;sustained=0;}
   }
 #endif
   uint64_t light=pad_light(rgb,strength);

@@ -28,6 +28,8 @@ void mixer_session_health(struct mixer_session*,int(*healthy)(void*),void*);
 void mixer_session_owner_tick(struct mixer_session*);
 void mixer_session_ui_tick(struct mixer_session*);
 struct mixer_live*mixer_session_live(struct mixer_session*);
+/* Any thread: restart all FX programs at the next owner tick (stock double-Stop all-sounds-off). */
+void mixer_session_flush_fx(struct mixer_session*);
 /* Explicitly stop audio/native callbacks and join UI before destroy. This API
  * doesn't attach native globals automatically and cannot extend Program life. */
 void mixer_session_destroy(struct mixer_session*);

@@ -10,7 +10,7 @@ ROOT=Path('/home/user/mpc-rootfs-user-20260808')
 assert sha256(ELF.read_bytes()).hexdigest()=='b6584cba76e416e432ad202509099d34373dc2c3d6a8fb625f5678bf0193b508'
 checks=[]
 targets={
-    'fx':['check_fx.c','src/fx_eq.c','src/fx_chain.c','-lm','-pthread'],
+    'fx':['check_fx.c','src/fx_eq.c','src/fx_chain.c','src/fx_own.c', 'src/compressor_dsp.c','-lm','-pthread'],
     'fx-editor':['check_fx_eq_editor.c','src/fx_eq_editor.c','src/fx_eq.c','-lm'],
     'fx-editor-ubsan':['check_fx_eq_editor.c','src/fx_eq_editor.c','src/fx_eq.c','-fsanitize=undefined','-static-libubsan','-fno-sanitize-recover=all','-lm'],
     'fx-native':['check_fx_native.c','-ldl','-lm'],

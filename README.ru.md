@@ -4,7 +4,7 @@
 
 [English](README.md) · **Русский**
 
-[**Скачать r28d**](https://github.com/AlekseyMalykh/am-mod/releases/tag/r28d) · [**Скачать r27r**](https://github.com/AlekseyMalykh/am-mod/releases/tag/r27r) (предыдущий стабильный релиз) · [Отзывы и помощь](docs/FEEDBACK.ru.md) · [Известные проблемы](docs/KNOWN_ISSUES.ru.md) · [Обсуждения](https://github.com/AlekseyMalykh/am-mod/discussions)
+[**Скачать r29a**](https://github.com/AlekseyMalykh/am-mod/releases/tag/r29a) (последний) · [**Скачать r28d**](https://github.com/AlekseyMalykh/am-mod/releases/tag/r28d) (предыдущий стабильный) · [**Скачать r27r**](https://github.com/AlekseyMalykh/am-mod/releases/tag/r27r) (предыдущий стабильный релиз) · [Отзывы и помощь](docs/FEEDBACK.ru.md) · [Известные проблемы](docs/KNOWN_ISSUES.ru.md) · [Обсуждения](https://github.com/AlekseyMalykh/am-mod/discussions)
 
 Am MOD — мод сообщества для Akai MPC Sample (прошивка **1.3.0.12**), который запускается с
 SD-карты. Поверх штатного приложения он добавляет шаговый секвенсор на пэдах, режим
@@ -20,7 +20,30 @@ SD-карты. Поверх штатного приложения он доба�
 > изменяет копию приложения, которая уже есть на вашем MPC Sample. Используйте на свой
 > риск. См. [NOTICE](NOTICE.md).
 
-## Релиз r28d
+## Релиз r29a: новые экраны эффектов, стемы на SD, ввод пэдами
+
+<table>
+<tr>
+<td width="50%"><b>Tape Delay</b><br><img src="docs/media/fx/tape-delay.gif" alt="Tape Delay" width="100%"></td>
+<td width="50%"><b>Tape (кассета)</b><br><img src="docs/media/fx/tape.gif" alt="Tape (кассета)" width="100%"></td>
+</tr>
+<tr>
+<td width="50%"><b>Vinyl</b><br><img src="docs/media/fx/vinyl.gif" alt="Vinyl" width="100%"></td>
+<td width="50%"><b>Spring Reverb</b><br><img src="docs/media/fx/spring-reverb.gif" alt="Spring Reverb" width="100%"></td>
+</tr>
+<tr>
+<td width="50%"><b>Tube Drive</b><br><img src="docs/media/fx/tube-drive.gif" alt="Tube Drive" width="100%"></td>
+<td width="50%"><b>Multi Chorus</b><br><img src="docs/media/fx/multi-chorus.gif" alt="Multi Chorus" width="100%"></td>
+</tr>
+</table>
+<p align="center"><sub>Кадры отрисованы рисовальщиком мода на тестовом сигнале; проверка картинок на устройстве ещё впереди.</sub></p>
+
+**Новое:** перерисованные картинки эффектов в виде предметов (катушечный Tape Delay, кассета с PLAY/STOP и стрелкой VU по уровню, проигрыватель, пружинный бокс, лампы), **ввод пэдами по умолчанию** везде (Mod Settings → Quick → Text input), **Shift+Erase очищает текст** в каждом окне, **стемы выгружаются на карту** в `Samples/User/Export/<песня>/` с именами треков и `_Master.wav`.
+**Исправлено:** Save Project / Sample больше не сохраняют во внутреннюю память, сбой экспорта Stems при External, пэды не отзывались в окне имени Stems, ненадёжная строка Sample Comp на Master FX (скрыта; используйте OptoCat Comp).
+
+Перед обновлением сделайте резервную копию проектов и сэмплов. [Изменения, установка и как пользоваться](docs/RELEASE_NOTES-r29a.ru.md) · [заметки r28e-fx2](docs/RELEASE_NOTES-r28e-fx2.ru.md) (замещённый предрелиз)
+
+## Предыдущий релиз r28d
 
 r28d объединяет микшер, эффекты, стемы, Screen Mirror и RGB-палитру с исправлениями Song, групповых уровней, Pad Lock, сбросов параметров, подсветки и ресемплинга. EQ поддерживает четыре точки с подтверждением удаления. В Song появились постоянная панель Repeats, номера шагов и Clear All. Дизайн продолжает дорабатываться.
 
@@ -121,14 +144,14 @@ r28d объединяет микшер, эффекты, стемы, Screen Mirro
 **Установщик (Windows):** скачайте `MPC-Sample-Mod-Installer.exe` и пакет
 `am-mod-*.zip` из [Releases](../../releases), запустите установщик, выберите zip (или
 нажмите *Latest release*) и SD-карту, нажмите **Install**.
-Кнопка *Latest release* выбирает r28d. Также можно выбрать его ZIP вручную.
+Кнопка *Latest release* выбирает r29a. Также можно выбрать его ZIP вручную.
 
 **Установщик (macOS / Linux / Windows с Python 3.8+):**
 
 ```bash
 python3 installer/mpc_mod_installer.py                 # окно
 python3 installer/mpc_mod_installer.py cards           # список карт
-python3 installer/mpc_mod_installer.py install am-mod-r28d.zip --card E:  # релизный пакет
+python3 installer/mpc_mod_installer.py install am-mod-r29a.zip --card E:  # релизный пакет
 python3 installer/mpc_mod_installer.py install --latest --card /Volumes/MPC
 python3 installer/mpc_mod_installer.py remove --card E:
 ```

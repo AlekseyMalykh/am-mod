@@ -242,8 +242,14 @@ int project_recovery_save_external(uintptr_t image,void *p){
  }
  return F(p,storage+1,unsigned char)!=0;
 }
+int project_recovery_save_k3_external(uintptr_t image,void *p){
+ return save_screen_visible(image,p)&&!FN(0x112f6b0,int(*)(void*))(p);
+}
 int project_recovery_save_control(uintptr_t image,void *p,unsigned cc){
- if(cc!=0x12||!save_screen_visible(image,p)||FN(0x112f6b0,int(*)(void*))(p))return 0;
+ if(cc!=0x12||!save_screen_visible(image,p))return 0;
+ {int busy=FN(0x112f6b0,int(*)(void*))(p);static unsigned lines;
+  if(lines<40){++lines;fprintf(stderr,"SAVE_K3 busy=%d external_before=%u\n",busy,(unsigned)F(p,storage_offset(image,p)+1,unsigned char));}
+  if(busy)return 0;}
  project_recovery_save_external(image,p);
  return 1;
 }
@@ -253,7 +259,18 @@ void project_recovery_save_paint(uintptr_t image,void*p,void*g){
  /* SaveProjectScreen caches its editor/storage separately from Things.
   * Seed its native controls once, then preserve subsequent user edits. */
  unsigned storage=storage_offset(image,p);
- if(!F(p,storage,unsigned char))project_recovery_save_external(image,p);
+ {static unsigned last=~0u;unsigned now=(unsigned)save_kind(image,p)|(F(p,storage,unsigned char)<<4)|(F(p,storage+1,unsigned char)<<12);
+  if(now!=last){last=now;fprintf(stderr,"SAVE_SCREEN kind=%u seeded=%u external=%u busy=%d\n",(unsigned)save_kind(image,p),
+   (unsigned)F(p,storage,unsigned char),(unsigned)F(p,storage+1,unsigned char),FN(0x112f6b0,int(*)(void*))(p));}}
+ /* Seed External once per screen opening, even if the native flag byte is
+  * already set: the K3 cell otherwise keeps showing "Internal". */
+ {static void *seeded_screen;static unsigned seeded_frames;
+  if(seeded_screen!=p){seeded_screen=p;seeded_frames=0;}
+  if(seeded_frames<3){++seeded_frames;
+   if(!F(p,storage+1,unsigned char)||seeded_frames==1){
+    uintptr_t setter=storage==0x11b8?0x1683280:0x16480e0;
+    FN(setter,void(*)(void*,float))(p,1.f);
+    FN(0x1149880,void(*)(void*,uint64_t,uint64_t))(p,0,F(p,0x28,uint64_t));}}}
  int external=F(p,storage+1,unsigned char)!=0;
  int project=save_kind(image,p)==SAVE_PROJECT;
  if(project&&first_save&&!save_seeded&&F(p,0x9f8,uintptr_t)==image+0x6e18e20){
@@ -287,7 +304,9 @@ int project_recovery_save_button(uintptr_t image,void*p,void*event){
  unsigned code=F(event,8,unsigned char),down=F(event,9,unsigned char)!=0;if(code>=112)return 0;
  if(save_owned[code]){if(!down)save_owned[code]=0;return 1;}
  if(!down||p!=save_surface||!save_screen_visible(image,p)||FN(0x112f6b0,int(*)(void*))(p))return 0;
- if(code==0x0e&&!project_recovery_save_external(image,p)){
+ int external_ok=1;
+ if(code==0x0e){external_ok=project_recovery_save_external(image,p);fprintf(stderr,"SAVE_BUTTON code=0e external_ok=%d kind=%u\n",external_ok,(unsigned)save_kind(image,p));}
+ if(code==0x0e&&!external_ok){
   save_owned[code]=1;
   FN(0x1149880,void(*)(void*,uint64_t,uint64_t))(p,0,F(p,0x28,uint64_t));return 1;
  }

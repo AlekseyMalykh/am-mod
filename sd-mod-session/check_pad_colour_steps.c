@@ -46,7 +46,13 @@ static void stub(uintptr_t off,void*fn,int string_result){
  unsigned n=string_result?16:8;memcpy((void*)(base+off),string_result?(void*)sret:(void*)plain,n);memcpy((void*)(base+off+n),&fn,8);
 }
 static unsigned char sample_instruments[128][0x80],sample_used[128],sample_program[8];
-static unsigned active_voices[128];
+static unsigned active_voices[128],test_links[128],test_groups[128];
+unsigned sample_playing_links(const void*p,unsigned source,unsigned bank){
+ assert(p==sample_program&&source<128&&bank<8);return test_links[source];
+}
+unsigned sample_playing_group(const void*p,unsigned source,unsigned bank){
+ assert(p==sample_program&&source<128&&bank<8);return test_groups[source];
+}
 int sample_playing_active(const void*p,unsigned pad){assert(p==sample_program&&pad<128);return active_voices[pad];}
 static struct mixer_project sample_mix;
 enum mixer_sample_gate mixer_phone_sample_gate(unsigned pad)
@@ -130,6 +136,88 @@ static void sample_playing_checks(void){
  FIELD(sample_instruments[0],0x78,unsigned char)=0;
  active_voices[0]=0;sample_palette_publish(NULL,NULL,0,0,0,50500);
  puts("PASS active Sample/Loop voices blink assigned hue/OFF across128 pads/eight banks/eight colours with transport stopped; moving selection keeps the playing pad blinking, stop restores content; selected white cursor keeps priority");
+}
+static void sample_relation_checks(void){
+ unsigned char things[0x700]={0};uint64_t out;
+ FIELD(things,0x5f8,unsigned)=0;
+ memset(sample_used,1,sizeof(sample_used));memset(active_voices,0,sizeof(active_voices));
+ memset(sample_native_rgb,0,sizeof(sample_native_rgb));memset(playback_until,0,sizeof(playback_until));
+ step_native_relation_context(1);test_links[0]=1u<<1;test_groups[0]=1u<<2;
+ const uint32_t LINK=music_relation_rgb(MUSIC_RELATION_LINK),GROUP=music_relation_rgb(MUSIC_RELATION_GROUP);
+ assert(music_pad_lighting_mode()==MUSIC_LIGHTING_MOD);
+ assert(music_set_mute_group_lighting(0));
+ /* Selected targets alternate their own colour and the Pad Link colour
+  * every 500 ms; a target that starts playing flashes the link colour for
+  * 300 ms. Phases: now%1000<500 = role colour, otherwise the pad's own. */
+ for(unsigned mode=0;mode<4;++mode){
+  memset(link_flash_until,0,sizeof(link_flash_until));link_prev_active=0;
+  assert(music_set_pad_link_lighting(mode));
+  sample_palette_publish(things,sample_program,0,1,0,80000);
+  uint32_t own=music_identity_rgb(music_pad_colour(1));
+  assert(step_native_light(1,&out)&&out==(mode&MUSIC_LINK_SELECTED?pad_light(LINK,.85f):pad_light(own,.30f)));
+  sample_palette_publish(things,sample_program,0,1,0,80700);
+  assert(step_native_light(1,&out)&&out==(mode&MUSIC_LINK_SELECTED?pad_light(own,.85f):pad_light(own,.30f)));
+  active_voices[0]=active_voices[1]=1;
+  sample_palette_publish(things,sample_program,0,1,0,80800); /* 80800%800==0 */
+  assert(step_native_light(1,&out)&&out==(mode&MUSIC_LINK_PLAYING?pad_light(LINK,1.f):pad_light(own,.95f)));
+  sample_palette_publish(things,sample_program,0,1,0,81600); /* flash over (300 ms): sustained pulse, 81600%800==0 */
+  assert(step_native_light(1,&out)&&out==(mode&MUSIC_LINK_PLAYING?pad_light(LINK,.95f):pad_light(own,.95f)));
+  active_voices[0]=active_voices[1]=0;
+  sample_palette_publish(things,sample_program,0,1,0,81700);
+  assert(step_native_light(1,&out)&&out==(mode&MUSIC_LINK_SELECTED?pad_light(own,.85f):pad_light(own,.30f)));
+ }
+ memset(link_flash_until,0,sizeof(link_flash_until));link_prev_active=0;
+ /* Selecting the secondary pad cannot illuminate its caller. */
+ FIELD(things,0x5f8,unsigned)=1;sample_focus_index=-1;
+ sample_palette_publish(things,sample_program,0,1,0,81600);
+ assert(step_native_light(0,&out)&&out==pad_light(music_identity_rgb(music_pad_colour(0)),.30f));
+ assert(step_native_light(1,&out)&&(uint32_t)out==PAD_SELECT);
+ /* Delayed target begins after source has stopped and selection has moved.
+  * No fixed timeout or source lifetime may erase its actual playing colour. */
+ assert(music_set_pad_link_lighting(MUSIC_LINK_PLAYING));FIELD(things,0x5f8,unsigned)=3;
+ sample_palette_publish(things,sample_program,0,1,0,82480);
+ assert(step_native_light(1,&out)&&out==pad_light(music_identity_rgb(music_pad_colour(1)),.30f));
+ active_voices[1]=1;sample_palette_publish(things,sample_program,0,1,0,82680);
+ assert(step_native_light(1,&out)&&out==pad_light(LINK,1.f)); /* brief flash on start */
+ active_voices[1]=0;sample_palette_publish(things,sample_program,0,1,0,83000); /* 300 ms flash is over */
+ assert(step_native_light(1,&out)&&out==pad_light(music_identity_rgb(music_pad_colour(1)),.30f));
+ memset(link_flash_until,0,sizeof(link_flash_until));link_prev_active=0;
+ /* A bank change only resynchronizes: a target already sounding never flashes. */
+ active_voices[1]=1;sample_palette_publish(things,sample_program,1,1,0,83100);
+ sample_palette_publish(things,sample_program,0,1,0,83200);
+ assert(step_native_light(1,&out)&&out==pad_light(LINK,.95f)&&out!=pad_light(LINK,1.f));
+ active_voices[1]=0;sample_palette_publish(things,sample_program,0,1,0,83300);
+ memset(link_flash_until,0,sizeof(link_flash_until));link_prev_active=0;
+ FIELD(things,0x5f8,unsigned)=0;
+ assert(music_set_mute_group_lighting(1)&&music_set_pad_link_lighting(MUSIC_LINK_OFF));
+ sample_palette_publish(things,sample_program,0,1,0,80400);
+ assert(step_native_light(2,&out)&&out==pad_light(GROUP,.85f)); /* role colour phase */
+ sample_palette_publish(things,sample_program,0,1,0,80950); /* 550 ms after selection */
+ assert(step_native_light(2,&out)&&out==pad_light(music_identity_rgb(music_pad_colour(2)),.85f)); /* own colour phase */
+ /* Pressed members keep the alternation, with full activity brightness. */
+ step_native_observe_rgb(2,0xffffffu);sample_palette_publish(things,sample_program,0,1,0,80500);
+ assert(step_native_light(2,&out)&&out==pad_light(GROUP,1.f));step_native_observe_rgb(2,0);
+ /* Moving the selection stops the blinking at once. */
+ FIELD(things,0x5f8,unsigned)=5;sample_focus_index=-1;sample_palette_publish(things,sample_program,0,1,0,81200);
+ assert(step_native_light(2,&out)&&out==pad_light(music_identity_rgb(music_pad_colour(2)),.30f));
+ FIELD(things,0x5f8,unsigned)=0;sample_focus_index=-1;
+ /* Cursor, mute and empty-slot semantics take priority. */
+ test_groups[0]|=1u|1u<<3;test_links[0]|=1u<<3;sample_used[3]=0;
+ assert(music_set_pad_link_lighting(MUSIC_LINK_BOTH));sample_focus_index=-1;
+ sample_palette_publish(things,sample_program,0,1,0,81600);
+ assert(step_native_light(0,&out)&&(uint32_t)out==PAD_SELECT);
+ assert(step_native_light(3,&out)&&out==pad_light(0,0));
+ sample_palette_publish(things,sample_program,0,1,1,81600);
+ assert(step_native_light(1,&out)&&out==pad_light(music_identity_rgb(music_pad_colour(1)),.70f));
+ assert(music_set_mute_group_lighting(0));sample_palette_publish(things,sample_program,0,1,0,81600);
+ assert(step_native_light(2,&out)&&out==pad_light(music_identity_rgb(music_pad_colour(2)),.30f));
+ step_native_relation_context(0);active_voices[1]=1;
+ sample_palette_publish(things,sample_program,0,1,0,81780);
+ assert(step_native_light(1,&out)&&out==pad_light(music_identity_rgb(music_pad_colour(1)),.95f));
+ assert(step_native_light(2,&out)&&out==pad_light(music_identity_rgb(music_pad_colour(2)),.30f));
+ active_voices[1]=0;memset(test_links,0,sizeof(test_links));memset(test_groups,0,sizeof(test_groups));
+ assert(music_mod_restore_recommended(0));sample_palette_publish(NULL,NULL,0,0,0,83000);
+ puts("PASS directed Pad Link hues, no reverse caller indication, real target activity after delayed start/source end/cursor move, independent Mute Group hue, all modes and cursor/mute/empty/scope priorities");
 }
 static void mixer_sample_feedback_checks(void)
 {
@@ -305,6 +393,7 @@ int main(void){
  puts("PASS Standard fixed Steps colours and native Sample pass-through; identity settings retained");
  empty_sample_cursor_checks();
  sample_playing_checks();
+ sample_relation_checks();
  mixer_sample_feedback_checks();
  return 0;
 }

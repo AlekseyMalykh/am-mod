@@ -31,7 +31,7 @@ struct stems_job {
     unsigned rate;
     uint64_t valid_blocks,missing_blocks,frames;
     struct stem_writer writer[STEM_FILES];
-    char folder[1024];
+    char folder[1024],native_file[1100];
     void *context,*native_writer;
     int failed;
 };
@@ -53,10 +53,30 @@ static void wav_header(FILE*f,unsigned rate,uint64_t frames)
     fwrite("RIFF",1,4,f);put32(f,36+data);fwrite("WAVEfmt ",1,8,f);put32(f,16);put16(f,1);put16(f,2);
     put32(f,rate);put32(f,rate*6);put16(f,6);put16(f,24);fwrite("data",1,4,f);put32(f,data);
 }
-static int stem_file_path(char*out,size_t size,const char*folder,const char*base_name,unsigned i)
+/* "<song>_track A_<track name>.wav" (name only when the Track was renamed), "<song>_Master.wav". */
+static void stem_clean_name(char*out,size_t size,const char*name)
 {
-    if(!out||!size||!folder||!base_name||i>=STEM_FILES)return 0;
-    int n=i==8 ? snprintf(out,size,"%s/%s - Master.wav",folder,base_name) : snprintf(out,size,"%s/%s - track %c.wav",folder,base_name,'A'+(int)i);
+    size_t n=0;
+    for(;*name&&n+1<size;++name){
+        unsigned char c=(unsigned char)*name;
+        out[n++]=(c<32||strchr("/\\:*?\"<>|",c))?'_':(char)c;
+    }
+    while(n&&(out[n-1]==' '||out[n-1]=='.'))--n;
+    out[n]=0;
+}
+static int stem_file_path(char*out,size_t size,const struct stems_job*j,unsigned i)
+{
+    if(!out||!size||!j||i>=STEM_FILES)return 0;
+    const char *base_name=strrchr(j->folder,'/');base_name=base_name?base_name+1:j->folder;
+    int n;
+    if(i==8)n=snprintf(out,size,"%s/%s_Master.wav",j->folder,base_name);
+    else{
+        char given[MIXER_NAME_BYTES+1],standard[MIXER_NAME_BYTES+1];
+        stem_clean_name(given,sizeof(given),j->project.track[i].name);
+        snprintf(standard,sizeof(standard),"Track %c",'A'+(int)i);
+        if(given[0]&&strcmp(given,standard))n=snprintf(out,size,"%s/%s_track %c_%s.wav",j->folder,base_name,'A'+(int)i,given);
+        else n=snprintf(out,size,"%s/%s_track %c.wav",j->folder,base_name,'A'+(int)i);
+    }
     return n>0&&(size_t)n<size;
 }
 static int write_block(struct stem_writer*w,const float*l,const float*r,unsigned frames)
@@ -88,8 +108,7 @@ static int write_stem(struct stems_job *j,unsigned bus,const struct mixer_pcm_vi
               fabsf(view->channel[1][first])<0.5f/8388607.f)++first;
         if(first==count)return 1;
         char path[1100];
-        const char *name=strrchr(j->folder,'/')+1;
-        if(!stem_file_path(path,sizeof(path),j->folder,name,bus))return 0;
+        if(!stem_file_path(path,sizeof(path),j,bus))return 0;
         w->file=fopen(path,"wbx");
         if(!w->file)return 0;
         wav_header(w->file,j->rate,0);
@@ -116,11 +135,28 @@ static int close_job(struct stems_job*j,int success)
         if(fflush(f)||ferror(f)||fsync(fileno(f)))success=0;
         if(fclose(f))success=0;
     }
+    if(success&&j->folder[0]&&j->native_file[0]){
+        /* The stock mixdown belongs in the song folder as its Master; never leave it in Export (Internal). */
+        char target[1100];const char *name=strrchr(j->folder,'/')+1;
+        int n=snprintf(target,sizeof(target),"%s/%s_Master.wav",j->folder,name);
+        if(n>0&&(size_t)n<sizeof(target)&&access(target,F_OK)==0)n=snprintf(target,sizeof(target),"%s/%s_Mixdown.wav",j->folder,name);
+        if(n>0&&(size_t)n<sizeof(target)){
+            if(rename(j->native_file,target)==0)fprintf(stderr,"STEMS MIXDOWN_MOVED %s\n",target);
+            else{
+                FILE*in=fopen(j->native_file,"rb"),*out=in?fopen(target,"wbx"):NULL;int ok=in&&out;
+                char buf[65536];size_t got;
+                while(ok&&(got=fread(buf,1,sizeof(buf),in))>0)if(fwrite(buf,1,got,out)!=got)ok=0;
+                if(in)fclose(in);
+                if(out&&(fflush(out)||fsync(fileno(out))||fclose(out)))ok=0;else if(out&&0)fclose(out);
+                if(ok){unlink(j->native_file);fprintf(stderr,"STEMS MIXDOWN_COPIED %s\n",target);}
+                else{fprintf(stderr,"STEMS MIXDOWN_MOVE_FAILED errno=%d\n",errno);if(out)unlink(target);}
+            }
+        }
+    }
     if(!success&&j->folder[0]){
-        const char *name=strrchr(j->folder,'/')+1;
         for(unsigned i=0;i<STEM_FILES;++i){
             char path[1100];
-            if(stem_file_path(path,sizeof(path),j->folder,name,i))unlink(path);
+            if(stem_file_path(path,sizeof(path),j,i))unlink(path);
         }
         rmdir(j->folder);
     }
@@ -150,13 +186,15 @@ static void begin(void *context,void *writer,const char *path,unsigned rate,int 
     if(!path||path[0]!='/'||strnlen(path,sizeof(full))>=sizeof(full)){
         fprintf(stderr,"STEMS INVALID_EXPORT_PATH\n");return;
     }
+    char redirected[1024];
+    snprintf(redirected,sizeof(redirected),"%s",path);
 #ifdef MPC_EARLY_STARTUP
     static const char export_path[]="/data/UserContent/Samples/User/Export/";
-    if(strncmp(path,export_path,sizeof(export_path)-1)||!startup_song_export_ready()){
-        fprintf(stderr,"STEMS SD_EXPORT_UNAVAILABLE\n");return;
+    if(!startup_song_export_target(path,redirected,sizeof(redirected))){
+        fprintf(stderr,"STEMS SD_EXPORT_UNAVAILABLE path=%s prefix_ok=%d\n",path,!strncmp(path,export_path,sizeof(export_path)-1));return;
     }
 #endif
-    snprintf(full,sizeof(full),"%s",path);
+    snprintf(full,sizeof(full),"%s",redirected);
     char*slash=strrchr(full,'/'),*dot=strrchr(full,'.');
     if(!slash||!slash[1]){fprintf(stderr,"STEMS INVALID_EXPORT_NAME\n");return;}
     if(dot&&dot>slash)*dot=0;
@@ -203,6 +241,10 @@ static void begin(void *context,void *writer,const char *path,unsigned rate,int 
         j->folder[0]=0;
         close_job(j,0);return;
     }
+    j->native_file[0]=0;
+#ifdef MPC_EARLY_STARTUP
+    if(!startup_song_export_native_file(path,j->native_file,sizeof(j->native_file)))j->native_file[0]=0;
+#endif
     j->context=context;
     j->native_writer=writer;
     fprintf(stderr,"STEMS BEGIN folder=%s rate=%u\n",j->folder,j->rate);

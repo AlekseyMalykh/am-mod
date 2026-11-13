@@ -8,6 +8,24 @@
 - Diagnostic ZIP export, full report copying and a prefilled GitHub issue draft with manual attachment and submission.
 - Bounded log collection skips links and includes only known diagnostic filenames.
 
+## r29a — release
+
+- Redrawn effect pictures (Tape Delay, cassette Tape with PLAY/STOP and level-driven VU, Vinyl turntable, Sample Delay, Spring Reverb, Tube Drive, Soft Clipper, Ensemble, Multi Chorus, Auto Wah, Pitch Shifter, Flanger, Bit Crusher) with category-coloured AM MOD plates; value strips removed.
+- Typing with the pads is the default for names and search; Mod Settings → Quick → Text input; Shift+Erase clears the text in every window. The first Mod Settings tab is Quick.
+- Stems go to the card: `Samples/User/Export/<song>/` with Track names in the file names and `<song>_Master.wav`.
+- Fixes: Save Project / Sample save to External only, Stems export with an External Export window, pads not responding in the Stems name window. The Sample Comp row on Master FX is hidden.
+
+[English notes](docs/RELEASE_NOTES-r29a.md) · [Русский](docs/RELEASE_NOTES-r29a.ru.md).
+
+## r28e-fx2 — pre-release (superseded by r29a)
+
+- Illustrated mixer effect screens (Mod Settings → Pads → FX view), eight new effects including OptoCat Comp, the Sample compressor pinned on Master FX with a lamp under MSTR.
+- Add Effect category filter on K3, Sidechain Compressor screen with red key and white threshold, Attack on K1 and Key Track on Shift+K1, Chain Bypass on Shift+B2, named Amp Sim cabinets.
+- Solo overrides Mute; double Stop restarts mixer effects.
+- Fixes: Gate and Limiter lines at 100 %, idle and bypassed pictures, Tape needles, empty Shift cells, OptoCat level history and knee display.
+
+[English notes](docs/RELEASE_NOTES-r28e-fx2.md) · [Русский](docs/RELEASE_NOTES-r28e-fx2.ru.md).
+
 ## r28d — release
 
 - Song step numbers, persistent Repeats footer, bounded selection, Clear All confirmation and Shift + B3 Duplicate.

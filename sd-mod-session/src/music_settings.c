@@ -17,12 +17,41 @@
  * card defaults. One atomic word is safe on the lighting/render paths. */
 #include <errno.h>
 #include <fcntl.h>
+#include <ctype.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #define MOD_DEFAULT ((UINT64_C(0xdcba9876543210)<<5)|1u|(2u<<3))
 #define TAIL_SHIFT 61
 #define TAIL_MASK (UINT64_C(7)<<TAIL_SHIFT)
 static _Atomic uint64_t mod_settings=MOD_DEFAULT,mod_generation;
+static _Atomic unsigned relation_lighting=5; /* Pad Link Selected (bits 0-1) + Mute Group Selected (bits 2-3). */
+int music_pad_link_lighting(void){return (int)(atomic_load(&relation_lighting)&3);}
+int music_mute_group_lighting(void){return (int)((atomic_load(&relation_lighting)>>2)&3);}
+static _Atomic unsigned relation_colours=(12u)|(11u<<4); /* link Cyan, group Amber. */
+static _Atomic unsigned led_vivid;
+unsigned music_led_vivid(void){return atomic_load(&led_vivid);}
+static _Atomic unsigned text_input=1; /* 1 Pads (default), 0 Encoder; card file .am-mod-text-input */
+unsigned music_text_input(void){return atomic_load(&text_input);}
+static _Atomic unsigned fx_view=1; /* 1 Illustrated (default), 0 Classic; card file .am-mod-fx-view */
+unsigned music_fx_view(void){return atomic_load(&fx_view);}
+unsigned music_relation_colour(unsigned role){return role<MUSIC_RELATION_COUNT?(atomic_load(&relation_colours)>>(4*role))&15u:0;}
+uint32_t music_relation_rgb(unsigned role){
+ unsigned slot=music_relation_colour(role);
+ /* A deleted custom colour falls back to the role's recommended slot. */
+ if(!music_palette_present(slot))slot=role==MUSIC_RELATION_LINK?12:11;
+ return music_palette_rgb(slot);
+}
+uint32_t music_led_correct(uint32_t rgb){
+ unsigned level=atomic_load(&led_vivid);if(!level||!music_pad_lighting_mode())return rgb;
+ unsigned c[3]={(rgb>>16)&255,(rgb>>8)&255,rgb&255},hi=c[0],lo=c[0];
+ for(int i=1;i<3;++i){if(c[i]>hi)hi=c[i];if(c[i]<lo)lo=c[i];}
+ if(!hi||hi==lo)return rgb;
+ /* Saturation-weighted: neutral white and grey stay as they are. */
+ unsigned strength=level==1?50:85;
+ unsigned remove=lo*strength*(hi-lo)/(100*hi);
+ for(int i=0;i<3;++i)c[i]=c[i]>remove?c[i]-remove:0;
+ return (rgb&0xff000000u)|(c[0]<<16)|(c[1]<<8)|c[2];
+}
 static int lighting_directory=-1;
 static unsigned lighting_write_serial;
 static const uint32_t mod_palette_rgb[MUSIC_PALETTE_SIZE]={0x2868ff,0xa050ff,0xff24ce,0xff7500,0xff5a78,0xaaff20,0x00eab0,0xffee24,0xffffff,0x00ff00,0xff0000,0xffb000,0x00ffff,0x707070};
@@ -163,25 +192,49 @@ static void load_palette(int dir){
 }
 int music_lighting_preferences_open(const char *directory){
  int dir=open(directory,O_RDONLY|O_DIRECTORY|O_CLOEXEC|O_NOFOLLOW);if(dir<0)return 0;
- uint64_t value=MOD_DEFAULT;
+ uint64_t value=MOD_DEFAULT;unsigned relations=5,rel_colours=12u|(11u<<4),vivid=0;
  int fd=openat(dir,".am-mod-settings",O_RDONLY|O_CLOEXEC|O_NOFOLLOW|O_NONBLOCK);
  int legacy=fd<0&&errno==ENOENT;
  if(legacy)fd=openat(dir,".am-mod-pad-lighting",O_RDONLY|O_CLOEXEC|O_NOFOLLOW|O_NONBLOCK);
- if(fd>=0){char text[32]={0};struct stat st;ssize_t n=read(fd,text,sizeof(text));
+ if(fd>=0){char text[65]={0};struct stat st;ssize_t n=read(fd,text,sizeof(text)-1);
   if(!fstat(fd,&st)&&S_ISREG(st.st_mode)){
    if(legacy&&n==18&&!memcmp(text,"AM_PAD_LIGHTING=",16)&&text[17]=='\n'&&(text[16]=='0'||text[16]=='1'))value=(value&~UINT64_C(1))|(unsigned)(text[16]-'0');
    if(!legacy&&((n==27&&!memcmp(text,"AM_SETTINGS1 ",13)&&text[26]=='\n')||
-                 (n==30&&(!memcmp(text,"AM_SETTINGS2 ",13)||!memcmp(text,"AM_SETTINGS3 ",13))&&text[29]=='\n'))){
+                 (n==30&&(!memcmp(text,"AM_SETTINGS2 ",13)||!memcmp(text,"AM_SETTINGS3 ",13))&&text[29]=='\n')||
+                 (n==32&&!memcmp(text,"AM_SETTINGS4 ",13)&&text[29]==' '&&text[30]>='0'&&text[30]<='7'&&text[31]=='\n')||
+                 /* AM_SETTINGS5 <16 hex> <relations> <link><group> <vivid> */
+                 (n==37&&!memcmp(text,"AM_SETTINGS5 ",13)&&text[29]==' '&&isxdigit((unsigned char)text[30])&&text[31]==' '&&
+                  isxdigit((unsigned char)text[32])&&isxdigit((unsigned char)text[33])&&text[34]==' '&&text[35]>='0'&&text[35]<='2'&&text[36]=='\n'))){
     uint64_t decoded=0;int valid=1;
-    for(int i=13;i<n-1;++i){unsigned c=(unsigned char)text[i];if(c>='0'&&c<='9')c-='0';else if(c>='a'&&c<='f')c=c-'a'+10;else {valid=0;break;}decoded=(decoded<<4)|c;}
-    if(valid&&(!(decoded&TAIL_MASK)||text[11]=='3')&&music_mod_settings_valid(decoded))value=decoded;
+    for(int i=13;i<(n>=32?29:n-1);++i){unsigned c=(unsigned char)text[i];if(c>='0'&&c<='9')c-='0';else if(c>='a'&&c<='f')c=c-'a'+10;else {valid=0;break;}decoded=(decoded<<4)|c;}
+    if(valid&&(!(decoded&TAIL_MASK)||text[11]=='3'||text[11]=='4'||text[11]=='5')&&music_mod_settings_valid(decoded)){
+     value=decoded;if(n>=32){unsigned r=(unsigned char)text[30];relations=r<='9'?r-'0':(r|32)-'a'+10;}
+     if(n==37){
+      unsigned a=(unsigned char)text[32],b=(unsigned char)text[33];
+      a=a<='9'?a-'0':(a|32)-'a'+10;b=b<='9'?b-'0':(b|32)-'a'+10;
+      rel_colours=b|(a<<4);vivid=(unsigned)(text[35]-'0');
+     }
+    }
    }
   }
   close(fd);
  }
+ unsigned view=1;
+ {int vf=openat(dir,".am-mod-fx-view",O_RDONLY|O_CLOEXEC|O_NOFOLLOW|O_NONBLOCK);
+  if(vf>=0){char t[16]={0};struct stat vs;ssize_t vn=read(vf,t,sizeof(t)-1);
+   if(!fstat(vf,&vs)&&S_ISREG(vs.st_mode)&&vn==12&&!memcmp(t,"AM_FXVIEW ",10)&&(t[10]=='0'||t[10]=='1')&&t[11]=='\n')view=(unsigned)(t[10]-'0');
+   close(vf);}}
+ atomic_store(&fx_view,view);
+ {unsigned pads=1;int tf=openat(dir,".am-mod-text-input",O_RDONLY|O_CLOEXEC|O_NOFOLLOW|O_NONBLOCK);
+  if(tf>=0){char t[16]={0};struct stat ts;ssize_t tn=read(tf,t,sizeof(t)-1);
+   if(!fstat(tf,&ts)&&S_ISREG(ts.st_mode)&&tn==12&&!memcmp(t,"AM_TEXTIN ",10)&&(t[10]=='0'||t[10]=='1')&&t[11]=='\n')pads=(unsigned)(t[10]-'0');
+   close(tf);}
+  atomic_store(&text_input,pads);}
  if(lighting_directory>=0)close(lighting_directory);
  lighting_directory=dir;
  load_palette(dir);
+ atomic_store(&relation_lighting,relations);
+ atomic_store(&relation_colours,rel_colours);atomic_store(&led_vivid,vivid);
  music_mod_settings_restore(value);return 1;
 }
 void music_lighting_preferences_init(void){
@@ -252,10 +305,47 @@ int music_palette_set_rgb(unsigned colour,uint32_t rgb){
  if(rgb==mod_palette_rgb[colour])return music_palette_reset(colour);
  return music_palette_save(colour,rgb,custom_names[colour]);
 }
+static int save_card_settings(uint64_t value,unsigned relations,unsigned rel_colours,unsigned vivid){
+ if(!music_mod_settings_valid(value)||relations>15||rel_colours>255||vivid>2)return 0;
+ char text[38];snprintf(text,sizeof(text),"AM_SETTINGS5 %016llx %x %02x %u\n",(unsigned long long)value,relations,rel_colours,vivid);
+ if(!save_preference(".am-mod-settings",text,sizeof(text)-1))return 0;
+ atomic_store(&relation_lighting,relations);atomic_store(&relation_colours,rel_colours);atomic_store(&led_vivid,vivid);
+ return music_mod_settings_restore(value);
+}
+static int save_all_settings(uint64_t value,unsigned relations){
+ return save_card_settings(value,relations,atomic_load(&relation_colours),atomic_load(&led_vivid));
+}
+int music_set_relation_colour(unsigned role,unsigned slot){
+ if(role>=MUSIC_RELATION_COUNT||slot>=MUSIC_PALETTE_SLOTS||!music_palette_present(slot))return 0;
+ unsigned v=atomic_load(&relation_colours);v=(v&~(15u<<(4*role)))|(slot<<(4*role));
+ return save_card_settings(atomic_load(&mod_settings),atomic_load(&relation_lighting),v,atomic_load(&led_vivid));
+}
+int music_set_text_input(unsigned pads){
+ if(pads>1)return 0;
+ char text[13];snprintf(text,sizeof(text),"AM_TEXTIN %u\n",pads);
+ if(!save_preference(".am-mod-text-input",text,12))return 0;
+ atomic_store(&text_input,pads);return 1;
+}
+int music_set_fx_view(unsigned view){
+ if(view>1)return 0;
+ char text[13];snprintf(text,sizeof(text),"AM_FXVIEW %u\n",view);
+ if(!save_preference(".am-mod-fx-view",text,12))return 0;
+ atomic_store(&fx_view,view);return 1;
+}
+int music_set_led_vivid(unsigned level){
+ return level<=2&&save_card_settings(atomic_load(&mod_settings),atomic_load(&relation_lighting),atomic_load(&relation_colours),level);
+}
 static int save_mod_settings(uint64_t value){
- if(!music_mod_settings_valid(value))return 0;
- char text[31];snprintf(text,sizeof(text),"AM_SETTINGS%c %016llx\n",value&TAIL_MASK?'3':'2',(unsigned long long)value);
- return save_preference(".am-mod-settings",text,sizeof(text)-1)&&music_mod_settings_restore(value);
+ return save_all_settings(value,atomic_load(&relation_lighting));
+}
+int music_set_pad_link_lighting(unsigned mode){
+ return mode<=MUSIC_LINK_BOTH&&save_all_settings(atomic_load(&mod_settings),
+     (atomic_load(&relation_lighting)&12u)|mode);
+}
+int music_set_mute_group_lighting(unsigned mode){
+ /* Same four modes as Pad Link; legacy 0/1 read as Off/Selected. */
+ return mode<=MUSIC_LINK_BOTH&&save_all_settings(atomic_load(&mod_settings),
+     (atomic_load(&relation_lighting)&3u)|(mode<<2));
 }
 int music_set_mod_setting(unsigned field,unsigned value){
  if(field==MUSIC_SETTING_TAIL)return value<MUSIC_TAIL_CHOICES&&save_mod_settings((atomic_load(&mod_settings)&~TAIL_MASK)|((uint64_t)(value^4u)<<TAIL_SHIFT));
@@ -276,7 +366,10 @@ int music_set_service_colour(unsigned role,unsigned colour){
 int music_mod_restore_recommended(unsigned section){
  uint64_t mask=section==0?1:section==1?6|TAIL_MASK:section==2?UINT64_C(0x1fffffffffffffe0):section==3?24:0;
  if(section>3)return 0;
- return save_mod_settings((atomic_load(&mod_settings)&~mask)|(MOD_DEFAULT&mask));
+ return save_card_settings((atomic_load(&mod_settings)&~mask)|(MOD_DEFAULT&mask),
+     section==0?5:atomic_load(&relation_lighting),
+     section==2?(12u|(11u<<4)):atomic_load(&relation_colours),
+     section==2?0:atomic_load(&led_vivid));
 }
 
 const char *const music_note_names[12]={"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};

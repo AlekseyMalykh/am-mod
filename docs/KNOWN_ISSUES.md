@@ -1,6 +1,6 @@
 # Known issues, testing status and requests
 
-Updated **12 November 2026**. Latest release **r28d**. The final build still needs physical device testing.
+Updated **12 November 2026**. Latest release **r29a**. The final build still needs physical device testing.
 [r28d changes and verification limits](RELEASE_NOTES-r28d.md) ·
 [Settings](MOD_SETTINGS.md) · [Original Leusha list, Russian](TESTER_FEEDBACK_LEUSHA.ru.md).
 

@@ -10,6 +10,8 @@ int step_native_sample_chop(void);
 void step_native_levels_state(unsigned enabled,unsigned mode,unsigned origin);
 void step_native_native_mute(unsigned enabled);
 /* visible:0 hidden,1 Sample,2 Seq with actual native Mute active. */
+/* UI owner: relations belong only to unobstructed Sample pad mode. */
+void step_native_relation_context(int enabled);
 void step_native_playback_context(void *current_things,int transpose,int visible);
 int step_native_install(void (*paint)(void *,void *));
 void step_native_paint(void *screen,void *graphics);
