@@ -197,6 +197,7 @@ static void note(const char *message)
 /* Match a native button-down with its native release across a workflow
  * transition. A release is not an action owned by the newly opened window. */
 static _Atomic unsigned char native_buttons_down[112],gesture_released[112];
+static _Atomic unsigned last_pad_pressed=0xffu; /* pad last hit; Shift+Knob FX (Am MOD) opens its Track FX */
 /* PAD BANK (0x23) held: the native bank picker owns the pads only after a
  * real hold. A short press (bank change) used to flash the picker's green
  * over the Seq/Sample colours (device report). Set by the UI timer. */
@@ -781,7 +782,6 @@ static int mixer_replay_entry(void)
 static void mixer_fx_combo_tick(void);
 static unsigned char mixer_entry_template[16];
 static uint64_t mixer_open_after; /* UI owner: entry waiting for Sample */
-static _Atomic unsigned last_pad_pressed=0xffu; /* Sample/Seq pad last hit; Shift+Knob FX uses it */
 static int mixer_focus_sound=-1;               /* UI owner: open on this sound's Track FX */
 static void mixer_open_from_entry(struct mixer_control *control);
 static void mixer_tick_ui(void)
