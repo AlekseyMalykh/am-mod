@@ -1,4 +1,4 @@
-# r28e-fx14 (candidate for r29a)
+# r28e-fx15 (candidate for r29a)
 
 Fix: Save Project and Save Sample windows are SD-only. K3 is forced to External when the window opens and on any K3 movement. Diagnostic logging (SAVE_SCREEN/SAVE_K3/SAVE_BUTTON) is still enabled.
 
@@ -21,3 +21,4 @@ Stem file names now carry the Track name: "<song>_track A_<name>.wav" (only if t
 - Vinyl: the tonearm head now rests on the record.
 - Pad input: B2 caption reads Clear / Sure? on the Save Project/Sample screens and tab-button editors.
 - Vinyl: a narrower turntable with record shelves on both sides.
+- Vinyl: realistic tonearm proportions (pivot near the rim, arm about 1.4 record radii), volume/tone knobs.
