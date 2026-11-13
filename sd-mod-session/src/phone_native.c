@@ -781,6 +781,8 @@ static int mixer_replay_entry(void)
 static void mixer_fx_combo_tick(void);
 static unsigned char mixer_entry_template[16];
 static uint64_t mixer_open_after; /* UI owner: entry waiting for Sample */
+static _Atomic unsigned last_pad_pressed=0xffu; /* Sample/Seq pad last hit; Shift+Knob FX uses it */
+static int mixer_focus_sound=-1;               /* UI owner: open on this sound's Track FX */
 static void mixer_open_from_entry(struct mixer_control *control);
 static void mixer_tick_ui(void)
 {
@@ -895,6 +897,7 @@ static void mixer_open_from_entry(struct mixer_control *control)
     if (!mixer_control_open(control,1,0)) return;
     int bank = step_native_browser_bank(-1);
     if (bank >= 0 && bank < 8) mixer_control_presence(control,0,0,(unsigned)bank);
+    if (mixer_focus_sound >= 0) {mixer_control_focus_sound_fx(control,(unsigned)mixer_focus_sound);mixer_focus_sound = -1;}
     /* The stock KNOB FX overlay (shade over the knobs) must not stay over
      * the Mixer: toggle it closed with one stock KNOB FX press. */
     if (music_ui_knob_fx_active()) {
@@ -927,6 +930,7 @@ static int mixer_dispatch(struct phone_event *e)
         /* PAD FX + KNOB FX: open now on Sample; elsewhere press stock Sample
          * first and open on the tick once Sample shows. */
         memcpy(mixer_entry_template,e->native,16);
+        mixer_focus_sound = e->up ? (int)e->midi[0] : -1;
         if (control && !atomic_load(&mixer_input_fault) && e->generation == mixer_binding) {
             if (!suppress && !blocked) mixer_open_from_entry(control);
             else if (mixer_session_status(mixer_ui_session) == 1) {
@@ -2175,6 +2179,29 @@ static int mixer_fx_combo(void *event,unsigned code,unsigned down)
     pthread_mutex_unlock(&fx_combo_mutex);
     return 0;
 }
+/* Am MOD FX mode: KNOB FX alone opens the Mixer (Pad FX stays stock, no combo).
+ * Shift+KNOB FX opens it on the Track FX of the last pad hit (Master if none). */
+static int mixer_knob_entry(void *event,unsigned code,unsigned down)
+{
+    static _Atomic unsigned swallow;
+    if(code!=0)return 0;
+    if(!down)return atomic_exchange(&swallow,0)?1:0;
+    if(atomic_load(&native_buttons_down[1]))return 0; /* Pad FX held: stock */
+    uint64_t route=atomic_load(&mixer_route);
+    unsigned reasons=atomic_load(&mixer_last_reasons);
+    int ready=(route&MIXER_READY)||(reasons!=~0u&&!(reasons&~2u));
+    if(!ready||(route&MIXER_OPEN)||atomic_load(&mixer_input_fault))return 0;
+    struct phone_event e={.kind=PHONE_MIXER_ENTRY,.pad=0xffu,.down=1,.generation=mixer_binding};
+    e.when_ms=now_ms();memcpy(e.native,event,16);
+    if(atomic_load(&native_shift_requested)||atomic_load(&native_buttons_down[0x31])){
+        unsigned pad=atomic_load(&last_pad_pressed),bank=0;int b=step_native_browser_bank(-1);
+        if(b>=0&&b<8)bank=(unsigned)b;
+        e.up=1;e.midi[0]=pad<16?(unsigned char)(bank*16+pad):0xffu; /* 0xff: no pad, Master */
+    }
+    if(!phone_events_push(&e)){mixer_fail_input();return 0;}
+    atomic_store(&swallow,1);
+    return 1;
+}
 static void mixer_fx_combo_tick(void)
 {
     unsigned char held[16];int release=0;
@@ -2234,7 +2261,8 @@ static void buttons(void *event)
 #endif
     }
 #ifdef MPC_MIXER_LIVE
-    if (native_code <= 1 && mixer_fx_combo(event,native_code,native_down)) return;
+    if (native_code <= 1 && (music_fx_mode_active() ? mixer_knob_entry(event,native_code,native_down)
+                                                     : mixer_fx_combo(event,native_code,native_down))) return;
     if (native_code < 112 && native_code != 0x31) {
         uint64_t *held = &mixer_button_pairs[native_code];
         uint64_t ticket = mixer_capture_route();
@@ -2316,6 +2344,7 @@ static void pad_event(void *event)
     }
     unsigned bit = 1u << pad;
     int down = FN(0xddfed0,int(*)(void*,int))(msg,0);
+    if (down) atomic_store(&last_pad_pressed,pad);
     int up = FN(0xddff20,int(*)(void*,int))(msg,1);
 #ifdef MPC_MIXER_LIVE
     if (mixer_pad_pairs[pad] && mixer_queue_pad(event,pad,down,up)) return;

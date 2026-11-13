@@ -289,6 +289,19 @@ static void route_open_key(struct mixer_control*c)
     c->view.page=MIXER_KNOB_FX;c->temporary=2;open_fx(c);
     c->view.fx_parameters=1;
 }
+/* Shift+Knob FX (Am MOD): select the Track that carries this sound (Master when
+ * it has none) and open its FX page. */
+int mixer_control_focus_sound_fx(struct mixer_control*c,unsigned sound)
+{
+    if(!c||!c->active)return 0;
+    unsigned out=sound<MIXER_PADS?c->desired.output[sound]:0;
+    if(out>=1&&out<=MIXER_TRACKS){c->view.primary=out-1;c->view.selected=1u<<(out-1);c->view.master=0;}
+    else{c->view.master=1;c->view.selected=0;}
+    c->held_tracks=0;pickup(c);c->view.colour_edit=0;
+    c->view.page=MIXER_KNOB_FX;c->temporary=2;c->view.fx_slot=0;open_fx(c);
+    if(!c->fx_editing)c->message="Track FX: coming later";
+    return 1;
+}
 int mixer_control_button(struct mixer_control*c,enum mixer_action action,int down,uint64_t ticket)
 {
     if(!c||(unsigned)action>MIXER_MUTE)return 0;

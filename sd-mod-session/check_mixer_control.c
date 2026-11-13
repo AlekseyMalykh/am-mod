@@ -197,6 +197,11 @@ static void master_comp_row(void)
     uint64_t ticket=mixer_control_ticket(c);
     mixer_control_set_fx_editing(c,1);
     pad(c,15,1);pad(c,15,0);assert(view(c).master);
+    /* Shift+Knob FX: sound 5 sits on Track 3 -> that Track, FX page; no sound -> Master. */
+    mixer_control_set_output(c,5,3);
+    assert(mixer_control_focus_sound_fx(c,5)&&view(c).page==MIXER_KNOB_FX&&!view(c).master&&view(c).primary==2);
+    assert(mixer_control_focus_sound_fx(c,255)&&view(c).page==MIXER_KNOB_FX&&view(c).master);
+    button(c,MIXER_KNOB);assert(view(c).page==MIXER_OVERVIEW);pad(c,15,1);pad(c,15,0);
     button(c,MIXER_KNOB);assert(view(c).page==MIXER_KNOB_FX&&view(c).comp.visible);
     /* Empty chain: slot 0 is "+ ADD"; one more step reaches the pinned Sample compressor. */
     cc(c,0x64,1);assert(view(c).fx_slot==MIXER_COMP_SLOT);

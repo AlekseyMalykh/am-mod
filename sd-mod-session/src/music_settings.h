@@ -39,6 +39,9 @@ unsigned music_text_input(void);
 int music_set_text_input(unsigned pads);
 unsigned music_fx_view(void);
 int music_set_fx_view(unsigned view);
+unsigned music_fx_mode(void);        /* saved choice: 0 Stock, 1 Am MOD */
+unsigned music_fx_mode_active(void); /* mode in force since start-up */
+int music_set_fx_mode(unsigned mode);
 unsigned music_led_vivid(void);
 int music_set_led_vivid(unsigned level);
 uint32_t music_led_correct(uint32_t rgb);
