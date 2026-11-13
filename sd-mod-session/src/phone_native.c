@@ -2191,10 +2191,14 @@ static int mixer_knob_entry(void *event,unsigned code,unsigned down)
     uint64_t route=atomic_load(&mixer_route);
     unsigned reasons=atomic_load(&mixer_last_reasons);
     int ready=(route&MIXER_READY)||(reasons!=~0u&&!(reasons&~2u));
-    if(!ready||(route&MIXER_OPEN)||atomic_load(&mixer_input_fault))return 0;
+    if(route&MIXER_OPEN)return 0; /* open: the Mixer button path handles it */
+    int shifted=atomic_load(&native_shift_requested)||atomic_load(&native_buttons_down[0x31]);
+    /* Shift+KNOB FX is only for Sample (the stock action would open Input Config etc.). */
+    if(shifted&&!(route&MIXER_READY)){atomic_store(&swallow,1);return 1;}
+    if(!ready||atomic_load(&mixer_input_fault))return 0;
     struct phone_event e={.kind=PHONE_MIXER_ENTRY,.pad=0xffu,.down=1,.generation=mixer_binding};
     e.when_ms=now_ms();memcpy(e.native,event,16);
-    if(atomic_load(&native_shift_requested)||atomic_load(&native_buttons_down[0x31])){
+    if(shifted){
         unsigned pad=atomic_load(&last_pad_pressed),bank=0;int b=step_native_browser_bank(-1);
         if(b>=0&&b<8)bank=(unsigned)b;
         e.up=1;e.midi[0]=pad<16?(unsigned char)(bank*16+pad):0xffu; /* 0xff: no pad, Master */
