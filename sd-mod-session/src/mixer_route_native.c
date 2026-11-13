@@ -7,7 +7,7 @@
 
 #define BUFFER_BYTES 0x130u
 struct route_buffer { unsigned char native[BUFFER_BYTES];float *channel[2]; };
-struct route_source {void *instrument,*buffer,*dest;unsigned pad,native,pair,id;};
+struct route_source {void *instrument,*buffer,*dest,*orig;unsigned pad,native,pair,id;};
 struct mixer_route_native {
     struct mixer_buses *buses;
     struct mixer_route_ops ops;
@@ -117,6 +117,15 @@ static int eligible(struct mixer_route_native*a)
         for(unsigned j=0;j<i;++j)if(a->source[j].instrument==instrument||a->source[j].buffer==source)REJECT(6);
         const char *route=(const char*)instrument+0x560;
         void *destination=a->ops.resolve((char*)a->program+0xc10,route);
+        void *orig=destination;
+        /* Am MOD ignores the stock FX Select: a Pad routed to the effect bus (id 1) is
+         * treated as routed to the Program main bus (id 2), so the Mixer mix never
+         * reaches the stock effect. The engine still names the real buffer in orig. */
+        if(destination&&word(route,0)==1){
+            unsigned char alt[32];memcpy(alt,route,sizeof alt);set_word(alt,0,2);
+            void *main_bus=a->ops.resolve((char*)a->program+0xc10,alt);
+            if(main_bus)destination=main_bus;
+        }
         unsigned native=0;void *dest=a->main;
         if(destination){
             float gain;memcpy(&gain,route+24,4);
@@ -138,19 +147,8 @@ static int eligible(struct mixer_route_native*a)
             }
         } /* null destination uses the native fallback route (stereo unity). */
         unsigned pair=dest!=a->main?(word(route,16)|word(route,20)<<8):0;
-        a->source[i]=(struct route_source){instrument,source,dest,word(instrument,0x2168),native,pair,word(route,0)};
+        a->source[i]=(struct route_source){instrument,source,dest,orig,word(instrument,0x2168),native,pair,word(route,0)};
     }
-    /* FX Select (stock): a selected Pad's route id is 1 (effect bus), an unselected
-     * one's is 2 (Program main bus); on the device both name other buffers. When both
-     * kinds are around, the selected Pads keep their native route (stock effect, then
-     * Master) and only the rest goes through the Tracks, so the effect touches the
-     * selected Pads only. If every Pad is on the same side (all selected, or none) the
-     * Mixer carries all of them. Recently seen unselected Pads count, so a long note of
-     * a selected Pad does not switch path when nothing unselected plays at that moment. */
-    {static unsigned block,plain_seen[MIXER_PADS];++block;
-     for(unsigned i=0;i<a->count;++i)if(a->source[i].id==2&&a->source[i].pad<MIXER_PADS)plain_seen[a->source[i].pad]=block;
-     unsigned have_plain=0;for(unsigned i=0;i<MIXER_PADS;++i)have_plain|=plain_seen[i]&&block-plain_seen[i]<2000;
-     if(have_plain)for(unsigned i=0;i<a->count;++i)if(!a->source[i].native&&a->source[i].id==1)a->source[i].native=1;}
     {   /* Diagnostic for Knob FX scoping: log when the set of stock Pad destinations changes. */
         static unsigned long long last_sig;static unsigned lines;
         unsigned long long sig=a->count;
@@ -225,7 +223,7 @@ int mixer_route_sum(const struct mixer_route_ops*ops,void*instrument,void*source
        ptr(instrument,0x2310)==a->program&&frames==a->frames){
         ++a->captured;return ops->sum(instrument,source,destination,route,frames);
     }
-    if(!s||s->instrument!=instrument||s->buffer!=source||destination!=s->dest||
+    if(!s||s->instrument!=instrument||s->buffer!=source||destination!=s->orig||
        ptr(instrument,0x2310)!=a->program||word(instrument,0x2168)!=s->pad||
        frames!=a->frames||!stereo(source,frames)){
         recover(a);return ops->sum(instrument,source,destination,route,frames);
