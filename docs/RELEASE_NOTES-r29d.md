@@ -1,6 +1,6 @@
 # r29d (test build after r29c)
 
-New setting **Mod Settings → Quick → FX mode** (Stock / Am MOD). Default **Stock**. A change applies after a restart.
+New setting **Mod Settings → Quick → FX mode** (Stock / Am MOD). Default **Am MOD**. A change applies after a restart.
 
 - **Stock:** the Mixer is switched off completely (no mod routing of pads). Knob FX, Shift+Knob FX, FX Select, Pad FX and Flex Beat are the stock ones.
 - **Am MOD:** **Knob FX opens the Mixer** (press alone; the stock Knob FX curtain does not appear). The old Pad FX + Knob FX entry is gone. **Shift+Knob FX** opens the Mixer on the **Track FX page of the last pad you hit** (Master if it has no Track). Pad FX and Shift+Pad FX stay stock and process the whole Master. Inside the Mixer, Pad FX still assigns pads to Tracks.

@@ -2181,6 +2181,7 @@ static int mixer_fx_combo(void *event,unsigned code,unsigned down)
 }
 /* Am MOD FX mode: KNOB FX alone opens the Mixer (Pad FX stays stock, no combo).
  * Shift+KNOB FX opens it on the Track FX of the last pad hit (Master if none). */
+unsigned music_fx_mode_active(void) __attribute__((weak));
 static int mixer_knob_entry(void *event,unsigned code,unsigned down)
 {
     static _Atomic unsigned swallow;
@@ -2261,7 +2262,7 @@ static void buttons(void *event)
 #endif
     }
 #ifdef MPC_MIXER_LIVE
-    if (native_code <= 1 && (music_fx_mode_active() ? mixer_knob_entry(event,native_code,native_down)
+    if (native_code <= 1 && ((music_fx_mode_active&&music_fx_mode_active()) ? mixer_knob_entry(event,native_code,native_down)
                                                      : mixer_fx_combo(event,native_code,native_down))) return;
     if (native_code < 112 && native_code != 0x31) {
         uint64_t *held = &mixer_button_pairs[native_code];

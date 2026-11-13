@@ -103,11 +103,11 @@ extern "C" void mixer_runtime_ui_stop()
     collect();
 }
 
-extern "C" unsigned music_fx_mode_active(void);
+extern "C" unsigned music_fx_mode_active(void) __attribute__((weak));
 extern "C" void mixer_runtime_ui_tick()
 {
     /* FX mode Stock: no Mixer session, so the stock Pad routing is never touched. */
-    if (!music_fx_mode_active()) {diag("FX_MODE_STOCK");return;}
+    if (music_fx_mode_active && !music_fx_mode_active()) {diag("FX_MODE_STOCK");return;}
     if (!mixer_live_native_ops()) { diag("NO_NATIVE_OPS"); return; }
     uint64_t generation = mixer_archive_generation();
     if (archive_generation != generation) {

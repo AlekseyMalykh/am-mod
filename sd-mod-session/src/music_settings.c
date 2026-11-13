@@ -34,10 +34,10 @@ static _Atomic unsigned text_input=1; /* 1 Pads (default), 0 Encoder; card file 
 unsigned music_text_input(void){return atomic_load(&text_input);}
 static _Atomic unsigned fx_view=1; /* 1 Illustrated (default), 0 Classic; card file .am-mod-fx-view */
 unsigned music_fx_view(void){return atomic_load(&fx_view);}
-/* FX mode: 0 Stock (mixer off, stock FX Select/Knob FX), 1 Am MOD. Saved on the
+/* FX mode: 0 Stock (mixer off, stock FX Select/Knob FX), 1 Am MOD (default). Saved on the
  * card (.am-mod-fx-mode); the value in force is latched at start-up, so a change
  * applies after a restart. */
-static _Atomic unsigned fx_mode_saved,fx_mode_active;static _Atomic int fx_mode_latched;
+static _Atomic unsigned fx_mode_saved=1,fx_mode_active=1;static _Atomic int fx_mode_latched;
 unsigned music_fx_mode(void){return atomic_load(&fx_mode_saved);}
 unsigned music_fx_mode_active(void){return atomic_load(&fx_mode_active);}
 unsigned music_relation_colour(unsigned role){return role<MUSIC_RELATION_COUNT?(atomic_load(&relation_colours)>>(4*role))&15u:0;}
@@ -231,7 +231,7 @@ int music_lighting_preferences_open(const char *directory){
    if(!fstat(vf,&vs)&&S_ISREG(vs.st_mode)&&vn==12&&!memcmp(t,"AM_FXVIEW ",10)&&(t[10]=='0'||t[10]=='1')&&t[11]=='\n')view=(unsigned)(t[10]-'0');
    close(vf);}}
  atomic_store(&fx_view,view);
- {unsigned mode=0;int mf=openat(dir,".am-mod-fx-mode",O_RDONLY|O_CLOEXEC|O_NOFOLLOW|O_NONBLOCK);
+ {unsigned mode=1;int mf=openat(dir,".am-mod-fx-mode",O_RDONLY|O_CLOEXEC|O_NOFOLLOW|O_NONBLOCK);
   if(mf>=0){char t[16]={0};struct stat ms;ssize_t mn=read(mf,t,sizeof(t)-1);
    if(!fstat(mf,&ms)&&S_ISREG(ms.st_mode)&&mn==12&&!memcmp(t,"AM_FXMODE ",10)&&(t[10]=='0'||t[10]=='1')&&t[11]=='\n')mode=(unsigned)(t[10]-'0');
    close(mf);}
