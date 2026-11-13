@@ -21,7 +21,6 @@ struct mixer_route_native {
     unsigned char target_route[24];
     struct route_buffer shadow,scratch;
     float *pcm;
-    unsigned char fx_seen[MIXER_PADS]; /* 0 unknown, 1 last seen on the Program main, 2 on another buffer (FX Select) */
     struct route_source source[MIXER_PADS];
     void(*before_block)(void*);
     void*before_user;
@@ -141,15 +140,17 @@ static int eligible(struct mixer_route_native*a)
         unsigned pair=dest!=a->main?(word(route,16)|word(route,20)<<8):0;
         a->source[i]=(struct route_source){instrument,source,dest,word(instrument,0x2168),native,pair,word(route,0)};
     }
-    /* FX Select (stock): selected Pads are routed to the effect bus, the others to the
-     * Program main. When both kinds exist, the selected ones keep their native route
-     * (stock effect, then Master) so the effect only touches them; the rest go through
-     * the Tracks. When every Pad is on the same side (e.g. "All") nothing changes: the
-     * Mixer carries them all. Routes seen earlier are remembered so a long note does not
-     * switch path in the middle of a hit. */
-    for(unsigned i=0;i<a->count;++i)if(!a->source[i].native)a->fx_seen[a->source[i].pad]=a->source[i].dest==a->main?1:2;
-    {unsigned have_main=0;for(unsigned i=0;i<MIXER_PADS;++i)have_main|=a->fx_seen[i]==1;
-     if(have_main)for(unsigned i=0;i<a->count;++i)if(!a->source[i].native&&a->source[i].dest!=a->main)a->source[i].native=1;}
+    /* FX Select (stock): a selected Pad's route id is 1 (effect bus), an unselected
+     * one's is 2 (Program main bus); on the device both name other buffers. When both
+     * kinds are around, the selected Pads keep their native route (stock effect, then
+     * Master) and only the rest goes through the Tracks, so the effect touches the
+     * selected Pads only. If every Pad is on the same side (all selected, or none) the
+     * Mixer carries all of them. Recently seen unselected Pads count, so a long note of
+     * a selected Pad does not switch path when nothing unselected plays at that moment. */
+    {static unsigned block,plain_seen[MIXER_PADS];++block;
+     for(unsigned i=0;i<a->count;++i)if(a->source[i].id==2&&a->source[i].pad<MIXER_PADS)plain_seen[a->source[i].pad]=block;
+     unsigned have_plain=0;for(unsigned i=0;i<MIXER_PADS;++i)have_plain|=plain_seen[i]&&block-plain_seen[i]<2000;
+     if(have_plain)for(unsigned i=0;i<a->count;++i)if(!a->source[i].native&&a->source[i].id==1)a->source[i].native=1;}
     {   /* Diagnostic for Knob FX scoping: log when the set of stock Pad destinations changes. */
         static unsigned long long last_sig;static unsigned lines;
         unsigned long long sig=a->count;
