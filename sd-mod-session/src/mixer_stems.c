@@ -33,7 +33,7 @@ struct stems_job {
     struct stem_writer writer[STEM_FILES];
     char folder[1024],native_file[1100];
     void *context,*native_writer;
-    int failed,resample;
+    int failed,resample,seq;
 };
 extern const float *mixer_live_out_l,*mixer_live_out_r;extern unsigned mixer_live_out_frames;
 static char resample_mix_file[1100];
@@ -318,6 +318,17 @@ static void begin_resample(void *context,void *writer,unsigned rate)
     job=j;atomic_store(&job_open,1);
     pthread_mutex_unlock(&mutex);
 }
+/* Native sequence resample: same offline loop as Song, so Tracks, Sends, FX and Master apply.
+ * The stock writer receives the processed Master; no sibling file is produced. */
+void mixer_resample_sequence_frame(void *context,void *writer,unsigned rate)
+{
+    song_context=context;
+    if(!writer||atomic_load(&job_open))return;
+    begin_resample(context,writer,rate);
+    pthread_mutex_lock(&mutex);
+    if(job&&job->context==context){job->seq=1;fprintf(stderr,"RESAMPLE_MIX SEQUENCE rate=%u\n",rate);}
+    pthread_mutex_unlock(&mutex);
+}
 int mixer_resample_mixed(void){return atomic_load(&resample_mixed)!=0;}
 void mixer_resample_frame(void *context,void *writer,unsigned rate)
 {
@@ -352,7 +363,7 @@ int mixer_stems_offline_block(void*engine,void*clock,unsigned frames,uintptr_t p
     mixer_live_rebind(j->live,engine,NULL);
     int applied=mixer_live_render_offline(j->live,engine,clock,frames,program_vptr);
     int valid=applied;
-    if(j->resample&&applied&&mixer_live_out_frames==frames){
+    if(j->resample&&!j->seq&&applied&&mixer_live_out_frames==frames){
         struct stem_writer*w=j->writer+8;
         if(!w->file&&!j->failed){w->file=fopen(RESAMPLE_MIX_FILE,"wb");if(w->file)wav_header(w->file,j->rate,0);else j->failed=1;}
         if(w->file&&!j->failed&&!write_block(w,mixer_live_out_l,mixer_live_out_r,count))j->failed=1;

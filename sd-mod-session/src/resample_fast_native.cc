@@ -9,6 +9,7 @@
 #pragma weak mixer_stems_song_frame
 #pragma weak mixer_resample_enabled
 #pragma weak mixer_resample_frame
+#pragma weak mixer_resample_sequence_frame
 #pragma weak mixer_resample_mixed
 #pragma weak mixer_resample_file
 #endif
@@ -134,6 +135,16 @@ void frame(void*engine,void*clock){
     if(mini&&mini->engine==engine&&!mini->failed&&mixer_resample_frame&&mixer_resample_enabled&&mixer_resample_enabled()){
         void*writer=F(context,0xa38,void*);
         if(writer)mixer_resample_frame(context,writer,mini->rate);
+    }
+#endif
+#ifdef MPC_MIXER_LIVE
+    /* Native sequence resample (not Song, not the private sample note): first block only. */
+    if(!mini&&mixer_resample_sequence_frame&&mixer_resample_enabled&&mixer_resample_enabled()&&
+       !(mixer_stems_armed&&mixer_stems_armed())&&F(context,0x3f0,unsigned)!=0&&F(context,0x3f0,unsigned)!=4&&
+       F(context,0x9f0,uint64_t)==0){
+        void*writer=F(context,0xa38,void*);
+        std::fprintf(stderr,"RESAMPLE_MIX SEQ_CANDIDATE source=%u\n",F(context,0x3f0,unsigned));
+        if(writer)mixer_resample_sequence_frame(context,writer,F(writer,12,unsigned));
     }
 #endif
     if(!mini||mini->engine!=engine||mini->failed)return;
