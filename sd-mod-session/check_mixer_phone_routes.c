@@ -9,6 +9,8 @@ struct mixer_session { struct mixer_control *control; };
 struct mixer_control *mixer_session_control(struct mixer_session *s) { return s ? s->control : NULL; }
 int mixer_session_status(const struct mixer_session *s) { return s ? 1 : -2; }
 void mixer_session_flush_fx(struct mixer_session *s) { (void)s; }
+static unsigned fixture_fx_mode;
+unsigned music_fx_mode_active(void){return fixture_fx_mode;}
 unsigned music_text_input(void) { return 0; }
 void mixer_session_ui_tick(struct mixer_session *s) { (void)s; }
 void note_native_repaint_sample(void) {}
@@ -346,6 +348,30 @@ int main(void)
     button(SEQ_MODE_BUTTON,1);button(SAMPLE_MODE_BUTTON,1);button(SAMPLE_MODE_BUTTON,0);button(SEQ_MODE_BUTTON,0);
     assert(stock_down[CHOP_MODE_BUTTON]==1&&stock_up[CHOP_MODE_BUTTON]==1);
     fixture_levels=0;
+
+    /* Am MOD uses one Knob FX button, including the Shift Track FX shortcut.
+     * No unavailable/fault/held-Pad-FX path may expose stock Knob FX. */
+    fixture_fx_mode=1;mixer_control_close(session.control);mixer_publish_route();
+    unsigned native_knob_down=stock_down[0],native_knob_up=stock_up[0];
+    button(0,1);button(0,0);drain();assert(mixer_control_active(session.control));
+    mixer_control_close(session.control);mixer_publish_route();
+    button(0x31,1);button(0,1);button(0,0);button(0x31,0);drain();
+    mixer_control_view(session.control,0,&view);assert(view.page==MIXER_KNOB_FX);
+    mixer_control_close(session.control);mixer_publish_route();
+    atomic_store(&native_buttons_down[1],1);button(0,1);button(0,0);drain();
+    atomic_store(&native_buttons_down[1],0);assert(mixer_control_active(session.control));
+    mixer_control_close(session.control);mixer_publish_route();
+    button(0,1);button(0,0);drain();pad(14,1);pad(14,0);drain();
+    mixer_control_view(session.control,0,&view);assert(view.master==2&&view.page==MIXER_KNOB_FX);
+    mixer_control_close(session.control);mixer_publish_route();
+    atomic_store(&mixer_route,0);atomic_store(&mixer_last_reasons,~0u);
+    button(0,1);button(0,0);button(0x31,1);button(0,1);button(0,0);button(0x31,0);drain();
+    mixer_publish_route();atomic_store(&mixer_input_fault,1);button(0,1);button(0,0);drain();atomic_store(&mixer_input_fault,0);
+    mixer_publish_route();
+    for(unsigned i=0;i<PHONE_EVENT_CAPACITY;++i)assert(phone_events_push(&dummy));
+    button(0,1);button(0,0);drain();
+    assert(stock_down[0]==native_knob_down&&stock_up[0]==native_knob_up);
+    puts("PASS Am MOD Knob FX entry/Shift FX page; held Pad FX, unavailable Mixer, input fault and full FIFO never forward native Knob FX edges");
 
     /* Project change revokes the route. */
     mixer_project_changing();

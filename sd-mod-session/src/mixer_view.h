@@ -44,6 +44,8 @@ struct mixer_view_state {
     unsigned fx_illustrated; /* 0 Classic; set by the host from the card setting */
     double rate;
 };
+static inline const struct mixer_channel*mixer_view_selected(const struct mixer_view_state*s)
+{return s->master==2?&s->project->input:s->master?&s->project->master:s->project->track+s->primary;}
 /* Routing Pads addresses sounds; Sends/Sidechain address Mixer tracks. */
 static inline int mixer_view_sound_pads(const struct mixer_view_state *s)
 {return s->page==MIXER_ASSIGN||(s->page==MIXER_INSPECT&&s->route_tab==MIXER_ROUTE_PADS);}

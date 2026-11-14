@@ -29,7 +29,7 @@ int main(void){
  occupied[7]=1u<<8;rear_ui_pad(8,1);assert(confirm&&starts==1);
  button(0x0c);assert(!confirm&&!selected_mask);
  rear_ui_pad(8,1);button(0x0e);assert(starts==2&&last_overwrite==1);button(0x51);
- cc(0x10,64);assert(settings[0][REAR_MODE]==REAR_RIGHT);
+ cc(0x10,32);assert(settings[0][REAR_MODE]==REAR_RIGHT);
  rear_ui_pad(9,1);assert(starts==3&&settings[1][REAR_TARGET]==121);button(0x51);
  button(0x0d);button(0x0e);assert(settings[0][REAR_MONITOR]&&settings[1][REAR_MONITOR]&&monitor_on==2);
  cc(0x11,0);cc(0x12,127);assert(settings[0][REAR_PAN]==0&&settings[1][REAR_PAN]==100);
@@ -37,10 +37,14 @@ int main(void){
  unsigned char e[16]={0};e[8]=0x11;e[9]=127;assert(!rear_ui_control(e)&&settings[0][REAR_PAN]==0);
  fx=0;repeat=1;assert(!rear_ui_owns(1,0x10)&&!rear_ui_pad_owns());repeat=0;
  assert(rear_ui_owns(1,0x10)&&rear_ui_pad_owns());
- panel_on_record=0;rear_ui_pad(0,1);assert(starts==3&&!rear_ui_pad_owns());
+ cc(0x10,127);assert(settings[0][REAR_MODE]==REAR_MIX);
+ rear_ui_pad(2,1);assert(starts==4&&!waiting_right&&selected_mask==1&&settings[0][REAR_TARGET]==114);button(0x51);
+ occupied[7]|=1u<<3;rear_ui_pad(3,1);assert(confirm&&starts==4);button(0x0e);assert(starts==5&&last_overwrite==1&&!waiting_right);button(0x51);
+ cc(0x10,96);assert(settings[0][REAR_MODE]==REAR_MIX);cc(0x10,95);assert(settings[0][REAR_MODE]==REAR_DUAL);
+ panel_on_record=0;rear_ui_pad(0,1);assert(starts==5&&!rear_ui_pad_owns());
  settings[0][REAR_ENABLED]=0;
  e[8]=0x11;e[9]=64;
  assert(rear_ui_control_at(e,1)&&settings[0][REAR_LEVEL]==50&&!settings[0][REAR_ENABLED]);
  assert(rear_ui_reset_knob(1,1)&&settings[0][REAR_LEVEL]==100&&!settings[0][REAR_ENABLED]);
- puts("PASS direct pad mono/dual record, cancellation B1/STOP/repeated pad, cross-bank choice, occupied-pad confirmation, monitor controls, FX/Repeat priority");
+ puts("PASS direct pad mono/dual record, cancellation B1/STOP/repeated pad, cross-bank choice, occupied-pad confirmation, monitor controls, FX/Repeat priority");return 0;
 }

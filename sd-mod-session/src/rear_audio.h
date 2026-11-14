@@ -6,7 +6,7 @@
 extern "C" {
 #endif
 enum { REAR_MONITOR, REAR_LEVEL, REAR_PAN, REAR_ENABLED, REAR_MODE, REAR_TARGET };
-enum { REAR_STEREO, REAR_LEFT, REAR_RIGHT, REAR_DUAL };
+enum { REAR_STEREO, REAR_LEFT, REAR_RIGHT, REAR_DUAL, REAR_MIX };
 enum { REAR_IDLE, REAR_PREPARING, REAR_WAITING, REAR_RECORDING, REAR_FINISHING, REAR_READY, REAR_ERROR };
 uint64_t rear_settings_snapshot(void);
 int rear_settings_valid(uint64_t value);
@@ -18,6 +18,10 @@ int rear_set_setting(unsigned channel, unsigned field, unsigned value);
  * No file work, allocation, model calls or locks occur in this callback. */
 void rear_audio_process(const float *left, const float *right, float *out_left,
                         float *out_right, unsigned frames, unsigned rate, int monitor);
+/* Audio owner: optional Rear Mix precedes common Input FX. The prepared
+ * variant receives the already mixed/processed stereo capture exactly once. */
+void rear_mix_prepare(const float*,const float*,float*,float*,unsigned,unsigned);
+void rear_audio_process_prepared(const float*,const float*,float*,float*,unsigned,unsigned,int,int);
 void rear_audio_meters(float levels[2]);
 /* Called off the audio thread. The parent directory is the native temporary
  * project audio directory. Files remain owned by the project after success. */

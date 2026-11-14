@@ -585,11 +585,13 @@ static void mixer_publish_route(void)
                                 status||on?1.f:.22f);
             } else if(i<8+MIXER_FX_SLOTS) {
                 const struct mixer_channel *track=NULL;
-                if(view.master)track=&view.project->master;
+                if(view.master==2)track=&view.project->input;
+                else if(view.master)track=&view.project->master;
                 else if(view.selected&&!(view.selected&(view.selected-1)))track=view.project->track+view.primary;
                 unsigned slot=i-8;
                 light=track&&slot<track->fx.count?pad_light(mixer_fx_slot_rgb(slot),.90f):pad_light(0x808080u,.22f);
-            } else if (i == 15) light = pad_light(view.project->master.colour & 0xffffffu, view.master ? .90f : .22f);
+            } else if (i == 14) light = pad_light(view.project->input.colour & 0xffffffu, view.master==2 ? .90f : .22f);
+            else if (i == 15) light = pad_light(view.project->master.colour & 0xffffffu, view.master==1 ? .90f : .22f);
             atomic_store(&mixer_select_lights[i], light);
         }
         atomic_store(&mixer_select_enabled, 1);
@@ -2187,7 +2189,7 @@ static int mixer_knob_entry(void *event,unsigned code,unsigned down)
     static _Atomic unsigned swallow;
     if(code!=0)return 0;
     if(!down)return atomic_exchange(&swallow,0)?1:0;
-    if(atomic_load(&native_buttons_down[1]))return 0; /* Pad FX held: stock */
+    /* In Am MOD, holding Pad FX never exposes the stock Knob FX action. */
     uint64_t route=atomic_load(&mixer_route);
     unsigned reasons=atomic_load(&mixer_last_reasons);
     int ready=(route&MIXER_READY)||(reasons!=~0u&&!(reasons&~2u));
@@ -2195,7 +2197,7 @@ static int mixer_knob_entry(void *event,unsigned code,unsigned down)
     int shifted=atomic_load(&native_shift_requested)||atomic_load(&native_buttons_down[0x31]);
     /* Shift+KNOB FX is only for Sample (the stock action would open Input Config etc.). */
     if(shifted&&!(route&MIXER_READY)){atomic_store(&swallow,1);return 1;}
-    if(!ready||atomic_load(&mixer_input_fault))return 0;
+    if(!ready||atomic_load(&mixer_input_fault)){atomic_store(&swallow,1);return 1;}
     struct phone_event e={.kind=PHONE_MIXER_ENTRY,.pad=0xffu,.down=1,.generation=mixer_binding};
     e.when_ms=now_ms();memcpy(e.native,event,16);
     if(shifted){
@@ -2203,7 +2205,7 @@ static int mixer_knob_entry(void *event,unsigned code,unsigned down)
         if(b>=0&&b<8)bank=(unsigned)b;
         e.up=1;e.midi[0]=pad<16?(unsigned char)(bank*16+pad):0xffu; /* 0xff: no pad, Master */
     }
-    if(!phone_events_push(&e)){mixer_fail_input();return 0;}
+    if(!phone_events_push(&e)){mixer_fail_input();atomic_store(&swallow,1);return 1;}
     atomic_store(&swallow,1);
     return 1;
 }
@@ -2216,6 +2218,7 @@ static void mixer_fx_combo_tick(void)
     if(release)forward_buttons(held);
 }
 #endif
+extern void input_fx_flush(void) __attribute__((weak));
 static void buttons(void *event)
 {
     unsigned native_code=FIELD(event,8,unsigned char),native_down=FIELD(event,9,unsigned char)!=0;
@@ -2231,7 +2234,7 @@ static void buttons(void *event)
 #ifdef MPC_MIXER_LIVE
     /* Stock double Stop = all sounds off: also restart the Mixer's FX (feedback loops, tails). */
     if(native_code==0x51&&native_down){static uint64_t last_stop_ms;uint64_t now=now_ms();
-        if(last_stop_ms&&now-last_stop_ms<1200)atomic_store(&mixer_flush_request,1);
+        if(last_stop_ms&&now-last_stop_ms<1200){atomic_store(&mixer_flush_request,1);if(input_fx_flush)input_fx_flush();}
         last_stop_ms=now;}
 #endif
     if(native_code==0x51&&native_down){pthread_mutex_lock(&stop_template_mutex);memcpy(stop_template,event,16);stop_template_ready=1;pthread_mutex_unlock(&stop_template_mutex);}

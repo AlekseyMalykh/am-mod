@@ -1,4 +1,8 @@
+extern const char *input_fx_status(void) __attribute__((weak));
 #include "mixer_view.h"
+#include "rear_audio.h"
+extern unsigned rear_setting(unsigned,unsigned) __attribute__((weak));
+extern int rear_native_source(void) __attribute__((weak));
 #include "fx_catalog.h"
 #include "fx_own.h"
 #include "compressor.h"
@@ -209,11 +213,17 @@ void mixer_view_channel_strip(const struct mixer_view_state*s,unsigned track,int
 {
     /* Left area on PAD FX / KNOB FX: big name (A-H or MSTR), Fader, meter. */
     (void)width;
-    const struct mixer_channel*c=track<8?s->project->track+track:&s->project->master;
+    const struct mixer_channel*c=track<8?s->project->track+track:s->master==2?&s->project->input:&s->project->master;
     struct mixer_mix resolved[8];const struct mixer_mix*m=track<8?(mixer_scene_resolve(s->project,s->part_id,resolved),resolved+track):&s->project->master.mix;
     rect(p,x,36,80,162,BLACK);
     rect(p,x+3,37,74,158,PANEL);
     rect(p,x+3,37,74,2,0xff000000u|c->colour);
+    if(track==8&&s->master==2){
+        text(p,"INPUT",x+5,45,70,27,19,WHITE,1);
+        text(p,"Mic / USB",x+5,88,70,17,11,GREY,1);text(p,"Rear",x+5,106,70,17,11,GREY,1);
+        text(p,"Listen",x+5,139,70,17,12,WHITE,1);text(p,"+ Record",x+5,157,70,17,12,WHITE,1);
+        mixer_key(p,"fx",x+29,178,24,15,10,fx_ink(c),c->fx.count!=0);return;
+    }
     char name[8],stock[12];
     if(track<8)snprintf(name,sizeof(name),"%c",'A'+track);else snprintf(name,sizeof(name),"MSTR");
     snprintf(stock,sizeof(stock),"Track %c",'A'+track);
@@ -273,7 +283,7 @@ static void header(const struct mixer_view_state*s,const struct resample_painter
     if(s->page==MIXER_KNOB_FX&&s->fx_editing){
         names[1]=s->shifted?"Paste":"Copy";
         names[2]=s->shifted?"Chain Bypass":"Solo";
-        lit[2]=s->shifted?(s->master?s->project->master.fx_bypass:s->project->track[s->primary].fx_bypass)!=0:soloed;
+        lit[2]=s->shifted?mixer_view_selected(s)->fx_bypass!=0:soloed;
         off=0;
     }
     if(s->page==MIXER_INSPECT){
@@ -287,7 +297,7 @@ static void header(const struct mixer_view_state*s,const struct resample_painter
     }
     if(s->page==MIXER_KNOB_FX&&s->fx_parameters){
         names[0]="FX List";names[1]=s->shifted?"Chain Bypass":"Bypass";
-        const struct mixer_channel*ch=s->master?&s->project->master:s->project->track+s->primary;
+        const struct mixer_channel*ch=mixer_view_selected(s);
         lit[1]=s->shifted?ch->fx_bypass!=0:s->fx_slot<ch->fx.count&&ch->fx.stage[s->fx_slot].bypass;
         if(s->shifted){names[2]="";lit[2]=0;}
         if(s->shifted&&s->fx_slot<ch->fx.count&&ch->fx.stage[s->fx_slot].kind==FX_STAGE_EQ){
@@ -332,8 +342,8 @@ static void header(const struct mixer_view_state*s,const struct resample_painter
     if(s->page==MIXER_KNOB_FX&&s->fx_parameters){
         char db[24];
         level_text(db,sizeof(db),s->master?s->project->master.mix.level_db:all[s->primary].level_db);
-        text(p,"FADER",8,20,45,15,10,GREY,0);
-        text(p,db,57,20,94,15,13,WHITE,0);
+        text(p,s->master==2?"INPUT":"FADER",8,20,45,15,10,GREY,0);
+        text(p,s->master==2?"Mic / USB / Rear":db,57,20,94,15,s->master==2?9:13,WHITE,0);
     }
     int x=overview?245:204,w=overview?71:112;
     text(p,"MSTR",overview?211:160,20,overview?33:40,15,11,s->master?AMBER:GREY,1);
@@ -577,7 +587,7 @@ static void effect_editor(const struct mixer_view_state*s,const struct resample_
     const char*label[3]={"","",""};
     char value[3][20]={{0}},status[64];
     unsigned alternate[3]={0};
-    const struct mixer_channel*ch=s->master?&s->project->master:s->project->track+s->primary;
+    const struct mixer_channel*ch=mixer_view_selected(s);
     rect(p,0,36,320,204,BLACK);
     uint32_t accent=0xff000000u|mixer_fx_slot_rgb(s->fx_slot);
     char slot[8];snprintf(slot,sizeof(slot),"FX %u",s->fx_slot+1);
@@ -749,7 +759,7 @@ static void comp_editor(const struct mixer_view_state*s,const struct resample_pa
 }
 static void track_fx(const struct mixer_view_state*s,const struct resample_painter*p)
 {
-    const struct mixer_channel*ch=s->master?&s->project->master:s->project->track+s->primary;
+    const struct mixer_channel*ch=mixer_view_selected(s);
     const struct fx_stage*stage=s->fx_slot<ch->fx.count?ch->fx.stage+s->fx_slot:NULL;
     rect(p,0,198,320,42,BLACK);
     char counter[16];
@@ -780,7 +790,7 @@ static void track_fx(const struct mixer_view_state*s,const struct resample_paint
         knob_cell(p,2,"K3  Filter",fx_mixer_category_name(s->catalog_filter),1,0);
         return;
     }
-    const int comp_row=s->master&&s->comp.visible;
+    const int comp_row=s->master==1&&s->comp.visible;
     const int pitch=comp_row?22:27,row_h=pitch-3;
     for(unsigned i=0;i<MIXER_FX_SLOTS;++i){
         const struct fx_stage*effect=i<ch->fx.count?ch->fx.stage+i:NULL;
@@ -816,7 +826,25 @@ static void track_fx(const struct mixer_view_state*s,const struct resample_paint
         if(k->available&&!k->bypass){char gr[16];snprintf(gr,sizeof(gr),"-%.1f",(double)k->reduction);text(p,gr,225,y,32,row_h,9,GREY,1);}
     }
     if(s->message&&*s->message)text(p,s->message,89,174,222,20,11,AMBER,0);
-    else text(p,s->master&&s->comp.visible?"S = Sample compressor (Shift+Pad 5)":"+ / −: Track   /   Pads 9–12: FX",89,174,222,20,10,GREY,0);
+    else text(p,s->master==2?(input_fx_status?input_fx_status():"Input FX: Mic / USB / Rear"):s->master&&s->comp.visible?"S = Sample compressor (Shift+Pad 5)":"Pad 15: Input FX  /  9–12: FX",89,174,222,20,10,GREY,0);
+    if(s->master==2){
+        int rear=rear_setting&&rear_native_source&&rear_native_source()==1;
+        static const char*const modes[]={"Stereo","Rear L","Rear R","L+R Split","L+R Mix"};
+        unsigned mode=rear?rear_setting(0,REAR_MODE):0;if(mode>REAR_MIX)mode=0;
+        knob_cell(p,0,"Record",rear?modes[mode]:"Native",0,0);
+        if(rear)knob_steps(p,0,mode?(int)mode-1:-1,4,AMBER);
+        for(unsigned ch=0;ch<2;++ch){
+            char label[16],value[24];snprintf(label,sizeof label,s->shifted?"Level %c":"Pan %c",ch?'R':'L');
+            unsigned n=rear?rear_setting(ch,s->shifted?REAR_LEVEL:REAR_PAN):0;
+            if(!rear)snprintf(value,sizeof value,"--");
+            else if(s->shifted)snprintf(value,sizeof value,"%u %%",n);
+            else if(n==50)snprintf(value,sizeof value,"C");
+            else snprintf(value,sizeof value,"%c%u",n<50?'L':'R',n<50?50-n:n-50);
+            knob_cell(p,1+ch,label,value,0,s->shifted?2:1);
+            if(rear)knob_scale(p,1+ch,n/100.,!s->shifted);
+        }
+        return;
+    }
     rect(p,85,202,231,32,PANEL);
     if(s->shifted){
         fx_hint(p,"SHIFT + DATA","Turn move / Press bypass",202);
@@ -828,11 +856,11 @@ static void track_fx(const struct mixer_view_state*s,const struct resample_paint
 static void route_connections(const struct mixer_view_state*s,const struct resample_painter*p)
 {
     rect(p,0,36,320,204,BLACK);
-    const struct mixer_channel *ch=s->master?&s->project->master:s->project->track+s->primary;
+    const struct mixer_channel *ch=mixer_view_selected(s);
     char label[64],value[32];
     int sends=s->route_tab==MIXER_ROUTE_SENDS;
     text(p,sends?"Routing / Sends":"Routing / Sidechain",8,38,193,22,17,WHITE,0);
-    text(p,s->master?"Master":ch->name,204,39,108,20,12,AMBER,1);
+    text(p,ch->name,204,39,108,20,12,AMBER,1);
     if(sends){
         text(p,"FROM",8,59,101,12,10,GREY,0);
         text(p,"TO",153,59,96,12,10,GREY,0);
@@ -915,7 +943,7 @@ void mixer_view_context(const struct mixer_view_state*s,const struct resample_pa
     if(s->page==MIXER_ASSIGN||s->page==MIXER_INSPECT){
         unsigned target=s->master?0:s->primary+1;
         int inspect=s->page==MIXER_INSPECT;
-        const struct mixer_channel*ch=s->master?&s->project->master:s->project->track+s->primary;
+        const struct mixer_channel*ch=mixer_view_selected(s);
         uint32_t hue=0xff000000u|ch->colour;
         rect(p,85,37,231,21,PANEL);
         text(p,inspect?"Pad Routing":"Assign Pads",92,37,152,21,15,WHITE,0);
@@ -984,7 +1012,7 @@ void mixer_view_meters(const struct mixer_view_state*s,unsigned mask,const struc
 }
 static void fx_delete_confirm(const struct mixer_view_state*s,const struct resample_painter*p)
 {
-    const struct mixer_channel*ch=s->master?&s->project->master:s->project->track+s->primary;
+    const struct mixer_channel*ch=mixer_view_selected(s);
     rect(p,0,0,320,36,PANEL);
     rect(p,0,36,320,204,BLACK);
     mixer_key(p,"Cancel",2,1,102,18,14,WHITE,0);
@@ -1028,7 +1056,7 @@ void mixer_view_paint(const struct mixer_view_state*s,const struct resample_pain
         return;
     }
     if(s->page==MIXER_KNOB_FX&&s->fx_parameters){
-        const struct mixer_channel*ch=s->master?&s->project->master:s->project->track+s->primary;
+        const struct mixer_channel*ch=mixer_view_selected(s);
         if(s->master&&s->fx_slot==MIXER_COMP_SLOT&&s->comp.visible){comp_editor(s,p);return;}
         if(s->fx_slot<ch->fx.count){effect_editor(s,p,ch->fx.stage+s->fx_slot);return;}
     }

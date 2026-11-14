@@ -27,7 +27,7 @@ mixer = ['src/mixer_model.c', 'src/mixer_meters.c', 'src/fx_chain.c', 'src/fx_ow
          'src/mixer_live.c', 'src/mixer_live_native.c', 'src/mixer_view.c',
          'src/mixer_control.c', 'src/mixer_session.cc', 'src/mixer_input.c',
          'src/mixer_runtime.cc', 'src/mixer_sources.cc', 'src/mixer_leds.c',
-         'src/mixer_fx.cc', 'src/fx_native.cc', 'src/song_ui.c', 'src/mixer_stems.c', 'src/screen_mirror_drm.c']
+         'src/mixer_fx.cc', 'src/input_fx.cc', 'src/fx_native.cc', 'src/song_ui.c', 'src/mixer_stems.c', 'src/screen_mirror_drm.c']
 sources = list(dict.fromkeys(sources + mixer))
 sha = lambda b: hashlib.sha256(b).hexdigest()
 hashes = {s: sha((R / s).read_bytes()) for s in sources + ['build_mixer_r27r.py', 'build/phone_hooks.h', 'src/shift_badge.h', 'src/mod_build.h', 'src/spectrum_plot.h', 'src/screen_mirror_frame.h']}

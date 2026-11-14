@@ -89,6 +89,17 @@ static _Atomic unsigned last_target;
 unsigned mixer_route_last_target(void){return atomic_load_explicit(&last_target,memory_order_relaxed);}
 unsigned mixer_route_last_reject(void){return atomic_load_explicit(&last_reject,memory_order_relaxed);}
 #define REJECT(n) do{atomic_store_explicit(&last_reject,(n),memory_order_relaxed);return 0;}while(0)
+void *mixer_route_pad_destination(const struct mixer_route_ops*ops,void *instrument,void *destination)
+{
+    void *program=ptr(instrument,0x2310);
+    const char *route=(const char*)instrument+0x560;
+    if(word(route,0)==1){
+        unsigned char direct[32];memcpy(direct,route,sizeof direct);set_word(direct,0,2);
+        /* Never fall back to the FX bus when the physical route is missing. */
+        return ops->resolve((char*)program+0xc10,direct);
+    }
+    return destination?destination:ops->buffer((char*)program+0x78,0);
+}
 static int eligible(struct mixer_route_native*a)
 {
     a->main=a->ops.buffer((char*)a->program+0x78,0);
@@ -117,15 +128,11 @@ static int eligible(struct mixer_route_native*a)
         for(unsigned j=0;j<i;++j)if(a->source[j].instrument==instrument||a->source[j].buffer==source)REJECT(6);
         const char *route=(const char*)instrument+0x560;
         void *destination=a->ops.resolve((char*)a->program+0xc10,route);
+        /* The installed Pad sum applies the same policy even without a Mixer
+         * session. Default/null native routes resolve to the Program fallback. */
+        destination=mixer_route_pad_destination(&a->ops,instrument,destination);
+        if(!destination)REJECT(11);
         void *orig=destination;
-        /* Am MOD ignores the stock FX Select: a Pad routed to the effect bus (id 1) is
-         * treated as routed to the Program main bus (id 2), so the Mixer mix never
-         * reaches the stock effect. The engine still names the real buffer in orig. */
-        if(destination&&word(route,0)==1){
-            unsigned char alt[32];memcpy(alt,route,sizeof alt);set_word(alt,0,2);
-            void *main_bus=a->ops.resolve((char*)a->program+0xc10,alt);
-            if(main_bus)destination=main_bus;
-        }
         unsigned native=0;void *dest=a->main;
         if(destination){
             float gain;memcpy(&gain,route+24,4);

@@ -57,6 +57,7 @@ static int position(void *out)
         denominator>=1&&denominator<=64&&!(denominator&(denominator-1))&&
         frame>-(INT64_C(1)<<55)&&frame<(INT64_C(1)<<55)&&isfinite(seconds)&&isfinite(ppq)&&isfinite(bar);
 }
+int mixer_live_native_input_position(void*out){return image&&out?position(out):0;}
 int mixer_live_native_position(uint64_t epoch,void *out,uint64_t *block)
 {
     if(!out||!block||!clock_scope||clock_epoch!=epoch||epoch!=atomic_load(&binding_epoch))return 0;
@@ -155,7 +156,16 @@ static void program(void*p,void*c,unsigned n){
  if(clock_scope&&block_kits==1&&block_kit==p)sample_playing_render(p);
 #endif
 }
+extern unsigned music_fx_mode_active(void) __attribute__((weak));
 static int sum(void*i,void*s,void*d,const void*r,unsigned n){
+ uintptr_t caller=(uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0));
+ /* Only the pinned DrumProgram Pad callsite owns this Instrument ABI. This
+  * runs before Mixer capture and also on startup, detach and recovery. Stock
+  * and every other native sum retain their original destinations. */
+ if(caller==image+0x286bf48 && music_fx_mode_active && music_fx_mode_active()){
+  d=mixer_route_pad_destination(&ops.route,i,d);
+  if(!d)return 1; /* An unavailable direct output must not feed stock Knob FX. */
+ }
  return mixer_route_sum(&ops.route,i,s,d,r,n);
 }
 static void stage(void*p,void*b,unsigned n,unsigned s){mixer_route_stage(&ops.route,p,b,n,s);}

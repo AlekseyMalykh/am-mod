@@ -1,6 +1,7 @@
 #include "mixer_route_native.h"
 #include "mixer_session.h"
 #include "mixer_archive.h"
+extern "C" int input_fx_monitor(unsigned,struct mixer_fx_monitor*) __attribute__((weak));
 #include <cstdint>
 extern "C" uintptr_t mixer_live_native_image(void);
 #include <atomic>
@@ -122,9 +123,11 @@ extern "C" void mixer_session_ui_tick(mixer_session*s)
     mixer_view_state view{};
     mixer_control_view(s->control,0,&view);
     unsigned channel=mixer_control_active(s->control)&&view.page==MIXER_KNOB_FX&&view.fx_parameters?
-        (view.master?8:view.primary):9;
+        (view.master==2?9:view.master?8:view.primary):9;
     mixer_fx_monitor signal;
-    if(mixer_live_fx_monitor(s->live,channel,view.fx_slot,&signal)){
+    int input_view=view.master==2&&view.page==MIXER_KNOB_FX&&view.fx_parameters;
+    int got_input=input_fx_monitor?input_fx_monitor(input_view?view.fx_slot:~0u,&signal):0;
+    if(got_input||mixer_live_fx_monitor(s->live,channel,view.fx_slot,&signal)){
         timespec time{};clock_gettime(CLOCK_MONOTONIC,&time);
         mixer_control_fx_monitor(s->control,&signal,static_cast<uint64_t>(time.tv_sec)*1000+time.tv_nsec/1000000);
     }

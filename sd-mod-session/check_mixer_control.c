@@ -7,6 +7,12 @@
 static struct mixer_project accepted;
 static uint64_t revision=1,epoch=10;
 static unsigned submissions,busy;
+static unsigned rear_values[2][6],rear_source=1,rear_busy;
+unsigned rear_setting(unsigned ch,unsigned field){return rear_values[ch][field];}
+int rear_set_setting(unsigned ch,unsigned field,unsigned value){if(field==4&&rear_busy)return 0;rear_values[ch][field]=value;return 1;}
+int rear_native_source(void){return (int)rear_source;}
+int rear_native_busy(void){return (int)rear_busy;}
+void rear_native_clear(void){}
 static int submit(void*u,const struct mixer_project*p,uint64_t expected,uint64_t*next)
 {(void)u;if(busy)return 0;assert(expected==revision);accepted=*p;*next=++revision;++submissions;return 1;}
 static struct mixer_view_state view(struct mixer_control*c){struct mixer_view_state s;mixer_control_view(c,1000,&s);return s;}
@@ -354,6 +360,27 @@ static void routing_controls(void)
     mixer_control_destroy(c);
     puts("PASS Routing sends isolate active rows, reject loops, restore defaults and create detector-only Sidechain links with FX editor access");
 }
+static void input_controls(void){
+ mixer_defaults(&accepted);accepted.master.mix.level_db=-3;++revision;++epoch;struct mixer_control_ops ops={NULL,submit};struct mixer_control*c=mixer_control_create(&ops,44100);assert(c);
+ assert(mixer_control_confirm(c,&accepted,revision,epoch)&&mixer_control_open(c,1,0));mixer_control_set_fx_editing(c,1);
+ uint64_t t=mixer_control_ticket(c);mixer_control_button(c,MIXER_SHIFT,1,t);button(c,MIXER_KNOB);mixer_control_button(c,MIXER_SHIFT,0,t);
+ assert(view(c).master==2&&view(c).page==MIXER_KNOB_FX);
+ cc(c,0x10,127);cc(c,0x11,0);cc(c,0x12,127);assert(rear_values[0][4]==4&&rear_values[0][2]==0&&rear_values[1][2]==100);
+ mixer_control_button(c,MIXER_SHIFT,1,t);cc(c,0x11,64);cc(c,0x12,32);mixer_control_button(c,MIXER_SHIFT,0,t);assert(rear_values[0][1]==50&&rear_values[1][1]==25);
+ rear_busy=1;cc(c,0x10,0);assert(rear_values[0][4]==4);rear_busy=0;
+ rear_source=0;cc(c,0x11,127);assert(rear_values[0][2]==0);rear_source=2;cc(c,0x10,0);assert(rear_values[0][4]==4);rear_source=1;
+ assert(mixer_control_reset(c,0x11,0,t)&&mixer_control_reset(c,0x12,1,t));assert(rear_values[0][2]==0&&rear_values[1][1]==100);
+
+ button(c,MIXER_SELECT);cc(c,0x10,0);assert(rear_values[0][4]==4);button(c,MIXER_SELECT);ack(c);assert(accepted.input.fx.count==1&&!accepted.master.fx.count&&!accepted.track[0].fx.count);
+ button(c,MIXER_SELECT);cc(c,0x10,80);ack(c);assert(rear_values[0][4]==4&&view(c).fx_parameters);button(c,MIXER_B1);
+ cc(c,0x14,127);mixer_control_reset(c,0x14,0,t);ack(c);assert(accepted.master.mix.level_db==-3&&accepted.input.mix.level_db==0);
+ mixer_control_button(c,MIXER_SHIFT,1,t);button(c,MIXER_B3);mixer_control_button(c,MIXER_SHIFT,0,t);ack(c);assert(accepted.input.fx_bypass&&!accepted.master.fx_bypass);
+ button(c,MIXER_B1);assert(view(c).page==MIXER_OVERVIEW&&view(c).master==1);
+ pad(c,14,1);pad(c,14,0);assert(view(c).master==2&&view(c).page==MIXER_KNOB_FX);
+ pad(c,0,1);pad(c,0,0);assert(!view(c).master&&!accepted.track[0].fx.count);
+ mixer_control_close(c);assert(mixer_control_open(c,1,0));assert(view(c).master!=2);
+ mixer_control_destroy(c);puts("PASS Input FX entry by Shift+Knob/Pad15, editing and chain bypass isolated from Track/Master; fader/reset safe; navigation exits cleanly");
+}
 int main(void)
 {
     group_fader_limits();
@@ -490,5 +517,5 @@ int main(void)
     assert(!mixer_control_button(c,MIXER_NATIVE_MODE,1,ticket)&&!mixer_control_active(c));assert(mixer_control_ticket(c)!=ticket);
     assert(mixer_control_button(c,MIXER_B2,0,ticket));assert(mixer_control_pad(c,3,0,ticket));assert(!mixer_control_button(c,MIXER_B2,1,mixer_control_ticket(c)));assert(!mixer_control_cc(c,0x10,1,ticket));
     assert(mixer_control_open(c,1,0));ticket=mixer_control_ticket(c);++epoch;++revision;assert(mixer_control_confirm(c,&accepted,revision,epoch)&&!mixer_control_active(c));assert(mixer_control_ticket(c)!=ticket);
-    mixer_control_destroy(c);puts("PASS coalesced confirmed edits, busy retry, B1 exit to Sample, mode exit, stale tickets/paired release recovery and Load/New epoch invalidation");colour_controls();fx_slots();send_name_history();routing_controls();return 0;
+    mixer_control_destroy(c);puts("PASS coalesced confirmed edits, busy retry, B1 exit to Sample, mode exit, stale tickets/paired release recovery and Load/New epoch invalidation");colour_controls();fx_slots();send_name_history();routing_controls();input_controls();return 0;
 }

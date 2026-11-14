@@ -56,14 +56,14 @@ void legacy(){
 }
 void roundtrip(){
     snapshot(MIXER_ARCHIVE_LEGACY);uint64_t revision;unsigned mode;
-    assert(mixer_archive_snapshot(&model,&revision,&mode));model.track[0].mix.level_db=-3;model.output[113]=8;
+    assert(mixer_archive_snapshot(&model,&revision,&mode));model.track[0].mix.level_db=-3;model.output[113]=8;model.input.fx.count=1;model.input.fx.stage[0].kind=FX_STAGE_NATIVE;model.input.fx.stage[0].native_id=0x61465444;model.input.fx_bypass=1;
     model.scene_count=1;model.scene[0].part_id=1003;model.scene[0].fields[0]=MIXER_SCENE_MUTE;model.scene[0].track[0].mute=1;
     assert(mixer_archive_replace(&model,revision)==MIXER_EDIT_OK);
     assert(mixer_archive_replace(&model,revision)==MIXER_EDIT_STALE);
     uint64_t serial=mixer_archive_saved_count();save();assert(mixer_archive_saved_count()==serial+1&&key=="amMixerV1");
     std::string payload=written;assert(mixer_decode(payload.data(),payload.size(),&before)==MIXER_OK);
     mixer_archive_reset();snapshot(MIXER_ARCHIVE_LEGACY);Input next;next.append(payload);read(next);snapshot(MIXER_ARCHIVE_KNOWN);
-    assert(model.output[113]==8&&model.track[0].mix.level_db==-3&&model.scene[0].part_id==1003);
+    assert(model.output[113]==8&&model.track[0].mix.level_db==-3&&model.scene[0].part_id==1003&&model.input.fx.count==1&&model.input.fx_bypass);
     save();assert(written==payload);
     edit_on_save=true;save();edit_on_save=false;
     assert(written==payload);snapshot(MIXER_ARCHIVE_KNOWN);assert(model.track[0].mix.level_db==-30);

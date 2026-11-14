@@ -3,6 +3,7 @@
 #include "mixer_archive.h"
 #include "mixer_sources.h"
 #include "mixer_fx.h"
+#include "input_fx.h"
 #include <cstdio>
 #include <cstring>
 #include <ctime>
@@ -106,6 +107,7 @@ extern "C" void mixer_runtime_ui_stop()
 extern "C" unsigned music_fx_mode_active(void) __attribute__((weak));
 extern "C" void mixer_runtime_ui_tick()
 {
+    input_fx_ui_tick(mixer_live_native_image());
     /* FX mode Stock: no Mixer session, so the stock Pad routing is never touched. */
     if (music_fx_mode_active && !music_fx_mode_active()) {diag("FX_MODE_STOCK");return;}
     if (!mixer_live_native_ops()) { diag("NO_NATIVE_OPS"); return; }

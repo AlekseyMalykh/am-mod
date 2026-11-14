@@ -22,11 +22,19 @@ static void read_file(const char *path, float expected, unsigned frames) {
     assert(bytes == frames * 3);
     for (unsigned n = 0; n < frames; ++n) {
         unsigned char b[3]; assert(std::fread(b, 1, 3, f) == 3);
-        int pcm = int(b[0] | unsigned(b[1]) << 8 | unsigned(b[2]) << 16) << 8;
-        assert(std::fabs(float(pcm / 256) / 8388607.f - expected) < 2e-7f);
+        unsigned u = b[0] | unsigned(b[1]) << 8 | unsigned(b[2]) << 16;
+        int pcm = (u & 0x800000) ? int(u) - 0x1000000 : int(u);
+        assert(std::fabs(float(pcm) / 8388607.f - expected) < 2e-7f);
     }
     if (bytes & 1) assert(std::fgetc(f) == 0);
     assert(std::fgetc(f) == EOF); std::fclose(f);
+}
+static void read_stereo(const char *path,float l,float r,unsigned frames) {
+ FILE*f=std::fopen(path,"rb");assert(f);unsigned char h[44];assert(std::fread(h,1,44,f)==44);
+ assert(!std::memcmp(h,"RIFF",4)&&!std::memcmp(h+8,"WAVEfmt ",8));assert(h[20]==1&&h[22]==2&&h[32]==6&&h[34]==24);
+ unsigned bytes=h[40]|unsigned(h[41])<<8|unsigned(h[42])<<16|unsigned(h[43])<<24;assert(bytes==frames*6);
+ for(unsigned n=0;n<frames;++n)for(unsigned c=0;c<2;++c){unsigned char b[3];assert(std::fread(b,1,3,f)==3);unsigned u=b[0]|unsigned(b[1])<<8|unsigned(b[2])<<16;int pcm=(u&0x800000)?int(u)-0x1000000:int(u);assert(std::fabs(float(pcm)/8388607.f-(c?r:l))<3e-7f);}
+ assert(std::fgetc(f)==EOF);std::fclose(f);
 }
 int main() {
     rear_settings_reset();
@@ -90,7 +98,53 @@ int main() {
     rear_audio_process(left, right, nullptr, nullptr, 1024, 48000, 0);
     wait_state(REAR_ERROR);
     assert(!std::strcmp(rear_record_error(), "Input sample rate changed"));
-    rear_record_release(0); assert(!rmdir(directory));
+    rear_record_release(0);
+    assert(rear_set_setting(0,REAR_MODE,REAR_MIX));
+    assert(!rear_set_setting(0,REAR_MODE,5));
+    assert(rear_setting(0,REAR_MODE)==REAR_MIX);
+    uint64_t mixed=rear_settings_snapshot();assert(rear_settings_valid(mixed));
+    assert(!rear_settings_valid(mixed|(UINT64_C(1)<<31)));
+    rear_settings_reset();rear_settings_restore(mixed);assert(rear_setting(0,REAR_MODE)==REAR_MIX);
+    assert(rear_setting(1,REAR_TARGET)==1); /* new mode bit cannot overlap destination */
+    assert(rear_set_setting(0,REAR_TARGET,127));assert(rear_set_setting(1,REAR_TARGET,126));
+    char archived[20];assert(std::snprintf(archived,sizeof archived,"AMR1 %012llx\n",(unsigned long long)rear_settings_snapshot())==18);
+    assert(rear_set_setting(0,REAR_MONITOR,0)&&rear_set_setting(1,REAR_MONITOR,0)&&rear_set_setting(0,REAR_ENABLED,0));
+    assert(rear_set_setting(0,REAR_PAN,0)&&rear_set_setting(1,REAR_PAN,100));
+    assert(rear_set_setting(0,REAR_LEVEL,50)&&rear_set_setting(1,REAR_LEVEL,25));
+    assert(!rear_record_begin(directory,1,44100,0,101));
+    assert(rear_record_begin(directory,3,44100,0,101));wait_state(REAR_WAITING);
+    assert(!rear_set_setting(0,REAR_MODE,REAR_DUAL));
+    rear_audio_process(left,right,nullptr,nullptr,101,44100,0);wait_state(REAR_READY);
+    assert(!*rear_record_file(1));read_stereo(rear_record_file(0),.125f,-.03125f,101);rear_record_release(0);
+    assert(rear_set_setting(0,REAR_PAN,100)&&rear_set_setting(1,REAR_PAN,0));
+    assert(rear_set_setting(0,REAR_LEVEL,100)&&rear_set_setting(1,REAR_LEVEL,50));
+    assert(rear_record_begin(directory,3,44100,0,1024));wait_state(REAR_WAITING);
+    rear_audio_process(left,right,nullptr,nullptr,1024,44100,0);wait_state(REAR_READY);
+    read_stereo(rear_record_file(0),-.0625f,.25f,1024);rear_record_release(0);
+    assert(rear_set_setting(0,REAR_PAN,50)&&rear_set_setting(1,REAR_PAN,50));
+    assert(rear_set_setting(1,REAR_LEVEL,100));
+    assert(rear_record_begin(directory,3,44100,0,1024));wait_state(REAR_WAITING);
+    rear_audio_process(left,right,nullptr,nullptr,1024,44100,0);wait_state(REAR_READY);
+    read_stereo(rear_record_file(0),.125f*std::sqrt(.5f),.125f*std::sqrt(.5f),1024);rear_record_release(0);
+    assert(rear_set_setting(0,REAR_LEVEL,0)&&rear_set_setting(1,REAR_LEVEL,0));
+    assert(rear_record_begin(directory,3,44100,.01f,0));wait_state(REAR_WAITING);
+    rear_audio_process(left,right,nullptr,nullptr,1024,44100,0);assert(rear_record_state()==REAR_WAITING&&rear_record_frames()==0);
+    rear_record_cancel();wait_state(REAR_IDLE);rear_record_release(0);
+    /* A high summed level is bounded by the existing PCM24 output contract. */
+    assert(rear_set_setting(0,REAR_LEVEL,100)&&rear_set_setting(1,REAR_LEVEL,100));
+    assert(rear_set_setting(0,REAR_PAN,0)&&rear_set_setting(1,REAR_PAN,0));
+    for(unsigned n=0;n<1024;++n)left[n]=right[n]=.8f;
+    assert(rear_record_begin(directory,3,44100,0,1024));wait_state(REAR_WAITING);
+    rear_audio_process(left,right,nullptr,nullptr,1024,44100,0);wait_state(REAR_READY);
+    read_stereo(rear_record_file(0),1.f,0.f,1024);rear_record_release(0);
+    /* Returning to Split must restore raw mono semantics with the same controls. */
+    assert(rear_set_setting(0,REAR_MODE,REAR_DUAL));
+    assert(rear_set_setting(0,REAR_LEVEL,0)&&rear_set_setting(1,REAR_LEVEL,0));
+    assert(rear_record_begin(directory,3,44100,0,101));wait_state(REAR_WAITING);
+    rear_audio_process(left,right,nullptr,nullptr,101,44100,0);wait_state(REAR_READY);
+    read_file(rear_record_file(0),.8f,101);read_file(rear_record_file(1),.8f,101);rear_record_release(0);
+    assert(!rmdir(directory));
+    std::puts("PASS L+R Mix: one stereo PCM24 file, independent recorded gain/pan, swapped/centred inputs, monitor Off, threshold after gain, clipping, old settings and Split compatibility");
     rear_settings_restore(defaults); assert(rear_settings_snapshot() == defaults);
     std::puts("PASS independent monitor, level and equal-power pan; smoothing; dry simultaneous PCM24 mono files, common exact length, threshold, cancellation, rate mismatch and cleanup");
 }

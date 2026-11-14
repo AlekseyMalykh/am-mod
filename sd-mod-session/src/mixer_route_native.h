@@ -18,6 +18,9 @@ struct mixer_route_ops {
 enum mixer_route_result { MIXER_ROUTE_APPLIED, MIXER_ROUTE_PASSTHROUGH,
     MIXER_ROUTE_RECOVERED, MIXER_ROUTE_INVALID };
 struct mixer_route_native;
+/* Am MOD Pad output policy, independent of a live Mixer session. Instrument
+ * must be a real DrumProgram Pad. NULL means no safe non-FX destination. */
+void *mixer_route_pad_destination(const struct mixer_route_ops*,void *instrument,void *native_destination);
 /* Prepare/destroy off RT, with audio and readers stopped. Each instance and
  * its graph have one audio owner. Frozen snapshot; no live reconfiguration. */
 struct mixer_route_native *mixer_route_prepare(const struct mixer_project*,

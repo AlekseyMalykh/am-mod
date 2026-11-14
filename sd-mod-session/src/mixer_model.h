@@ -41,7 +41,7 @@ struct mixer_scene {
     struct mixer_mix track[MIXER_TRACKS];
 };
 struct mixer_project {
-    struct mixer_channel track[MIXER_TRACKS],master;
+    struct mixer_channel track[MIXER_TRACKS],master,input; /* input is independent of Pad/Track/Master buses */
     unsigned char output[MIXER_PADS]; /* 0=Master Direct, 1..8=Track */
     unsigned char send_to[MIXER_TRACKS]; /* 0=Off, 1..8=return track */
     unsigned scene_count;

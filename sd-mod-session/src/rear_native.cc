@@ -1,4 +1,7 @@
 #include "rear_native.h"
+#ifdef MPC_MIXER_LIVE
+#include "input_fx.h"
+#endif
 #include "resample_queue.h"
 #include "pad_resample_commit.h"
 #include "pad_assignment.h"
@@ -27,7 +30,7 @@ std::atomic<unsigned> input_active{0}, monitor_active{0};
 std::atomic<float> main_gain{0.f};
 float current_main_gain = 0.f;
 float raw[2][8192];
-float monitoring[2][8192];
+float monitoring[2][8192],mixed_input[2][8192];
 thread_local void *monitor_feedback_blocked = nullptr;
 
 template<class T> T native(uintptr_t offset) { return reinterpret_cast<T>(image + offset); }
@@ -94,7 +97,7 @@ bool model(Session *s) {
         FIELD(things,0xb8,void *) == s->program && FIELD(s->properties,0x1278,void *) == s->pool;
 }
 bool selected_channel(unsigned mode, unsigned channel) {
-    return mode == REAR_DUAL || (mode == REAR_LEFT && !channel) || (mode == REAR_RIGHT && channel);
+    return mode == REAR_DUAL || ((mode == REAR_LEFT || mode == REAR_MIX) && !channel) || (mode == REAR_RIGHT && channel);
 }
 void *find_recorder(void *copy) {
     void *registry=FIELD(copy,0x98,void *);
@@ -202,7 +205,7 @@ bool assign(Session *s) {
         bool metadata = loaded && FIELD(loaded,0x130,void *);
         int channels = metadata ? native<int(*)(void *)>(0x2941f70)(loaded) : 0;
         int frames = metadata ? native<int(*)(void *)>(0x2941f80)(loaded) : 0;
-        bool correct = channels == 1 && frames > 0 && (uint64_t)frames == rear_record_frames();
+        bool correct = channels == (s->mode == REAR_MIX ? 2 : 1) && frames > 0 && (uint64_t)frames == rear_record_frames();
         auto *part = correct ? pad_commit_prepare(&context,sample,s->targets[ch],(s->overwrite >> ch)&1) : nullptr;
         pad_assignment_release(image,sample);
         if (!part) {
@@ -246,10 +249,10 @@ int owner_tick(void *p) {
         if (!properties || s->source.load() != 1) throw "Select Rear as input source";
         /* Exact native FREE/SEQ length and threshold must be sampled before
          * arming. SEQ is enabled after transport-bound start is verified. */
-        if (FIELD(properties,0xbb,unsigned char)&1) throw "Set Rec Length to Free for Dual Mono";
+        if (FIELD(properties,0xbb,unsigned char)&1) throw "Set Rec Length to Free for Rear recording";
         float db = FIELD(properties,0x44,float);
         float threshold = db <= -96.f ? 0.f : std::pow(10.f,db/20.f);
-        unsigned mask = s->mode == REAR_DUAL ? 3 : s->mode == REAR_LEFT ? 1 : 2;
+        unsigned mask = (s->mode == REAR_DUAL || s->mode == REAR_MIX) ? 3 : s->mode == REAR_LEFT ? 1 : 2;
         if (!rear_record_begin("/data/TempProjects/Temp-Project_[ProjectData]",mask,44100,threshold,0)) throw "Cannot create recording files";
         message(s,1,"Waiting for input / STOP to finish");
         s->phase.store(2,std::memory_order_release);
@@ -275,6 +278,18 @@ int guarded_tick(void *p) {
 extern "C" void *rear_native_process(void *thread, void *position, void *buffer,rear_render_fn original) {
     int channels = FIELD(buffer,0,int), frames = FIELD(buffer,4,int);
     auto **pcm = FIELD(buffer,0x10,float **);
+    bool prepared_mix=input_active.load(std::memory_order_acquire)&&rear_setting(0,REAR_MODE)==REAR_MIX&&
+        channels>=2&&frames>0&&frames<=8192&&pcm&&pcm[0]&&pcm[1];
+    if(prepared_mix){
+        if(FIELD(buffer,0x128,unsigned char)&1)std::memset(mixed_input,0,sizeof mixed_input);
+        else rear_mix_prepare(pcm[0],pcm[1],mixed_input[0],mixed_input[1],(unsigned)frames,44100);
+        std::memcpy(pcm[0],mixed_input[0],(size_t)frames*sizeof(float));std::memcpy(pcm[1],mixed_input[1],(size_t)frames*sizeof(float));
+    }
+#ifdef MPC_MIXER_LIVE
+    /* Mic/USB/Rear share this input callback. Rear Mix pan/level precede FX;
+     * native monitoring/recording and custom Rear recording receive its result. */
+    input_fx_audio(buffer,44100);
+#endif
     bool capture = input_active.load(std::memory_order_acquire) && channels >= 2 && frames > 0 && frames <= 8192 && pcm && pcm[0] && pcm[1];
     if (capture) {
         if (FIELD(buffer,0x128,unsigned char)&1) std::memset(raw,0,sizeof(raw));
@@ -286,7 +301,7 @@ extern "C" void *rear_native_process(void *thread, void *position, void *buffer,
     bool monitor = monitor_active.load(std::memory_order_acquire) != 0;
     std::memset(monitoring[0],0,(size_t)frames*sizeof(float));
     std::memset(monitoring[1],0,(size_t)frames*sizeof(float));
-    rear_audio_process(raw[0],raw[1],monitoring[0],monitoring[1],(unsigned)frames,44100,monitor);
+    rear_audio_process_prepared(raw[0],raw[1],monitoring[0],monitoring[1],(unsigned)frames,44100,monitor,prepared_mix);
     if (monitor && pcm && FIELD(buffer,0,int)>=2) {
         float target_gain = main_gain.load(std::memory_order_relaxed);
         for (int n = 0; n < frames; ++n) {

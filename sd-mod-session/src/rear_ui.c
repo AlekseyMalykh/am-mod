@@ -29,7 +29,7 @@ static _Atomic unsigned held[112];
 static _Atomic unsigned bank_lights;
 extern void rear_ui_wake(void);
 extern unsigned phone_native_button_light(unsigned code);
-static const char *const modes[]={"Stereo","Rear L","Rear R","L + R"};
+static const char *const modes[]={"Stereo","Rear L","Rear R","L+R Split","L+R Mix"};
 static int visible(void *p){return p&&FN(0x112fd50,int(*)(void*))(p)&&!FN(0x112f6b0,int(*)(void*))(p);}
 static void repaint(void){for(unsigned i=0;i<2;++i)if(roots[i]&&!atomic_load(&dead[i]))FN(0x1149880,void(*)(void*,uint64_t,uint64_t))(roots[i],0,FIELD(roots[i],0x28,uint64_t));}
 static void rect(void *g,int x,int y,int w,int h,uint32_t colour){FN(0x102d5e0,void(*)(void*,uint32_t))(g,colour);FN(0x102e000,void(*)(void*,int,int,int,int))(g,x,y,w,h);}
@@ -62,7 +62,7 @@ static void panel(void *g,unsigned i,const char *label,const char *value,int bad
         int at=(int)position*(span-seg)/((int)count-1);rect(g,x+6+at,235,seg,2,REAR_WHITE);}
 }
 static void pad_name(char *s,unsigned pad){snprintf(s,8,"%c%02u",'A'+pad/16,pad%16+1);}
-static unsigned mask(void){unsigned mode=rear_setting(0,REAR_MODE);return mode==REAR_DUAL?3:mode==REAR_LEFT?1:mode==REAR_RIGHT?2:0;}
+static unsigned mask(void){unsigned mode=rear_setting(0,REAR_MODE);return mode==REAR_DUAL?3:(mode==REAR_LEFT||mode==REAR_MIX)?1:mode==REAR_RIGHT?2:0;}
 
 static void cancel_choice(void){waiting_right=confirm=overwrite=0;atomic_store(&selected_mask,0);repaint();}
 static void close_panel(void){atomic_store(&open_panel,0);knob_focus=-1;cancel_choice();}
@@ -117,14 +117,15 @@ static void paint(void *p,void *g){
         if(on)rect(g,x+w/2-18,29,36,2,REAR_AMBER);
     }
     left(g,"Rear Routing",8,34,180,22,15,REAR_AMBER);
-    right(g,kind?"Dry recording":"Monitor",190,34,122,22,12,REAR_GREY);
+    right(g,kind?(rear_setting(0,REAR_MODE)==REAR_MIX?"Stereo mix":"Mono recording"):"Monitor",190,34,122,22,12,REAR_GREY);
     for(unsigned ch=0;ch<2;++ch){
         char s[40],pan[24];int x=ch?168:8;pan_name(pan,ch);
         left(g,ch?"Rear R":"Rear L",x,60,144,20,15,REAR_WHITE);
         if(kind){
-            unsigned used=(selected>>ch)&1u,target=rear_setting(ch,REAR_TARGET);char pad[8];pad_name(pad,target);
+            unsigned destination=rear_setting(0,REAR_MODE)==REAR_MIX?0:ch;
+            unsigned used=rear_setting(0,REAR_MODE)==REAR_MIX?1:(selected>>ch)&1u,target=rear_setting(destination,REAR_TARGET);char pad[8];pad_name(pad,target);
             if(!used)right(g,"not recorded",x,60,144,20,11,REAR_GREY);
-            else if((atomic_load(&selected_mask)>>ch)&1u){snprintf(s,sizeof(s),"to %s",pad);right(g,s,x,60,144,20,13,REAR_AMBER);}
+            else if((atomic_load(&selected_mask)>>(rear_setting(0,REAR_MODE)==REAR_MIX?0:ch))&1u){snprintf(s,sizeof(s),"to %s",pad);right(g,s,x,60,144,20,13,REAR_AMBER);}
             else right(g,"choose pad",x,60,144,20,11,REAR_GREY);
         }
         meter(g,ch,84);
@@ -140,9 +141,9 @@ static void paint(void *p,void *g){
     text(g,status,8,130,304,26,17,ink);
     const char *hint=busy?"STOP: finish recording":waiting_right?"B1 or STOP: cancel":kind?"Pad Bank + pads 1-8: bank":"B2 / B3: monitor on or off";
     text(g,hint,8,158,304,16,12,REAR_GREY);
-    text(g,"Input meters  /  Pan and Level: monitor only",8,177,304,14,11,REAR_GREY);
+    text(g,kind&&rear_setting(0,REAR_MODE)==REAR_MIX?"Pan / Level: recorded and monitored":"Input meters  /  Pan and Level: monitor only",8,177,304,14,11,REAR_GREY);
     char value[24];
-    if(kind)panel(g,0,"Record",modes[rear_setting(0,REAR_MODE)],0,0,rear_setting(0,REAR_MODE)?rear_setting(0,REAR_MODE)-1:0,3);
+    if(kind)panel(g,0,"Record",modes[rear_setting(0,REAR_MODE)],0,0,rear_setting(0,REAR_MODE)?rear_setting(0,REAR_MODE)-1:0,4);
     else panel(g,0,"","",0,0,0,0);
     for(unsigned ch=0;ch<2;++ch){
         char label[16];snprintf(label,sizeof(label),shift?"Level %c":"Pan %c",ch?'R':'L');
@@ -237,7 +238,7 @@ int rear_ui_control_at(void *event,unsigned shift){
     if(!rear_ui_owns(1,cc))return 0;
     if(cc==0x13)return 0;
     if(confirm||(rear_native_busy()&&cc==0x10))return 1;
-    if(cc==0x10&&panel_on_record){knob_focus=0;unsigned mode=1+adjusted(value,2);if(mode!=rear_setting(0,REAR_MODE)){cancel_choice();rear_set_setting(0,REAR_MODE,mode);rear_native_clear();}}
+    if(cc==0x10&&panel_on_record){knob_focus=0;unsigned mode=1+adjusted(value,3);if(mode!=rear_setting(0,REAR_MODE)){cancel_choice();rear_set_setting(0,REAR_MODE,mode);rear_native_clear();}}
     else if(cc==0x11||cc==0x12){knob_focus=(int)(cc-0x10);rear_set_setting(cc-0x11,shift?REAR_LEVEL:REAR_PAN,adjusted(value,100));}
     repaint();return 1;
 }

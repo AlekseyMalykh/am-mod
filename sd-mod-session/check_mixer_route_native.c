@@ -66,7 +66,7 @@ static void program_stage(void*processor,void*buffer,unsigned frames,unsigned st
     }
 }
 static void passthrough_stage(void*p,void*b,unsigned n){(void)p;(void)b;assert(n==N);}
-static int sum_dispatch(void*i,void*s,void*d,const void*r,unsigned n){return mixer_route_sum(&ops,i,s,d,r,n);}
+static int sum_dispatch(void*i,void*s,void*d,const void*r,unsigned n){d=mixer_route_pad_destination(&ops,i,d);return d?mixer_route_sum(&ops,i,s,d,r,n):1;}
 static void stage_dispatch(void*p,void*b,unsigned n,unsigned s){mixer_route_stage(&ops,p,b,n,s);}
 static void jump(uintptr_t offset,void*fn)
 {
@@ -96,7 +96,7 @@ static void fixture(void)
     expected_program=program;vtable[3]=idle;vtable[6]=pad_virtual;
     for(unsigned c=0;c<2;++c){main_channels[c]=main_pcm[c];physical_channels[c]=physical_pcm[c];}
     buffer(program+0xc20,main_channels);buffer(physical,physical_channels);
-    F(program,0xc18,void*)=physical;F(program,0xd50,unsigned)=1;
+    F(program,0xc18,void*)=program+0xc20;F(program,0xd50,unsigned)=1;
     F(program,0xba8,void*)=containers[3];F(containers[3],8,void*)=program+0xc20;
     F(containers[3],16,void*)=program+0xc20+0x130;
     F(program,0x2820,void*)=active;F(program,0x2828,void*)=(char*)active+sizeof(active);
@@ -107,7 +107,7 @@ static void fixture(void)
         F(instruments[p],0xb30,void*)=containers[p];
         F(containers[p],8,void*)=pad_buffers[p];F(containers[p],16,void*)=pad_buffers[p]+2;
         F(active[p],0,void*)=instruments[p];F(active[p],8,unsigned)=1;
-        unsigned route[8]={1,0,3,0,0,1,0x3f000000,0};memcpy(instruments[p]+0x560,route,sizeof(route));
+        unsigned route[8]={2,0,3,0,0,1,0x3f000000,0};memcpy(instruments[p]+0x560,route,sizeof(route));
         for(unsigned b=0;b<2;++b){
             for(unsigned c=0;c<2;++c)pad_channels[p][b][c]=pad_pcm[p][b][c];
             buffer(pad_buffers[p][b],pad_channels[p][b]);
@@ -190,7 +190,7 @@ static void tests(void)
     /* Tracks sit between every Pad and the Master: a Pad whose stock route
      * names a physical output is captured too; with other Pads on main the
      * Master mix goes to main, so the physical buffer gets nothing. */
-    fixture();F(instruments[0],0x560,unsigned)=2;
+    fixture();F(program,0xc18,void*)=physical;F(instruments[0],0x560,unsigned)=2;F(instruments[1],0x560,unsigned)=1;F(instruments[2],0x560,unsigned)=0;
     assert(mixer_route_render(a,program,NULL,N)==MIXER_ROUTE_APPLIED);
     assert(physical_pcm[0][0]==0&&physical_pcm[1][0]==0);
     assert(mixer_route_view(a,0,&v));

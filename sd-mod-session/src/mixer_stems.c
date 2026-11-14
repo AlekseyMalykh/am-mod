@@ -39,6 +39,7 @@ extern const float *mixer_live_out_l,*mixer_live_out_r;extern unsigned mixer_liv
 static char resample_mix_file[1100];
 #define RESAMPLE_MIX_FILE resample_mix_file
 const char*mixer_resample_file(void){return resample_mix_file[0]?resample_mix_file:NULL;}
+extern unsigned mixer_route_last_reject(void),mixer_route_last_target(void);
 static uintptr_t image;
 static _Atomic unsigned armed;
 static pthread_mutex_t mutex=PTHREAD_MUTEX_INITIALIZER;
@@ -188,7 +189,7 @@ static int stem_position(void*user,void*out,uint64_t*block)
 }
 static void begin(void *context,void *writer,const char *path,unsigned rate,int with_fx)
 {
-    if(atomic_load(&job_open))return;
+    if(!mixer_stems_available()||atomic_load(&job_open))return;
     char full[1024];
     if(!path||path[0]!='/'||strnlen(path,sizeof(full))>=sizeof(full)){
         fprintf(stderr,"STEMS INVALID_EXPORT_PATH\n");return;
@@ -324,7 +325,8 @@ void mixer_resample_frame(void *context,void *writer,unsigned rate)
     if(!writer||atomic_load(&job_open))return;
     begin_resample(context,writer,rate);
 }
-int mixer_stems_available(void){return image!=0;}
+extern unsigned music_fx_mode_active(void) __attribute__((weak));
+int mixer_stems_available(void){return image!=0&&(!music_fx_mode_active||music_fx_mode_active());}
 void mixer_stems_disarm(void){
     unsigned was_armed=atomic_exchange_explicit(&armed,0u,memory_order_acq_rel);
     if(was_armed)fprintf(stderr,"STEMS DISARM previous=1\n");
@@ -363,6 +365,8 @@ int mixer_stems_offline_block(void*engine,void*clock,unsigned frames,uintptr_t p
         }
         if(!j->failed)j->failed=!write_stem(j,bus,&view,count);
     }
+    if(j->resample){static unsigned last=~0u,lines;unsigned r=mixer_route_last_reject()|mixer_route_last_target()<<8;
+        if(r!=last&&lines<12){++lines;last=r;fprintf(stderr,"RESAMPLE_MIX ROUTE block=%llu reject=%u target=%08x\n",(unsigned long long)j->frames,mixer_route_last_reject(),mixer_route_last_target());}}
     j->frames+=count;
     if(valid)++j->valid_blocks;
     else ++j->missing_blocks;
