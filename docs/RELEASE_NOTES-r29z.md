@@ -17,3 +17,4 @@ r29z: the new sample is taken from the Mixer's Master file written by the stock 
 - Known issues: USB transfer mode is unavailable while the mod runs; remove the `autorun` folder to restore stock.
 - Recording route (Project -> Mod Settings -> Quick): "Record via" Input / Track / Master, "Record track" A-H, "Record FX" Dry / Wet. Track: Input FX, then the track's FX, fader and pan. Master: then the Master FX and Master fader. The monitor hears the same signal. One setting for Mic, USB and Rear (per-source choice later). The sample compressor is not part of the recording path yet.
 - Song export in Stock no longer lists the Stems entries (stock firmware has no stem export); they are shown only in Am MOD.
+- USB transfer mode does not work while the mod runs (see README); the native menu item stays but cannot present the card.

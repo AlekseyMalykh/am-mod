@@ -238,3 +238,9 @@ Most technical documents are in Russian.
 ## License
 
 [MIT](LICENSE). Contributions: [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## USB transfer mode / SD card access
+
+While Am MOD runs, the MPC's USB transfer mode ("SD card as a drive on the computer") does not work, in both Stock and Am MOD modes. The mod runs the application in an isolated copy without access to raw storage devices, and only that access lets the MPC present the card to a computer. The card is also in use by the mod while it runs, so exposing it would risk data corruption.
+
+To copy files, use a card reader (power off, remove the card, copy, put it back). To get USB transfer mode back, power off, remove the `autorun` folder from the SD card (or use a card without it) and start the MPC: it boots as stock. Projects and samples on the card are not affected.
