@@ -21,6 +21,13 @@ int resample_destination_open(struct resample_destination*d,unsigned source,cons
     copy(d->sample,sizeof(d->sample),sample);copy(d->sequence,sizeof(d->sequence),sequence);d->error[0]=0;
     return 1;
 }
+/* Sample screen: the source is the selected pad, so there is no question to ask. */
+int resample_destination_open_sound(struct resample_destination*d,unsigned source,const char*sample,
+    const char*sequence,int has_sample,int has_sequence,uint64_t epoch,const uint64_t used[2]){
+    if(!resample_destination_open(d,source,sample,sequence,has_sample,has_sequence,epoch,used))return 0;
+    if(!d->has_sample){d->page=RD_ERROR;copy(d->error,sizeof(d->error),"Selected pad is empty");return 1;}
+    d->kind=RESAMPLE_SOUND;d->page=RD_TARGET;d->target_pad=128;d->error[0]=0;return 1;
+}
 static void start(struct resample_destination*d,int overwrite){
     struct resample_destination_request request={++d->serial,d->source_epoch,d->kind,d->source_pad,d->target_pad,(unsigned)overwrite};
     if(!request.token)request.token=++d->serial;
@@ -56,7 +63,7 @@ int resample_destination_button(struct resample_destination*d,unsigned button,in
         }else copy(d->error,sizeof(d->error),button==1?"No current sequence":"Selected pad is empty");
     }else if(d->page==RD_TARGET){
         if(!button)d->page=RD_CLOSED;
-        else if(button==1){d->page=RD_SOURCE;d->error[0]=0;}
+        else if(button==1){/* no source question any more */}
         else if(d->target_pad>=128)copy(d->error,sizeof(d->error),"Choose a destination pad");
         else if(occupied(d)){d->page=RD_CONFIRM;d->error[0]=0;}
         else start(d,0);
@@ -94,7 +101,7 @@ void resample_destination_paint(const struct resample_destination*d,const struct
     p->rect(p->user,0,5,320,235,0xff000000u);
     const char*b2="",*b3="";
     if(d->page==RD_SOURCE){b2="Seq";b3="Sample";}
-    else if(d->page==RD_TARGET){b2="Source";b3="Render";}
+    else if(d->page==RD_TARGET){b3="Render";}
     else if(d->page==RD_CONFIRM)b3="Replace";
     /* Header blocks, as in Chords. */
     const char*heads[3]={d->page==RD_CONFIRM?"Back":"Cancel",b2,b3};

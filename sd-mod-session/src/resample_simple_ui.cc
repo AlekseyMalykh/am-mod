@@ -148,7 +148,7 @@ extern "C" int resample_ui_tick(int blocked){
     if(poller){resample_stock_reply reply{};
         if(resample_stock_backend_poll(poller,&reply)){
             if(reply.status==RSB_CAPTURED&&capturing&&active.load()){
-                capturing=0;resample_destination_open(&dialog,reply.snapshot.source,reply.snapshot.sample,"Current sequence",reply.snapshot.has_sample,reply.snapshot.has_sequence,reply.snapshot.epoch,reply.snapshot.occupied);repaint();
+                capturing=0;resample_destination_open_sound(&dialog,reply.snapshot.source,reply.snapshot.sample,"Current sequence",reply.snapshot.has_sample,reply.snapshot.has_sequence,reply.snapshot.epoch,reply.snapshot.occupied);repaint();
             }else if(reply.status==RSB_SUBMITTED){
                 /* Stock background task owns progress and cancellation now.
                  * Submission is not completion and must not set applied. */
