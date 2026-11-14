@@ -72,3 +72,6 @@ not cover native Duck/other FX. Newest cursors/final-package hardware confirmati
 remain pending; a full VM boot of the exact final r27e is not claimed.
 
 Special thanks to **Leusha** for careful, detailed testing: BUG-01…BUG-07 and most r27r changes come from those reports. Thanks also to mxt1iga and everyone providing tests and reproductions.
+
+## USB transfer mode is unavailable while the mod runs
+Am MOD runs the application in an isolated copy that has no access to raw storage devices, so the MPC's USB transfer mode does not expose the SD card to a computer. Use a card reader to copy files. To get USB transfer back, power off, remove the `autorun` folder from the SD card and start the MPC again: it boots as stock. Projects and samples are not affected. (Found by a tester; the cause is derived from the code, not yet confirmed on hardware.)

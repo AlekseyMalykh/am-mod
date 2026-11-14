@@ -14,3 +14,4 @@ r29y: the new sample is taken from the Mixer's Master file written by the stock 
 ## r29y
 - Resample from the Sample screen: the "Seq / Sample" question is gone; the source is the selected pad, and the destination pad is chosen right away.
 - Sequence resample in Am MOD: the render now goes through the Mixer (Tracks, Sends, Track FX, Master FX), like a Song export.
+- Known issues: USB transfer mode is unavailable while the mod runs; remove the `autorun` folder to restore stock.
