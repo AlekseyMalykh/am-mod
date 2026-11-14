@@ -42,6 +42,10 @@ int music_set_fx_view(unsigned view);
 unsigned music_fx_mode(void);        /* saved choice: 0 Stock, 1 Am MOD */
 unsigned music_fx_mode_active(void); /* mode in force since start-up */
 int music_set_fx_mode(unsigned mode);
+/* Recording route (card preference, all projects): field 0 point (0 Input, 1 Track, 2 Master),
+ * field 1 track (0..7 = A..H), field 2 effects recorded (0 dry, 1 wet). */
+unsigned music_rec_get(unsigned field);
+int music_rec_set(unsigned field,unsigned value);
 unsigned music_led_vivid(void);
 int music_set_led_vivid(unsigned level);
 uint32_t music_led_correct(uint32_t rgb);
