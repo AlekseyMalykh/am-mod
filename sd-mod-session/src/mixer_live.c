@@ -167,6 +167,7 @@ void mixer_live_program(const struct mixer_route_ops*ops,void*p,void*clock,unsig
 }
 static void*pointer(void*p,unsigned offset){void*v;memcpy(&v,(char*)p+offset,sizeof(v));return v;}
 static unsigned integer(void*p,unsigned offset){unsigned v;memcpy(&v,(char*)p+offset,4);return v;}
+const float *mixer_live_out_l,*mixer_live_out_r;unsigned mixer_live_out_frames;
 int mixer_live_render(struct mixer_live*s,void*engine,void*clock,unsigned frames)
 {
     if(!s||!engine)return 0;
@@ -174,6 +175,7 @@ int mixer_live_render(struct mixer_live*s,void*engine,void*clock,unsigned frames
         struct mixer_live*previous=live_scope;live_scope=NULL;
         s->ops.engine(engine,clock,frames);live_scope=previous;return 0;
     }
+    mixer_live_out_frames=0;
     s->matched_program=0;
     s->block_result=MIXER_ROUTE_PASSTHROUGH;live_scope=s;
     atomic_fetch_add_explicit(&diag_engine_blocks,1,memory_order_relaxed);
@@ -199,6 +201,8 @@ int mixer_live_render(struct mixer_live*s,void*engine,void*clock,unsigned frames
                     for(unsigned c=0;c<2;++c){memcpy(pcm[c],v.channel[c],frames*sizeof(float));
                         for(unsigned i=0;i<frames;++i)if(pcm[c][i]!=0)silent=0;}
                     *((unsigned char*)out+0x128)=(unsigned char)silent;
+                    mixer_live_out_l=pcm[0];mixer_live_out_r=pcm[1];mixer_live_out_frames=frames;
+                    
                     taps[9]=(struct mixer_meter_input){{pcm[0],pcm[1]},2,silent};success=1;
                 }
             }

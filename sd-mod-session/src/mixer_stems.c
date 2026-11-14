@@ -33,8 +33,12 @@ struct stems_job {
     struct stem_writer writer[STEM_FILES];
     char folder[1024],native_file[1100];
     void *context,*native_writer;
-    int failed;
+    int failed,resample;
 };
+extern const float *mixer_live_out_l,*mixer_live_out_r;extern unsigned mixer_live_out_frames;
+static char resample_mix_file[1100];
+#define RESAMPLE_MIX_FILE resample_mix_file
+const char*mixer_resample_file(void){return resample_mix_file[0]?resample_mix_file:NULL;}
 static uintptr_t image;
 static _Atomic unsigned armed;
 static pthread_mutex_t mutex=PTHREAD_MUTEX_INITIALIZER;
@@ -42,6 +46,7 @@ static struct stems_job*job;            /* under mutex */
 static _Thread_local void *song_context;
 static void (*native_writer_close)(void*);
 static _Atomic unsigned job_open;
+static _Atomic unsigned resample_mixed;
 static char last_folder[1024];
 static _Atomic unsigned finished_count, failed_count;
 
@@ -160,11 +165,13 @@ static int close_job(struct stems_job*j,int success)
         }
         rmdir(j->folder);
     }
-    if(success&&!files){
+    if(success&&!files&&!j->resample){
         rmdir(j->folder);
         fprintf(stderr,"STEMS NO_AUDIBLE_TRACKS\n");
         success=0;
     }
+    if(j->resample)atomic_store(&resample_mixed,success&&!j->failed&&j->valid_blocks&&!j->missing_blocks);
+    if(j->resample)fprintf(stderr,"RESAMPLE_MIX END success=%d frames=%llu valid=%llu missing=%llu\n",success,(unsigned long long)j->frames,(unsigned long long)j->valid_blocks,(unsigned long long)j->missing_blocks);
     if(j->folder[0])fprintf(stderr,"STEMS %s folder=%s files=%u frames=%llu valid=%llu missing=%llu\n",
         success?"SAVED":"INCOMPLETE",j->folder,files,(unsigned long long)j->frames,
         (unsigned long long)j->valid_blocks,(unsigned long long)j->missing_blocks);
@@ -267,6 +274,56 @@ void mixer_stems_song_frame(void *context,void *writer,const char *path,unsigned
     begin(context,writer,path,rate,request==2);
     if(!atomic_load(&job_open))atomic_fetch_add(&failed_count,1);
 }
+
+/* Am MOD resample: the stock exporter renders the offline Program; the Mixer processes it
+ * exactly as in a Song export (Tracks, Sends, Track FX, Master FX; FX Select ignored) and the
+ * processed Master is what the stock writer receives. No stem files are written. */
+extern unsigned music_fx_mode_active(void) __attribute__((weak));
+int mixer_resample_enabled(void){return image!=0&&music_fx_mode_active&&music_fx_mode_active()==1;}
+static void begin_resample(void *context,void *writer,unsigned rate)
+{
+    struct stems_job*j=calloc(1,sizeof(*j));if(!j)return;
+    uint64_t revision=0;unsigned mode=0;
+    if(!mixer_archive_snapshot(&j->project,&revision,&mode)||!mixer_project_valid(&j->project)){
+        fprintf(stderr,"RESAMPLE_MIX SNAPSHOT_UNAVAILABLE\n");free(j);return;
+    }
+    struct fx_backend backend,*processors=NULL;int needs_native=0;
+    for(unsigned i=0;i<=MIXER_TRACKS;++i){
+        struct mixer_channel*ch=i==MIXER_TRACKS?&j->project.master:j->project.track+i;
+        if(ch->fx_bypass)ch->fx.count=0;
+        for(unsigned slot=0;slot<ch->fx.count;++slot)if(ch->fx.stage[slot].kind==FX_STAGE_NATIVE)needs_native=1;
+    }
+    if(needs_native){
+        if(!fx_native_application_formats(image,&j->fx)){fprintf(stderr,"RESAMPLE_MIX FX_CONTEXT_UNAVAILABLE\n");free(j);return;}
+        j->context=context;
+        j->fx.position=stem_position;j->fx.position_user=j;
+        uint64_t block;stem_position(j,j->fx.initial_position,&block);
+        memcpy(&j->fx.bpm,j->fx.initial_position,8);
+        memcpy(&j->fx.numerator,j->fx.initial_position+8,4);
+        memcpy(&j->fx.denominator,j->fx.initial_position+12,4);
+        fx_native_backend(&j->fx,&backend);processors=&backend;
+    }
+    j->rate=rate>=8000&&rate<=192000?rate:44100;
+    const struct mixer_live_ops*ops=mixer_live_native_ops();enum mixer_bus_result error;
+    j->live=ops?mixer_live_prepare(&j->project,0,j->rate,OFFLINE_CAPACITY,1,(void*)1,(void*)1,ops,processors,&error):NULL;
+    if(!j->live){fprintf(stderr,"RESAMPLE_MIX OFFLINE_PREPARE_FAILED\n");free(j);return;}
+    {const char*want=NULL;memcpy(&want,(char*)writer+0xd8,sizeof(want));
+     size_t n=want?strnlen(want,1000):0;resample_mix_file[0]=0;
+     if(want&&n>4&&n<1000&&!strcmp(want+n-4,".wav"))snprintf(resample_mix_file,sizeof(resample_mix_file),"%.*s-Track-AmMix.wav",(int)(n-4),want);}
+    j->resample=1;j->context=context;j->native_writer=writer;atomic_store(&resample_mixed,0);
+    fprintf(stderr,"RESAMPLE_MIX BEGIN rate=%u fx_native=%d\n",j->rate,needs_native);
+    pthread_mutex_lock(&mutex);
+    if(job){pthread_mutex_unlock(&mutex);close_job(j,0);return;}
+    job=j;atomic_store(&job_open,1);
+    pthread_mutex_unlock(&mutex);
+}
+int mixer_resample_mixed(void){return atomic_load(&resample_mixed)!=0;}
+void mixer_resample_frame(void *context,void *writer,unsigned rate)
+{
+    song_context=context;
+    if(!writer||atomic_load(&job_open))return;
+    begin_resample(context,writer,rate);
+}
 int mixer_stems_available(void){return image!=0;}
 void mixer_stems_disarm(void){
     unsigned was_armed=atomic_exchange_explicit(&armed,0u,memory_order_acq_rel);
@@ -293,7 +350,12 @@ int mixer_stems_offline_block(void*engine,void*clock,unsigned frames,uintptr_t p
     mixer_live_rebind(j->live,engine,NULL);
     int applied=mixer_live_render_offline(j->live,engine,clock,frames,program_vptr);
     int valid=applied;
-    for(unsigned bus=0;bus<STEM_FILES;++bus){
+    if(j->resample&&applied&&mixer_live_out_frames==frames){
+        struct stem_writer*w=j->writer+8;
+        if(!w->file&&!j->failed){w->file=fopen(RESAMPLE_MIX_FILE,"wb");if(w->file)wav_header(w->file,j->rate,0);else j->failed=1;}
+        if(w->file&&!j->failed&&!write_block(w,mixer_live_out_l,mixer_live_out_r,count))j->failed=1;
+    }
+    for(unsigned bus=0;!j->resample&&bus<STEM_FILES;++bus){
         struct mixer_pcm_view view;
         if(!applied||!mixer_live_bus_view(j->live,bus,&view)||view.frames!=frames){
             valid=0;
@@ -325,7 +387,8 @@ static void writer_close(void *writer)
     memcpy(&position,(char*)writer+0xe0,sizeof(position));
     unsigned cancelled=__atomic_load_n((unsigned char*)song_context+0xa18,__ATOMIC_ACQUIRE);
     native_writer_close(writer);
-    if(close_job(j,!cancelled&&!remaining&&position==j->frames&&
+    if(j->resample)close_job(j,1);
+    else if(close_job(j,!cancelled&&!remaining&&position==j->frames&&
                     !j->failed&&j->valid_blocks&&!j->missing_blocks))
         atomic_fetch_add(&finished_count,1);
     else atomic_fetch_add(&failed_count,1);

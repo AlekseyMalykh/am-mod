@@ -7,6 +7,10 @@
 #include "mixer_stems.h"
 #pragma weak mixer_stems_armed
 #pragma weak mixer_stems_song_frame
+#pragma weak mixer_resample_enabled
+#pragma weak mixer_resample_frame
+#pragma weak mixer_resample_mixed
+#pragma weak mixer_resample_file
 #endif
 #include <atomic>
 #include <cmath>
@@ -124,6 +128,12 @@ void frame(void*engine,void*clock){
        F(context,0x3f0,unsigned)==0&&F(context,0x9f0,uint64_t)==0){
         void *writer=F(context,0xa38,void*);
         if(writer)mixer_stems_song_frame(context,writer,F(writer,0xd8,const char*),F(writer,12,unsigned));
+    }
+#endif
+#ifdef MPC_MIXER_LIVE
+    if(mini&&mini->engine==engine&&!mini->failed&&mixer_resample_frame&&mixer_resample_enabled&&mixer_resample_enabled()){
+        void*writer=F(context,0xa38,void*);
+        if(writer)mixer_resample_frame(context,writer,mini->rate);
     }
 #endif
     if(!mini||mini->engine!=engine||mini->failed)return;
@@ -270,6 +280,20 @@ struct OnePass {
     }
     ~OnePass(){if(applied)for(unsigned k=count;k-->0;)if(saved[k])reinterpret_cast<void(*)(void*,unsigned)>(image+0x294bfc0)(property[k],saved[k]);}
 };
+const char*mixed_file(){
+#ifdef MPC_MIXER_LIVE
+    return mixer_resample_file?mixer_resample_file():nullptr;
+#else
+    return nullptr;
+#endif
+}
+bool mixed_result(){
+#ifdef MPC_MIXER_LIVE
+    return mixer_resample_mixed&&mixer_resample_mixed();
+#else
+    return false;
+#endif
+}
 void render(void*context,void*services,void*output,void*event,void*old_track){
     resample_fault_stage(2);
     std::fprintf(stderr,"RESAMPLE MINI_ENTRY context=%p services=%p output=%p event=%p track=%p\n",context,services,output,event,old_track);
@@ -370,12 +394,14 @@ void render(void*context,void*services,void*output,void*event,void*old_track){
     auto written=resample_file_probe(path.c_str());
     std::fprintf(stderr,"RESAMPLE PRIMARY_CLOSED valid=%u bytes=%u peak=%.9g path=%s\n",written.valid,written.bytes,written.peak,path.c_str());
     if(!m.failed&&m.tail.state!=RFT_QUIET)failure.store(4,std::memory_order_release);
+    if(mixed_result()&&mixed_file())actual_path=mixed_file();
     if(!failure.load(std::memory_order_acquire)&&!actual_path.empty()&&actual_path!=path){
         auto stem=resample_file_probe(actual_path.c_str());
         std::lock_guard<std::mutex>lock(job_lock);
         bool silent=stem.valid&&stem.bytes&&stem.scanned==stem.bytes&&stem.peak==0;
         bool captured=!silent&&job_path==path&&job_output.capture(path,actual_path,m.rate,m.minimum);
         if(!captured)failure.store(silent?10:8,std::memory_order_release);
+        if(mixed_result()&&mixed_file())unlink(mixed_file());
         std::fprintf(stderr,"RESAMPLE OUTPUT_CAPTURE captured=%u valid=%u bytes=%u peak=%.9g requested=%s actual=%s\n",captured,stem.valid,stem.bytes,stem.peak,path.c_str(),actual_path.c_str());
     }
     std::fprintf(stderr,"RESAMPLE MINI_END started=%u loop_one_pass=%u state=%u failure=%u blocks=%u direct=%u tap=%u primary=%u dispatches=%u blocked=%u scanned=%llu peak=%.9g\n",m.started,one_pass.changed,m.tail.state,failure.load(),m.blocks,m.direct_blocks,m.tap_blocks,m.primary_blocks,m.dispatches,m.blocked,(unsigned long long)m.tail.scanned,(double)m.peak);

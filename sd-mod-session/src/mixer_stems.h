@@ -17,6 +17,12 @@ void mixer_stems_song_frame(void *context,void *writer,const char *path,unsigned
  * through the offline Mixer, 0 = caller renders natively. program_vptr
  * identifies the kit Program class in the worker copy. */
 int mixer_stems_offline_block(void*engine,void*clock,unsigned frames,uintptr_t program_vptr);
+/* Am MOD resample: route the stock offline render through the Mixer (Sample private note). */
+int mixer_resample_enabled(void);
+void mixer_resample_frame(void *context,void *writer,unsigned rate);
+/* 1 after a resample render was fully processed by the Mixer: the stock primary (Master) file is the result. */
+int mixer_resample_mixed(void);
+const char*mixer_resample_file(void);
 const char*mixer_stems_last_folder(void);
 unsigned mixer_stems_finished(void);
 unsigned mixer_stems_failed(void);
