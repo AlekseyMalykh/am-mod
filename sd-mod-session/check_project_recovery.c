@@ -68,10 +68,10 @@ static unsigned name_seeds,storage_seeds,rebuilds;
 static void seed_name(void*p,const uint64_t*s,int notify){assert((p==save_screen||p==sample_save_screen)+0x9f8&&notify==1&&!strcmp((const char*)*s,"TestB"));++name_seeds;}
 static void rebuild_name(void*p){assert((p==save_screen||p==sample_save_screen)+0x9f8);++rebuilds;}
 static unsigned card_available=1;
-static void seed_storage(void*p,float v){assert(p==save_screen&&v==1.f);++storage_seeds;F(p,0x11a0,unsigned char)=1;F(p,0x11a1,unsigned char)=card_available;}
+static void seed_storage(void*p,float v){assert(p==save_screen&&v==1.f);++storage_seeds;F(p,0x10a0,unsigned char)=1;F(p,0x10a1,unsigned char)=card_available;}
 static void seed_sample_storage(void*p,float v){
  assert(p==sample_save_screen&&v==1.f);
- F(p,0x11b8,unsigned char)=1;F(p,0x11b9,unsigned char)=card_available;
+ F(p,0x10b8,unsigned char)=1;F(p,0x10b9,unsigned char)=card_available;
 }
 static void colour(void*g,uint32_t c){(void)g;(void)c;}
 static void rectangle(void*g,int x,int y,int w,int h){(void)g;assert(x>=0&&y>=0&&w>0&&h>0&&x+w<=320&&y+h<=240);}
@@ -149,15 +149,15 @@ int main(int argc,char**argv){
  captions[0]=0;project_recovery_save_paint(base,save_screen,NULL);assert(strstr(captions,"Review")&&strstr(captions,"Existing project may be replaced."));
  assert(button(0x0c,1)&&button(0x0c,0)&&first_save&&!save_prompt);assert(button(0x0e,1)&&button(0x0e,0));assert(!button(0x0e,1)&&!button(0x0e,0)&&!first_save&&!save_prompt);
  assert(invalidations==3);puts("PASS first recovered Save requires separate real press/release confirmation, duplicate down cannot approve; Review cancels, final native button pair and subsequent ordinary Save pass through");
- F(save_screen,0x11a1,unsigned char)=0;card_available=0;
+ F(save_screen,0x10a1,unsigned char)=0;card_available=0;
  captions[0]=0;project_recovery_save_paint(base,save_screen,NULL);
  assert(strstr(captions,"Insert SD card to save")&&button(0x0e,1)&&button(0x0e,0));
  card_available=1;assert(project_recovery_save_external(base,save_screen)&&!button(0x0e,1));
  F(sample_save_screen,0,uintptr_t)=base+0x6e22e18;
  project_recovery_save_paint(base,sample_save_screen,NULL);
- assert(F(sample_save_screen,0x11b9,unsigned char)&&project_recovery_save_control(base,sample_save_screen,0x12));
+ assert(F(sample_save_screen,0x10b9,unsigned char)&&project_recovery_save_control(base,sample_save_screen,0x12));
  unsigned char sample_save[16]={0};sample_save[8]=0x0e;sample_save[9]=1;
- F(sample_save_screen,0x11b9,unsigned char)=0;card_available=0;
+ F(sample_save_screen,0x10b9,unsigned char)=0;card_available=0;
  assert(project_recovery_save_button(base,sample_save_screen,sample_save));
  sample_save[9]=0;assert(project_recovery_save_button(base,sample_save_screen,sample_save));
  card_available=1;assert(project_recovery_save_external(base,sample_save_screen));

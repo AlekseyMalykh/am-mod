@@ -114,6 +114,7 @@ static unsigned char browser_things[0x700];static int browser_context_live,sampl
 void *note_native_context(void){return browser_context_live?browser_things:NULL;}
 static int autoload_sample;
 int note_native_sample_visible(void){return autoload_sample;}
+int note_native_sample_shown(void){return autoload_sample;}
 static unsigned startup_repaints;
 void note_native_repaint_sample(void){++startup_repaints;}
 static void*autoload_modal;

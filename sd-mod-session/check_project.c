@@ -67,7 +67,9 @@ memcpy(base+0x1643908,&b,4);
 
 #ifdef TEST_PHONE
 #ifdef TEST_LIGHTING_MENU
-#ifdef TEST_SCREEN_MIRROR
+#if defined(TEST_NO_SD)
+ const char *labels[]={"Load Project","Save Project","New Project","Key / Scale / Tempo","Mod Settings","Screen Mirror"};const int rows=6;
+#elif defined(TEST_SCREEN_MIRROR)
  const char *labels[]={"Load Project","Save Project","New Project","SD Card Access","Key / Scale / Tempo","Mod Settings","Screen Mirror"};const int rows=7;
 #elif defined(TEST_NO_MOD_OFF)
  const char *labels[]={"Load Project","Save Project","New Project","SD Card Access","Key / Scale / Tempo","Mod Settings"};const int rows=6;
@@ -88,7 +90,11 @@ memcpy(base+0x1643908,&b,4);
   append_mod(list,sources[3]);
   unsigned char *begin=P(model,8),*end=P(model,16);assert(end-begin==128*rows);
   for(int i=0;i<rows;i++)assert(!strcmp(title(begin+128*i),labels[i]));
+#ifdef TEST_NO_SD
+  assert(!strcmp(title(sources[3]),"Key / Scale / Tempo")); /* the stock SD row is renamed in place */
+#else
   assert(!strcmp(title(sources[3]),"SD Card Access"));
+#endif
   assert(P(begin+3*128,0x60)!=P(begin+4*128,0x60)); // Independent map nodes.
   assert(refreshes==rows*(k+1));
 #ifdef TEST_LIGHTING_MENU
@@ -100,7 +106,11 @@ memcpy(base+0x1643908,&b,4);
   for(int i=0;i<4;i++)destroy(sources[i]);
  }
  unsigned char screen[0x700]={0};P(screen,0x4c8)=screen;P(screen,0x108)=screen;void *context=screen;
+#ifdef TEST_NO_SD
+ for(row=0;row<3;row++){
+#else
  for(row=0;row<4;row++){
+#endif
   command=clears=new_project=0;click(&context);
   if(row==0)assert(command==0x20a6&&clears==0);
   if(row==1)assert(command==0x30f7&&clears==1);
@@ -114,12 +124,17 @@ memcpy(base+0x1643908,&b,4);
  }
 
 #ifdef TEST_PHONE
- row=4;captured_project=0;click(&context);assert(captured_project==(uintptr_t)screen);
+#ifdef TEST_NO_SD
+#define KEYROW 3
+#else
+#define KEYROW 4
+#endif
+ row=KEYROW;captured_project=0;click(&context);assert(captured_project==(uintptr_t)screen);
 #ifdef TEST_LIGHTING_MENU
- row=5;captured_project=0;click(&context);assert(captured_project==((uintptr_t)screen|2));row=6;
+ row=KEYROW+1;captured_project=0;click(&context);assert(captured_project==((uintptr_t)screen|2));row=KEYROW+2;
 #ifdef TEST_SCREEN_MIRROR
  captured_project=0;click(&context);assert(captured_project==((uintptr_t)screen|3));
- row=7;captured_project=0;click(&context);assert(!captured_project); /* beyond the last row: stock path only */
+ row=KEYROW+3;captured_project=0;click(&context);assert(!captured_project); /* beyond the last row: stock path only */
 #endif
 #else
  row=5;

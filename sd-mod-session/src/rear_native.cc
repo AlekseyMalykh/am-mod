@@ -400,6 +400,12 @@ extern "C" int rear_native_start(unsigned overwrite) {
 extern "C" int rear_native_busy() { auto *s = session.load(); return s && s->busy.load(); }
 extern "C" int rear_native_source() { auto *s = session.load(); return s ? s->source.load() : -1; }
 extern "C" int rear_native_monitor() { auto *s = session.load(); return s ? s->monitor.load() : 0; }
+extern "C" int rear_native_monitor_set(unsigned value) {
+    auto *s=session.load();
+    if(!s||!s->live.load()||!s->properties_input||value>2)return 0;
+    native<void(*)(void *,unsigned)>(0x15636c0)(static_cast<char *>(s->properties_input)+0x48,value);
+    return 1;
+}
 extern "C" void rear_native_monitor_on() {
     auto *s=session.load();
     if(s&&s->live.load()&&s->properties_input)

@@ -27,6 +27,7 @@ int step_native_tick(void);
 int step_native_playback_pitches(int *out,int max);
 /* Last engine tick seen by the native transport timer (960 per quarter). */
 int64_t step_native_clock_ticks(uint64_t *serial,unsigned *running);
+int step_native_bank_or_last(void); /* last valid bank (0 before the first). */
 int step_native_browser_bank(int bank); /* UI only; -1 reads, 0..7 selects bank. */
 int step_native_active(void);
 int step_native_custom(void);

@@ -51,6 +51,11 @@ static uint64_t name_time(void)
 }
 static unsigned count(unsigned mask){unsigned n=0;while(mask){n+=mask&1;mask>>=1;}return n;}
 static struct mixer_channel*selected(struct mixer_control*c){return c->view.master==2?&c->desired.input:c->view.master?&c->desired.master:c->desired.track+c->view.primary;}
+extern unsigned music_rec_get(unsigned field) __attribute__((weak));
+extern int music_rec_set(unsigned field,unsigned value) __attribute__((weak));
+extern int rear_native_monitor_set(unsigned value) __attribute__((weak));
+static unsigned input_rows(void){return rear_native_source&&rear_native_source()==1?6u:5u;}
+#define INPUT_PAGE(c) ((c)->view.master==2&&(c)->view.page==MIXER_KNOB_FX&&!(c)->catalog&&!(c)->view.fx_parameters&&!(c)->view.fx_delete)
 static void pickup(struct mixer_control*c){c->pickup=0;c->last_fader_valid=0;}
 static void changed(struct mixer_control*c){c->dirty=1;c->message="";}
 static int one(const struct mixer_control*c){return c->view.master||count(c->view.selected)==1;}
@@ -323,7 +328,11 @@ int mixer_control_button(struct mixer_control*c,enum mixer_action action,int dow
     if(!down&&(c->owned_buttons&bit)){c->owned_buttons&=~bit;return 1;}
     if(down&&(c->owned_buttons&bit))return 1;
     int bank_action=action>=MIXER_BANK&&action<=MIXER_BANK_PREVIOUS;
-    if(action==MIXER_ERASE&&!c->naming&&(c->view.page!=MIXER_KNOB_FX||!c->fx_editing))return 0;
+    if(action==MIXER_ERASE&&!c->naming&&(c->view.page!=MIXER_KNOB_FX||!c->fx_editing)){
+        /* Shift+Erase in the Mixer must not reach the stock Copy-from-pads gesture. */
+        if(down&&c->active&&c->shift){c->owned_buttons|=bit;return 1;}
+        return 0;
+    }
     int bank_page=c->view.page==MIXER_ASSIGN||c->view.page==MIXER_INSPECT;
     int history=bank_action&&action!=MIXER_BANK&&c->shift&&!c->naming;
     if(bank_action&&!bank_page&&!history&&!c->naming&&
@@ -333,6 +342,11 @@ int mixer_control_button(struct mixer_control*c,enum mixer_action action,int dow
     if(ticket!=c->ticket)return 1;
     if(!down)return 1;
     c->owned_buttons|=bit;c->message="";
+    if(!c->naming&&INPUT_PAGE(c)&&c->view.input_tuner){
+        /* The tuner window is modal: B1, B2, B3 and DATA go back. */
+        if(action==MIXER_B1||action==MIXER_B2||action==MIXER_B3||action==MIXER_SELECT)c->view.input_tuner=0;
+        return 1;
+    }
     if(c->naming){
         if(action==MIXER_B1)c->naming=0;
         else if(action==MIXER_B3){
@@ -382,6 +396,12 @@ int mixer_control_button(struct mixer_control*c,enum mixer_action action,int dow
             return 1;
         }
     }
+    if(action==MIXER_ERASE&&c->shift&&c->view.page==MIXER_KNOB_FX&&c->fx_editing&&!c->catalog&&!c->view.fx_parameters&&!c->view.fx_delete){
+        struct fx_chain_config*chain=&selected(c)->fx; /* Shift+Erase: Copy the selected effect */
+        if(c->view.fx_slot>=chain->count)c->message="Select an effect to copy";
+        else{c->fx_clipboard=chain->stage[c->view.fx_slot];c->fx_copied=1;c->message="Effect copied";}
+        return 1;
+    }
     if(action==MIXER_ERASE){
         const struct fx_chain_config *chain=&selected(c)->fx;
         if(!c->catalog&&c->view.fx_slot<chain->count){
@@ -392,6 +412,7 @@ int mixer_control_button(struct mixer_control*c,enum mixer_action action,int dow
         }
         return 1;
     }
+    if(action==MIXER_MUTE&&c->view.master==2){c->desired.input.mix.mute^=1u;changed(c);return 1;} /* Mute button = Input mute */
     if(action==MIXER_MUTE){
         if(c->view.page==MIXER_INSPECT)return 1;
         if(!c->shift)group_gate(c,0);
@@ -441,6 +462,17 @@ int mixer_control_button(struct mixer_control*c,enum mixer_action action,int dow
             c->view.bank=(c->view.bank+(previous?7:1))%8;
             c->view.sound=c->view.bank*16+c->view.sound%16;
         }
+    }else if(INPUT_PAGE(c)&&(action==MIXER_B1||(!c->shift&&(action==MIXER_B2||action==MIXER_B3)))){
+        /* Input page: B1 Back, B2 FX, B3 ROUTE. */
+        if(action==MIXER_B1){c->view.master=1;clear_fx_page(c);c->view.page=MIXER_OVERVIEW;c->temporary=0;c->view.cursor=PARAM_LEVEL;}
+        else{c->view.input_tab=action==MIXER_B2?1u:2u;c->view.cursor=0;c->view.input_edit=0;}
+    }else if(INPUT_PAGE(c)&&c->view.input_tab!=1&&action==MIXER_SELECT){
+        /* ROUTE: DATA click selects the row for editing, a second click accepts. */
+        if(c->view.input_tab==2){
+            if(c->view.cursor==0)c->view.input_tuner=1;
+            else if(c->view.cursor==3&&music_rec_get&&music_rec_get(0)==0)c->message="Record track: set Record via to Track";
+            else c->view.input_edit^=1u;
+        }
     }else if(action==MIXER_B1){
         if(c->view.master==2&&c->view.page==MIXER_KNOB_FX&&!c->catalog&&!c->view.fx_parameters)c->view.master=1;
         if(c->view.page==MIXER_KNOB_FX&&(c->catalog||c->view.fx_parameters)){open_fx(c);return 1;}
@@ -449,11 +481,11 @@ int mixer_control_button(struct mixer_control*c,enum mixer_action action,int dow
     }else if(c->view.page==MIXER_KNOB_FX&&c->fx_editing&&
              action==MIXER_B2&&!c->view.fx_parameters){
         struct fx_chain_config*chain=&selected(c)->fx;
-        if(!c->shift){
-            if(c->view.fx_slot>=chain->count)c->message="Select an effect to copy";
-            else{c->fx_clipboard=chain->stage[c->view.fx_slot];c->fx_copied=1;c->message="Effect copied";}
-        }else if(!c->fx_copied)c->message="No effect copied";
-        else if(put_fx(c,&c->fx_clipboard))c->message="Effect pasted";
+        if(c->shift){ /* Shift+B2 pastes; Copy is Shift+Erase */
+            if(!c->fx_copied)c->message="No effect copied";
+            else if(put_fx(c,&c->fx_clipboard))c->message="Effect pasted";
+        }
+        (void)chain;
     }else if(action==MIXER_B3&&c->shift&&c->view.page==MIXER_KNOB_FX&&c->view.fx_parameters&&
              c->view.fx_slot<selected(c)->fx.count&&selected(c)->fx.stage[c->view.fx_slot].kind==FX_STAGE_EQ){
         struct fx_eq_config*eq=&selected(c)->fx.stage[c->view.fx_slot].eq;
@@ -493,7 +525,7 @@ int mixer_control_button(struct mixer_control*c,enum mixer_action action,int dow
         c->view.pad_lock=1;
     }else if(action==MIXER_KNOB){
         if(c->shift&&c->view.page==MIXER_OVERVIEW){
-            c->view.master=2;c->view.selected=0;c->held_tracks=0;clear_fx_page(c);
+            c->view.master=2;c->view.selected=0;c->held_tracks=0;clear_fx_page(c);c->view.input_tab=1;c->view.input_edit=0;c->view.input_tuner=0;
             c->view.page=MIXER_KNOB_FX;c->temporary=2;c->view.fx_slot=0;open_fx(c);return 1;
         }
         if(c->view.master==2)c->view.master=1;
@@ -534,9 +566,10 @@ int mixer_control_pad(struct mixer_control*c,unsigned pad,int down,uint64_t tick
     int fx_pad=pad>=8&&pad<8+MIXER_FX_SLOTS;
     if(pad==14&&!c->view.fx_parameters&&!c->view.fx_delete&&
        (c->view.page==MIXER_OVERVIEW||c->view.page==MIXER_KNOB_FX)){
-        c->view.master=2;c->view.selected=0;c->held_tracks=0;clear_fx_page(c);
+        c->view.master=2;c->view.selected=0;c->held_tracks=0;clear_fx_page(c);c->view.input_tab=1;c->view.input_edit=0;c->view.input_tuner=0;
         c->view.page=MIXER_KNOB_FX;c->temporary=2;c->view.fx_slot=0;open_fx(c);return 1;
     }
+    if(INPUT_PAGE(c)&&c->view.input_tab!=1&&fx_pad)c->view.input_tab=1;
     if(c->view.page==MIXER_KNOB_FX&&(c->view.fx_delete||(c->view.fx_parameters&&!fx_pad)))return 1;
     if(c->view.page==MIXER_INSPECT&&c->view.route_tab){
         if(pad<8||pad==15)route_track(c,pad==15?MIXER_TRACKS:pad);
@@ -631,10 +664,40 @@ static void move_fader(struct mixer_control*c,unsigned value)
         }
     }
 }
+/* ROUTE rows: 0 Tuner, 1 Monitor, 2 Record via, 3 Record track, 4 Record FX, 5 Rear mode.
+ * mode 0: delta steps, 1: absolute knob value, 2: reset to default. */
+static void input_row_change(struct mixer_control*c,unsigned row,int delta,int mode,unsigned value)
+{
+    if(row==0)return; /* Tuner: display only */
+    if(row==3&&music_rec_get&&music_rec_get(0)==0){c->message="Record track: set Record via to Track";return;}
+    if(row==1){
+        if(mode==2)return;
+        int on=mode==1?value>=64:delta>0;
+        if(!rear_native_monitor_set||!rear_native_monitor_set(on?2u:0u))c->message="Monitor: open Sample Record";
+    }else if(row<5){
+        unsigned f=row-2,n=f==0?3u:f==1?8u:2u;
+        if(!music_rec_set||!music_rec_get)return;
+        unsigned cur=music_rec_get(f),next;
+        if(mode==2)next=f==2?1u:0u;
+        else if(mode==1)next=value*n/128;
+        else{int v=(int)cur+delta;next=(unsigned)(v<0?0:v>(int)n-1?(int)n-1:v);}
+        music_rec_set(f,next);
+    }else if(mode==0&&rear_setting&&rear_set_setting&&rear_native_source&&rear_native_source()==1){
+        if(rear_native_busy&&rear_native_busy()){c->message="Stop recording to change mode";return;}
+        int m=(int)rear_setting(0,REAR_MODE)+delta;m=m<1?1:m>4?4:m;
+        if(rear_native_clear)rear_native_clear();
+        rear_set_setting(0,REAR_MODE,(unsigned)m);
+    }
+}
 /* These are the same saved controls as Rear Routing. Encoder and FX
  * catalogue/parameter pages retain their ordinary effect navigation. */
 static int input_record_control(struct mixer_control*c,unsigned cc,unsigned value,int reset,int shift){
     if(c->view.master!=2||c->view.page!=MIXER_KNOB_FX||c->catalog||c->view.fx_parameters||c->view.fx_delete||cc<0x10||cc>0x12)return 0;
+    if(c->view.input_tab!=2)return 0; /* FX tab: ordinary effect knobs */
+    if(cc==0x10&&c->view.cursor<5){input_row_change(c,c->view.cursor,0,reset?2:1,value);if(c->view.cursor!=3)c->message="";return 1;}
+    if(cc==0x11&&!(rear_native_source&&rear_native_source()==1)){ /* Mic/USB: K2 is the Input Pan */
+        set_pan(&c->desired.input.mix,reset||value==64?0:((float)value-64)/(value<64?64:63));changed(c);return 1;
+    }
     if(!rear_setting||!rear_set_setting||!rear_native_source||rear_native_source()!=1){c->message="Record controls: select Rear";return 1;}
     if(cc==0x10){
         if(reset)return 1;
@@ -688,6 +751,8 @@ int mixer_control_reset(struct mixer_control*c,unsigned cc,int shift,uint64_t ti
     /* Pad Bank held + control: default value for the whole selection. */
     if(!c||!c->active)return 0;
     if(ticket!=c->ticket||c->naming||c->view.fx_delete)return 1;
+    if(INPUT_PAGE(c)&&c->view.input_tuner)return 1;
+    if(INPUT_PAGE(c)&&cc==0x14){c->desired.input.mix.level_db=0;changed(c);return 1;}
     if(input_record_control(c,cc,0,1,shift))return 1;
     if(c->view.page==MIXER_KNOB_FX&&cc>=0x10&&cc<=0x12){
         if(c->view.fx_parameters&&comp_pinned(c)){if(comp_available()&&comp_ops->reset)comp_ops->reset(shift?1u:0u,cc-0x10);return 1;}
@@ -715,6 +780,17 @@ static int fx_cc(struct mixer_control*c,unsigned cc,unsigned value)
     struct mixer_channel*ch=selected(c);
     if(c->view.fx_delete)return 1;
     if(input_record_control(c,cc,value,0,c->shift))return 1;
+    if(INPUT_PAGE(c)&&c->view.input_tab!=1&&cc==0x64){
+        if(c->view.input_tab==2){
+            int delta=value>64?(int)value-128:value==64?0:(int)value;
+            if(c->view.input_edit){if(delta)input_row_change(c,c->view.cursor,delta>0?1:-1,0,0);}
+            else{
+                int n=(int)c->view.cursor+(delta>0?1:delta<0?-1:0),last=(int)input_rows()-1;
+                c->view.cursor=(unsigned)(n<0?0:n>last?last:n);
+            }
+        }
+        return 1;
+    }
     if(cc==0x64){int delta=value>64?(int)value-128:value==64?0:(int)value;
         if(!delta)return 1;
         if(c->shift&&!c->catalog&&!c->view.fx_parameters){
@@ -793,6 +869,7 @@ int mixer_control_cc(struct mixer_control*c,unsigned cc,unsigned value,uint64_t 
     if(!c||!c->active)return 0;
     if(cc!=0x10&&cc!=0x11&&cc!=0x12&&cc!=0x14&&cc!=0x64)return 0;
     if(ticket!=c->ticket||value>127)return 1;
+    if(INPUT_PAGE(c)&&c->view.input_tuner)return 1;
     if(c->naming){
         if(cc==0x10&&c->name.enabled!=(value>=64))phone_enable(&c->name,value>=64);
         if(cc==0x64){
@@ -812,7 +889,10 @@ int mixer_control_cc(struct mixer_control*c,unsigned cc,unsigned value,uint64_t 
     /* PAD FX (Select pads): the enlarged Track on the left keeps Fader, K1,
      * K3 and the encoder exactly as on the Mixer page; banks via Bank/+/-. */
     if(cc==0x14&&!c->view.fx_delete){
-        if(c->view.master==2)return 1;
+        if(c->view.master==2){
+            if(INPUT_PAGE(c)){c->desired.input.mix.level_db=mixer_fader_db(value);changed(c);}
+            return 1;
+        }
         move_fader(c,value);
         if(c->view.page!=MIXER_KNOB_FX)c->view.cursor=PARAM_LEVEL;
         return 1;

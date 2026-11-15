@@ -38,6 +38,7 @@ unsigned music_fx_view(void){return atomic_load(&fx_view);}
  * card (.am-mod-fx-mode); the value in force is latched at start-up, so a change
  * applies after a restart. */
 static _Atomic unsigned rec_route[3]={0,0,1};
+static _Atomic unsigned pad_colour_source;
 static _Atomic unsigned fx_mode_saved=1,fx_mode_active=1;static _Atomic int fx_mode_latched;
 unsigned music_fx_mode(void){return atomic_load(&fx_mode_saved);}
 unsigned music_fx_mode_active(void){return atomic_load(&fx_mode_active);}
@@ -244,6 +245,11 @@ int music_lighting_preferences_open(const char *directory){
       t[14]>='0'&&t[14]<='7'&&t[15]==' '&&(t[16]=='0'||t[16]=='1')&&t[17]=='\n'){rp=(unsigned)(t[12]-'0');rt=(unsigned)(t[14]-'0');rw=(unsigned)(t[16]-'0');}
    close(rf);}
   atomic_store(&rec_route[0],rp);atomic_store(&rec_route[1],rt);atomic_store(&rec_route[2],rw);}
+ {unsigned src=0;int pf=openat(dir,".am-mod-pad-colour",O_RDONLY|O_CLOEXEC|O_NOFOLLOW|O_NONBLOCK);
+  if(pf>=0){char t[16]={0};struct stat ps;ssize_t pn=read(pf,t,sizeof(t)-1);
+   if(!fstat(pf,&ps)&&S_ISREG(ps.st_mode)&&pn==12&&!memcmp(t,"AM_PADSRC ",10)&&(t[10]=='0'||t[10]=='1')&&t[11]=='\n')src=(unsigned)(t[10]-'0');
+   close(pf);}
+  atomic_store(&pad_colour_source,src);}
  {unsigned pads=1;int tf=openat(dir,".am-mod-text-input",O_RDONLY|O_CLOEXEC|O_NOFOLLOW|O_NONBLOCK);
   if(tf>=0){char t[16]={0};struct stat ts;ssize_t tn=read(tf,t,sizeof(t)-1);
    if(!fstat(tf,&ts)&&S_ISREG(ts.st_mode)&&tn==12&&!memcmp(t,"AM_TEXTIN ",10)&&(t[10]=='0'||t[10]=='1')&&t[11]=='\n')pads=(unsigned)(t[10]-'0');
@@ -350,6 +356,14 @@ int music_set_fx_view(unsigned view){
  char text[13];snprintf(text,sizeof(text),"AM_FXVIEW %u\n",view);
  if(!save_preference(".am-mod-fx-view",text,12))return 0;
  atomic_store(&fx_view,view);return 1;
+}
+int music_pad_colour_locked(void){return atomic_load(&pad_colour_source)&&music_pad_lighting_mode()&&music_fx_mode_active()==1;}
+unsigned music_pad_colour_source(void){return atomic_load(&pad_colour_source);}
+int music_set_pad_colour_source(unsigned value){
+ if(value>1)return 0;
+ char text[13];snprintf(text,sizeof(text),"AM_PADSRC %u\n",value);
+ if(!save_preference(".am-mod-pad-colour",text,12))return 0;
+ atomic_store(&pad_colour_source,value);return 1;
 }
 unsigned music_rec_get(unsigned field){return field<3?atomic_load(&rec_route[field]):0;}
 int music_rec_set(unsigned field,unsigned value){

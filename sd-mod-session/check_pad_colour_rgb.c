@@ -23,6 +23,7 @@ static int steps_lighting;
 static uint64_t steps_lights[16];
 static uint32_t sent[16];
 int note_native_sample_visible(void){assert(!inside_rgb);++queries;return sample_visible;}
+int note_native_sample_shown(void){assert(!inside_rgb);++queries;return sample_visible;}
 int compressor_ui_active(void){return compressor_visible;}
 int music_ui_sequence_visible(void){return seq_visible;}
 unsigned music_ui_sequence_presence(unsigned b){(void)b;return seq_present;}

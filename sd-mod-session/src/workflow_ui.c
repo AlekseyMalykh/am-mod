@@ -4,6 +4,7 @@
 #include "phone_input.h"
 #include "batch_copy.h"
 #include "step_native.h"
+#pragma weak step_native_bank_or_last
 #include "note_native.h"
 #include "music_settings.h"
 #ifdef MPC_PROJECT_RECOVERY
@@ -125,6 +126,10 @@ static void *constructed_files; /* FilesScreen built at start (autoload) */
 static uint64_t locate_file,locate_parent,locate_deadline;
 static int locating,locate_row;
 static char browser_message[80];static uint64_t browser_message_until;
+extern uintptr_t mixer_live_kit_vptr(void) __attribute__((weak));
+extern void mixer_live_kit_vptr_hint(uintptr_t) __attribute__((weak));
+static _Atomic unsigned want_occupancy;
+void workflow_want_occupancy(void){atomic_store(&want_occupancy,1);}
 static void *volume_service;
 static _Atomic unsigned preview_allowed=1,preview_range,preview_started;
 static _Atomic(uintptr_t) preview_sample,preview_owner;
@@ -132,7 +137,7 @@ static _Atomic int64_t preview_first,preview_end;
 static unsigned volume_percent=75;
 static struct {void *parameter,*control;} master_bindings[8];
 static unsigned master_binding_count;
-static int volume_ready;
+static int volume_ready,volume_shown;static uint64_t volume_shown_at;
 static _Atomic unsigned volume_owned;
 static void locate_tick(void);
 static char query_text[PHONE_MAX_CHARS*4+1];
@@ -219,6 +224,7 @@ static void volume_refresh(void){
  void*i=p?FN(0x286bbe0,void*(*)(void*,int))(p,0x14):NULL;
  unsigned curve=i?FIELD(i,0x908,unsigned):~0u;
  volume_ready=volume_service&&gain>=0.f&&curve<=3;
+ {uint64_t t=now_ms();if(volume_ready){volume_shown=1;volume_shown_at=t;}else if(!volume_shown_at||t-volume_shown_at>2000)volume_shown=0;}
  if(!volume_service)return;
  /* K3 is independent attenuation BEFORE the native output master. Keep
   * native Main Volume processing; do not apply that gain twice. A missing
@@ -274,6 +280,9 @@ static int current_selection(struct file_result*out){
 }
 static int audio_path(const char*p){
  const char*e=strrchr(p,'.');return e&&(!strcasecmp(e,".wav")||!strcasecmp(e,".aif")||!strcasecmp(e,".aiff")||!strcasecmp(e,".mp3")||!strcasecmp(e,".flac")||!strcasecmp(e,".ogg"));
+}
+static int selection_present(void){
+ struct file_result f={0};int e=current_selection(&f);if(e)FN(0xf0a290,void(*)(uint64_t*))(&f.file);return e;
 }
 static int selected_is_audio(void){
  struct file_result f={0};if(!current_selection(&f))return 0;
@@ -660,12 +669,19 @@ int workflow_tick(void){
  /* While scrolling, the native list is rebuilt asynchronously and the
   * selection briefly reads as "no file": keep K3 Volume for 400 ms after
   * the last audio selection instead of blinking it off (device report). */
- {static uint64_t audio_seen;int audio=v&&(search&&results?(sample_browser()&&match_count>0):selected_is_audio());
+ {static uint64_t audio_seen,lost;int audio=v&&(search&&results?(sample_browser()&&match_count>0):selected_is_audio());
   uint64_t t=now_ms();if(audio)audio_seen=t;
-  selected_audio=audio||(v&&audio_seen&&t-audio_seen<400);if(!v)audio_seen=0;}
+  /* A folder (or other non-audio entry) is positively selected: no hold-over. The hold only bridges the
+   * moments when the native list is rebuilt and nothing is selected at all. */
+  else if(v&&!(search&&results)&&selection_present())audio_seen=0;
+  if(v)lost=0;else if(!lost)lost=t;
+  {static int was_shown;int shown_now=audio||(audio_seen&&t-audio_seen<1500);if(was_shown&&!shown_now&&v&&files&&!atomic_load(&dead_files))repaint(files);was_shown=shown_now;}
+  selected_audio=audio||(audio_seen&&t-audio_seen<1500);if(!v&&lost&&t-lost>1500)audio_seen=0;}
  if(volume_service||(v&&sample_browser()))volume_refresh();
  if(locating)locate_tick();
  atomic_store(&volume_owned,(unsigned)(v&&selected_audio&&!shift));
+ {static uint64_t k3_repaint;uint64_t tn=now_ms();
+  if(v&&selected_audio&&files&&!atomic_load(&dead_files)&&!batch&&tn-k3_repaint>=100){k3_repaint=tn;repaint(files);}}
  if(fault && atomic_load(&custom)&&!batch_job&&!batch_leaving){if(batch)batch_close();}
  if(batch&&!visible(batch_surface())&&!batch_job&&!batch_leaving)batch_close();
  if(batch){preview_refresh();batch_palette();repaint(batch_surface());}
@@ -678,8 +694,11 @@ int workflow_tick(void){
   native_kind=id==0x20a7?2u:id==0x20ab?3u:0u;
  }
  int occupied_mask=-1;unsigned muted_mask=0;void *identity_program=current_program();
+ if(identity_program&&mixer_live_kit_vptr_hint){uintptr_t ui=*(uintptr_t*)identity_program,live=mixer_live_kit_vptr?mixer_live_kit_vptr():0;static unsigned said;
+  if(!live)mixer_live_kit_vptr_hint(ui);
+  if(said<4&&live&&live!=ui){++said;fprintf(stderr,"KIT_VPTR ui=%#lx live=%#lx\n",(unsigned long)(ui-base),(unsigned long)(live-base));}}
  if(native_kind==3){int bank=step_native_browser_bank(-1);if(bank>=0&&bank<8)occupied_mask=(int)music_ui_sequence_presence((unsigned)bank);}
- else if(native_kind&&identity_program){int bank=step_native_browser_bank(-1);if(bank>=0&&bank<8){occupied_mask=0;
+ else if((native_kind||atomic_exchange(&want_occupancy,0))&&identity_program){int bank=step_native_browser_bank(-1);if(bank<0&&!native_kind&&step_native_bank_or_last)bank=step_native_bank_or_last();if(bank>=0&&bank<8){occupied_mask=0;
   for(unsigned i=0;i<16;++i){void*p=FN(0x286bbe0,void*(*)(void*,int))(identity_program,bank*16+(int)i);if(p&&FN(0x2804760,int(*)(void*))(p)){occupied_mask|=1<<i;if(sample_instrument_muted(p))muted_mask|=1u<<i;}}
  }}
  atomic_store(&native_occupied,occupied_mask);atomic_store(&native_muted,muted_mask);
@@ -842,11 +861,11 @@ static void right_text(void*g,const char*s,int x,int y,int w,int h,float size){t
 static void volume_paint(void*g){
  char value[24];
  colour(g,0xff000000);rect(g,213,198,107,42);
- colour(g,volume_ready?WHITE:RED);text(g,"Volume",213,201,107,13,12);
- if(volume_ready)snprintf(value,sizeof(value),"%u %%",volume_percent);else strcpy(value,"Not ready");
+ colour(g,volume_shown?WHITE:RED);text(g,"Volume",213,201,107,13,12);
+ if(volume_shown)snprintf(value,sizeof(value),"%u %%",volume_percent);else strcpy(value,"Not ready");
  text(g,value,213,215,107,19,18);
  colour(g,GREY);rect(g,220,235,93,4);
- if(volume_ready&&volume_percent){colour(g,WHITE);rect(g,220,235,(int)(93*volume_percent/100),4);}
+ if(volume_shown&&volume_percent){colour(g,WHITE);rect(g,220,235,(int)(93*volume_percent/100),4);}
 }
 static int storage_caption(const char*path,char*name,size_t namesize,char*address,size_t addresssize){
  if(!path)return 0;

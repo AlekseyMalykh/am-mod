@@ -17,6 +17,7 @@ void note_native_repaint_sample(void) {}
 void note_native_repaint_sample_region(unsigned x,unsigned y,unsigned w,unsigned h)
 { assert(!x && !y && w==320 && h==198); }
 int note_native_sample_visible(void) { return 1; }
+int note_native_sample_shown(void) { return 1; }
 int workflow_blocks_sample_controls(void) { return 0; }
 int note_native_active(void) { return 0; }
 int music_pad_lighting_mode(void) { return 1; }

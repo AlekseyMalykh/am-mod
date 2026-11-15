@@ -1,3 +1,4 @@
+#include <cstdio>
 #include "input_fx.h"
 #include "mixer_archive.h"
 #include "mixer_live.h"
@@ -6,6 +7,7 @@
 #include <cmath>
 #include <cstring>
 #include <algorithm>
+#include <chrono>
 extern "C" unsigned music_fx_mode_active(void) __attribute__((weak));
 extern "C" int rear_native_source(void) __attribute__((weak));
 /* Recording route (Mod Settings > Quick): 0 point (Input/Track/Master), 1 track A-H, 2 wet. */
@@ -32,7 +34,44 @@ std::atomic<uint64_t> flush{0};
 std::atomic_flag processing=ATOMIC_FLAG_INIT;
 /* Effective route for the audio owner: point 0 Input, 1 Track, 2 Master (wet only). */
 std::atomic<unsigned> route_point{0};
-std::atomic<float> gain_track[2]{{1.f},{1.f}},gain_master[2]{{1.f},{1.f}};
+std::atomic<float> input_peak[2]{{0.f},{0.f}};
+/* Tuner: the audio owner only writes a mono ring; the UI tick runs the pitch detector. */
+float tune_ring[8192];
+std::atomic<unsigned> tune_write{0};
+std::atomic<long long> tune_asked_ms{0};
+std::atomic<float> tune_hz{0.f};
+long long steady_ms(){return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();}
+/* YIN: cumulative mean normalised difference, first dip under the threshold. */
+bool yin_pitch(const float*x,int n,int rate,float*out){
+ static float d[2048],c[2048];
+ int tmax=std::min(rate/40,2000),tmin=std::max(rate/1000,2),w=n-tmax;
+ if(w<512)return false;
+ double energy=0;for(int i=0;i<w;++i)energy+=(double)x[i]*x[i];
+ if(energy/w<1e-6)return false;
+ d[0]=0;
+ for(int tau=1;tau<=tmax;++tau){double sum=0;for(int i=0;i<w;++i){double t=(double)x[i]-x[i+tau];sum+=t*t;}d[tau]=(float)sum;}
+ double run=0;c[0]=1;
+ for(int tau=1;tau<=tmax;++tau){run+=d[tau];c[tau]=run>0?(float)(d[tau]*tau/run):1.f;}
+ int best=-1;
+ for(int tau=tmin;tau<tmax;++tau)if(c[tau]<.15f){while(tau+1<tmax&&c[tau+1]<c[tau])++tau;best=tau;break;}
+ if(best<0)return false;
+ float t=(float)best;
+ if(best>1&&best<tmax-1){float a=c[best-1],b=c[best],e=c[best+1],den=a-2*b+e;if(den!=0)t+=.5f*(a-e)/den;}
+ *out=(float)rate/t;return true;
+}
+void tuner_update(){
+ static long long last;static unsigned hold;static float buf[3072];
+ long long now=steady_ms();
+ if(now-tune_asked_ms.load()>500||now-last<80)return;
+ last=now;
+ unsigned rate=seen_rate.load(std::memory_order_acquire),w=tune_write.load(std::memory_order_acquire);
+ if(!rate)return;
+ for(unsigned i=0;i<3072;++i)buf[i]=tune_ring[(w-3072+i)&8191];
+ float hz=0;
+ if(yin_pitch(buf,3072,(int)rate,&hz)){tune_hz.store(hz);hold=0;}
+ else if(++hold>4)tune_hz.store(0.f);
+}
+std::atomic<float> gain_track[2]{{1.f},{1.f}},gain_master[2]{{1.f},{1.f}},gain_input[2]{{1.f},{1.f}};
 float pcm[8192*2],original[8192*2];
 thread_local uint64_t input_block;
 std::atomic<unsigned> monitor_slot{~0u},monitor_write{0},monitor_read{0};
@@ -79,6 +118,25 @@ void lane_done(Lane&L,uint64_t version){
  if(x&&!L.publishing.load(std::memory_order_acquire)&&!fx_exchange_transitioning_audio(x)&&fx_exchange_ready_audio(x))L.consumed.store(version,std::memory_order_release);
 }
 }
+namespace {
+/* A published program is adopted only by the audio owner. Lanes that the current route does not use
+ * must still adopt it (on silence), otherwise lane_update() waits for them forever and the route
+ * never becomes ready: the Track/Master chain would then never reach the recording. */
+float idle_silence[8192*2];
+void consume_idle(unsigned frames,bool used0,bool used1,bool used2){
+ const bool used[3]={used0,used1,used2};
+ for(unsigned i=0;i<3;++i){
+  if(used[i])continue;
+  Lane&L=lanes[i];auto*x=L.x.load(std::memory_order_acquire);
+  if(!x||L.publishing.load(std::memory_order_acquire))continue;
+  uint64_t pending=L.published.load(std::memory_order_acquire);
+  if(L.consumed.load(std::memory_order_acquire)==pending)continue;
+  std::memset(idle_silence,0,(size_t)frames*2*sizeof(float));
+  fx_exchange_process(x,idle_silence,frames);
+  lane_done(L,pending);
+ }
+}
+}
 extern "C" int input_fx_monitor(unsigned slot,mixer_fx_monitor*out){
  monitor_slot.store(slot<4?slot:~0u,std::memory_order_release);
  if(!out)return 0;
@@ -86,12 +144,15 @@ extern "C" int input_fx_monitor(unsigned slot,mixer_fx_monitor*out){
  while(read!=end){const auto&value=monitor_slots[read%2];if(value.slot==slot){*out=value;found=1;}++read;}
  monitor_read.store(read,std::memory_order_release);return found;
 }
+extern "C" int input_fx_pitch(float*hz){tune_asked_ms.store(steady_ms());float v=tune_hz.load();if(hz)*hz=v;return v>0.f;}
+extern "C" void input_fx_peak(float*l,float*r){if(l)*l=input_peak[0].load(std::memory_order_relaxed);if(r)*r=input_peak[1].load(std::memory_order_relaxed);}
 extern "C" void input_fx_flush(void){flush.fetch_add(1,std::memory_order_release);}
 extern "C" const char*input_fx_status(void){
  static const char*labels[]={"Input FX off","Input FX waiting for audio","Mic / USB / Rear: Input FX ready","Input FX unavailable: dry input"};
  unsigned s=state.load(std::memory_order_acquire);return labels[s<4?s:3];
 }
 extern "C" void input_fx_ui_tick(uintptr_t image){
+ tuner_update();
  for(auto&L:lanes){auto*x=L.x.load(std::memory_order_acquire);if(x)fx_exchange_collect(x);}
  if(!image||(music_fx_mode_active&&!music_fx_mode_active())){for(auto&L:lanes){L.active.store(0,std::memory_order_release);}route_point.store(0);state.store(0);return;}
  unsigned rate=seen_rate.load(std::memory_order_acquire);
@@ -112,6 +173,7 @@ extern "C" void input_fx_ui_tick(uintptr_t image){
  if(effective>=1&&!model.track[track].fx_bypass)next[1]=model.track[track].fx;
  if(effective>=2&&!model.master.fx_bypass)next[2]=model.master.fx;
  float g[2];
+ channel_gain(model.input.mix,g);gain_input[0].store(g[0]);gain_input[1].store(g[1]);
  channel_gain(model.track[track].mix,g);gain_track[0].store(g[0]);gain_track[1].store(g[1]);
  channel_gain(model.master.mix,g);gain_master[0].store(g[0]);gain_master[1].store(g[1]);
  uint64_t gen=mixer_archive_generation(),fl=flush.load(std::memory_order_acquire);
@@ -128,6 +190,18 @@ extern "C" void input_fx_ui_tick(uintptr_t image){
  else if(result[0]==2)state.store(2);
  bool ready=result[0]==2&&(effective<1||result[1]==2)&&(effective<2||result[2]==2);
  route_point.store(ready?effective:0,std::memory_order_release);
+ {   /* Diagnostic (console log): one line whenever the recording route changes, at most 40 lines. */
+  static unsigned long long last;static unsigned lines;
+  unsigned long long sig=((unsigned long long)point<<0)|((unsigned long long)track<<4)|((unsigned long long)wet<<8)|((unsigned long long)effective<<12)|
+   ((unsigned long long)ready<<16)|((unsigned long long)result[0]<<20)|((unsigned long long)result[1]<<24)|((unsigned long long)result[2]<<28)|
+   ((unsigned long long)next[0].count<<32)|((unsigned long long)next[1].count<<40)|((unsigned long long)next[2].count<<48)|((unsigned long long)state.load()<<56);
+  if(sig!=last&&lines<40){last=sig;++lines;
+   std::fprintf(stderr,"INPUT_FX route point=%u track=%u wet=%u effective=%u ready=%d result=%d/%d/%d fx=%u/%u/%u bypass=%d/%d/%d state=%u gain_track=%.3f/%.3f src=%d tracks=%u,%u,%u,%u,%u,%u,%u,%u\n",
+    point,track,wet,effective,(int)ready,result[0],result[1],result[2],(unsigned)next[0].count,(unsigned)next[1].count,(unsigned)next[2].count,
+    (int)model.input.fx_bypass,(int)model.track[track].fx_bypass,(int)model.master.fx_bypass,state.load(),gain_track[0].load(),gain_track[1].load(),src,
+    (unsigned)model.track[0].fx.count,(unsigned)model.track[1].fx.count,(unsigned)model.track[2].fx.count,(unsigned)model.track[3].fx.count,
+    (unsigned)model.track[4].fx.count,(unsigned)model.track[5].fx.count,(unsigned)model.track[6].fx.count,(unsigned)model.track[7].fx.count);}
+ }
 }
 extern "C" int input_fx_audio(void*buffer,unsigned rate){
  if(!buffer||rate<8000||rate>192000)return 0;
@@ -135,8 +209,33 @@ extern "C" int input_fx_audio(void*buffer,unsigned rate){
  float**data;std::memcpy(&data,(char*)buffer+16,sizeof data);
  if(channels<1||channels>64||frames<1||frames>8192||!data||!data[0]||(channels>1&&!data[1]))return 0;
  seen_rate.store(rate,std::memory_order_release);
+ {static unsigned calls;if(calls<3&&++calls)std::fprintf(stderr,"INPUT_FX audio call=%u channels=%d frames=%d lane0=%d mode=%d\n",calls,channels,frames,(int)lanes[0].active.load(),music_fx_mode_active?(int)music_fx_mode_active():-1);}
+ {   /* Input level for the Mixer strip: raw peak of the selected input, slow release. */
+  bool silent_in=*((unsigned char*)buffer+0x128)&1;
+  float pl=0,pr=0;
+  if(!silent_in)for(int n=0;n<frames;++n){
+   float l=data[0][n],r=data[channels>1?1:0][n];
+   if(std::isfinite(l))pl=std::max(pl,std::fabs(l));
+   if(std::isfinite(r))pr=std::max(pr,std::fabs(r));
+  }
+  input_peak[0].store(std::max(pl,input_peak[0].load()*.97f),std::memory_order_relaxed);
+  input_peak[1].store(std::max(pr,input_peak[1].load()*.97f),std::memory_order_relaxed);
+ }
+ {   /* Tuner input: mono mix of the selected input. */
+  bool silent_in=*((unsigned char*)buffer+0x128)&1;
+  unsigned w=tune_write.load(std::memory_order_relaxed);
+  for(int n=0;n<frames;++n){
+   float l=data[0][n],r=data[channels>1?1:0][n];
+   tune_ring[(w+(unsigned)n)&8191]=silent_in||!std::isfinite(l)||!std::isfinite(r)?0.f:(l+r)*.5f;
+  }
+  tune_write.store(w+(unsigned)frames,std::memory_order_release);
+ }
  auto*x=lanes[0].x.load(std::memory_order_acquire);
- if(!x||!lanes[0].active.load(std::memory_order_acquire)||(music_fx_mode_active&&!music_fx_mode_active()))return 0;
+ if(music_fx_mode_active&&!music_fx_mode_active())return 0;
+ if(!x||!lanes[0].active.load(std::memory_order_acquire)){
+  if(!processing.test_and_set(std::memory_order_acquire)){consume_idle((unsigned)frames,false,false,false);processing.clear(std::memory_order_release);}
+  return 0;
+ }
  if(processing.test_and_set(std::memory_order_acquire))return 0;
  bool clear=*((unsigned char*)buffer+0x128)&1;
  for(int n=0;n<frames;++n)for(unsigned ch=0;ch<2;++ch){
@@ -152,6 +251,10 @@ extern "C" int input_fx_audio(void*buffer,unsigned rate){
   unsigned write=monitor_write.load(std::memory_order_relaxed),read=monitor_read.load(std::memory_order_acquire);
   if(write-read<2){monitor_slots[write%2]=monitor_work;monitor_write.store(write+1,std::memory_order_release);}
  }else fx_exchange_process(x,pcm,(unsigned)frames);
+ {   /* Input channel fader/pan/mute (Mixer > Input > MIX), after the Input FX chain. */
+  float gl=gain_input[0].load(),gr=gain_input[1].load();
+  if(gl!=1.f||gr!=1.f)for(int n=0;n<frames;++n){pcm[n*2]*=gl;pcm[n*2+1]*=gr;}
+ }
  /* Record through the chosen Track, then optionally through the Master. */
  bool track_used=point>=1&&lane_ready(lanes[1]);
  bool master_used=point>=2&&lane_ready(lanes[2]);
@@ -180,5 +283,6 @@ extern "C" int input_fx_audio(void*buffer,unsigned rate){
  lane_done(lanes[0],versions[0]);
  if(track_used)lane_done(lanes[1],versions[1]);
  if(master_used)lane_done(lanes[2],versions[2]);
+ consume_idle((unsigned)frames,true,track_used,master_used);
  processing.clear(std::memory_order_release);return 1;
 }

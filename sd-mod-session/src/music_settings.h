@@ -120,6 +120,16 @@ int music_set_sequence_colour(unsigned sequence,unsigned colour);
 int music_pad_colour(unsigned pad);
 int music_set_pad_colour(unsigned pad,unsigned colour);
 int music_pad_colours_used(void);
+/* Sample window pad colour source (card preference): 0 = the pad's own colour, 1 = colour of the
+ * Mixer track the pad is assigned to (Am MOD only; falls back to the pad colour). */
+unsigned music_pad_colour_source(void);
+int music_set_pad_colour_source(unsigned value);
+int music_pad_colour_locked(void); /* Track colour source in force: Pad Colour cannot be edited */
+extern uint32_t music_pad_track_rgb(unsigned pad) __attribute__((weak)); /* 0 = no track colour */
+static inline uint32_t music_pad_rgb(unsigned pad){
+ uint32_t track=music_pad_track_rgb?music_pad_track_rgb(pad):0;
+ return track?track:music_identity_rgb((unsigned)music_pad_colour(pad));
+}
 extern const char *const music_note_names[12];
 extern const char *const music_scale_names[8];
 extern const char *const music_colour_names[12];

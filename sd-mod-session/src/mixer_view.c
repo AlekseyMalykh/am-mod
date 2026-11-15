@@ -112,6 +112,22 @@ static void vmeter(const struct mixer_view_state*s,unsigned bus,int x,int y,int 
         if(fill>0)rect(p,left,y+h-fill,bar,fill,(s->meter->clip_mask&(1u<<bus))?SEND:AMBER);
         for(int db=12;db<60;db+=12)rect(p,left,y+db*h/60,bar,1,WELL);}
 }
+extern void input_fx_peak(float*left,float*right) __attribute__((weak));
+static void input_meter(int x,int y,int w,int h,const struct resample_painter*p)
+{
+    float peak[2]={0,0};
+    if(input_fx_peak)input_fx_peak(peak,peak+1);
+    rect(p,x,y,w,h,WELL);
+    int bar=(w-1)/2;
+    for(unsigned c=0;c<2;++c){
+        float db=mixer_meter_dbfs(peak[c]);
+        int fill=isfinite(db)?(int)lroundf((fmaxf(-60,fminf(0,db))+60)*h/60):0;
+        int left=x+(int)c*(bar+1);
+        rect(p,left,y,bar,h,DARK);
+        if(fill>0)rect(p,left,y+h-fill,bar,fill,db>-1.f?SEND:AMBER);
+        for(int d=12;d<60;d+=12)rect(p,left,y+d*h/60,bar,1,WELL);
+    }
+}
 static void send_meter(const struct mixer_view_state*s,unsigned track,
                        int x,int y,int h,const struct resample_painter*p)
 {
@@ -214,18 +230,12 @@ void mixer_view_channel_strip(const struct mixer_view_state*s,unsigned track,int
     /* Left area on PAD FX / KNOB FX: big name (A-H or MSTR), Fader, meter. */
     (void)width;
     const struct mixer_channel*c=track<8?s->project->track+track:s->master==2?&s->project->input:&s->project->master;
-    struct mixer_mix resolved[8];const struct mixer_mix*m=track<8?(mixer_scene_resolve(s->project,s->part_id,resolved),resolved+track):&s->project->master.mix;
+    struct mixer_mix resolved[8];const struct mixer_mix*m=track<8?(mixer_scene_resolve(s->project,s->part_id,resolved),resolved+track):s->master==2?&s->project->input.mix:&s->project->master.mix;
     rect(p,x,36,80,162,BLACK);
     rect(p,x+3,37,74,158,PANEL);
     rect(p,x+3,37,74,2,0xff000000u|c->colour);
-    if(track==8&&s->master==2){
-        text(p,"INPUT",x+5,45,70,27,19,WHITE,1);
-        text(p,"Mic / USB",x+5,88,70,17,11,GREY,1);text(p,"Rear",x+5,106,70,17,11,GREY,1);
-        text(p,"Listen",x+5,139,70,17,12,WHITE,1);text(p,"+ Record",x+5,157,70,17,12,WHITE,1);
-        mixer_key(p,"fx",x+29,178,24,15,10,fx_ink(c),c->fx.count!=0);return;
-    }
     char name[8],stock[12];
-    if(track<8)snprintf(name,sizeof(name),"%c",'A'+track);else snprintf(name,sizeof(name),"MSTR");
+    if(track<8)snprintf(name,sizeof(name),"%c",'A'+track);else snprintf(name,sizeof(name),s->master==2?"INPUT":"MSTR");
     snprintf(stock,sizeof(stock),"Track %c",'A'+track);
     int custom=track<8&&strcmp(c->name,stock)!=0;
     if(custom)text(p,name,x+7,41,16,12,10,0xff000000u|c->colour,1);
@@ -234,12 +244,14 @@ void mixer_view_channel_strip(const struct mixer_view_state*s,unsigned track,int
     char db[24];level_text(db,sizeof(db),m->level_db);text(p,db,x+2,76,76,14,11,level_focus?AMBER:WHITE,1);
     pan_bar(m->pan,x+8,93,64,p);
     fader_rail(m->level_db,1,level_focus,x+22,106,86,18,p);
-    vmeter(s,track<8?track:9,x+46,106,14,86,p);
+    if(s->master!=2)vmeter(s,track<8?track:9,x+46,106,14,86,p);
+    else input_meter(x+46,106,14,86,p);
     if(track<8)send_meter(s,track,x+32,106,86,p);
     if(track<8){
         mixer_key(p,"S",x+62,114,16,15,10,m->solo?(0xff000000u|MIXER_SOLO_RGB):GREY,m->solo);
         mixer_key(p,"M",x+62,134,16,15,10,m->mute?(0xff000000u|MIXER_MUTE_RGB):GREY,m->mute);
     }
+    if(s->master==2)mixer_key(p,"M",x+62,134,16,15,10,m->mute?(0xff000000u|MIXER_MUTE_RGB):GREY,m->mute);
     mixer_key(p,"fx",x+62,154,16,15,10,fx_ink(c),c->fx.count!=0);
     unsigned destination=track<8?s->project->send_to[track]:0;
     if(destination){
@@ -281,7 +293,7 @@ static void header(const struct mixer_view_state*s,const struct resample_painter
     int add_eq_disabled=0;
     int lit[3]={0,0,soloed},off=s->page==MIXER_INSPECT||s->page==MIXER_KNOB_FX;
     if(s->page==MIXER_KNOB_FX&&s->fx_editing){
-        names[1]=s->shifted?"Paste":"Copy";
+        names[1]=s->shifted?"Paste":"";
         names[2]=s->shifted?"Chain Bypass":"Solo";
         lit[2]=s->shifted?mixer_view_selected(s)->fx_bypass!=0:soloed;
         off=0;
@@ -311,9 +323,17 @@ static void header(const struct mixer_view_state*s,const struct resample_painter
         names[2]=s->shifted?(s->comp.warm?"Warm: On":"Warm: Off"):(s->comp.type?"Type: Opto":"Type: Duck");lit[2]=0;off=0;
     }
     if(s->page==MIXER_KNOB_FX&&s->fx_catalog){names[0]="FX List";names[1]="";names[2]="";lit[2]=0;}
+    int input_tabs=s->master==2&&s->page==MIXER_KNOB_FX&&!s->fx_parameters&&!s->fx_catalog&&!s->fx_delete&&!s->name_edit;
+    if(input_tabs){
+        const char*tab[3]={"Back",s->shifted?"Paste":"FX",s->shifted?"Chain Bypass":"ROUTE"};
+        for(unsigned i=0;i<3;++i){int x=i==2?213:(int)i*106,w=i==0?106:107;
+            int on=s->shifted?(i==2&&s->project->input.fx_bypass!=0):(i>0&&s->input_tab==i);
+            uint32_t ink=s->shifted?(on?SEND:i==0?WHITE:GREY):on?AMBER:WHITE;
+            mixer_key(p,tab[i],x+2,1,w-4,18,strlen(tab[i])>10?12:14,ink,on);}
+    }
     if(s->name_edit){names[0]="Cancel";names[1]=s->shifted?"Clear":"Erase";names[2]="Save";lit[1]=lit[2]=off=0;}
     else if(s->shifted&&s->page==MIXER_OVERVIEW){names[1]="Rename";names[2]="Clear Solo";lit[2]=0;}
-    for(unsigned i=0;i<3;++i){int x=i==2?213:(int)i*106,w=i==0?106:107;
+    for(unsigned i=0;i<3&&!input_tabs;++i){int x=i==2?213:(int)i*106,w=i==0?106:107;
         uint32_t active=i==1?(0xff000000u|MIXER_MUTE_RGB):(s->shifted&&s->page==MIXER_KNOB_FX?SEND:0xff000000u|MIXER_SOLO_RGB);
         int gates=!s->name_edit&&!s->shifted&&(s->page==MIXER_OVERVIEW||s->page==MIXER_ASSIGN||s->page==MIXER_KNOB_FX);
         uint32_t ink=i&&(off||(i==2&&(add_eq_disabled||(s->master&&gates))))?GREY:lit[i]?active:i==2&&gates?GREY:WHITE;
@@ -393,6 +413,10 @@ static void knob_steps(const struct resample_painter*p,unsigned column,int selec
         rect(p,x+a,235,b-a-1,2,(int)i==selected?ink:0xff3b3b3bu);
     }
 }
+static void input_route_rows(const struct mixer_view_state*,const struct resample_painter*);
+static void rec_values(unsigned*point,unsigned*track,unsigned*wet);
+static void route_row(const struct mixer_view_state*s,unsigned row,char*lab,unsigned labn,char*val,unsigned valn);
+static int tuner_read(char*out,unsigned n,double*cents);
 static void footer(const struct mixer_view_state*s,const struct resample_painter*p)
 {
     rect(p,0,198,320,42,BLACK);
@@ -790,9 +814,11 @@ static void track_fx(const struct mixer_view_state*s,const struct resample_paint
         knob_cell(p,2,"K3  Filter",fx_mixer_category_name(s->catalog_filter),1,0);
         return;
     }
+    const int input_route=s->master==2&&s->input_tab==2;
+    if(input_route)input_route_rows(s,p);
     const int comp_row=s->master==1&&s->comp.visible;
     const int pitch=comp_row?22:27,row_h=pitch-3;
-    for(unsigned i=0;i<MIXER_FX_SLOTS;++i){
+    for(unsigned i=0;i<MIXER_FX_SLOTS&&!input_route;++i){
         const struct fx_stage*effect=i<ch->fx.count?ch->fx.stage+i:NULL;
         int y=62+(int)i*pitch;
         int selected=i==s->fx_slot;
@@ -826,14 +852,23 @@ static void track_fx(const struct mixer_view_state*s,const struct resample_paint
         if(k->available&&!k->bypass){char gr[16];snprintf(gr,sizeof(gr),"-%.1f",(double)k->reduction);text(p,gr,225,y,32,row_h,9,GREY,1);}
     }
     if(s->message&&*s->message)text(p,s->message,89,174,222,20,11,AMBER,0);
-    else text(p,s->master==2?(input_fx_status?input_fx_status():"Input FX: Mic / USB / Rear"):s->master&&s->comp.visible?"S = Sample compressor (Shift+Pad 5)":"Pad 15: Input FX  /  9–12: FX",89,174,222,20,10,GREY,0);
-    if(s->master==2){
+    else if(!(s->master==2&&s->input_tab==2))text(p,s->master==2?(input_fx_status?input_fx_status():"Input FX: Mic / USB / Rear"):s->master&&s->comp.visible?"S = Sample compressor (Shift+Pad 5)":"Pad 15: Input FX  /  9–12: FX",89,174,222,20,10,GREY,0);
+    if(s->master==2&&s->input_tab==2){
         int rear=rear_setting&&rear_native_source&&rear_native_source()==1;
-        static const char*const modes[]={"Stereo","Rear L","Rear R","L+R Split","L+R Mix"};
-        unsigned mode=rear?rear_setting(0,REAR_MODE):0;if(mode>REAR_MIX)mode=0;
-        knob_cell(p,0,"Record",rear?modes[mode]:"Native",0,0);
-        if(rear)knob_steps(p,0,mode?(int)mode-1:-1,4,AMBER);
-        for(unsigned ch=0;ch<2;++ch){
+        unsigned rows=rear?6u:5u,row=s->cursor<rows?s->cursor:0,rv[3];
+        rec_values(rv,rv+1,rv+2);
+        char lab[24],val[24];route_row(s,row,lab,sizeof lab,val,sizeof val);
+        knob_cell(p,0,lab,val,s->input_edit!=0,0);
+        if(row==0){double cents;char tb[24];tuner_read(tb,sizeof tb,&cents);knob_scale(p,0,(cents+50.)/100.,1);}
+        else if(row==2)knob_steps(p,0,(int)rv[0],3,AMBER);
+        else if(row==3)knob_steps(p,0,(int)rv[1],8,AMBER);
+        else if(row==4)knob_steps(p,0,(int)rv[2],2,AMBER);
+        else if(row==5){unsigned mode=rear_setting?rear_setting(0,REAR_MODE):0;if(mode>REAR_MIX)mode=0;knob_steps(p,0,mode?(int)mode-1:-1,4,AMBER);}
+        if(!rear){ /* Mic / USB: K2 is the Input channel Pan */
+            char pv[24];pan(pv,sizeof pv,s->project->input.mix.pan);
+            knob_cell(p,1,"Pan",pv,0,0);knob_scale(p,1,(s->project->input.mix.pan+1)*.5,1);
+            knob_cell(p,2,"","",0,0);
+        }else for(unsigned ch=0;ch<2;++ch){
             char label[16],value[24];snprintf(label,sizeof label,s->shifted?"Level %c":"Pan %c",ch?'R':'L');
             unsigned n=rear?rear_setting(ch,s->shifted?REAR_LEVEL:REAR_PAN):0;
             if(!rear)snprintf(value,sizeof value,"--");
@@ -936,6 +971,71 @@ static void route_connections(const struct mixer_view_state*s,const struct resam
          "Turn DATA: change / Press: focus":"DATA: FX slot / Press: add or edit",
          8,185,304,12,10,s->message&&*s->message?AMBER:GREY,0);
 }
+extern unsigned music_rec_get(unsigned field) __attribute__((weak));
+static void rec_values(unsigned*point,unsigned*track,unsigned*wet)
+{
+    *point=music_rec_get?music_rec_get(0):0;*track=music_rec_get?music_rec_get(1):0;*wet=music_rec_get?music_rec_get(2):1;
+    if(*point>2){*point=2;}
+    if(*track>7){*track=0;}
+    if(*wet>1){*wet=1;}
+}
+extern int rear_native_monitor(void) __attribute__((weak));
+extern int input_fx_pitch(float*hz) __attribute__((weak));
+/* Tuner text "A4 +3c" for the detected input pitch; 0 when there is none. */
+static int tuner_read(char*out,unsigned n,double*cents)
+{
+    static const char*const note[12]={"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
+    float hz=0;
+    *cents=0;
+    if(!input_fx_pitch||!input_fx_pitch(&hz)||hz<20.f){snprintf(out,n,"--");return 0;}
+    double m=69+12*log2((double)hz/440.0);
+    long r=lround(m);
+    double c=(m-(double)r)*100;
+    int index=(int)(((r%12)+12)%12),octave=(int)(r>=0?r/12:-1)-1;
+    snprintf(out,n,"%s%d %+.0fc",note[index],octave,c);
+    *cents=c;return 1;
+}
+static void route_row(const struct mixer_view_state*s,unsigned row,char*lab,unsigned labn,char*val,unsigned valn)
+{
+    (void)s;
+    static const char*const via[]={"Input","Track","Master"};
+    static const char*const modes[]={"Stereo","Rear L","Rear R","L+R Split","L+R Mix"};
+    unsigned point,track,wet;rec_values(&point,&track,&wet);
+    switch(row){
+    case 0:{double cents;snprintf(lab,labn,"Tuner >");tuner_read(val,valn,&cents);break;}
+    case 1:{int m=rear_native_monitor?rear_native_monitor():0;
+        snprintf(lab,labn,"Monitor");snprintf(val,valn,"%s",m==2?"On":m==1?"Auto":"Off");break;}
+    case 2:snprintf(lab,labn,"Record via");snprintf(val,valn,"%s",via[point]);break;
+    case 3:snprintf(lab,labn,"Record track");
+        if(point)snprintf(val,valn,"Track %c",'A'+track);else snprintf(val,valn,"--");break;
+    case 4:snprintf(lab,labn,"Record FX");snprintf(val,valn,"%s",wet?"Wet":"Dry");break;
+    default:{unsigned mode=rear_setting?rear_setting(0,REAR_MODE):0;if(mode>REAR_MIX)mode=0;
+        snprintf(lab,labn,"Rear mode");snprintf(val,valn,"%s",modes[mode]);}
+    }
+}
+static void input_route_rows(const struct mixer_view_state*s,const struct resample_painter*p)
+{
+    int rear=rear_native_source&&rear_native_source()==1;
+    rect(p,85,37,231,21,PANEL);
+    unsigned point,track,wet;rec_values(&point,&track,&wet);
+    if(s->message&&*s->message)text(p,s->message,92,37,220,21,11,AMBER,0);
+    else{
+        text(p,"Input routing",92,37,152,21,15,WHITE,0);
+        text(p,rear?"Rear":"Mic / USB",245,38,64,19,10,GREY,1);
+    }
+    unsigned rows=rear?6u:5u;
+    for(unsigned i=0;i<rows;++i){
+        char lab[24],val[24],shown[32];
+        route_row(s,i,lab,sizeof lab,val,sizeof val);
+        int y=61+(int)i*23,on=i==s->cursor,edit=on&&s->input_edit,locked=i==3&&point==0;
+        rect(p,85,y,231,21,on?SELECTED:PANEL);
+        if(on)rect(p,85,y,2,21,AMBER);
+        if(edit)rect(p,85,y+20,231,1,AMBER);
+        text(p,lab,92,y,100,21,13,locked?GREY:on?AMBER:WHITE,0);
+        if(edit)snprintf(shown,sizeof shown,"< %s >",val);else snprintf(shown,sizeof shown,"%s",val);
+        text(p,shown,196,y,114,21,13,locked?GREY:on?AMBER:WHITE,1);
+    }
+}
 void mixer_view_context(const struct mixer_view_state*s,const struct resample_painter*p)
 {
     if(s->page==MIXER_INSPECT&&s->route_tab){route_connections(s,p);return;}
@@ -1000,11 +1100,12 @@ void mixer_view_meters(const struct mixer_view_state*s,unsigned mask,const struc
         }
     }else{
         unsigned track=s->master?8:s->primary;
-        if(mask&(1u<<track)){
+        if((mask&(1u<<track))||(s->master==2&&!s->fx_parameters&&!s->fx_catalog)){
             if(s->page==MIXER_KNOB_FX&&s->fx_parameters){
                 effect_send_meter(s,p);
             }else{
-                vmeter(s,track==8?9:track,46,106,14,86,p);
+                if(s->master!=2)vmeter(s,track==8?9:track,46,106,14,86,p);
+                else input_meter(46,106,14,86,p);
                 if(track<MIXER_TRACKS)send_meter(s,track,32,106,86,p);
             }
         }
@@ -1035,9 +1136,73 @@ static void fx_delete_confirm(const struct mixer_view_state*s,const struct resam
         text(p,fx_catalog_stage_name(ch->fx.stage+s->fx_slot),44,122,232,24,16,GREY,1);
 }
 
+
+void mixer_view_tuner_ex(const struct resample_painter*p,const char*tag,int have,float hz,const char*idle,const char*hint)
+{
+    static const char*const names[12]={"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
+    static long last_note=-1000;
+    static double shown;
+    int ok=have&&hz>=20.f;
+    long note=0;
+    double cents=0;
+    char line[48];
+    const int cx=160;
+    const uint32_t TUNE_CYAN=0xff00c8ffu,TUNE_GREEN=0xff1fd8a0u;
+    if(ok){
+        double m=69+12*log2((double)hz/440.0);
+        note=lround(m);
+        cents=(m-(double)note)*100;
+        if(note!=last_note){last_note=note;shown=cents;}
+        else shown+=(cents-shown)*.45;
+    }else last_note=-1000;
+    rect(p,0,0,320,240,BLACK);
+    rect(p,1,6,105,26,DARK);
+    text(p,"Back",1,7,105,24,14,WHITE,1);
+    text(p,"Tuner",107,7,105,24,15,AMBER,1);
+    int index=ok?(int)(((note%12)+12)%12):-1;
+    for(int i=0;i<12;++i){
+        int x=10+i*25;
+        if(i==index){
+            text(p,names[i],x-6,36,37,40,30,TUNE_CYAN,1);
+            rect(p,x+2,78,21,2,TUNE_CYAN);
+        }else text(p,names[i],x-2,46,29,26,16,GREY,1);
+    }
+    /* Straight scale: 2.8 px per cent, 0 in the middle. */
+    rect(p,20,142,281,1,GREY);
+    for(int c=-50;c<=50;c+=5){
+        int x=cx+(int)lround(c*2.8),h=c==0?44:c%10==0?18:9;
+        rect(p,x,142-h,1,h,c==0?TUNE_CYAN:c%50==0?WHITE:GREY);
+    }
+    text(p,"-50 c",8,150,60,16,11,GREY,0);
+    text(p,"0",cx-20,150,40,16,11,GREY,1);
+    text(p,"+50 c",252,150,60,16,11,GREY,0);
+    if(ok){
+        double v=shown<-50?-50:shown>50?50:shown;
+        int x=cx+(int)lround(v*2.8);
+        uint32_t ink=fabs(cents)<=5.0?TUNE_GREEN:AMBER;
+        rect(p,x-1,92,3,56,ink);
+        snprintf(line,sizeof line,"%.1f Hz",(double)hz);
+        text(p,line,12,176,130,28,20,WHITE,0);
+        snprintf(line,sizeof line,"%s%ld",names[index],(note>=0?note/12:-1)-1);
+        text(p,line,150,170,70,36,28,TUNE_CYAN,1);
+        snprintf(line,sizeof line,"%+.0f c",cents);
+        text(p,line,228,176,80,28,20,ink,0);
+    }else{
+        text(p,idle,12,178,296,26,17,GREY,1);
+    }
+    if(hint&&*hint){rect(p,214,6,105,26,DARK);text(p,hint,214,7,105,24,14,WHITE,1);}
+    text(p,tag,180,214,132,16,12,GREY,1);
+}
+void mixer_view_tuner(const struct resample_painter*p)
+{
+    float hz=0;
+    int have=input_fx_pitch&&input_fx_pitch(&hz);
+    mixer_view_tuner_ex(p,"Input",have,hz,"Play or sing a note","");
+}
 void mixer_view_paint(const struct mixer_view_state*s,const struct resample_painter*p)
 {
     if(!s||!s->project||!p||!p->rect||!p->text||s->primary>=8||s->bank>=8||s->page>MIXER_INSPECT)return;
+    if(s->master==2&&s->page==MIXER_KNOB_FX&&s->input_tuner){mixer_view_tuner(p);return;}
     if(s->page==MIXER_KNOB_FX&&s->fx_delete){
         fx_delete_confirm(s,p);
         return;

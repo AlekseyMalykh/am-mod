@@ -15,6 +15,7 @@ static int lighting_mode=MUSIC_LIGHTING_MOD;
 int music_pad_lighting_mode(void){return lighting_mode;}
 int music_set_pad_lighting_mode(unsigned mode){if(mode>MUSIC_LIGHTING_MOD)return 0;lighting_mode=(int)mode;return 1;}
 int note_native_sample_visible(void){return !(blocked&(1u<<HIDDEN));}
+int note_native_sample_shown(void){return !(blocked&(1u<<HIDDEN));}
 int music_ui_chords_available(void){return !(blocked&(1u<<PROJECT));}
 int music_ui_sequence_visible(void){return !!(blocked&(1u<<SEQ));}
 int music_ui_knob_fx_active(void){return !!(blocked&(1u<<KNOB));}

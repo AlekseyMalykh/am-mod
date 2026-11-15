@@ -51,6 +51,7 @@ def hline(s, x1, x2, y, **k): s.arrow([(x1, y), (x2, y)], **k)
 # ---------------------------------------------------------------- texts
 T = {
  "ru": {
+  "mon_stock": ["Мониторинг → Выходы"],
   "stock_title": "Режим Stock: путь звука",
   "mod_title": "Режим Am MOD: путь звука",
   "stock_sub": "Штатная маршрутизация и штатный FX Selection. Микшер и цепочка Input FX обходятся.",
@@ -64,7 +65,6 @@ T = {
   "in": ["Вход", "Mic / USB / Rear"],
   "srec": ["Sample Record", "штатная запись", "Source · Rec Length · Monitor"],
   "newpad": ["Новый сэмпл", "на пэде (WAV)"],
-  "mon": ["Мониторинг → Выходы"],
   "trig": ["Shift + Pad 11", "экран Sample → сэмпл", "экран секвенции → секвенция"],
   "fxsel2": ["FX Select", "выбранные пэды"],
   "wav": ["WAV", "(рендер)"], "tpad": ["Целевой", "пэд"],
@@ -72,11 +72,13 @@ T = {
   "track": ["Трек A–H", "Track FX · Fader · Pan", "Mute / Solo · Send"],
   "direct": ["Direct: мимо треков"],
   "master": ["Master", "Master FX"],
-  "rear": ["Rear (только Rear)", "Rear L · Rear R · Split · L+R Mix", "Pan и Level L/R"],
-  "infx": ["Input FX", "цепочка из 4 слотов", "общая для Mic/USB/Rear"],
-  "recpad": ["Запись на пэд", "FX и Pan/Level входят в WAV"],
   "trk_r": ["Трек пэда", "(если пэд на треке)"], "mfx_r": ["Master FX"],
-  "mic_note": "Mic и USB идут напрямую в Input FX (Rear-регуляторы к ним не применяются)",
+  "mixch": ["Канал Input", "Level · Pan · Mute", "Rear: Rear L/R · Split · Mix"],
+  "infx": ["Input FX", "цепочка из 4 слотов", "общая для Mic / USB / Rear"],
+  "point": ["Точка записи", "Input · Track A–H · Master", "Wet: эффекты до точки · Dry: без них"],
+  "recpad": ["Запись на пэд", "новый сэмпл (WAV)"],
+  "mon": ["Мониторинг: Off / Auto / On", "слышит сигнал той же точки"],
+  "tuner": ["Тюнер", "нота и центы входа"],
   "notes_stock": [
     "• Режим выбирается в Project → Mod Settings → Quick → FX mode; применяется после перезапуска.",
     "• Эффекты, назначенные в FX Select, сохраняются в проекте и не влияют на звук режима Am MOD.",
@@ -84,13 +86,15 @@ T = {
     "• Запись и ресемплинг в Stock работают штатно: функции микшера и Input FX не используются."],
   "notes_mod": [
     "• Режим выбирается в Project → Mod Settings → Quick → FX mode; применяется после перезапуска.",
-    "• Пэд, назначенный на трек, проходит эффекты трека; пэд на Direct идёт сразу в Master.",
-    "• Ресемплинг сэмпла и секвенции проходит тот же путь, что и воспроизведение: Sample → трек → Master → компрессор.",
-    "• Уровень результата ресемплинга зависит от фейдеров дорожки и мастера.",
-    "• Записанный сэмпл при воспроизведении снова проходит свой трек: для первой проверки используйте Direct.",
-    "• Запись идёт со входа (до микшера); эффекты треков и Master в запись не попадают."],
+    "• Пэд назначается на трек A–H (Pad FX в микшере) или на Direct: Direct идёт мимо треков сразу в Master.",
+    "• Input — отдельный канал микшера (пэд 15 в микшере): Level, Pan, Mute и цепочка Input FX. Mic, USB и Rear используют один канал.",
+    "• Запись берёт сигнал в выбранной точке (Input ROUTE → Record via): Input, Track A–H или Master. Wet пишет эффекты до этой точки, Dry — без эффектов.",
+    "• Мониторинг слышит сигнал из той же точки. Тюнер читает вход (Input ROUTE → Tuner, Sample Record B3).",
+    "• Ресемплинг сэмпла и секвенции идёт тем же путём, что воспроизведение: Sample → трек → Master → компрессор; фейдеры влияют на уровень.",
+    "• Записанный сэмпл при воспроизведении снова проходит свой трек: для первой проверки используйте Direct."],
  },
  "en": {
+  "mon_stock": ["Monitoring → Outputs"],
   "stock_title": "Stock mode: signal path",
   "mod_title": "Am MOD mode: signal path",
   "stock_sub": "Stock routing and stock FX Selection. The Mixer and Input FX chain are bypassed.",
@@ -104,7 +108,6 @@ T = {
   "in": ["Input", "Mic / USB / Rear"],
   "srec": ["Sample Record", "stock recording", "Source · Rec Length · Monitor"],
   "newpad": ["New sample", "on the pad (WAV)"],
-  "mon": ["Monitoring → Outputs"],
   "trig": ["Shift + Pad 11", "Sample screen → sample", "Sequence screen → sequence"],
   "fxsel2": ["FX Select", "selected pads"],
   "wav": ["WAV", "(render)"], "tpad": ["Target", "pad"],
@@ -112,11 +115,13 @@ T = {
   "track": ["Track A–H", "Track FX · Fader · Pan", "Mute / Solo · Send"],
   "direct": ["Direct: bypasses tracks"],
   "master": ["Master", "Master FX"],
-  "rear": ["Rear (Rear only)", "Rear L · Rear R · Split · L+R Mix", "Pan and Level L/R"],
-  "infx": ["Input FX", "4-slot chain", "shared by Mic/USB/Rear"],
-  "recpad": ["Record to pad", "FX and Pan/Level are in the WAV"],
   "trk_r": ["Pad's track", "(if the pad is on a track)"], "mfx_r": ["Master FX"],
-  "mic_note": "Mic and USB go straight to Input FX (the Rear controls do not apply to them)",
+  "mixch": ["Input channel", "Level · Pan · Mute", "Rear: Rear L/R · Split · Mix"],
+  "infx": ["Input FX", "4-slot chain", "shared by Mic / USB / Rear"],
+  "point": ["Record point", "Input · Track A–H · Master", "Wet: effects up to the point · Dry: none"],
+  "recpad": ["Record to pad", "new sample (WAV)"],
+  "mon": ["Monitor: Off / Auto / On", "hears the same point"],
+  "tuner": ["Tuner", "pitch and cents of the input"],
   "notes_stock": [
     "• The mode is chosen in Project → Mod Settings → Quick → FX mode and applies after a restart.",
     "• Effects assigned in FX Select are saved in the project and do not affect the sound in Am MOD mode.",
@@ -124,11 +129,12 @@ T = {
     "• Recording and resampling work as in stock: the Mixer and Input FX are not used."],
   "notes_mod": [
     "• The mode is chosen in Project → Mod Settings → Quick → FX mode and applies after a restart.",
-    "• A pad assigned to a track goes through that track's effects; a Direct pad goes straight to Master.",
-    "• Sample and sequence resampling follow the playback path: Sample → track → Master → compressor.",
-    "• The resampled level depends on the track and master faders.",
-    "• A recorded sample passes through its pad's track again on playback: use Direct for a first check.",
-    "• Recording is taken at the input (before the Mixer); track and Master effects are not recorded."],
+    "• A pad is assigned to a track A–H (Pad FX in the Mixer) or to Direct: Direct bypasses the tracks and goes straight to Master.",
+    "• Input is its own Mixer channel (pad 15 in the Mixer): Level, Pan, Mute and the Input FX chain. Mic, USB and Rear share it.",
+    "• Recording takes the signal at the chosen point (Input ROUTE → Record via): Input, Track A–H or Master. Wet records the effects up to that point, Dry records none.",
+    "• Monitoring hears the same point. The tuner reads the input (Input ROUTE → Tuner, Sample Record B3).",
+    "• Sample and sequence resampling follow the playback path: Sample → track → Master → compressor; the faders affect the level.",
+    "• A recorded sample passes through its pad's track again on playback: use Direct for a first check."],
  },
 }
 
@@ -153,7 +159,7 @@ def stock(lang):
     s.box(40, ry-50, 190, 100, t["in"], "src")
     s.box(290, ry-50, 300, 100, t["srec"], "proc")
     s.box(650, ry-50, 220, 100, t["newpad"], "file")
-    s.box(290, 505, 300, 46, t["mon"], "out", dashed=True)
+    s.box(290, 505, 300, 46, t["mon_stock"], "out", dashed=True)
     hline(s, 230, 290, ry); hline(s, 590, 650, ry)
     s.arrow([(135, ry+50), (135, 528), (290, 528)], dashed=True)
     s.section(40, 600, t["s_res"])
@@ -188,15 +194,16 @@ def mod(lang):
     hline(s, 1130, 1165, cy); hline(s, 1285, 1320, cy)
     s.section(40, 352, t["s_rec"])
     ry = 455
-    s.box(40, ry-50, 170, 100, t["in"], "src")
-    s.box(250, ry-50, 290, 100, t["rear"], "proc")
-    s.box(580, ry-50, 240, 100, t["infx"], "fx")
-    s.box(870, ry-50, 270, 100, t["recpad"], "file")
-    s.box(580, 540, 240, 46, t["mon"], "out", dashed=True)
-    hline(s, 210, 250, ry); hline(s, 540, 580, ry); hline(s, 820, 870, ry)
-    s.arrow([(125, ry-50), (125, 392), (700, 392), (700, ry-50)], dashed=True)
-    s.text(140, 384, t["mic_note"], 12, False, "#52606d", italic=True)
-    s.arrow([(700, ry+50), (700, 540)], dashed=True)
+    s.box(40, ry-50, 150, 100, t["in"], "src")
+    s.box(225, ry-50, 240, 100, t["mixch"], "proc")
+    s.box(500, ry-50, 200, 100, t["infx"], "fx")
+    s.box(735, ry-50, 300, 100, t["point"], "bus")
+    s.box(1070, ry-50, 220, 100, t["recpad"], "file")
+    s.box(735, 540, 300, 46, t["mon"], "out", dashed=True)
+    s.box(225, 540, 240, 46, t["tuner"], "out", dashed=True)
+    hline(s, 190, 225, ry); hline(s, 465, 500, ry); hline(s, 700, 735, ry); hline(s, 1035, 1070, ry)
+    s.arrow([(885, ry+50), (885, 540)], dashed=True)
+    s.arrow([(345, ry+50), (345, 540)], dashed=True)
     s.section(40, 645, t["s_res"])
     qy = 735
     s.box(40, qy-55, 230, 110, t["trig"], "src")

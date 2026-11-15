@@ -5,6 +5,7 @@ int music_ui_exit_saving(void);
 void music_ui_init(uintptr_t base);
 void music_ui_requested(unsigned code,unsigned down);
 int music_ui_sequence_visible(void);
+void music_ui_sequence_repaint(void); /* Redraw the Sequence window (resample dialog overlay). */
 int music_ui_knob_fx_active(void); /* UI-published actual overlay visibility, not Shift LED cues. */
 int music_ui_chords_available(void);
 /* Last native Note Repeat rate seen, as a Chords rate index, or -1. */

@@ -50,6 +50,7 @@ extern "C" void resample_ui_project_changing(){
     if(binding&&!binding->dead.load(std::memory_order_acquire))resample_context_changed(binding->context);
     fault.store(1,std::memory_order_release);ready.store(0,std::memory_order_release);ticket.fetch_add(1,std::memory_order_acq_rel);
 }
+
 extern "C" void resample_ui_destroyed(void*p){if(root_id.load(std::memory_order_acquire)==reinterpret_cast<uintptr_t>(p)){root_dead.store(1,std::memory_order_release);ready.store(0,std::memory_order_release);ticket.fetch_add(1,std::memory_order_acq_rel);}}
 extern "C" void resample_ui_requested(unsigned code,int down){
     if(code==0x31)shift.store(down!=0,std::memory_order_release);

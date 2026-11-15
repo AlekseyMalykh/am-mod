@@ -91,8 +91,8 @@ int mixer_project_valid(const struct mixer_project*p)
         if(!name_valid(c->name)||c->colour>0xffffff||!mix_valid(&c->mix)||c->fx_bypass>1||!fx_chain_valid(&c->fx,192000))return 0;
     }
     if(p->master.mix.mute||p->master.mix.solo)return 0;
-    /* Input is an FX-only channel, never a Pad/send/solo destination. */
-    if(p->input.mix.level_db||p->input.mix.pan||p->input.mix.send||p->input.mix.mute||p->input.mix.solo)return 0;
+    /* Input has Level/Pan/Mute (MIX tab), but is never a send or solo destination. */
+    if(p->input.mix.send||p->input.mix.solo)return 0;
     for(unsigned i=0;i<p->input.fx.count;++i)if(p->input.fx.stage[i].kind==FX_STAGE_SIDECHAIN)return 0;
     unsigned order[MIXER_TRACKS];
     if(!mixer_send_order(p->send_to,order))return 0;
@@ -207,7 +207,7 @@ enum mixer_result mixer_encode(const struct mixer_project*p,char*out,size_t capa
         for(unsigned slot=0;slot<c->fx.count;++slot)
             if(c->fx.stage[slot].kind==FX_STAGE_SIDECHAIN)version=3;
     }
-    if(p->input.fx.count||p->input.fx_bypass)version=4;
+    if(p->input.fx.count||p->input.fx_bypass||p->input.mix.level_db!=0||p->input.mix.pan!=0||p->input.mix.mute)version=4;
     struct writer count={0};emit_project(&count,p,version);
     size_t n=5+2*(8+count.count+4);
     if(n+1>MIXER_PAYLOAD_BYTES)return MIXER_FULL;

@@ -80,7 +80,7 @@ static void fx_slots(void)
     cc(c,0x11,100);
     button(c,MIXER_B2);
     button(c,MIXER_B1);assert(!view(c).fx_parameters);
-    button(c,MIXER_B2);ack(c);
+    mixer_control_button(c,MIXER_SHIFT,1,ticket);button(c,MIXER_ERASE);mixer_control_button(c,MIXER_SHIFT,0,ticket);ack(c); /* Shift+Erase copies */
     struct fx_stage copied=accepted.track[0].fx.stage[0];
     assert(copied.eq.count==3&&copied.eq.band[2].gain_db>0&&copied.bypass);
     button(c,MIXER_SELECT);assert(view(c).fx_parameters&&view(c).parameter_page==0);
@@ -364,18 +364,26 @@ static void input_controls(void){
  mixer_defaults(&accepted);accepted.master.mix.level_db=-3;++revision;++epoch;struct mixer_control_ops ops={NULL,submit};struct mixer_control*c=mixer_control_create(&ops,44100);assert(c);
  assert(mixer_control_confirm(c,&accepted,revision,epoch)&&mixer_control_open(c,1,0));mixer_control_set_fx_editing(c,1);
  uint64_t t=mixer_control_ticket(c);mixer_control_button(c,MIXER_SHIFT,1,t);button(c,MIXER_KNOB);mixer_control_button(c,MIXER_SHIFT,0,t);
- assert(view(c).master==2&&view(c).page==MIXER_KNOB_FX);
+ assert(view(c).master==2&&view(c).page==MIXER_KNOB_FX&&view(c).input_tab==1);
+ cc(c,0x14,127);ack(c);assert(accepted.input.mix.level_db>5);mixer_control_reset(c,0x14,0,t);ack(c);assert(accepted.input.mix.level_db==0);
+ button(c,MIXER_MUTE);ack(c);assert(accepted.input.mix.mute);button(c,MIXER_MUTE);ack(c);assert(!accepted.input.mix.mute);
+ button(c,MIXER_B3);assert(view(c).input_tab==2&&view(c).cursor==0);
+ rear_source=0;cc(c,0x11,127);ack(c);assert(accepted.input.mix.pan>.9f);mixer_control_reset(c,0x11,0,t);ack(c);assert(accepted.input.mix.pan==0);rear_source=1;
+ button(c,MIXER_SELECT);assert(!view(c).input_edit&&view(c).input_tuner); /* Tuner row opens the tuner window */
+ cc(c,0x14,127);cc(c,0x64,1);assert(view(c).input_tuner&&view(c).cursor==0); /* modal */
+ button(c,MIXER_B1);assert(!view(c).input_tuner&&view(c).master==2&&view(c).input_tab==2);
+ cc(c,0x64,1);assert(view(c).cursor==1);cc(c,0x64,1);cc(c,0x64,1);cc(c,0x64,1);cc(c,0x64,1);assert(view(c).cursor==5);
  cc(c,0x10,127);cc(c,0x11,0);cc(c,0x12,127);assert(rear_values[0][4]==4&&rear_values[0][2]==0&&rear_values[1][2]==100);
  mixer_control_button(c,MIXER_SHIFT,1,t);cc(c,0x11,64);cc(c,0x12,32);mixer_control_button(c,MIXER_SHIFT,0,t);assert(rear_values[0][1]==50&&rear_values[1][1]==25);
  rear_busy=1;cc(c,0x10,0);assert(rear_values[0][4]==4);rear_busy=0;
  rear_source=0;cc(c,0x11,127);assert(rear_values[0][2]==0);rear_source=2;cc(c,0x10,0);assert(rear_values[0][4]==4);rear_source=1;
  assert(mixer_control_reset(c,0x11,0,t)&&mixer_control_reset(c,0x12,1,t));assert(rear_values[0][2]==0&&rear_values[1][1]==100);
 
- button(c,MIXER_SELECT);cc(c,0x10,0);assert(rear_values[0][4]==4);button(c,MIXER_SELECT);ack(c);assert(accepted.input.fx.count==1&&!accepted.master.fx.count&&!accepted.track[0].fx.count);
+ button(c,MIXER_B2);assert(view(c).input_tab==1);button(c,MIXER_SELECT);cc(c,0x10,0);assert(rear_values[0][4]==4);button(c,MIXER_SELECT);ack(c);assert(accepted.input.fx.count==1&&!accepted.master.fx.count&&!accepted.track[0].fx.count);
  button(c,MIXER_SELECT);cc(c,0x10,80);ack(c);assert(rear_values[0][4]==4&&view(c).fx_parameters);button(c,MIXER_B1);
  cc(c,0x14,127);mixer_control_reset(c,0x14,0,t);ack(c);assert(accepted.master.mix.level_db==-3&&accepted.input.mix.level_db==0);
  mixer_control_button(c,MIXER_SHIFT,1,t);button(c,MIXER_B3);mixer_control_button(c,MIXER_SHIFT,0,t);ack(c);assert(accepted.input.fx_bypass&&!accepted.master.fx_bypass);
- button(c,MIXER_B1);assert(view(c).page==MIXER_OVERVIEW&&view(c).master==1);
+ mixer_control_button(c,MIXER_SHIFT,1,t);button(c,MIXER_B1);mixer_control_button(c,MIXER_SHIFT,0,t);assert(view(c).page==MIXER_OVERVIEW&&view(c).master==1);
  pad(c,14,1);pad(c,14,0);assert(view(c).master==2&&view(c).page==MIXER_KNOB_FX);
  pad(c,0,1);pad(c,0,0);assert(!view(c).master&&!accepted.track[0].fx.count);
  mixer_control_close(c);assert(mixer_control_open(c,1,0));assert(view(c).master!=2);

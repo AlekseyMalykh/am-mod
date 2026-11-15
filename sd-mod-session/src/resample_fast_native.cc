@@ -140,7 +140,7 @@ void frame(void*engine,void*clock){
 #ifdef MPC_MIXER_LIVE
     /* Native sequence resample (not Song, not the private sample note): first block only. */
     if(!mini&&mixer_resample_sequence_frame&&mixer_resample_enabled&&mixer_resample_enabled()&&
-       !(mixer_stems_armed&&mixer_stems_armed())&&F(context,0x3f0,unsigned)!=0&&F(context,0x3f0,unsigned)!=4&&
+       !(mixer_stems_armed&&mixer_stems_armed())&&F(context,0x3f0,unsigned)!=4&&
        F(context,0x9f0,uint64_t)==0){
         void*writer=F(context,0xa38,void*);
         std::fprintf(stderr,"RESAMPLE_MIX SEQ_CANDIDATE source=%u\n",F(context,0x3f0,unsigned));
@@ -410,7 +410,7 @@ void render(void*context,void*services,void*output,void*event,void*old_track){
         auto stem=resample_file_probe(actual_path.c_str());
         std::lock_guard<std::mutex>lock(job_lock);
         bool silent=stem.valid&&stem.bytes&&stem.scanned==stem.bytes&&stem.peak==0;
-        bool captured=!silent&&job_path==path&&job_output.capture(path,actual_path,m.rate,m.minimum);
+        bool captured=!silent&&job_path==path&&job_output.capture(path,actual_path,m.rate,m.minimum,mixed_result()&&mixed_file()&&actual_path==mixed_file());
         if(!captured)failure.store(silent?10:8,std::memory_order_release);
         if(mixed_result()&&mixed_file())unlink(mixed_file());
         std::fprintf(stderr,"RESAMPLE OUTPUT_CAPTURE captured=%u valid=%u bytes=%u peak=%.9g requested=%s actual=%s\n",captured,stem.valid,stem.bytes,stem.peak,path.c_str(),actual_path.c_str());

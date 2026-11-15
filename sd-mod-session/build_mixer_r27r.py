@@ -21,7 +21,7 @@ sources = frozen['compile_verification']['linked_sources'] + [
     'src/knob_reset.c', 'src/sample_load_trace.c', 'src/sample_playing.c',
     'src/rear_audio.cc', 'src/rear_native.cc', 'src/rear_ui.c', 'src/rear_abi.S',
     'src/pad_resample_commit.cc', 'src/pad_sample_pool.cc', 'src/pad_assignment.cc',
-    'src/pad_assignment_abi.S', 'src/pad_source_abi.S', 'src/pad_memory_abi.S']
+    'src/pad_assignment_abi.S', 'src/pad_source_abi.S', 'src/pad_memory_abi.S', 'src/pad_sample_source.cc']
 mixer = ['src/mixer_model.c', 'src/mixer_meters.c', 'src/fx_chain.c', 'src/fx_own.c', 'src/compressor_dsp.c', 'src/fx_catalog.c',
          'src/mixer_archive.cc', 'src/mixer_buses.c', 'src/mixer_route_native.c',
          'src/mixer_live.c', 'src/mixer_live_native.c', 'src/mixer_view.c',

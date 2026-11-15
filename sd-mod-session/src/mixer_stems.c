@@ -320,8 +320,10 @@ static void begin_resample(void *context,void *writer,unsigned rate)
 }
 /* Native sequence resample: same offline loop as Song, so Tracks, Sends, FX and Master apply.
  * The stock writer receives the processed Master; no sibling file is produced. */
+extern void phone_seq_resample_started(void) __attribute__((weak));
 void mixer_resample_sequence_frame(void *context,void *writer,unsigned rate)
 {
+    if(phone_seq_resample_started)phone_seq_resample_started();
     song_context=context;
     if(!writer||atomic_load(&job_open))return;
     begin_resample(context,writer,rate);
@@ -376,8 +378,6 @@ int mixer_stems_offline_block(void*engine,void*clock,unsigned frames,uintptr_t p
         }
         if(!j->failed)j->failed=!write_stem(j,bus,&view,count);
     }
-    if(j->resample){static unsigned last=~0u,lines;unsigned r=mixer_route_last_reject()|mixer_route_last_target()<<8;
-        if(r!=last&&lines<12){++lines;last=r;fprintf(stderr,"RESAMPLE_MIX ROUTE block=%llu reject=%u target=%08x\n",(unsigned long long)j->frames,mixer_route_last_reject(),mixer_route_last_target());}}
     j->frames+=count;
     if(valid)++j->valid_blocks;
     else ++j->missing_blocks;

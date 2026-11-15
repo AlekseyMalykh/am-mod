@@ -42,6 +42,9 @@ struct mixer_view_state {
     const struct mixer_fx_monitor*fx_signal;
     struct mixer_sample_comp comp; /* stock Sample master compressor, shown as a pinned Master FX row */
     unsigned fx_illustrated; /* 0 Classic; set by the host from the card setting */
+    unsigned input_tab; /* Input page: 1 FX, 2 ROUTE (B1 is Back) */
+    unsigned input_edit; /* ROUTE: the selected row is being edited with the encoder */
+    unsigned input_tuner; /* Input: the full-screen tuner window is open */
     double rate;
 };
 static inline const struct mixer_channel*mixer_view_selected(const struct mixer_view_state*s)
@@ -55,6 +58,10 @@ void mixer_view_overview(const struct mixer_view_state*,const struct resample_pa
 void mixer_view_channel_strip(const struct mixer_view_state*,unsigned track,int x,int width,const struct resample_painter*);
 void mixer_view_context(const struct mixer_view_state*,const struct resample_painter*);
 void mixer_view_paint(const struct mixer_view_state*,const struct resample_painter*);
+/* Full-screen tuner (320x240): note row, straight +-50 cent scale, moving needle, Hz. Shared by the Mixer Input page and Sample Record. */
+void mixer_view_tuner(const struct resample_painter*);
+/* Same window for another source: tag (bottom right), have/hz (0 = none), idle text, hint (bottom left). */
+void mixer_view_tuner_ex(const struct resample_painter*,const char*tag,int have,float hz,const char*idle,const char*hint);
 /* Dynamic-only draw: touches meter/Peak bounds, no faders/context/footer.
  * mask bit0..7 Track, bit8 Master; caller combines changed bounds on UI tick. */
 void mixer_view_meters(const struct mixer_view_state*,unsigned mask,const struct resample_painter*);

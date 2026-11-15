@@ -8,6 +8,7 @@
 #include <string.h>
 #include <stdatomic.h>
 #include <math.h>
+#include <stdio.h>
 #if ATOMIC_POINTER_LOCK_FREE != 2 || ATOMIC_INT_LOCK_FREE != 2
 #error Native Mixer attachment requires lock-free pointers/counters
 #endif
@@ -30,6 +31,8 @@ static _Thread_local void *block_kit;
 static _Thread_local unsigned block_kits;
 static void *kit;
 static _Atomic uintptr_t kit_vptr;
+uintptr_t mixer_live_kit_vptr(void){return atomic_load(&kit_vptr);}
+void mixer_live_kit_vptr_hint(uintptr_t v){uintptr_t zero=0;if(v)atomic_compare_exchange_strong(&kit_vptr,&zero,v);}
 /* Optional offline export through the Mixer (mixer_stems.c). */
 __attribute__((weak)) int mixer_stems_offline_block(void*engine,void*clock,unsigned frames,uintptr_t program_vptr);
 static void note_program(void *p)
@@ -129,7 +132,7 @@ static void engine(void*p,void*c,unsigned n)
                expected!=atomic_load_explicit(&binding_epoch,memory_order_acquire))s=NULL;
         }
     }
-    if (!s && mixer_stems_offline_block && caller == image + 0x18b98c0 &&
+    if (!s && mixer_stems_offline_block && (caller == image + 0x18b98c0 || caller == image + 0x18b5570) &&
         mixer_stems_offline_block(p,c,n,atomic_load(&kit_vptr))) goto finished;
     if(s)mixer_live_render(s,p,c,n);else ops.engine(p,c,n);
 finished:

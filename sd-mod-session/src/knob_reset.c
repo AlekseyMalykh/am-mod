@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 200809L
+#include <time.h>
 #include "knob_reset.h"
 #include <stdatomic.h>
 #include <string.h>

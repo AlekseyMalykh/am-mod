@@ -1,6 +1,18 @@
 /* Owned Project menu extensions. NO_MOD_OFF omits the manual exit row. */
 .arch armv8.3-a
-/* SCREEN_MIRROR_ROW: seventh native row after Mod Settings; tagged request 3. */
+/* SCREEN_MIRROR_ROW: seventh native row after Mod Settings; tagged request 3.
+ * NO_SD: the native "SD Card Access" row (index 3) is replaced by Key / Scale / Tempo, so the
+ * menu has six rows: Key 3, Mod Settings 4, Screen Mirror 5. USB card access cannot work
+ * inside the mod's isolated copy of the application. */
+#ifdef NO_SD
+#define R_KEY 3
+#define R_LIGHT 4
+#define R_MIRROR 5
+#else
+#define R_KEY 4
+#define R_LIGHT 5
+#define R_MIRROR 6
+#endif
 #if defined(NOTE_UI) && defined(PAD_LIGHTING_MENU) && defined(NO_MOD_OFF) && defined(SCREEN_MIRROR_ROW)
 #define MIRROR 1
 #endif
@@ -16,9 +28,11 @@ project_append:
  mov x19,x0
  mov x20,x1
  bl list_append                  // Original SD Card Access append.
+#ifndef NO_SD
  mov x0,x19
  mov x1,x20
  bl list_append                  // Native deep copy of the final row.
+#endif
 #ifdef NOTE_UI
  mov x0,x19
  mov x1,x20
@@ -36,7 +50,7 @@ project_append:
  sub x3,x2,x1
 #ifdef NOTE_UI
 #ifdef PAD_LIGHTING_MENU
-#if defined(NO_MOD_OFF) && !defined(MIRROR)
+#if (defined(NO_MOD_OFF) && !defined(MIRROR)) || defined(NO_SD)
  cmp x3,#0x300
 #else
  cmp x3,#0x380                  // Seven MenuItem objects (Mod Off or Screen Mirror last).
@@ -124,13 +138,13 @@ project_append:
 project_dispatch:
  bti c
 #ifdef NOTE_UI
- cmp w0,#4
+ cmp w0,#R_KEY
  b.eq .Lkey
 #ifdef PAD_LIGHTING_MENU
- cmp w0,#5
+ cmp w0,#R_LIGHT
  b.eq .Llighting
 #ifdef MIRROR
- cmp w0,#6
+ cmp w0,#R_MIRROR
  b.eq .Lmirror
 #endif
 #ifndef NO_MOD_OFF

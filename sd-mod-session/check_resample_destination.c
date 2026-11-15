@@ -36,16 +36,17 @@ int main(int argc,char**argv){
     open_dialog(1,1);paint(argv[2],"choose");button(2);assert(state.page==RD_TARGET&&!starts&&state.target_pad==128);paint(argv[2],"target-empty");
     button(2);assert(!starts&&strstr(state.error,"Choose"));assert(!resample_destination_target(&state,128));
     assert(resample_destination_bank(&state,1));assert(resample_destination_pad(&state,2,1));assert(resample_destination_pad(&state,2,0));assert(state.target_pad==18);
-    paint(argv[2],"target-source");assert(resample_destination_button(&state,2,1)&&state.page==RD_CONFIRM&&!starts);paint(argv[2],"confirm");
-    assert(resample_destination_button(&state,2,1)&&!starts);assert(resample_destination_button(&state,2,0));
-    button(0);assert(state.page==RD_TARGET&&!starts);button(2);button(2);
+    assert(state.page==RD_CONFIRM&&!starts);paint(argv[2],"target-source");paint(argv[2],"confirm");
+    button(0);assert(state.page==RD_TARGET&&!starts);
+    assert(resample_destination_pad(&state,2,1)&&resample_destination_pad(&state,2,0)&&state.page==RD_CONFIRM&&!starts);
+    assert(resample_destination_button(&state,2,1)&&state.page==RD_RUNNING);assert(resample_destination_button(&state,2,0));
     assert(starts==1&&sent.kind==RESAMPLE_SOUND&&sent.source_pad==sent.target_pad&&sent.overwrite_confirmed&&state.page==RD_RUNNING);
     resample_destination_progress(&state,sent.token,25,100);paint(argv[2],"running");resample_destination_progress(&state,sent.token,10,100);assert(state.done==25);
     resample_destination_progress(&state,sent.token+1,100,100);assert(state.done==25);resample_destination_finished(&state,sent.token+1,1,NULL);assert(state.page==RD_RUNNING);
     cancel_busy=1;resample_destination_cancel(&state);assert(state.page==RD_CANCELLING&&state.cancel_retry&&cancels==1);cancel_busy=0;resample_destination_retry_cancel(&state);assert(!state.cancel_retry&&cancels==2);
     resample_destination_finished(&state,sent.token,1,NULL);assert(state.page==RD_CLOSED&&state.applied); /* Commit won a late Cancel. */
     open_dialog(0,1);button(2);assert(state.page==RD_SOURCE&&!state.applied&&strstr(state.error,"empty"));button(1);assert(state.page==RD_TARGET&&state.kind==RESAMPLE_SEQUENCE);
-    for(unsigned target=0;target<128;++target){assert(resample_destination_bank(&state,target/16));assert(resample_destination_pad(&state,target%16,1));assert(state.target_pad==target);assert(resample_destination_pad(&state,target%16,0));}
+    for(unsigned target=0;target<128;++target){assert(resample_destination_bank(&state,target/16));assert(resample_destination_target(&state,target));assert(state.target_pad==target);}
     assert(resample_destination_bank(&state,7)&&state.target_pad==127);
     assert(resample_destination_bank(&state,6)&&state.target_pad==128);assert(!resample_destination_bank(&state,8));assert(resample_destination_target(&state,127));paint(argv[2],"seq-target");
     busy=1;button(2);assert(state.page==RD_TARGET&&starts==1);busy=0;button(2);assert(state.page==RD_RUNNING&&starts==2&&sent.kind==RESAMPLE_SEQUENCE&&sent.target_pad==127&&!sent.overwrite_confirmed);
@@ -53,6 +54,19 @@ int main(int argc,char**argv){
     open_dialog(1,1);button(2);assert(resample_destination_target(&state,3));button(2);assert(state.page==RD_CONFIRM);button(0);assert(resample_destination_target(&state,4));button(2);assert(sent.target_pad==4&&!sent.overwrite_confirmed);
     resample_destination_finished(&state,old_token,1,NULL);assert(state.page==RD_RUNNING);resample_destination_finished(&state,sent.token,0,"Native render failed");assert(state.page==RD_ERROR);paint(argv[2],"error");button(0);assert(state.page==RD_CLOSED);
     open_dialog(1,1);button(2);assert(resample_destination_target(&state,5));++valid_epoch;unsigned before=starts;button(2);assert(starts==before&&state.page==RD_TARGET);button(0);
+    /* Pads: a free pad renders at once; a recorded pad asks, a second press (or a free pad) goes on. */
+    open_dialog(1,1);button(2);assert(resample_destination_bank(&state,0));before=starts;
+    assert(resample_destination_pad(&state,5,1)&&state.page==RD_RUNNING&&starts==before+1&&sent.target_pad==5&&!sent.overwrite_confirmed);
+    resample_destination_finished(&state,sent.token,0,"x");button(0);
+    open_dialog(1,1);button(2);assert(resample_destination_bank(&state,0));before=starts;
+    assert(resample_destination_pad(&state,3,1)&&state.page==RD_CONFIRM&&starts==before&&state.target_pad==3);
+    assert(resample_destination_pad(&state,6,1)&&state.page==RD_RUNNING&&starts==before+1&&sent.target_pad==6&&!sent.overwrite_confirmed);
+    resample_destination_finished(&state,sent.token,0,"x");button(0);
+    open_dialog(1,1);button(2);assert(resample_destination_bank(&state,0));before=starts;
+    assert(resample_destination_pad(&state,3,1)&&resample_destination_pad(&state,3,0)&&state.page==RD_CONFIRM);
+    assert(resample_destination_pad(&state,3,1)&&state.page==RD_RUNNING&&starts==before+1&&sent.target_pad==3&&sent.overwrite_confirmed);
+    resample_destination_finished(&state,sent.token,0,"x");button(0);
+    busy=1;open_dialog(1,1);button(2);assert(resample_destination_bank(&state,0));before=starts;assert(resample_destination_pad(&state,7,1)&&state.page==RD_TARGET&&starts==before&&strstr(state.error,"Cannot"));busy=0;button(0);
     open_dialog(1,0);button(1);assert(state.page==RD_SOURCE&&strstr(state.error,"sequence"));button(0);assert(state.page==RD_CLOSED);
     open_dialog(1,1);assert(resample_destination_button(&state,0,1)&&state.page==RD_CLOSED);
     assert(resample_destination_button(&state,0,1));assert(resample_destination_button(&state,0,0));assert(!resample_destination_button(&state,0,1));

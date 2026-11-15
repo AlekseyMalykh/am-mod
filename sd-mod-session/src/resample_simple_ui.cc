@@ -11,7 +11,12 @@
 #include "pad_palette.h"
 #include "pad_workflow_colour.h"
 #define F(p,o,T) (*reinterpret_cast<T*>(reinterpret_cast<char*>(p)+(o)))
+extern "C" int music_ui_sequence_visible(void) __attribute__((weak));
+extern "C" int step_native_browser_bank(int) __attribute__((weak));
+extern "C" void music_ui_sequence_repaint(void) __attribute__((weak));
 static uintptr_t base;
+static unsigned seq_origin,bank_hold,bank_used;static uint64_t bank_down_at;
+static bool seq_shown(){return music_ui_sequence_visible&&music_ui_sequence_visible()>0;}
 static std::atomic<resample_stock_backend*>backend{nullptr};
 static std::atomic<void*>bound_copy{nullptr};
 static resample_stock_backend *session;
@@ -29,8 +34,9 @@ static resample_destination_request pending_request{};
 static uint64_t now_ms(){timespec t{};clock_gettime(CLOCK_MONOTONIC,&t);return uint64_t(t.tv_sec)*1000+t.tv_nsec/1000000;}
 extern "C" void resample_ui_transport(unsigned running,unsigned valid){transport_running=!!running;transport_valid=!!valid;}
 extern "C" int resample_ui_take_stop(void*event){if(!stop_requested||!event)return 0;stop_requested=0;std::memcpy(event,stop_event,16);return 1;}
+static void repaint();
 static int start_after_stop(void*user,const resample_destination_request*r){
-    if(transport_running||!transport_valid){pending_request=*r;stop_phase=1;return 1;}
+    if(transport_running||!transport_valid){pending_request=*r;stop_phase=1;repaint();return 1;}
     return resample_stock_backend_start(user,r);
 }
 static std::atomic<uint64_t>palette[16],palette_epoch{1};
@@ -39,6 +45,9 @@ static void publish_palette(){
     unsigned shown=active.load()&&!capturing&&(dialog.page==RD_TARGET||dialog.page==RD_CONFIRM);
     if(palette_active.exchange(shown)!=shown)palette_epoch.fetch_add(1);
     if(!shown)return;
+    if(bank_hold&&now_ms()-bank_down_at>=300){/* Pad Bank held: pads 1-8 are red quick bank buttons, as on the stock screens. */
+        for(unsigned i=0;i<16;++i){uint64_t colour=i<8?pad_light(PAD_DANGER,i==dialog.bank?1.0f:.55f):0;if(palette[i].exchange(colour)!=colour)palette_epoch.fetch_add(1);}
+        return;}
     for(unsigned i=0;i<16;++i){unsigned pad=dialog.bank*16+i;bool used=(dialog.occupied[pad/64]>>(pad%64))&1;
         bool target=pad==dialog.target_pad;
         uint64_t colour=pad_operation_colour(pad,used,dialog.kind==RESAMPLE_SOUND&&pad==dialog.source_pad,target,target,now_ms());
@@ -46,7 +55,7 @@ static void publish_palette(){
     }
 }
 static bool visible(){return root&&!dead.load()&&F(root,0,uintptr_t)==base+0x6e212a0&&reinterpret_cast<int(*)(void*)>(base+0x112fd50)(root)&&!reinterpret_cast<int(*)(void*)>(base+0x112f6b0)(root);}
-static void repaint(){publish_palette();if(root&&!dead.load())reinterpret_cast<void(*)(void*,uint64_t,uint64_t)>(base+0x1149880)(root,0,F(root,0x28,uint64_t));}
+static void repaint(){publish_palette();if(seq_origin&&music_ui_sequence_repaint&&seq_shown()){music_ui_sequence_repaint();return;}if(root&&!dead.load())reinterpret_cast<void(*)(void*,uint64_t,uint64_t)>(base+0x1149880)(root,0,F(root,0x28,uint64_t));}
 extern "C" void resample_ui_init(uintptr_t b){base=b;}
 extern "C" int resample_ui_shutdown_busy(void){return capturing||stop_phase||(session&&resample_stock_backend_busy(session));}
 extern "C" void resample_ui_bind(void*copy){
@@ -84,13 +93,15 @@ extern "C" uint64_t resample_ui_ticket(){return generation.load();}
 extern "C" void resample_ui_pad(unsigned pad,int down,uint64_t ticket){
     if(ticket!=generation.load())return;
     if(!session&&pad==10&&down&&active.load()){
-        session=backend.load();capturing=1;handoff=0;
+        session=backend.load();capturing=1;handoff=0;seq_origin=seq_shown()&&!visible();
         resample_destination_backend adapter{session,start_after_stop,resample_stock_backend_cancel};resample_destination_init(&dialog,&adapter);
         if(!session||!resample_stock_backend_capture(session)){capturing=0;dialog.page=RD_ERROR;std::snprintf(dialog.error,sizeof(dialog.error),"Cannot capture selected source");}
+    }else if(session&&!capturing&&bank_hold&&(dialog.page==RD_TARGET||dialog.page==RD_CONFIRM)){
+        if(pad<8&&down){if(dialog.page==RD_CONFIRM)dialog.page=RD_TARGET;resample_destination_bank(&dialog,pad);bank_used=1;}
     }else if(session&&!capturing)resample_destination_pad(&dialog,pad,down);
     repaint();
 }
-static void close_dialog(){active.store(0);ready.store(0);capturing=0;stop_phase=stop_requested=0;dialog.page=RD_CLOSED;if(session&&!resample_stock_backend_busy(session))session=nullptr;generation.fetch_add(1);repaint();}
+static void close_dialog(){bank_hold=0;active.store(0);ready.store(0);capturing=0;stop_phase=stop_requested=0;dialog.page=RD_CLOSED;if(session&&!resample_stock_backend_busy(session))session=nullptr;generation.fetch_add(1);repaint();}
 extern "C" int resample_ui_button(void*e,uint64_t ticket){
     unsigned code=F(e,8,unsigned char),down=F(e,9,unsigned char)!=0;
     if(code==0x31){shifted.store(down);return 0;}if(code==0x51||code==0x52)return 0;
@@ -108,6 +119,12 @@ extern "C" int resample_ui_button(void*e,uint64_t ticket){
         repaint();return 1;
     }
     if(capturing){if(down&&key==0)close_dialog();return 1;}
+    if(code==0x23&&(dialog.page==RD_TARGET||dialog.page==RD_CONFIRM)){
+        /* Tap = step (Shift = back); hold = pads 1-8 pick the bank. The step happens on release. */
+        if(down){bank_hold=1;bank_used=0;bank_down_at=now_ms();}
+        else{if(bank_hold&&!bank_used&&now_ms()-bank_down_at<300&&dialog.page==RD_TARGET){int delta=shifted.load()?-1:1;resample_destination_bank(&dialog,(dialog.bank+8+delta)%8);}bank_hold=0;}
+        repaint();return 1;
+    }
     if(key<3)resample_destination_button(&dialog,key,down);
     else if(down&&dialog.page==RD_TARGET){
         if(code==0x36||code==0x37||code==0x23){int delta=(code==0x37||(code==0x23&&shifted.load()))?-1:1;resample_destination_bank(&dialog,(dialog.bank+8+delta)%8);}
@@ -148,7 +165,12 @@ extern "C" int resample_ui_tick(int blocked){
     if(poller){resample_stock_reply reply{};
         if(resample_stock_backend_poll(poller,&reply)){
             if(reply.status==RSB_CAPTURED&&capturing&&active.load()){
-                capturing=0;resample_destination_open_sound(&dialog,reply.snapshot.source,reply.snapshot.sample,"Current sequence",reply.snapshot.has_sample,reply.snapshot.has_sequence,reply.snapshot.epoch,reply.snapshot.occupied);repaint();
+                capturing=0;
+                /* Started from the Sequence window: the source is the sequence, not the selected pad. */
+                (seq_origin?resample_destination_open_sequence:resample_destination_open_sound)(&dialog,reply.snapshot.source,reply.snapshot.sample,"Current sequence",reply.snapshot.has_sample,reply.snapshot.has_sequence,reply.snapshot.epoch,reply.snapshot.occupied);
+                std::fprintf(stderr,"RESAMPLE DIALOG_OPEN seq_origin=%u kind=%u has_seq=%u has_sample=%u source=%u\n",seq_origin,dialog.kind,dialog.has_sequence,dialog.has_sample,dialog.source_pad);
+                /* Started from the Sequence window: no sequence-or-sample question, go straight to the destination. */
+                repaint();
             }else if(reply.status==RSB_SUBMITTED){
                 /* Stock background task owns progress and cancellation now.
                  * Submission is not completion and must not set applied. */
@@ -162,11 +184,27 @@ extern "C" int resample_ui_tick(int blocked){
             }
         }
     }
-    bool shown=visible();if(active.load()&&!shown)close_dialog();
+    {/* Keep the panel bank letters (A-H) and the dialog bank together. */
+        static unsigned last_page=RD_CLOSED;static int synced=-1;
+        if(active.load()&&!capturing&&step_native_browser_bank&&!seq_origin){
+            if(dialog.page==RD_TARGET&&last_page!=RD_TARGET){
+                if(seq_origin){int nb=step_native_browser_bank(-1);if(nb>=0&&nb<8)resample_destination_bank(&dialog,(unsigned)nb);}
+                synced=-1;
+            }
+            if((dialog.page==RD_TARGET||dialog.page==RD_CONFIRM)&&(int)dialog.bank!=synced){synced=(int)dialog.bank;step_native_browser_bank((int)dialog.bank);}
+        }
+        if(!active.load())synced=-1;
+        last_page=dialog.page;
+    }
+    bool shown=visible()||seq_shown();if(active.load()&&!shown)close_dialog();
     ready.store(current&&!blocked&&!active.load()&&!handoff&&!resample_stock_backend_busy(current)&&shown);
     return active.load()||ready.load()||handoff;
 }
 extern "C" int resample_ui_active(){return active.load()!=0;}
+/* Tuner window over Sample mode: pitch of the selected pad's sample, read on the model queue. */
+extern "C" void sample_tuner_request(void){auto*b=backend.load();if(b)resample_stock_backend_probe(b);}
+extern "C" void sample_tuner_poll(void){}
+extern "C" unsigned sample_tuner_info(float*hz,unsigned*pad,char*name,unsigned size){auto*b=backend.load();return b?resample_stock_backend_probe_info(b,hz,pad,name,size):3u;}
 extern "C" int resample_ui_light(unsigned pad,uint64_t*out){if(!out||pad>=16||!palette_active.load())return 0;*out=palette[pad].load();return 1;}
 extern "C" uint64_t resample_ui_palette_generation(){return palette_epoch.load();}
 extern "C" int resample_ui_take_sequence(){return 0;}
@@ -190,4 +228,5 @@ static void text(void*g,const char*s,int x,int y,int w,int h,unsigned size,uint3
     uint64_t string=0,font=0;reinterpret_cast<void(*)(void*,const char*)>(base+0xf535c0)(&string,s);reinterpret_cast<void(*)(void*,int,float)>(base+0x1082810)(&font,0,(float)size);reinterpret_cast<void(*)(void*,const void*)>(base+0x102dca0)(g,&font);reinterpret_cast<void(*)(void*,uint32_t)>(base+0x102d5e0)(g,colour);
     reinterpret_cast<void(*)(void*,const void*,int,int,int,int,int,int,float)>(base+0x10817b0)(g,&string,x,y,w,h,centre?36:33,1,.75f);reinterpret_cast<void(*)(void*)>(base+0x1070d60)(&font);reinterpret_cast<void(*)(void*)>(base+0xf0a290)(&string);
 }
+extern "C" void resample_ui_paint_overlay(void*g){if(!g||!active.load())return;resample_painter painter{g,rect,text};resample_ui_draw(&painter);}
 extern "C" void resample_ui_paint(void*p,void*g){if(root_id.load()!=reinterpret_cast<uintptr_t>(p)){root=p;root_id.store(reinterpret_cast<uintptr_t>(p));dead.store(0);}resample_painter painter{g,rect,text};resample_ui_draw(&painter);}

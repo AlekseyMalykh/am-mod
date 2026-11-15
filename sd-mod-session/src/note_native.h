@@ -21,6 +21,7 @@ void *note_native_context(void); /* Borrowed CurrentThings, UI Timer only. */
 /* UI owner: 0 unavailable, 1 already Poly, 2 queued by native Play command. */
 int note_native_request_poly(void);
 int note_native_sample_visible(void); /* Whole Sample screen, including Trim. */
+int note_native_sample_shown(void);   /* Same, but still true while a native dialog or Sample Record covers it. */
 void note_native_repaint_sample_region(unsigned x,unsigned y,unsigned w,unsigned h);
 void note_native_repaint_sample(void); /* UI owner only. */
 void note_native_sample_overlay(void *screen,void *g);
