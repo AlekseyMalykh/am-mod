@@ -13,19 +13,22 @@
 
 namespace {
 constexpr unsigned ring_size = 1u << 18;
-constexpr uint64_t settings_mask = (UINT64_C(1) << 47) - 1;
+constexpr uint64_t settings_mask = (UINT64_C(1) << 48) - 1;
 constexpr uint64_t defaults = UINT64_C(1) | (UINT64_C(100) << 1) |
     (UINT64_C(1) << 15) | (UINT64_C(100) << 16) | (UINT64_C(100) << 23) |
     (UINT64_C(1) << 40);
 std::atomic<uint64_t> settings{defaults};
 std::atomic<unsigned> meters[2];
 std::atomic<unsigned> audio_users{0};
-float gains[2][2]{};
+float gains[2][2]{},mixing_gains[2][2]{};
+unsigned mixing_rate=0;
 struct Recording {
     float samples[ring_size][2];
     std::atomic<uint64_t> write{0}, read{0}, frames{0};
     std::atomic<unsigned> state{REAR_IDLE}, stop{0}, cancel{0}, failure{0};
     unsigned channels = 0, rate = 0;
+    bool mixed = false;
+    float mix_gains[2][2]{};
     float threshold = 0;
     uint64_t limit = 0;
     char directory[1024]{}, paths[2][1100]{};
@@ -51,18 +54,18 @@ bool write_all(int fd, const void *data, size_t bytes) {
     }
     return true;
 }
-bool finish_file(int fd, uint64_t frames, unsigned rate) {
+bool finish_file(int fd, uint64_t frames, unsigned rate, unsigned channels) {
     unsigned char header[44]{};
     std::memcpy(header, "RIFF", 4);
-    uint64_t bytes = frames * 3;
+    uint64_t bytes = frames * 3 * channels;
     put(header + 4, (uint32_t)(36 + bytes + (bytes & 1)), 4);
     std::memcpy(header + 8, "WAVEfmt ", 8);
     put(header + 16, 16, 4);
     put(header + 20, 1, 2);
-    put(header + 22, 1, 2);
+    put(header + 22, channels, 2);
     put(header + 24, rate, 4);
-    put(header + 28, rate * 3, 4);
-    put(header + 32, 3, 2);
+    put(header + 28, rate * 3 * channels, 4);
+    put(header + 32, 3 * channels, 2);
     put(header + 34, 24, 2);
     std::memcpy(header + 36, "data", 4);
     put(header + 40, (uint32_t)bytes, 4);
@@ -73,7 +76,7 @@ void writer() {
     auto &r = recording;
     int fd[2] = {-1, -1};
     for (unsigned ch = 0; ch < 2; ++ch) {
-        if (!(r.channels & (1u << ch))) continue;
+        if (!(r.channels & (1u << ch)) || (r.mixed && ch)) continue;
         fd[ch] = open(r.paths[ch], O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
         unsigned char empty[44]{};
         if (fd[ch] < 0 || !write_all(fd[ch], empty, sizeof(empty))) r.failure.store(ERROR_FILE);
@@ -89,15 +92,16 @@ void writer() {
             usleep(2000);
             continue;
         }
-        unsigned char block[4096 * 3];
+        unsigned char block[4096 * 6];
         for (unsigned ch = 0; ch < 2; ++ch) {
             if (fd[ch] < 0) continue;
-            for (unsigned n = 0; n < count; ++n) {
-                float value = std::max(-1.f, std::min(1.f, r.samples[(read + n) & (ring_size - 1)][ch]));
+            const unsigned outputs = r.mixed ? 2 : 1;
+            for (unsigned n = 0; n < count; ++n) for (unsigned side = 0; side < outputs; ++side) {
+                float value = std::max(-1.f, std::min(1.f, r.samples[(read + n) & (ring_size - 1)][r.mixed ? side : ch]));
                 int32_t pcm = (int32_t)std::lrint(value * 8388607.f);
-                put(block + n * 3, (uint32_t)pcm, 3);
+                put(block + (n * outputs + side) * 3, (uint32_t)pcm, 3);
             }
-            if (!write_all(fd[ch], block, count * 3)) r.failure.store(ERROR_FILE);
+            if (!write_all(fd[ch], block, count * 3 * outputs)) r.failure.store(ERROR_FILE);
         }
         saved += count;
         r.read.store(read + count, std::memory_order_release);
@@ -107,7 +111,7 @@ void writer() {
     if (!saved && !r.cancel.load() && !r.failure.load()) r.failure.store(ERROR_EMPTY);
     for (unsigned ch = 0; ch < 2; ++ch) {
         if (fd[ch] < 0) continue;
-        if (!r.cancel.load() && !r.failure.load() && !finish_file(fd[ch], saved, r.rate))
+        if (!r.cancel.load() && !r.failure.load() && !finish_file(fd[ch], saved, r.rate, r.mixed ? 2 : 1))
             r.failure.store(ERROR_FILE);
         if (close(fd[ch]) != 0) r.failure.store(ERROR_FILE);
     }
@@ -118,7 +122,7 @@ void writer() {
 
 extern "C" uint64_t rear_settings_snapshot() { return settings.load(std::memory_order_acquire); }
 extern "C" int rear_settings_valid(uint64_t v) {
-    if (v & ~settings_mask) return 0;
+    if ((v & ~settings_mask) || ((v & (UINT64_C(1) << 47)) && ((v >> 31) & 3))) return 0;
     for (unsigned ch = 0; ch < 2; ++ch)
         if (((v >> (ch * 15 + 1)) & 127) > 100 || ((v >> (ch * 15 + 8)) & 127) > 100) return 0;
     return 1;
@@ -133,13 +137,21 @@ extern "C" unsigned rear_setting(unsigned ch, unsigned field) {
         case REAR_LEVEL: return (v >> (ch * 15 + 1)) & 127;
         case REAR_PAN: return (v >> (ch * 15 + 8)) & 127;
         case REAR_ENABLED: return (v >> 30) & 1;
-        case REAR_MODE: return (v >> 31) & 3;
+        case REAR_MODE: return (v & (UINT64_C(1) << 47)) ? unsigned(REAR_MIX) : unsigned((v >> 31) & 3);
         case REAR_TARGET: return (v >> (33 + ch * 7)) & 127;
         default: return 0;
     }
 }
 extern "C" int rear_set_setting(unsigned ch, unsigned field, unsigned value) {
     if (ch > 1 || ((field == REAR_MODE || field == REAR_TARGET) && rear_record_state() != REAR_IDLE)) return 0;
+    if(field == REAR_MODE) {
+        if(value > REAR_MIX) return 0;
+        constexpr uint64_t mask = (UINT64_C(3) << 31) | (UINT64_C(1) << 47);
+        uint64_t bits = value == REAR_MIX ? UINT64_C(1) << 47 : uint64_t(value) << 31;
+        uint64_t previous = settings.load();
+        while(!settings.compare_exchange_weak(previous,(previous & ~mask) | bits)) {}
+        return 1;
+    }
     unsigned shift, width, max;
     switch (field) {
         case REAR_MONITOR: shift = ch * 15; width = 1; max = 1; break;
@@ -159,21 +171,36 @@ extern "C" int rear_set_setting(unsigned ch, unsigned field, unsigned value) {
 extern "C" void rear_audio_meters(float levels[2]) {
     for (unsigned ch = 0; ch < 2; ++ch) { unsigned value = meters[ch].load(); std::memcpy(levels + ch, &value, 4); }
 }
-extern "C" void rear_audio_process(const float *left, const float *right, float *out_left,
-                                    float *out_right, unsigned frames, unsigned rate, int monitor) {
+extern "C" void rear_mix_prepare(const float*l,const float*r,float*out_l,float*out_r,unsigned frames,unsigned rate){
+    if(!l||!r||!out_l||!out_r||!frames||frames>8192)return;
+    uint64_t config=rear_settings_snapshot();float target[2][2];
+    for(unsigned ch=0;ch<2;++ch){float pan=float((config>>(ch*15+8))&127)/100.f,level=float((config>>(ch*15+1))&127)/100.f;
+        target[ch][0]=level*std::cos(pan*1.5707963267948966f);target[ch][1]=level*std::sin(pan*1.5707963267948966f);}
+    if(mixing_rate!=rate){std::memcpy(mixing_gains,target,sizeof target);mixing_rate=rate;}
+    float smoothing=rate?1.f-std::exp(-1.f/(.005f*rate)):1.f;
+    for(unsigned n=0;n<frames;++n){float a=finite(l[n]),b=finite(r[n]);
+        for(unsigned ch=0;ch<2;++ch)for(unsigned side=0;side<2;++side)mixing_gains[ch][side]+=(target[ch][side]-mixing_gains[ch][side])*smoothing;
+        out_l[n]=a*mixing_gains[0][0]+b*mixing_gains[1][0];out_r[n]=a*mixing_gains[0][1]+b*mixing_gains[1][1];}
+}
+extern "C" void rear_audio_process(const float *left,const float *right,float *out_left,float *out_right,unsigned frames,unsigned rate,int monitor){
+    rear_audio_process_prepared(left,right,out_left,out_right,frames,rate,monitor,0);
+}
+extern "C" void rear_audio_process_prepared(const float *left, const float *right, float *out_left,
+                                    float *out_right, unsigned frames, unsigned rate, int monitor,int prepared_mix) {
     if (!left || !right || !frames || frames > 8192) return;
     audio_users.fetch_add(1,std::memory_order_acquire);
     const float *input[2] = {left, right};
     uint64_t config = rear_settings_snapshot();
-    float peak[2] = {}, target[2][2]{};
+    float peak[2] = {}, target[2][2]{}, record_target[2][2]{};
     for (unsigned ch = 0; ch < 2; ++ch) {
         float pan = float((config >> (ch * 15 + 8)) & 127) / 100.f;
         float level = float((config >> (ch * 15 + 1)) & 127) / 100.f;
-        if (!monitor || !(config & (UINT64_C(1) << 30)) || !(config & (UINT64_C(1) << (ch * 15)))) level = 0;
-        /* Equal-power pan with unity at the endpoints. Smooth every gain to
-         * avoid clicks on mute, pan and level changes. Recorded PCM is dry. */
-        target[ch][0] = level * std::cos(pan * 1.5707963267948966f);
-        target[ch][1] = level * std::sin(pan * 1.5707963267948966f);
+        /* Recording Mix owns separate gains: Mon L/R and native monitor Off
+         * only affect listening. Single/dual mono recordings stay dry. */
+        record_target[ch][0] = level * std::cos(pan * 1.5707963267948966f);
+        record_target[ch][1] = level * std::sin(pan * 1.5707963267948966f);
+        bool audible = monitor && (config & (UINT64_C(1) << 30)) && (config & (UINT64_C(1) << (ch * 15)));
+        for(unsigned side=0;side<2;++side)target[ch][side]=audible?(prepared_mix?(side==ch?1.f:0.f):record_target[ch][side]):0.f;
     }
     float smoothing = rate ? 1.f - std::exp(-1.f / (.005f * rate)) : 1.f;
     auto &r = recording;
@@ -193,9 +220,17 @@ extern "C" void rear_audio_process(const float *left, const float *right, float 
         if (!capture) continue;
         if(r.failure.load(std::memory_order_relaxed)||r.cancel.load(std::memory_order_relaxed)){capture=false;continue;}
         if (r.stop.load(std::memory_order_acquire)) { capture = false; continue; }
+        float recorded[2] = {sample[0],sample[1]};
+        if(r.mixed&&!prepared_mix){
+            recorded[0]=recorded[1]=0.f;
+            for(unsigned ch=0;ch<2;++ch)for(unsigned side=0;side<2;++side){
+                r.mix_gains[ch][side]+=(record_target[ch][side]-r.mix_gains[ch][side])*smoothing;
+                recorded[side]+=sample[ch]*r.mix_gains[ch][side];
+            }
+        }
         if (state == REAR_WAITING) {
-            float trigger = std::max((r.channels & 1) ? std::fabs(sample[0]) : 0.f,
-                                     (r.channels & 2) ? std::fabs(sample[1]) : 0.f);
+            float trigger = std::max((r.channels & 1) ? std::fabs(recorded[0]) : 0.f,
+                                     (r.channels & 2) ? std::fabs(recorded[1]) : 0.f);
             if (r.threshold > 0 && trigger < r.threshold) continue;
             if (!r.state.compare_exchange_strong(state,REAR_RECORDING,std::memory_order_acq_rel)) {
                 capture = false;
@@ -204,8 +239,8 @@ extern "C" void rear_audio_process(const float *left, const float *right, float 
             state = REAR_RECORDING;
         }
         if (write - read >= ring_size) { r.failure.store(ERROR_OVERFLOW); capture = false; continue; }
-        r.samples[write & (ring_size - 1)][0] = sample[0];
-        r.samples[write & (ring_size - 1)][1] = sample[1];
+        r.samples[write & (ring_size - 1)][0] = recorded[0];
+        r.samples[write & (ring_size - 1)][1] = recorded[1];
         ++write;
         if (write >= r.limit) { r.stop.store(1); capture = false; }
     }
@@ -228,12 +263,21 @@ extern "C" int rear_record_begin(const char *directory, unsigned channels, unsig
     auto &r = recording;
     if (r.state.load() != REAR_IDLE || r.worker.joinable() || !directory || !*directory ||
         !channels || channels > 3 || rate < 8000 || rate > 192000 || !std::isfinite(threshold)) return 0;
+    r.mixed = rear_setting(0,REAR_MODE) == REAR_MIX;
+    if(r.mixed && channels != 3)return 0;
     r.channels = channels; r.rate = rate; r.threshold = std::max(0.f, threshold);
-    constexpr uint64_t max_frames = (UINT32_MAX - 37) / 3;
+    for(unsigned ch=0;ch<2;++ch){
+        float pan=float(rear_setting(ch,REAR_PAN))/100.f;
+        float level=float(rear_setting(ch,REAR_LEVEL))/100.f;
+        r.mix_gains[ch][0]=level*std::cos(pan*1.5707963267948966f);
+        r.mix_gains[ch][1]=level*std::sin(pan*1.5707963267948966f);
+    }
+    const uint64_t max_frames = (UINT32_MAX - 37) / (r.mixed ? 6 : 3);
     r.limit = limit ? std::min(limit,max_frames) : max_frames;
     if (std::snprintf(r.directory, sizeof(r.directory), "%s/Rear-XXXXXX", directory) >= (int)sizeof(r.directory)) return 0;
     if (!mkdtemp(r.directory)) return 0;
     for (unsigned ch = 0; ch < 2; ++ch) std::snprintf(r.paths[ch], sizeof(r.paths[ch]), "%.1023s/Rear-%c.wav", r.directory, 'L' + 6 * ch);
+    if(r.mixed){std::snprintf(r.paths[0],sizeof(r.paths[0]),"%.1023s/Rear-Mix.wav",r.directory);r.paths[1][0]=0;}
     r.write.store(0); r.read.store(0); r.frames.store(0); r.stop.store(0); r.cancel.store(0); r.failure.store(0);
     r.state.store(REAR_PREPARING);
     try { r.worker = std::thread(writer); }

@@ -19,6 +19,9 @@ int resample_stock_backend_cancel(void*,uint64_t);
 /* UI tick; bounded wake, then copy published POD only. No model reads. */
 int resample_stock_backend_poll(struct resample_stock_backend*,struct resample_stock_reply*);
 int resample_stock_backend_busy(struct resample_stock_backend*);
+/* Tuner probe: the model queue reads the selected pad's PCM and runs pitch detection. UI asks, then polls info. state: 0 none, 1 working, 2 pitched, 3 no pitch. */
+int resample_stock_backend_probe(struct resample_stock_backend*);
+unsigned resample_stock_backend_probe_info(struct resample_stock_backend*,float*hz,unsigned*pad,char*name,unsigned size);
 #ifdef __cplusplus
 }
 #endif

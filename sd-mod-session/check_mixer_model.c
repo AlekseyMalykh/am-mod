@@ -126,7 +126,7 @@ static void invalid_payloads(void)
     saved=project;
     for(size_t cut=0;cut<n;++cut){assert(mixer_decode(encoded,cut,&project)!=MIXER_OK);assert(!memcmp(&project,&saved,sizeof(project)));}
     memcpy(damaged,encoded,n+1);damaged[20]='z';assert(mixer_decode(damaged,n,&project)==MIXER_CORRUPT);
-    memcpy(damaged,encoded,n+1);set_byte(damaged,0,4);repair_crc(damaged,n);
+    memcpy(damaged,encoded,n+1);set_byte(damaged,0,5);repair_crc(damaged,n);
     assert(mixer_decode(damaged,n,&project)==MIXER_UNSUPPORTED&&!memcmp(&project,&saved,sizeof(project)));
     memcpy(damaged,encoded,n+1);set_byte(damaged,2,1);repair_crc(damaged,n);
     assert(mixer_decode(damaged,n,&project)==MIXER_UNSUPPORTED);
@@ -147,10 +147,20 @@ static void invalid_payloads(void)
     }
     puts("PASS every truncated default payload, future version/flags, hostile names and checksum-valid malformed payloads without partial commits");
 }
+static void input_codec(void){
+ mixer_defaults(&project);project.input.fx.count=1;project.input.fx.stage[0].kind=FX_STAGE_NATIVE;project.input.fx.stage[0].native_id=0x61465444;project.input.fx.stage[0].parameter[0]=.37f;project.input.fx_bypass=1;
+ size_t n;assert(mixer_encode(&project,encoded,sizeof encoded,&n)==MIXER_OK&&payload_byte(encoded,0)==4);
+ assert(mixer_decode(encoded,n,&decoded)==MIXER_OK&&decoded.input.fx.count==1&&decoded.input.fx_bypass==1&&decoded.input.fx.stage[0].parameter[0]==.37f);
+ assert(!decoded.master.fx.count&&!decoded.track[0].fx.count);
+ project.input.mix.level_db=-3;assert(!mixer_project_valid(&project));project.input.mix.level_db=0;
+ project.input.fx.stage[0].kind=FX_STAGE_SIDECHAIN;assert(!mixer_project_valid(&project));
+ mixer_defaults(&project);assert(mixer_encode(&project,encoded,sizeof encoded,&n)==MIXER_OK&&payload_byte(encoded,0)==1);assert(mixer_decode(encoded,n,&decoded)==MIXER_OK&&!decoded.input.fx.count&&!strcmp(decoded.input.name,"Input FX"));
+ puts("PASS independent Input FX version4 round-trip/bypass; legacy versions retain empty Input FX and unchanged routing");
+}
 int main(int argc,char**argv)
 {
     if(argc==2&&!strcmp(argv[1],"--fixture")){fixture();size_t n;assert(mixer_encode(&project,encoded,sizeof(encoded),&n)==MIXER_OK);puts(encoded);return 0;}
-    assert(argc==1);defaults();groups();scenes();codec();invalid_payloads();
+    assert(argc==1);defaults();groups();scenes();codec();invalid_payloads();input_codec();
     printf("PASS Mixer data model; project RAM %zu bytes; no native project/audio/UI integration\n",sizeof(project));
     return 0;
 }

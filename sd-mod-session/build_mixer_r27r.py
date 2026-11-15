@@ -21,13 +21,13 @@ sources = frozen['compile_verification']['linked_sources'] + [
     'src/knob_reset.c', 'src/sample_load_trace.c', 'src/sample_playing.c',
     'src/rear_audio.cc', 'src/rear_native.cc', 'src/rear_ui.c', 'src/rear_abi.S',
     'src/pad_resample_commit.cc', 'src/pad_sample_pool.cc', 'src/pad_assignment.cc',
-    'src/pad_assignment_abi.S', 'src/pad_source_abi.S', 'src/pad_memory_abi.S']
+    'src/pad_assignment_abi.S', 'src/pad_source_abi.S', 'src/pad_memory_abi.S', 'src/pad_sample_source.cc']
 mixer = ['src/mixer_model.c', 'src/mixer_meters.c', 'src/fx_chain.c', 'src/fx_own.c', 'src/compressor_dsp.c', 'src/fx_catalog.c',
          'src/mixer_archive.cc', 'src/mixer_buses.c', 'src/mixer_route_native.c',
          'src/mixer_live.c', 'src/mixer_live_native.c', 'src/mixer_view.c',
          'src/mixer_control.c', 'src/mixer_session.cc', 'src/mixer_input.c',
          'src/mixer_runtime.cc', 'src/mixer_sources.cc', 'src/mixer_leds.c',
-         'src/mixer_fx.cc', 'src/fx_native.cc', 'src/song_ui.c', 'src/mixer_stems.c', 'src/screen_mirror_drm.c']
+         'src/mixer_fx.cc', 'src/input_fx.cc', 'src/fx_native.cc', 'src/song_ui.c', 'src/mixer_stems.c', 'src/screen_mirror_drm.c']
 sources = list(dict.fromkeys(sources + mixer))
 sha = lambda b: hashlib.sha256(b).hexdigest()
 hashes = {s: sha((R / s).read_bytes()) for s in sources + ['build_mixer_r27r.py', 'build/phone_hooks.h', 'src/shift_badge.h', 'src/mod_build.h', 'src/spectrum_plot.h', 'src/screen_mirror_frame.h']}

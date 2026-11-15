@@ -52,7 +52,8 @@ void mixer_defaults(struct mixer_project*p)
     static const unsigned default_colours[]={6,6,6,6,6,6,6,6}; /* all Yellow (device request) */
     memset(p,0,sizeof(*p));
     for(unsigned i=0;i<MIXER_TRACKS;++i){snprintf(p->track[i].name,MIXER_NAME_BYTES,"Track %c",'A'+i);p->track[i].colour=mixer_colour_at(default_colours[i]);}
-    memcpy(p->master.name,"Master",7);p->master.colour=0x00c700; /* Master green */
+    memcpy(p->master.name,"Master",7);p->master.colour=0x00c700;
+    memcpy(p->input.name,"Input FX",9);p->input.colour=0x00c8ff; /* Master green */
 }
 int mixer_send_order(const unsigned char destination[MIXER_TRACKS],unsigned order[MIXER_TRACKS])
 {
@@ -84,12 +85,15 @@ int mixer_set_send_to(struct mixer_project*p,unsigned mask,unsigned destination)
 int mixer_project_valid(const struct mixer_project*p)
 {
     if(!p||p->scene_count>MIXER_MAX_SCENES)return 0;
-    for(unsigned i=0;i<=MIXER_TRACKS;++i){const struct mixer_channel*c=i<MIXER_TRACKS?p->track+i:&p->master;
+    for(unsigned i=0;i<MIXER_TRACKS+2;++i){const struct mixer_channel*c=i<MIXER_TRACKS?p->track+i:i==MIXER_TRACKS?&p->master:&p->input;
         /* Persist sample-rate-independent settings. Actual engine rate must
          * be revalidated when preparing DSP; no native processor is created. */
         if(!name_valid(c->name)||c->colour>0xffffff||!mix_valid(&c->mix)||c->fx_bypass>1||!fx_chain_valid(&c->fx,192000))return 0;
     }
     if(p->master.mix.mute||p->master.mix.solo)return 0;
+    /* Input has Level/Pan/Mute (MIX tab), but is never a send or solo destination. */
+    if(p->input.mix.send||p->input.mix.solo)return 0;
+    for(unsigned i=0;i<p->input.fx.count;++i)if(p->input.fx.stage[i].kind==FX_STAGE_SIDECHAIN)return 0;
     unsigned order[MIXER_TRACKS];
     if(!mixer_send_order(p->send_to,order))return 0;
     for(unsigned i=0;i<MIXER_PADS;++i)if(p->output[i]>MIXER_TRACKS)return 0;
@@ -191,6 +195,7 @@ static void emit_project(struct writer*w,const struct mixer_project*p,unsigned v
         for(unsigned j=0;j<MIXER_TRACKS;++j){byte(w,s->fields[j]);emit_mix(w,s->track+j,s->fields[j]);}
     }
     if(version>=2)for(unsigned i=0;i<MIXER_TRACKS;++i)byte(w,p->send_to[i]);
+    if(version>=4)emit_channel(w,&p->input);
 }
 enum mixer_result mixer_encode(const struct mixer_project*p,char*out,size_t capacity,size_t*needed)
 {
@@ -202,6 +207,7 @@ enum mixer_result mixer_encode(const struct mixer_project*p,char*out,size_t capa
         for(unsigned slot=0;slot<c->fx.count;++slot)
             if(c->fx.stage[slot].kind==FX_STAGE_SIDECHAIN)version=3;
     }
+    if(p->input.fx.count||p->input.fx_bypass||p->input.mix.level_db!=0||p->input.mix.pan!=0||p->input.mix.mute)version=4;
     struct writer count={0};emit_project(&count,p,version);
     size_t n=5+2*(8+count.count+4);
     if(n+1>MIXER_PAYLOAD_BYTES)return MIXER_FULL;
@@ -257,8 +263,8 @@ enum mixer_result mixer_decode(const char*in,size_t size,struct mixer_project*ou
     r.position=0;unsigned version=(unsigned)read_integer(&r,2),flags=(unsigned)read_integer(&r,2);
     size_t bytes=(size_t)read_integer(&r,4);
     if(bytes!=r.count-12)return MIXER_CORRUPT;
-    if(version<MIXER_MODEL_VERSION||version>3||flags)return MIXER_UNSUPPORTED;
-    r.count-=4;struct mixer_project pending;memset(&pending,0,sizeof(pending));
+    if(version<MIXER_MODEL_VERSION||version>4||flags)return MIXER_UNSUPPORTED;
+    r.count-=4;struct mixer_project pending;mixer_defaults(&pending);
     for(unsigned i=0;i<MIXER_TRACKS;++i)if(!read_channel(&r,pending.track+i,version))return MIXER_CORRUPT;
     if(!read_channel(&r,&pending.master,version))return MIXER_CORRUPT;
     for(unsigned i=0;i<MIXER_PADS;++i)pending.output[i]=(unsigned char)read_byte(&r);
@@ -267,6 +273,7 @@ enum mixer_result mixer_decode(const char*in,size_t size,struct mixer_project*ou
         for(unsigned j=0;j<MIXER_TRACKS;++j){s->fields[j]=(unsigned char)read_byte(&r);if(s->fields[j]&~ALL_FIELDS)return MIXER_UNSUPPORTED;read_mix(&r,s->track+j,s->fields[j]);}
     }
     if(version>=2)for(unsigned i=0;i<MIXER_TRACKS;++i)pending.send_to[i]=read_byte(&r);
+    if(version>=4&&!read_channel(&r,&pending.input,version))return MIXER_CORRUPT;
     if(r.failed||r.position!=r.count||!mixer_project_valid(&pending))return MIXER_CORRUPT;
     *out=pending;return MIXER_OK;
 }

@@ -21,6 +21,20 @@ int resample_destination_open(struct resample_destination*d,unsigned source,cons
     copy(d->sample,sizeof(d->sample),sample);copy(d->sequence,sizeof(d->sequence),sequence);d->error[0]=0;
     return 1;
 }
+/* Sample screen: the source is the selected pad, so there is no question to ask. */
+int resample_destination_open_sound(struct resample_destination*d,unsigned source,const char*sample,
+    const char*sequence,int has_sample,int has_sequence,uint64_t epoch,const uint64_t used[2]){
+    if(!resample_destination_open(d,source,sample,sequence,has_sample,has_sequence,epoch,used))return 0;
+    if(!d->has_sample){d->page=RD_ERROR;copy(d->error,sizeof(d->error),"Selected pad is empty");return 1;}
+    d->kind=RESAMPLE_SOUND;d->page=RD_TARGET;d->target_pad=128;d->error[0]=0;return 1;
+}
+/* Sequence window: the source is the current sequence, straight to the destination page. */
+int resample_destination_open_sequence(struct resample_destination*d,unsigned source,const char*sample,
+    const char*sequence,int has_sample,int has_sequence,uint64_t epoch,const uint64_t used[2]){
+    if(!resample_destination_open(d,source,sample,sequence,has_sample,has_sequence,epoch,used))return 0;
+    if(!d->has_sequence){d->page=RD_ERROR;copy(d->error,sizeof(d->error),"No current sequence");return 1;}
+    d->kind=RESAMPLE_SEQUENCE;d->page=RD_TARGET;d->target_pad=128;d->error[0]=0;return 1;
+}
 static void start(struct resample_destination*d,int overwrite){
     struct resample_destination_request request={++d->serial,d->source_epoch,d->kind,d->source_pad,d->target_pad,(unsigned)overwrite};
     if(!request.token)request.token=++d->serial;
@@ -40,8 +54,16 @@ int resample_destination_bank(struct resample_destination*d,unsigned bank){
 }
 int resample_destination_pad(struct resample_destination*d,unsigned pad,int down){
     if(!d||d->page==RD_CLOSED||pad>=16)return 0;
-    if(down&&d->page==RD_TARGET)resample_destination_target(d,d->bank*16+pad);
-    return 1; /* Select silently; release cannot trigger another mode. */
+    if(down&&(d->page==RD_TARGET||d->page==RD_CONFIRM)){
+        /* A free pad renders at once. A recorded pad asks first; pressing it again confirms. */
+        unsigned target=d->bank*16+pad;
+        int again=d->page==RD_CONFIRM&&d->target_pad==target;
+        d->target_pad=target;d->error[0]=0;
+        if(again)start(d,1);
+        else if(occupied(d))d->page=RD_CONFIRM;
+        else{d->page=RD_TARGET;start(d,0);}
+    }
+    return 1; /* Release cannot trigger another mode. */
 }
 int resample_destination_button(struct resample_destination*d,unsigned button,int down){
     if(!d||button>=3)return 0;
@@ -56,7 +78,7 @@ int resample_destination_button(struct resample_destination*d,unsigned button,in
         }else copy(d->error,sizeof(d->error),button==1?"No current sequence":"Selected pad is empty");
     }else if(d->page==RD_TARGET){
         if(!button)d->page=RD_CLOSED;
-        else if(button==1){d->page=RD_SOURCE;d->error[0]=0;}
+        else if(button==1){/* no source question any more */}
         else if(d->target_pad>=128)copy(d->error,sizeof(d->error),"Choose a destination pad");
         else if(occupied(d)){d->page=RD_CONFIRM;d->error[0]=0;}
         else start(d,0);
@@ -94,7 +116,7 @@ void resample_destination_paint(const struct resample_destination*d,const struct
     p->rect(p->user,0,5,320,235,0xff000000u);
     const char*b2="",*b3="";
     if(d->page==RD_SOURCE){b2="Seq";b3="Sample";}
-    else if(d->page==RD_TARGET){b2="Source";b3="Render";}
+    else if(d->page==RD_TARGET){b3="Render";}
     else if(d->page==RD_CONFIRM)b3="Replace";
     /* Header blocks, as in Chords. */
     const char*heads[3]={d->page==RD_CONFIRM?"Back":"Cancel",b2,b3};
@@ -154,11 +176,11 @@ void resample_destination_paint(const struct resample_destination*d,const struct
             p->text(p->user,text,x,y+1,w,h-2,13,chosen?0xff000000u:used?white:grey,1);
         }
         if(d->target_pad<128)snprintf(text,sizeof(text),"To %c%02u: %s",'A'+d->target_pad/16,d->target_pad%16+1,
-            d->page==RD_CONFIRM?"press again to replace":occupied(d)?"occupied, confirm to replace":"empty pad");
-        else snprintf(text,sizeof(text),"Press pad / Turn DATA: select");
+            d->page==RD_CONFIRM?"press the pad again to replace":occupied(d)?"occupied, confirm to replace":"empty pad");
+        else snprintf(text,sizeof(text),"Press a free pad to render");
         p->text(p->user,text,8,182,304,20,14,d->page==RD_CONFIRM||(d->target_pad<128&&occupied(d))?red:d->target_pad<128?white:grey,1);
         if(d->page==RD_TARGET&&!d->error[0])
-            p->text(p->user,"K1 or PAD BANK: bank   /   Turn DATA: pad",8,210,304,19,12,grey,1);
+            p->text(p->user,"Recorded pad: asks to replace  /  K1: bank",8,210,304,19,12,grey,1);
     }else{
         if(d->kind==RESAMPLE_SEQUENCE)snprintf(text,sizeof(text),"Seq: %s",d->sequence);
         else snprintf(text,sizeof(text),"%c%02u  %s",'A'+d->source_pad/16,d->source_pad%16+1,d->sample);

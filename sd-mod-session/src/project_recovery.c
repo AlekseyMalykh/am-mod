@@ -229,7 +229,7 @@ static int save_screen_visible(uintptr_t image,void *p){
  return save_kind(image,p)!=SAVE_OTHER&&FN(0x112fd50,int(*)(void*))(p);
 }
 static unsigned storage_offset(uintptr_t image,void *p){
- return save_kind(image,p)==SAVE_SAMPLE?0x11b8:0x11a0;
+ return save_kind(image,p)==SAVE_SAMPLE?0x10b8:0x10a0;
 }
 int project_recovery_save_external(uintptr_t image,void *p){
  if(!save_screen_visible(image,p))return 0;
@@ -237,7 +237,7 @@ int project_recovery_save_external(uintptr_t image,void *p){
  /* The native setter separates the requested position from the effective
   * destination and clears External when the card is unavailable. */
  if(!F(p,storage+1,unsigned char)){
-  uintptr_t setter=storage==0x11b8?0x1683280:0x16480e0;
+  uintptr_t setter=storage==0x10b8?0x1683280:0x16480e0;
   FN(setter,void(*)(void*,float))(p,1.f);
  }
  return F(p,storage+1,unsigned char)!=0;
@@ -260,15 +260,23 @@ void project_recovery_save_paint(uintptr_t image,void*p,void*g){
   * Seed its native controls once, then preserve subsequent user edits. */
  unsigned storage=storage_offset(image,p);
  {static unsigned last=~0u;unsigned now=(unsigned)save_kind(image,p)|(F(p,storage,unsigned char)<<4)|(F(p,storage+1,unsigned char)<<12);
-  if(now!=last){last=now;fprintf(stderr,"SAVE_SCREEN kind=%u seeded=%u external=%u busy=%d\n",(unsigned)save_kind(image,p),
-   (unsigned)F(p,storage,unsigned char),(unsigned)F(p,storage+1,unsigned char),FN(0x112f6b0,int(*)(void*))(p));}}
+  if(now!=last){last=now;fprintf(stderr,"SAVE_SCREEN kind=%u seeded=%u external=%u busy=%d old_offsets=%u/%u\n",(unsigned)save_kind(image,p),
+   (unsigned)F(p,storage,unsigned char),(unsigned)F(p,storage+1,unsigned char),FN(0x112f6b0,int(*)(void*))(p),
+   (unsigned)F(p,storage+0x100,unsigned char),(unsigned)F(p,storage+0x101,unsigned char));}}
  /* Seed External once per screen opening, even if the native flag byte is
   * already set: the K3 cell otherwise keeps showing "Internal". */
- {static void *seeded_screen;static unsigned seeded_frames;
+ {static void *seeded_screen;static unsigned seeded_frames;static uint64_t last_reseed;
   if(seeded_screen!=p){seeded_screen=p;seeded_frames=0;}
-  if(seeded_frames<3){++seeded_frames;
-   if(!F(p,storage+1,unsigned char)||seeded_frames==1){
-    uintptr_t setter=storage==0x11b8?0x1683280:0x16480e0;
+  int unseeded=!F(p,storage+1,unsigned char);
+  uint64_t now=milliseconds();
+  /* Keep enforcing External for as long as the window is open: the native code can reset the
+   * flag later (name edits, repaint, storage refresh), which showed Internal again in r29a. */
+  int again=seeded_frames>=3&&unseeded&&now-last_reseed>120&&!FN(0x112f6b0,int(*)(void*))(p);
+  if(seeded_frames<3||again){
+   if(seeded_frames<3)++seeded_frames;
+   else{last_reseed=now;fprintf(stderr,"SAVE_RESEED kind=%u storage=0x%x\n",(unsigned)save_kind(image,p),storage);}
+   if(unseeded||seeded_frames==1){
+    uintptr_t setter=storage==0x10b8?0x1683280:0x16480e0;
     FN(setter,void(*)(void*,float))(p,1.f);
     FN(0x1149880,void(*)(void*,uint64_t,uint64_t))(p,0,F(p,0x28,uint64_t));}}}
  int external=F(p,storage+1,unsigned char)!=0;

@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <math.h>
 #include <string.h>
+unsigned rear_setting(unsigned ch,unsigned field){return field==4?4:field==1?(ch?65:80):field==2?(ch?70:30):0;}
+int rear_native_source(void){return 1;}
 static FILE*trace;
 static unsigned delete_probe,delete_buttons,add_point_ink;
 static unsigned overview_keys,fader_focus,master_cap_x,master_cap_ink,knob_centres,knob_bars[3];
@@ -210,6 +212,11 @@ int main(int argc,char**argv)
     s.fx_slot=2;paint_trace(argv[1],"reverb",&s,&painter);
     assert(fx_catalog_stage(7,s.rate,&project.track[2].fx.stage[2]));
     paint_trace(argv[1],"filter",&s,&painter);
+    s.page=MIXER_KNOB_FX;s.master=2;s.selected=0;s.fx_parameters=0;s.fx_slot=0;
+    project.input.fx.count=1;assert(fx_catalog_stage(3,s.rate,&project.input.fx.stage[0]));
+    paint_trace(argv[1],"input-fx",&s,&painter);
+    s.fx_parameters=1;paint_trace(argv[1],"input-fx-parameters",&s,&painter);
+    s.master=0;s.selected=1u<<2;
     s.page=MIXER_OVERVIEW;s.fx_parameters=0;s.fx_signal=NULL;
     s.now_ms=1251;na=0;mixer_view_paint(&s,&painter);assert(na==9);
     s.now_ms=1000;s.epoch=8;na=0;mixer_view_paint(&s,&painter);assert(na==9);

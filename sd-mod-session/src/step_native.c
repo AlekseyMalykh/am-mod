@@ -114,6 +114,8 @@ _Static_assert(ATOMIC_LLONG_LOCK_FREE==2,"Audio snapshot requires lock-free64-bi
 static _Atomic uint64_t preview_gate_serial,preview_gate_words[7];
 static _Atomic(uintptr_t) preview_gate_track;
 static _Atomic unsigned preview_gate_enabled;
+static _Atomic unsigned gate_calls,gate_hits;
+static _Atomic unsigned gate_seen,gate_pair[8][3];
 static void preview_gate_set(void*track,const struct step_event*event){
  if(!event&&!atomic_load(&preview_gate_enabled))return;
  atomic_fetch_add_explicit(&preview_gate_serial,1,memory_order_acq_rel);
@@ -129,8 +131,14 @@ static void preview_gate_set(void*track,const struct step_event*event){
 int step_native_preview_suppressed(void*track,const void*event,unsigned mask){
  /* Only sequence scheduling; the ordinary Sample input uses7ffffffa and
   * must still audition the original pitch. No models, locks or I/O here. */
- if(mask!=0x7ffffffe||!event)return 0;
+ if(!event)return 0;
+ {unsigned t0=FIELD(event,8,uint32_t)&0x1ff;atomic_fetch_add_explicit(&gate_seen,1,memory_order_relaxed);
+  for(unsigned i=0;i<8;++i){unsigned m=atomic_load_explicit(&gate_pair[i][0],memory_order_relaxed);
+   if(m==(mask|1u<<31)&&atomic_load_explicit(&gate_pair[i][1],memory_order_relaxed)==t0){atomic_fetch_add_explicit(&gate_pair[i][2],1,memory_order_relaxed);break;}
+   if(!m){atomic_store_explicit(&gate_pair[i][1],t0,memory_order_relaxed);atomic_store_explicit(&gate_pair[i][2],1,memory_order_relaxed);atomic_store_explicit(&gate_pair[i][0],mask|1u<<31,memory_order_relaxed);break;}}}
+ if(mask!=0x7ffffff8)return 0; /* sequence playback; 7ffffffa is the pad input and must still sound */
  uint32_t type=FIELD(event,8,uint32_t);if((type&255)!=3||(type&0x100))return 0;
+ atomic_fetch_add_explicit(&gate_calls,1,memory_order_relaxed);
  uint64_t words[7];memcpy(words,event,56);
  for(unsigned attempt=0;attempt<2;++attempt){
   uint64_t seq=atomic_load_explicit(&preview_gate_serial,memory_order_acquire);
@@ -141,7 +149,7 @@ int step_native_preview_suppressed(void*track,const void*event,unsigned mask){
    uint64_t valid=i==1?UINT64_C(0xffffffff):i==6?UINT64_C(0xffffffffff):UINT64_MAX;
    equal&=((words[i]^atomic_load_explicit(&preview_gate_words[i],memory_order_relaxed))&valid)==0;
   }
-  if(seq==atomic_load_explicit(&preview_gate_serial,memory_order_acquire))return equal;
+  if(seq==atomic_load_explicit(&preview_gate_serial,memory_order_acquire)){if(equal)atomic_fetch_add_explicit(&gate_hits,1,memory_order_relaxed);return equal;}
  }
  return 0;
 }
@@ -251,7 +259,7 @@ static void sample_palette_publish(void *things,void *program,int bank,int enabl
   if(mute_mode){
    /* Agreed: Mute keeps each pad's colour, brighter; muted pads turn the
     * Occupied/danger colour (red by default); playing pads at full. */
-   uint64_t light=used?pad_light(muted?PAD_DANGER:music_identity_rgb((unsigned)music_pad_colour(n)),now<playback_until[i]?1.f:.70f):0;
+   uint64_t light=used?pad_light(muted?PAD_DANGER:music_pad_rgb(n),now<playback_until[i]?1.f:.70f):0;
    atomic_store(&sample_palette[i],light);
    continue;
   }
@@ -259,18 +267,18 @@ static void sample_palette_publish(void *things,void *program,int bank,int enabl
   enum mixer_sample_gate gate=used?mixer_phone_sample_gate(n):MIXER_SAMPLE_AUDIBLE;
   uint32_t status=mixer_sample_status_rgb(gate);
   if(status){
-   uint32_t hue=now%1000<500?status:music_identity_rgb((unsigned)music_pad_colour(n));
+   uint32_t hue=now%1000<500?status:music_pad_rgb(n);
    atomic_store(&sample_palette[i],pad_light(hue,now<playback_until[i]?1.f:.70f));
    continue;
   }
   if(gate==MIXER_SAMPLE_SOLO_EXCLUDED){
-   uint32_t hue=muted?PAD_MUTED:music_identity_rgb((unsigned)music_pad_colour(n));
+   uint32_t hue=muted?PAD_MUTED:music_pad_rgb(n);
    uint64_t light=(int)n==focus?pad_focus_light(hue,.12f,now-sample_focus_since):pad_light(hue,.12f);
    atomic_store(&sample_palette[i],light);
    continue;
   }
 #endif
-  uint32_t rgb=muted?PAD_MUTED:used?music_identity_rgb((unsigned)music_pad_colour(n)):0;
+  uint32_t rgb=muted?PAD_MUTED:used?music_pad_rgb(n):0;
   /* Agreed: loaded pads dimmer at rest, clearly brighter while pressed or
    * playing (each held pad, several at once). Native selection orange
    * ff7700 is the cursor, not a press. */
@@ -298,7 +306,7 @@ static void sample_palette_publish(void *things,void *program,int bank,int enabl
   /* Device report: an empty pad that the sequence plays must still show the
    * note. Its own colour flashes; empty slots count as "muted" above, so the
    * grey mute marker is not used for them. */
-  else if(!used&&now<playback_until[i]){rgb=music_identity_rgb((unsigned)music_pad_colour(n));strength=.80f;}
+  else if(!used&&now<playback_until[i]){rgb=music_pad_rgb(n);strength=.80f;}
 #ifdef MPC_LOOP_FEEDBACK
   int sustained=used&&!(rgb==PAD_MUTED&&now<playback_until[i])&&sample_playing_active(program,n);
   if(sustained){
@@ -317,7 +325,7 @@ static void sample_palette_publish(void *things,void *program,int bank,int enabl
     * moment of selection (relation colour first), and each half-period is
     * re-asserted after the playing/flash logic above. */
    int rel_phase=(now-sample_focus_since)%1000<500;
-   uint32_t own=music_identity_rgb((unsigned)music_pad_colour(n));
+   uint32_t own=music_pad_rgb(n);
    if(rel_phase){rgb=music_relation_rgb(selected_link?MUSIC_RELATION_LINK:MUSIC_RELATION_GROUP);if(strength<.85f)strength=.85f;sustained=0;}
    else if(rgb==0||rgb==PAD_MUTED){rgb=own;strength=.85f;sustained=0;}
   }
@@ -326,7 +334,7 @@ static void sample_palette_publish(void *things,void *program,int bank,int enabl
   if((int)n==focus&&!(rgb==PAD_MUTED&&now<playback_until[i]))
 #ifdef MPC_LOOP_FEEDBACK
    light=sustained?(music_cursor_on(now-sample_focus_since,500)?pad_light(PAD_SELECT,.95f):
-       pad_light(muted?PAD_MUTED:music_identity_rgb((unsigned)music_pad_colour(n)),muted?.65f:.95f)):
+       pad_light(muted?PAD_MUTED:music_pad_rgb(n),muted?.65f:.95f)):
        hot?(music_cursor_on(now-sample_focus_since,500)?pad_light(PAD_SELECT,.95f):pad_light(rgb,1.f)):
        pad_focus_light(rgb,strength,now-sample_focus_since);
 #else
@@ -342,6 +350,7 @@ static int64_t playback_previous=-1;
 static void *playback_list,*playback_program;
 static int playback_sound=-1,playback_mode=-1,playback_first;
 static struct step_event detail_old,detail_edit;
+static int picker_muted,picker_mute_failed;static int picker_set_muted(int on);
 static struct step_event picker_notes[16];
 static unsigned picker_note_count;
 static int picker_toggle_notes;
@@ -561,6 +570,10 @@ static void set_sound_bank(int bank)
         FN(0x1a36330,void(*)(void*,int))(model,bank);
     browse_bank=bank;
 }
+int step_native_bank_or_last(void)
+{
+    static int last;int b=native_bank();if(b>=0)last=b;return last;
+}
 int step_native_browser_bank(int bank)
 {
     if(bank>=0&&bank<8)set_sound_bank(bank);
@@ -755,6 +768,79 @@ static int level_nearest(const struct step_event *e,int mode,int first)
     }
     return nearest;
 }
+/* ---- 16 Levels Tune editor: sound layout (Monochrome/Piano/Scale/Degrees) ---- */
+static const char *const picker_layouts[4]={"Monochrome","Piano","Scale","Degrees"};
+static uint64_t picker_loop_stop_at;
+static void picker_loop_audition(const struct step_event *list,unsigned n);
+static int picker_note_index(const struct step_event*e);
+static void picker_init_selection(void);
+static void *picker_gate_track;static int picker_gate_on=-1;
+/* The original event is silenced only while the choice replaces it; with the original
+ * kept (no choice, or it is among the selected notes) it keeps playing. */
+static void picker_gate_update(void)
+{
+    int differs=0;
+    if(picker_toggle_notes)differs=picker_note_count==0||picker_note_index(&detail_old)<0;
+    else if(picker_has_choice)differs=fabs(level_value(&detail_edit,picker_mode)-level_value(&detail_old,picker_mode))>.01;
+    differs=differs&&picker_gate_track&&!picker_insert;
+    {static uint64_t last;static unsigned lines;uint64_t n=milliseconds();
+     if(n-last>1000&&lines<60){last=n;++lines;fprintf(stderr,"PAD_STEPS PICKER_GATE_STATE on=%d want=%d notes=%u toggle=%d track=%d calls=%u hits=%u\n",picker_gate_on,differs,picker_note_count,picker_toggle_notes,picker_gate_track!=NULL,atomic_load(&gate_calls),atomic_load(&gate_hits));fprintf(stderr,"PAD_STEPS GATE_SEEN total=%u",atomic_load(&gate_seen));for(unsigned i=0;i<8;++i)if(atomic_load(&gate_pair[i][0]))fprintf(stderr," [mask=%x type=%x n=%u]",atomic_load(&gate_pair[i][0])&0x7fffffffu,atomic_load(&gate_pair[i][1]),atomic_load(&gate_pair[i][2]));fprintf(stderr,"\n");}}
+    if(differs==picker_gate_on)return;
+    picker_gate_on=differs;
+    if(differs)preview_gate_set(picker_gate_track,&detail_old);else preview_gate_set(NULL,NULL);
+}
+/* Poly sample: the editor selects several notes; Mono: one note. */
+static int picker_sample_poly(void)
+{
+    void*things=controller?FIELD(controller,0x248,void*):NULL;
+    void*program=things?FIELD(things,0xb8,void*):NULL;
+    int pad=event_pad(&detail_old);
+    void*instrument=program&&pad>=0&&pad<128?FN(0x286bbe0,void*(*)(void*,int))(program,pad):NULL;
+    int poly=instrument&&FIELD(instrument,0x1690,int)==0;
+    {static int last=-9,logged;if((pad!=last||logged<2)&&logged<40){last=pad;++logged;fprintf(stderr,"PAD_STEPS PICKER_POLY pad=%d instrument=%d poly=%d\n",pad,instrument!=NULL,poly);}}
+    return poly;
+}
+static int picker_degrees(void)
+{
+    struct music_sample s={0};
+    if(picker_mode!=1||!music_get_sample(sample_name,&s))return 0;
+    return s.mode==MUSIC_DEGREES;
+}
+/* Pitch (semitones) played by a pad of the Tune editor. Degrees: key notes by
+ * degree (same mapping as the Sample window); otherwise 16 chromatic pads from Range. */
+static int picker_pad_value(unsigned pad,int *v)
+{
+    if(picker_mode==1&&picker_degrees()){
+        struct music_sample s={0};music_get_sample(sample_name,&s);
+        uint64_t snap=music_light_snapshot(&s,sample_tuning);int p=0;
+        if(!music_layout_pad_pitch(snap,pad,(int)atomic_load(&native_levels_origin),&p))return 0;
+        *v=p;return 1;
+    }
+    *v=picker_base+(int)pad;return 1;
+}
+static int picker_pad_ok(unsigned pad){int v;return picker_pad_value(pad,&v)&&v>=-120&&v<=120;}
+static void picker_candidate(struct step_event *out,unsigned pad)
+{
+    int v=0;picker_pad_value(pad,&v);
+    level_candidate(&detail_old,out,1,0,v);
+}
+/* Pad that shows this event's pitch (-1 = outside the current window). */
+static int picker_pad_for(const struct step_event *e)
+{
+    if(picker_mode==1&&picker_degrees()){
+        int target=(int)lround(level_value(e,1));
+        for(unsigned i=0;i<16;++i){int v;if(picker_pad_value(i,&v)&&v==target)return (int)i;}
+        return -1;
+    }
+    return level_nearest(e,picker_mode,picker_base);
+}
+static void picker_set_transpose(int value)
+{
+    if(value<-24)value=-24;
+    if(value>24)value=24;
+    music_set_sample(sample_name,MUSIC_TRANSPOSE,value);
+    picker_init_selection();
+}
 void step_native_playback_context(void *things,int transpose,int sample_visible)
 {
     /* Called only from phone_native's UI Timer. Sample playback must not
@@ -763,6 +849,8 @@ void step_native_playback_context(void *things,int transpose,int sample_visible)
     if (!on_ui()) return;
     uint64_t now=milliseconds();unsigned mask=0;
     int picker=showing && menu==3;
+    if(picker)picker_gate_update();
+    if(picker_loop_stop_at&&now>=picker_loop_stop_at){picker_loop_stop_at=0;if(!picker_audition_active)workflow_event_preview_stop(0);}
     unsigned running=atomic_load(&clock_running);
     if (!things && root && FIELD(root,0,uintptr_t)==base+SCREEN_VPTR && controller)
         things=FIELD(controller,0x248,void*);
@@ -798,7 +886,7 @@ void step_native_playback_context(void *things,int transpose,int sample_visible)
                 gate,mode,selected,atomic_load(&native_levels_origin),(long long)tick);
     }
     int sample_enabled=enabled&&mode==10&&!picker&&!(showing&&steps);
-    if (gate || picker) { /* Editor markers describe original/choice, not loop flashes. */
+    if (gate) { /* In the editor the loop flashes other notes; original/choice stay separate markers. */
         playback_previous=-1;memset(playback_until,0,sizeof(playback_until));memset(playback_pitch_until,0,sizeof(playback_pitch_until));atomic_store(&playback_colour_bank,-1);atomic_store(&playback_mask,0);atomic_store(&playback_muted_mask,0);memset(playback_muted_until,0,sizeof(playback_muted_until));sample_palette_publish(things,program,bank,sample_enabled,sample_mute||seq_mute,now);return;
     }
     unsigned muted_pads=0;
@@ -840,13 +928,24 @@ void step_native_playback_context(void *things,int transpose,int sample_visible)
                     playback_until[pad%16]=now+120;
                     playback_muted_until[pad%16]=(event_muted(&e)||(muted_pads&(1u<<(pad%16))))?now+120:0;
                 }
-                else if(mode<10 && musical(&e) && !event_muted(&e) && pad==selected && (parameter<0 || (FIELD(&e,0x14,uint16_t)&(1u<<parameter)))) {
+                else if(mode<10 && musical(&e) && (!event_muted(&e)||(picker&&!picker_insert&&picker_muted&&e.time==detail_old.time&&e.data[0x20]==detail_old.data[0x20])) && pad==selected && (parameter<0 || (FIELD(&e,0x14,uint16_t)&(1u<<parameter)))) {
+                    if(picker&&!picker_insert&&e.time==detail_old.time&&e.data[0x20]==detail_old.data[0x20]){
+                        /* The edited event: its replacement is what plays and flashes. */
+                        if(picker_toggle_notes&&picker_note_count){
+                            for(unsigned ni=0;ni<picker_note_count;++ni){int ap=picker_pad_for(&picker_notes[ni]);if(ap>=0)playback_until[ap]=now+120;}
+                            if(!picker_audition_active)picker_loop_audition(picker_notes,picker_note_count);
+                            e=picker_notes[0];
+                        }else if(picker_has_choice){
+                            e=detail_edit;
+                            if(!picker_audition_active)picker_loop_audition(&detail_edit,1);
+                        }else if(picker_toggle_notes)goto skip_event;
+                    }
                     if(mode==1){int v=(int)lround(level_value(&e,1));if(v>=-120&&v<=120)playback_pitch_until[v+120]=now+120;}
                     uint64_t layout=music_published();
-                    if(mode==1&&!picker&&((layout>>4)&3)==(MUSIC_DEGREES&3)&&((layout>>40)&1)==(MUSIC_DEGREES>>2)){
+                    if(mode==1&&(picker?picker_degrees():(((layout>>4)&3)==(MUSIC_DEGREES&3)&&((layout>>40)&1)==(MUSIC_DEGREES>>2)))){
                         /* Degrees: pads are key notes; flash the pad that plays this pitch. */
                         int v=(int)lround(level_value(&e,1));
-                        for(int i=0;i<16;++i){int p=0;if(music_layout_pad_pitch(layout,(unsigned)i,atomic_load(&native_levels_origin),&p)&&p==v){playback_until[i]=now+120;break;}}
+                        for(int i=0;i<16;++i){int p=0;if((picker?picker_pad_value((unsigned)i,&p):music_layout_pad_pitch(layout,(unsigned)i,atomic_load(&native_levels_origin),&p))&&p==v){playback_until[i]=now+120;break;}}
                     } else {
                     int key=level_nearest(&e,mode,first);
                     struct step_event candidate;level_candidate(&e,&candidate,mode,key,first);
@@ -855,6 +954,7 @@ void step_native_playback_context(void *things,int transpose,int sample_visible)
                         playback_until[key]=now+120;
                     }
                 }
+                skip_event:
                 node=FN(0xb51738,void*(*)(void*))(node);
             }
         }
@@ -883,8 +983,9 @@ int step_native_playback_pitches(int *out,int max)
 }
 static void picker_select(unsigned pad)
 {
-    if ((picker_mode==1 && picker_base+(int)pad>120) || (picker_mode==8 && picker_base+(int)pad>picker_slice_count)) return;
-    level_candidate(&detail_old,&detail_edit,picker_mode,(int)pad,picker_base);
+    if ((picker_mode==1 && !picker_pad_ok(pad)) || (picker_mode==8 && picker_base+(int)pad>picker_slice_count)) return;
+    if(picker_mode==1)picker_candidate(&detail_edit,pad);
+    else level_candidate(&detail_old,&detail_edit,picker_mode,(int)pad,picker_base);
     picker_has_choice=1;
     picker_value=(int)lround(level_value(&detail_edit,picker_mode));
 }
@@ -894,6 +995,22 @@ static int picker_note_index(const struct step_event*e)
         if(fabs(level_value(&picker_notes[i],1)-level_value(e,1))<.01)return (int)i;
     return -1;
 }
+static void picker_init_selection(void)
+{
+    detail_edit=detail_old;
+    if(picker_insert||picker_chop||picker_mode!=1){picker_note_count=0;picker_toggle_notes=0;picker_has_choice=0;return;}
+    /* A Tune editor opens with the original note selected; deselecting it removes the event. */
+    picker_notes[0]=detail_old;picker_note_count=1;picker_toggle_notes=1;picker_has_choice=1;
+}
+static void picker_single(unsigned pad,int clear_same)
+{
+    picker_select(pad);
+    if(picker_mode!=1)return;
+    int i=picker_note_index(&detail_edit);
+    if(clear_same&&i>=0&&picker_note_count==1){picker_note_count=0;picker_has_choice=0;detail_edit=detail_old;}
+    else{picker_notes[0]=detail_edit;picker_note_count=1;}
+    picker_toggle_notes=1;
+}
 static void picker_toggle(unsigned pad)
 {
     picker_select(pad);
@@ -902,6 +1019,8 @@ static void picker_toggle(unsigned pad)
     else if(picker_note_count<16)picker_notes[picker_note_count++]=detail_edit;
     else say("Maximum16 notes; deselect one first");
     picker_toggle_notes=1;
+    picker_has_choice=picker_note_count>0;
+    if(!picker_has_choice)detail_edit=detail_old;
 }
 static void audition_picker(unsigned pad){
     stop_picker_audition();
@@ -914,8 +1033,21 @@ static void audition_picker(unsigned pad){
 void step_native_pad_release(unsigned pad,uint64_t t){
     if(on_ui()&&current(t)&&(t&T_PICKER)&&picker_audition_active&&pad==picker_audition_pad){picker_preview_wait=1;picker_probe("AUDIO_WAIT",pad);workflow_event_preview_stop(0);picker_audition_active=0;}
 }
+static void picker_loop_audition(const struct step_event *list,unsigned n){
+    stop_picker_audition();
+    void*t=controller?FIELD(controller,0x248,void*):NULL;
+    int started=0;
+    for(unsigned i=0;i<n;++i){
+        struct step_event e=list[i];e.time=0;e.type&=~0x300u;
+        int pad=picker_pad_for(&list[i]);if(pad<0)pad=0;
+        if(workflow_event_preview(t?FIELD(t,0xb8,void*):NULL,&e,(unsigned)pad,(unsigned)picker_mode)==1)started=1;
+    }
+    if(started)picker_loop_stop_at=milliseconds()+350;
+}
 static void picker_start(int kind,const struct step_event *source,int inserting)
 {
+    if(picker_muted)picker_set_muted(0);
+    picker_mute_failed=0;
     struct step_event selected=*source;
     if(!(event_categories(&selected)&(kind==15?1u:2u)) || (!inserting&&!choose_exact(&selected))){
         menu=0;invalidate();say("Event changed: select again");return;}
@@ -925,6 +1057,7 @@ static void picker_start(int kind,const struct step_event *source,int inserting)
     picker_has_choice=0;
     picker_chop=kind==15;picker_mode=picker_chop ? 8 : event_level_mode(&detail_old);picker_kind=level_params[picker_mode];
     detail_edit=detail_old;picker_value=(int)lround(level_value(&detail_old,picker_mode));
+    picker_init_selection();
     picker_base=level_first(&detail_old,picker_mode);
     picker_slice_count=event_slices(&detail_old);if(picker_slice_count<1)picker_slice_count=128;
     picker_focus=picker_chop?2:1;
@@ -935,7 +1068,7 @@ static void picker_start(int kind,const struct step_event *source,int inserting)
     void*things=FIELD(controller,0x248,void*);
     /* Native Sample1545074 and engine2115034 resolve CurrentThings+140.
      * Full-MPC EventAudition uses a different selection at+368. */
-    preview_gate_set(!inserting&&things?FIELD(things,0x140,void*):NULL,inserting?NULL:&detail_old);
+    picker_gate_track=!inserting&&things?FIELD(things,0x140,void*):NULL;picker_gate_on=-1;preview_gate_set(NULL,NULL);
     invalidate();report("EVENT_PICKER_OPEN staged_no_sample_edit");
 }
 static void picker_begin(int kind,const struct step_event *source){picker_start(kind,source,0);}
@@ -966,6 +1099,7 @@ static void picker_open(int kind)
 static void picker_apply(void)
 {
     stop_picker_audition();
+    if(picker_muted&&!picker_set_muted(0)){say("Original note could not be restored");return;}
     /* Re-resolve the complete original event, never a saved list index. */
     if(picker_insert){
         struct slot at[16];int step=(int)(detail_old.time/grid_ticks[grid]);
@@ -973,7 +1107,7 @@ static void picker_apply(void)
         if(!picker_has_choice){say("Select a note or Cancel");return;}
     }else if (!choose_exact(&detail_old)) {menu=0;say("Event changed: reopen picker");return;}
     if(picker_mode==1&&picker_toggle_notes){
-        if(!picker_note_count){say("Select at least one note or Cancel");return;}
+        if(!picker_note_count){if(picker_insert){say("Select a note or Cancel");return;}remove_event(&detail_old);menu=0;invalidate();say("Note removed");return;}
         if(!apply_picker_notes()){say("Chord could not be applied");return;}
         menu=0;invalidate();say("Selected notes applied");return;
     }
@@ -986,7 +1120,7 @@ static void picker_apply(void)
 struct add_context {
     struct native_tree removed,added,changed;
     const struct step_event *event;
-    const struct step_event *replace_old,*replace_notes;
+    const struct step_event *replace_old,*replace_notes,*one;
     unsigned replace_count;
     uintptr_t result[2];uint64_t title,merge;
     int page,sound,grid,slot,ready,mute_change,mute_value,unmute_sound;
@@ -1007,6 +1141,12 @@ static void add_command(void *opaque)
         for(unsigned i=0;i<c->replace_count;++i)FN(0x1574460,void(*)(void*,const void*))(&c->added,c->replace_notes+i);
     }
     else if (c->event) FN(0x1574460,void(*)(void*,const void*))(&c->added,c->event);
+    else if (c->one) {
+        c->replacements=step_mute_map(base);
+        struct step_event e;memcpy(&e,c->one,sizeof(e));
+        e.type=(e.type&~0x200u)|(c->mute_value?0x200u:0u);
+        step_mute_pair(c->replacements,c->one,&e);
+    }
     else {
         struct slot checked[16];
         /* Build an owned native multiset before dispatch. No mutation while
@@ -1061,6 +1201,18 @@ static int add_event(const struct step_event *e)
     struct add_context c={0};c.event=e;
     if (!run_set_command(&c)) {say("Native add failed");return 0;}
     report("ADD_EVENT native_Undo inline_payload_preserved no_removal_set");return 1;
+}
+/* The stock sequencer plays from the event list, so while the picker drops the original
+ * note, that event is muted with the stock mute bit (native, Undo-able) and restored on exit. */
+static int picker_set_muted(int on)
+{
+    if(picker_muted==on)return 1;
+    if(!controller||!event_list)return 0;
+    struct step_event cur=detail_old;if(picker_muted)cur.type|=0x200u;else cur.type&=~0x200u;
+    struct add_context c={0};c.one=&cur;c.mute_change=1;c.mute_value=on;
+    if(!run_set_command(&c))return 0;
+    picker_muted=on;
+    report(on?"PICKER_MUTE_ORIGINAL native_Undo":"PICKER_UNMUTE_ORIGINAL native_Undo");return 1;
 }
 static int apply_picker_notes(void)
 {
@@ -1220,7 +1372,7 @@ static uint64_t step_palette_value(unsigned events,unsigned muted,int mute,int e
         return pad_light(status,playing?1.f:.75f);
     }
     int chosen=music_pad_colour((unsigned)sound);
-    uint32_t content=chosen?music_identity_rgb(chosen):PAD_CONTENT;
+    (void)chosen;uint32_t content=music_pad_rgb((unsigned)sound);
     /* Called only for valid steps: keep the writable range visible even
      * when empty; positions beyond sequence length stay completely off. */
     int muted_phase=all_muted||(mixed&&phase%640>=320);
@@ -1237,9 +1389,8 @@ static uint64_t step_palette_value(unsigned events,unsigned muted,int mute,int e
 static uint64_t sound_palette_value(unsigned pad,uint64_t phase){
     static int last_sound=-1,last_bank=-1;static uint64_t since;
     if(sound!=last_sound||browse_bank!=last_bank||phase<since){last_sound=sound;last_bank=browse_bank;since=phase;}
-    int chosen=music_pad_colour((unsigned)browse_bank*16+pad);
     int present=!!(sound_present&(1u<<pad));
-    uint32_t rgb=present?music_identity_rgb((unsigned)chosen):PAD_EMPTY;
+    uint32_t rgb=present?music_pad_rgb((unsigned)browse_bank*16+pad):PAD_EMPTY;
     float brightness=present?PAD_BRIGHT_CONTENT:PAD_BRIGHT_EMPTY;
     if(sound/16==browse_bank&&(unsigned)(sound%16)==pad){
         return pad_focus_light(rgb,brightness,phase-since);
@@ -1255,29 +1406,32 @@ static void palette_at(uint64_t phase)
         music_get_sample(sample_name,&settings);
         tune_lights=music_light_snapshot(&settings,sample_tuning);
     }
-    int selected_pad=menu==3&&picker_has_choice ? level_nearest(&detail_edit,picker_mode,picker_base) : -1;
-    int original_pad=menu==3&&!picker_insert ? level_nearest(&detail_old,picker_mode,picker_base) : -1;
-    if(menu==3&&(picker_mode==1||picker_mode==8)){
+    int selected_pad=menu==3&&picker_has_choice ? picker_pad_for(&detail_edit) : -1;
+    int original_pad=menu==3&&!picker_insert ? picker_pad_for(&detail_old) : -1;
+    if(menu==3&&(picker_mode==8||(picker_mode==1&&!picker_degrees()))){
         int original_value=(int)lround(level_value(&detail_old,picker_mode));
         if(original_value<picker_base||original_value>picker_base+15)original_pad=-1;
     }
-    int chop_colour=0;
-    if(menu==3&&picker_mode==8){int pad=event_pad(&detail_old);if(pad>=0&&pad<128)chop_colour=music_pad_colour((unsigned)pad);}
+    uint32_t chop_rgb=PAD_CONTENT;
+    if(menu==3&&picker_mode==8){int pad=event_pad(&detail_old);if(pad>=0&&pad<128)chop_rgb=music_pad_rgb((unsigned)pad);}
     for (unsigned i=0;i<16;++i) {
         uint32_t rgb=0; float brightness=0;
         int slot=pad_step(i),n=page*16+slot;
         if (menu==3) {
             int value=picker_base+(int)i;
-            if ((picker_mode!=8 || value<=picker_slice_count) && (picker_mode!=1 || value<=120)) {
+            if(picker_mode==1&&picker_degrees()&&!picker_pad_value(i,&value))value=1000;
+            if ((picker_mode!=8 || value<=picker_slice_count) && (picker_mode!=1 || (value<=120&&value>=-120))) {
                 rgb=0xffffff;brightness=.25f;
+                if(milliseconds()<playback_until[i])brightness=1.f;
                 if(picker_mode==1){
                     int replace=0;uint64_t light=music_pitch_light(tune_lights,value,&replace);
                     if(replace){rgb=(uint32_t)light;uint32_t bits=(uint32_t)(light>>32);memcpy(&brightness,&bits,4);}
                 }
-                if(picker_mode==8){rgb=chop_colour?music_identity_rgb(chop_colour):PAD_CONTENT;brightness=PAD_BRIGHT_CONTENT;}
+                if(picker_mode==8){rgb=chop_rgb;brightness=PAD_BRIGHT_CONTENT;}
                 int original=(int)i==original_pad,chosen=(int)i==selected_pad;
-                if(picker_mode==1&&picker_toggle_notes){struct step_event candidate;level_candidate(&detail_old,&candidate,1,(int)i,picker_base);chosen=picker_note_index(&candidate)>=0;}
-                if(original){rgb=PAD_ORIGINAL;brightness=PAD_BRIGHT_ORIGINAL;}
+                if(picker_mode==1&&picker_toggle_notes){struct step_event candidate;picker_candidate(&candidate,i);chosen=picker_note_index(&candidate)>=0;}
+                if(original){rgb=PAD_ORIGINAL;brightness=PAD_BRIGHT_ORIGINAL;if(!chosen){atomic_store(&lights[i],music_cursor_on(phase,300)?pad_light(0xff2bd5u,1.f):pad_light(0xff2bd5u,.22f));continue;}}
+                if(original&&chosen){atomic_store(&lights[i],music_cursor_on(phase,300)?pad_light(0xff2bd5u,1.f):pad_light(0xff2bd5u,.55f));continue;}
                 if(chosen){
                     atomic_store(&lights[i],pad_selection_light(rgb,brightness,phase));continue;
                 }
@@ -1314,8 +1468,7 @@ int step_native_light(unsigned pad,uint64_t *light)
     if (!(t&T_STEPS) && (!atomic_load(&requested_shift) || (t&T_PICKER)) && (atomic_load(&playback_mask)&(1u<<pad))) {
         int bank=atomic_load(&playback_colour_bank);
         if(bank>=0&&atomic_load(&requested_erase))return 0;
-        int chosen=bank>=0&&bank<8?music_pad_colour((unsigned)bank*16+pad):0;
-        uint32_t rgb=(atomic_load(&playback_muted_mask)&(1u<<pad))?PAD_MUTED:bank>=0?music_identity_rgb((unsigned)chosen):PAD_PLAYHEAD;
+        uint32_t rgb=(atomic_load(&playback_muted_mask)&(1u<<pad))?PAD_MUTED:bank>=0?music_pad_rgb((unsigned)bank*16+pad):PAD_PLAYHEAD;
         float brightness=rgb==PAD_MUTED?.65f:.9f;uint32_t f;memcpy(&f,&brightness,4);*light=(uint64_t)rgb|((uint64_t)f<<32);return 1;
     }
     if (!(t&(T_STEPS|T_PICKER))) return 0;
@@ -1344,8 +1497,10 @@ int step_native_tick(void)
     event_list=FIELD(controller,0xc0,void*);
     length=sequence ? FN(0x29571f0,int64_t(*)(void*))(sequence) : 0;
     if (!event_list || !program || length<=0 || length>960*128*64) { stop_picker_audition();preview_gate_set(NULL,NULL);showing=0;steps=menu=0;publish();return 0; }
+    if(menu!=3&&picker_muted)picker_set_muted(0);
     if(menu || !steps)reset_mute();
     if (last_sequence!=event_list || last_program!=program) {
+        picker_muted=0;
         stop_picker_audition();
         preview_gate_set(NULL,NULL);
         last_sequence=event_list;last_program=program;menu=0;invalidate();
@@ -1437,20 +1592,29 @@ int step_native_control(void *event,uint64_t t)
         repaint();return 1;
     }
     if (menu==3) {
+        {static int logged;if(logged++<80)fprintf(stderr,"PAD_STEPS PICKER_KNOB cc=%02x v=%u shift=%d mode=%d chop=%d ticket=%llx\n",cc,v,event_shift,picker_mode,picker_chop,(unsigned long long)t);}
         if(cc>=0x10&&cc<=0x12)picker_focus=(int)cc-0x10+1;
-        if(cc==0x10 && !picker_chop){
+        if(cc==0x10&&event_shift&&!picker_chop&&picker_mode==1){
+            /* Shift+K1: layout of this sound (Monochrome/Piano/Scale/Degrees), same setting as Sample > Tune > Play > Scales. */
+            struct music_sample s={0};music_get_sample(sample_name,&s);
+            int ui=choose(v,music_mode_ui_index(s.mode),0,MUSIC_LAYOUT_CHOICES-1,rel);
+            music_set_sample(sample_name,MUSIC_MODE,music_mode_from_ui_index(ui));
+            picker_init_selection();
+            step_native_tick();repaint();return 1;
+        }
+        if(cc==0x12 && !picker_chop){
             int next_mode=choose(v,picker_mode,0,9,0);
-            if(next_mode!=picker_mode){picker_note_count=0;picker_toggle_notes=0;picker_has_choice=0;}
-            picker_mode=next_mode;picker_kind=level_params[picker_mode];
+            int mode_changed=next_mode!=picker_mode;
+            picker_mode=next_mode;picker_kind=level_params[picker_mode];if(mode_changed)picker_init_selection();
             picker_base=level_first(&detail_edit,picker_mode);
-        }else if(cc==0x11){picker_note_count=0;picker_toggle_notes=0;picker_select((unsigned)choose(v,0,0,15,0));}
-        else if(cc==0x12 && (picker_mode==1 || picker_mode==8)){
-            picker_base=picker_mode==8 ? 1+16*choose(v,0,0,(picker_slice_count-1)/16,0) : clamp(-120+12*choose(v,0,0,19,0),-120,105);
+        }else if(cc==0x11){picker_single((unsigned)choose(v,0,0,15,0),0);}
+        else if(cc==0x10&&picker_mode==1&&picker_degrees()){picker_set_transpose(choose(v,0,0,48,0)-24);}
+        else if(cc==0x10 && (picker_mode==1 || picker_mode==8)){
+            picker_base=picker_mode==8 ? 1+16*choose(v,0,0,(picker_slice_count-1)/16,0) : clamp(-120+16*choose(v,0,0,14,0),-120,104);
         }else if (rel) {
             int delta=v>64 ? (int)v-128 : (int)v;
-            int selected=level_nearest(&detail_edit,picker_mode,picker_base);
-            picker_note_count=0;picker_toggle_notes=0;
-            picker_select((unsigned)clamp(selected+delta,0,15));
+            int selected=picker_pad_for(&detail_edit);if(selected<0)selected=0;
+            picker_single((unsigned)clamp(selected+delta,0,15),0);
         }
         step_native_tick();repaint();return 1;
     }
@@ -1644,6 +1808,7 @@ int step_native_button_at(void *event,uint64_t t,uint64_t when_ms)
         else {struct step_event selected;if(selected_event(&selected)){remove_event(&selected);say("Selected event removed");}}
     } else if (menu && (code==BUTTON_MINUS || code==BUTTON_PLUS)) {
         if(menu==4)picker_source_index=(unsigned)clamp((int)picker_source_index+(code==BUTTON_MINUS?-1:1),0,(int)picker_source_count-1);
+        else if(menu==3&&picker_mode==1&&picker_degrees()){struct music_sample s={0};music_get_sample(sample_name,&s);picker_set_transpose(s.transpose+(code==BUTTON_MINUS?-1:1));}
         else if (menu==3 && (picker_mode==8 || picker_mode==1)) picker_base=clamp(picker_base+(code==BUTTON_MINUS ? -1 : 1)*(picker_mode==8 ? 16 : 12),
             picker_mode==8 ? 1 : -120,picker_mode==8 ? 1+16*((picker_slice_count-1)/16) : 105);
         else menu_index=clamp(menu_index+(code==BUTTON_MINUS ? -1 : 1),0,3);
@@ -1669,8 +1834,8 @@ void step_native_pad(unsigned pad,uint64_t t)
     step_native_tick();if (!current(t)) return;
     if (menu==3 && (t&T_PICKER)) {
         ++picker_probe_serial;picker_probe("PAD_BUSY",pad);
-        int valid=(picker_mode!=8||picker_base+(int)pad<=picker_slice_count)&&(picker_mode!=1||picker_base+(int)pad<=120);
-            if(valid){if(picker_mode==1)picker_toggle(pad);else picker_select(pad);picker_probe("PAD_SELECTED",pad);audition_picker(pad);}step_native_tick();repaint();
+        int valid=(picker_mode!=8||picker_base+(int)pad<=picker_slice_count)&&(picker_mode!=1||picker_pad_ok(pad));
+            if(valid){if(picker_mode==1&&picker_sample_poly())picker_toggle(pad);else{picker_single(pad,1);}picker_probe("PAD_SELECTED",pad);if(picker_mode!=1||(picker_has_choice&&picker_note_index(&detail_edit)>=0))audition_picker(pad);}step_native_tick();repaint();
         picker_probe(picker_preview_wait?"AUDIO_WAIT":"PAD_DONE",pad);
         return;
     }
@@ -1801,7 +1966,7 @@ void step_native_paint(void *p,void *g)
         char s[64],name[8];pad_name(sound,name);
         /* Info: sound and sample, mode on the right; then step, positions. */
         int pad_colour=music_pad_colour((unsigned)sound);
-        colour(g,pad_colour?0xff000000u|music_identity_rgb(pad_colour):AMBER);left_text(g,name,6,34,40,20,17);
+        colour(g,pad_colour?0xff000000u|music_pad_rgb((unsigned)sound):AMBER);left_text(g,name,6,34,40,20,17);
         ui_caption(s,sizeof(s),sample_name,18);colour(g,!strcmp(sample_name,"Empty") ? GREY : WHITE);left_text(g,s,46,34,170,20,15);
         colour(g,atomic_load(&requested_erase)?0xffff8000:atomic_load(&mute_active)?RED:atomic_load(&toggle_armed)?AMBER:atomic_load(&write_armed) ? RED : GREY);
         right_text(g,atomic_load(&requested_erase)?"ERASE":atomic_load(&mute_active)?"MUTE":atomic_load(&toggle_armed)?"TOGGLE":atomic_load(&write_armed)?"WRITE ON":"WRITE OFF",216,34,98,20,13);
@@ -1839,29 +2004,69 @@ void step_native_paint(void *p,void *g)
             /* Same hierarchy for both pickers: identity, event context,
              * before/after and physical-pad selection. No duplicate pad grid. */
             char title[80],name[8];pad_name(event_pad(&detail_old),name);
-            colour(g,AMBER);snprintf(title,sizeof(title),"%s  |  %s",name,picker_chop?"CHOP":"16 LEVELS");
-            text(g,title,8,35,304,18,14);
-            colour(g,WHITE);text(g,sample_name,8,56,304,24,18);
-            colour(g,0xff373737);rect(g,8,85,304,1);
+            char lay[24]="";
+            if(!picker_chop&&picker_mode==1){struct music_sample ls={0};music_get_sample(sample_name,&ls);snprintf(lay,sizeof(lay),"  |  %s",picker_layouts[music_mode_ui_index(ls.mode)&3]);}
+            struct music_sample ms={0};if(!picker_chop&&picker_mode==1)music_get_sample(sample_name,&ms);
+            int tune=!picker_chop&&picker_mode==1;
+            int poly=tune&&picker_sample_poly();
+            colour(g,AMBER);snprintf(title,sizeof(title),"%s%s%s",name,tune?(poly?" Poly":" Mono"):"",tune?lay:(picker_chop?"  |  CHOP":""));
+            text(g,title,8,33,304,18,14);
+            colour(g,GREY);text(g,sample_name,8,51,304,16,12);
             struct bbt at=position(detail_old.time);
-            snprintf(title,sizeof(title),"EVENT %d.%d.%03d  |  Velocity %.0f",at.bar+1,at.beat+1,at.tick,FIELD(&detail_old,0x10,float)*127.f);
-            colour(g,GREY);text(g,title,8,92,304,16,11);
-            colour(g,AMBER);text(g,picker_insert?"NEW EVENT":"ORIGINAL",8,115,146,13,10);colour(g,CYAN);text(g,"SELECTED",166,115,146,13,10);
-            char choice[64],formatted[32];level_text(&detail_old,picker_mode,formatted);
-            colour(g,AMBER);text(g,picker_insert?"--":formatted,8,130,146,24,19);
-            if(picker_mode==1&&picker_toggle_notes)snprintf(formatted,sizeof(formatted),"%u note%s",picker_note_count,picker_note_count==1?"":"s");
-            else level_text(&detail_edit,picker_mode,formatted);
-            colour(g,CYAN);text(g,picker_has_choice?formatted:"--",166,130,146,24,19);
-            colour(g,0xff373737);rect(g,8,158,304,1);
+            colour(g,GREY);text(g,"BEAT",8,76,52,16,11);
+            snprintf(title,sizeof(title),"%d.%d.%03d",at.bar+1,at.beat+1,at.tick);
+            colour(g,WHITE);text(g,title,58,68,160,32,27);
+            {struct bbt pb=position(play_tick<0?0:play_tick);
+            snprintf(title,sizeof(title),"Play %d.%d.%03d",pb.bar+1,pb.beat+1,pb.tick);
+            colour(g,was_playing?CYAN:GREY);text(g,title,200,68,112,16,12);}
+            snprintf(title,sizeof(title),"Vel %.0f",FIELD(&detail_old,0x10,float)*127.f);
+            colour(g,GREY);text(g,title,200,87,112,14,11);
+            colour(g,0xff373737);rect(g,8,104,304,1);
+            colour(g,AMBER);text(g,picker_insert?"NEW EVENT":"ORIGINAL",8,108,146,13,10);colour(g,CYAN);text(g,"SELECTED",166,108,146,13,10);
+            char choice[64],formatted[32],sub[40],nt[8];
+            int orig_idx=picker_insert?-1:picker_pad_for(&detail_old);
             int selected_pad=level_nearest(&detail_edit,picker_mode,picker_base);
-            colour(g,WHITE);snprintf(choice,sizeof(choice),"%s  |  Pad %d / 16",level_names[picker_mode],selected_pad+1);
-            text(g,choice,8,164,304,16,12);
-            colour(g,GREY);text(g,picker_mode==1?"Pads: select / deselect | B3: apply":"Pads: preview | B3: apply | B1/B2: cancel",2,183,316,12,10);
-            cell(g,0,"Type",picker_chop?"Chop":level_names[picker_mode],!picker_chop&&picker_focus==1,picker_mode,picker_chop?0:10,0);
+            /* Original: value, its note and the pad it sits on in this layout. */
+            level_text(&detail_old,picker_mode,formatted);
+            nt[0]=0;if(tune&&ms.root>=0&&ms.root<12)snprintf(nt,sizeof(nt),"%s",music_note_names[(((ms.root+(int)lround(level_value(&detail_old,1)))%12)+12)%12]);
+            snprintf(choice,sizeof(choice),"%s%s%s",picker_insert?"--":formatted,nt[0]?"  ":"",nt);
+            colour(g,AMBER);text(g,choice,8,122,146,26,19);
+            if(picker_insert)sub[0]=0;else if(orig_idx>=0)snprintf(sub,sizeof(sub),"pad %d",orig_idx+1);else snprintf(sub,sizeof(sub),"pad: K1 range");
+            colour(g,GREY);text(g,sub,8,150,146,16,12);
+            /* Selected: one note, or the poly chord with its notes and offsets. */
+            if(tune&&picker_toggle_notes&&picker_note_count){
+                choice[0]=0;sub[0]=0;
+                if(picker_note_count<=4){
+                    for(unsigned ni=0;ni<picker_note_count;++ni){
+                        double v=level_value(&picker_notes[ni],1);char one[16];
+                        if(ms.root>=0&&ms.root<12)snprintf(one,sizeof(one),"%s%s",ni?" ":"",music_note_names[(((ms.root+(int)lround(v))%12)+12)%12]);else snprintf(one,sizeof(one),"%s%+.0f",ni?" ":"",v);
+                        strncat(choice,one,sizeof(choice)-strlen(choice)-1);
+                        snprintf(one,sizeof(one),"%s%+.0f",ni?" ":"",v);strncat(sub,one,sizeof(sub)-strlen(sub)-1);
+                    }
+                    strncat(sub," st",sizeof(sub)-strlen(sub)-1);
+                }else snprintf(choice,sizeof(choice),"%u notes",picker_note_count);
+            }else if(picker_has_choice){
+                level_text(&detail_edit,picker_mode,formatted);
+                nt[0]=0;if(tune&&ms.root>=0&&ms.root<12)snprintf(nt,sizeof(nt),"%s",music_note_names[(((ms.root+(int)lround(level_value(&detail_edit,1)))%12)+12)%12]);
+                snprintf(choice,sizeof(choice),"%s%s%s",formatted,nt[0]?"  ":"",nt);
+                snprintf(sub,sizeof(sub),"pad %d",selected_pad+1);
+            }else{snprintf(choice,sizeof(choice),"--");if(tune&&!picker_insert&&picker_toggle_notes)snprintf(sub,sizeof(sub),"Apply = delete");else sub[0]=0;}
+            colour(g,CYAN);text(g,choice,166,122,146,26,19);
+            colour(g,GREY);text(g,sub,166,150,146,16,12);
+            colour(g,GREY);text(g,tune?"K1 shift16 | Shift+K1 layout | K3 type":"Pads: preview | B3: apply | B1/B2: cancel",2,176,316,12,10);
+            cell(g,213,"Type",picker_chop?"Chop":level_names[picker_mode],!picker_chop&&picker_focus==3,picker_mode,picker_chop?0:10,0);
             snprintf(choice,sizeof(choice),"%d",selected_pad+1);cell(g,106,"Choice",choice,picker_focus==2,selected_pad,16,0);
-            if(picker_mode==8 || picker_mode==1){
+            if(picker_mode==1&&picker_degrees()){
+                struct music_sample ts={0};music_get_sample(sample_name,&ts);
+                snprintf(choice,sizeof(choice),"%+d",ts.transpose);
+                cell(g,0,"Transpose",choice,picker_focus==1,ts.transpose+24,49,1);
+            } else if(picker_mode==8 || picker_mode==1){
                 snprintf(choice,sizeof(choice),"%d..%d",picker_base,clamp(picker_base+15,picker_base,picker_mode==8?picker_slice_count:120));
-                cell(g,213,"Range",choice,picker_focus==3,picker_mode==8?(picker_base-1)/16:(picker_base+120)/12,picker_mode==8?(picker_slice_count+15)/16:20,0);
+                cell(g,0,"Transpose16",choice,picker_focus==1,picker_mode==8?(picker_base-1)/16:(picker_base+120)/16,picker_mode==8?(picker_slice_count+15)/16:15,1);
+            }
+            if(picker_mode==1&&!picker_chop){
+                if(shift){struct music_sample ls={0};music_get_sample(sample_name,&ls);int li=music_mode_ui_index(ls.mode)&3;cell(g,0,"Layout",picker_layouts[li],picker_focus==1,li,4,1);}
+                shift_badge(g,94,200,shift);
             }
         } else if(menu==4){
             colour(g,0xff000000);rect(g,0,5,320,235);colour(g,WHITE);
@@ -1929,7 +2134,7 @@ static void event_row_paint(void*model,int row,void*g,int width,int height,int s
             int pad=event_name_pad((const char*)(uintptr_t)label);
             int colour=pad>=0?music_pad_colour((unsigned)pad):0;
             FN(0xf0a290,void(*)(uint64_t*))(&label);
-            if(colour){inks=(uint32_t*)(first+16);normal=inks[0];chosen=inks[1];inks[0]=inks[1]=0xff000000u|music_identity_rgb(colour);}
+            if(colour){inks=(uint32_t*)(first+16);normal=inks[0];chosen=inks[1];inks[0]=inks[1]=0xff000000u|music_pad_rgb((unsigned)pad);}
         }
     }
     FN(0x3b72210,void(*)(void*,int,void*,int,int,int))(model,row,g,width,height,selected);

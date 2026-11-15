@@ -34,6 +34,14 @@ static _Atomic unsigned text_input=1; /* 1 Pads (default), 0 Encoder; card file 
 unsigned music_text_input(void){return atomic_load(&text_input);}
 static _Atomic unsigned fx_view=1; /* 1 Illustrated (default), 0 Classic; card file .am-mod-fx-view */
 unsigned music_fx_view(void){return atomic_load(&fx_view);}
+/* FX mode: 0 Stock (mixer off, stock FX Select/Knob FX), 1 Am MOD (default). Saved on the
+ * card (.am-mod-fx-mode); the value in force is latched at start-up, so a change
+ * applies after a restart. */
+static _Atomic unsigned rec_route[3]={0,0,1};
+static _Atomic unsigned pad_colour_source;
+static _Atomic unsigned fx_mode_saved=1,fx_mode_active=1;static _Atomic int fx_mode_latched;
+unsigned music_fx_mode(void){return atomic_load(&fx_mode_saved);}
+unsigned music_fx_mode_active(void){return atomic_load(&fx_mode_active);}
 unsigned music_relation_colour(unsigned role){return role<MUSIC_RELATION_COUNT?(atomic_load(&relation_colours)>>(4*role))&15u:0;}
 uint32_t music_relation_rgb(unsigned role){
  unsigned slot=music_relation_colour(role);
@@ -225,6 +233,23 @@ int music_lighting_preferences_open(const char *directory){
    if(!fstat(vf,&vs)&&S_ISREG(vs.st_mode)&&vn==12&&!memcmp(t,"AM_FXVIEW ",10)&&(t[10]=='0'||t[10]=='1')&&t[11]=='\n')view=(unsigned)(t[10]-'0');
    close(vf);}}
  atomic_store(&fx_view,view);
+ {unsigned mode=1;int mf=openat(dir,".am-mod-fx-mode",O_RDONLY|O_CLOEXEC|O_NOFOLLOW|O_NONBLOCK);
+  if(mf>=0){char t[16]={0};struct stat ms;ssize_t mn=read(mf,t,sizeof(t)-1);
+   if(!fstat(mf,&ms)&&S_ISREG(ms.st_mode)&&mn==12&&!memcmp(t,"AM_FXMODE ",10)&&(t[10]=='0'||t[10]=='1')&&t[11]=='\n')mode=(unsigned)(t[10]-'0');
+   close(mf);}
+  atomic_store(&fx_mode_saved,mode);
+  if(!atomic_exchange(&fx_mode_latched,1))atomic_store(&fx_mode_active,mode);}
+ {unsigned rp=0,rt=0,rw=1;int rf=openat(dir,".am-mod-rec-route",O_RDONLY|O_CLOEXEC|O_NOFOLLOW|O_NONBLOCK);
+  if(rf>=0){char t[24]={0};struct stat rs;ssize_t rn=read(rf,t,sizeof(t)-1);
+   if(!fstat(rf,&rs)&&S_ISREG(rs.st_mode)&&rn==18&&!memcmp(t,"AM_RECROUTE ",12)&&t[12]>='0'&&t[12]<='2'&&t[13]==' '&&
+      t[14]>='0'&&t[14]<='7'&&t[15]==' '&&(t[16]=='0'||t[16]=='1')&&t[17]=='\n'){rp=(unsigned)(t[12]-'0');rt=(unsigned)(t[14]-'0');rw=(unsigned)(t[16]-'0');}
+   close(rf);}
+  atomic_store(&rec_route[0],rp);atomic_store(&rec_route[1],rt);atomic_store(&rec_route[2],rw);}
+ {unsigned src=0;int pf=openat(dir,".am-mod-pad-colour",O_RDONLY|O_CLOEXEC|O_NOFOLLOW|O_NONBLOCK);
+  if(pf>=0){char t[16]={0};struct stat ps;ssize_t pn=read(pf,t,sizeof(t)-1);
+   if(!fstat(pf,&ps)&&S_ISREG(ps.st_mode)&&pn==12&&!memcmp(t,"AM_PADSRC ",10)&&(t[10]=='0'||t[10]=='1')&&t[11]=='\n')src=(unsigned)(t[10]-'0');
+   close(pf);}
+  atomic_store(&pad_colour_source,src);}
  {unsigned pads=1;int tf=openat(dir,".am-mod-text-input",O_RDONLY|O_CLOEXEC|O_NOFOLLOW|O_NONBLOCK);
   if(tf>=0){char t[16]={0};struct stat ts;ssize_t tn=read(tf,t,sizeof(t)-1);
    if(!fstat(tf,&ts)&&S_ISREG(ts.st_mode)&&tn==12&&!memcmp(t,"AM_TEXTIN ",10)&&(t[10]=='0'||t[10]=='1')&&t[11]=='\n')pads=(unsigned)(t[10]-'0');
@@ -331,6 +356,29 @@ int music_set_fx_view(unsigned view){
  char text[13];snprintf(text,sizeof(text),"AM_FXVIEW %u\n",view);
  if(!save_preference(".am-mod-fx-view",text,12))return 0;
  atomic_store(&fx_view,view);return 1;
+}
+int music_pad_colour_locked(void){return atomic_load(&pad_colour_source)&&music_pad_lighting_mode()&&music_fx_mode_active()==1;}
+unsigned music_pad_colour_source(void){return atomic_load(&pad_colour_source);}
+int music_set_pad_colour_source(unsigned value){
+ if(value>1)return 0;
+ char text[13];snprintf(text,sizeof(text),"AM_PADSRC %u\n",value);
+ if(!save_preference(".am-mod-pad-colour",text,12))return 0;
+ atomic_store(&pad_colour_source,value);return 1;
+}
+unsigned music_rec_get(unsigned field){return field<3?atomic_load(&rec_route[field]):0;}
+int music_rec_set(unsigned field,unsigned value){
+ if(field>2||value>(field==0?2u:field==1?7u:1u))return 0;
+ unsigned v[3]={atomic_load(&rec_route[0]),atomic_load(&rec_route[1]),atomic_load(&rec_route[2])};
+ v[field]=value;
+ char text[24];snprintf(text,sizeof(text),"AM_RECROUTE %u %u %u\n",v[0],v[1],v[2]);
+ if(!save_preference(".am-mod-rec-route",text,18))return 0;
+ atomic_store(&rec_route[field],value);return 1;
+}
+int music_set_fx_mode(unsigned mode){
+ if(mode>1)return 0;
+ char text[13];snprintf(text,sizeof(text),"AM_FXMODE %u\n",mode);
+ if(!save_preference(".am-mod-fx-mode",text,12))return 0;
+ atomic_store(&fx_mode_saved,mode);return 1;
 }
 int music_set_led_vivid(unsigned level){
  return level<=2&&save_card_settings(atomic_load(&mod_settings),atomic_load(&relation_lighting),atomic_load(&relation_colours),level);

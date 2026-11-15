@@ -8,6 +8,19 @@
 - Diagnostic ZIP export, full report copying and a prefilled GitHub issue draft with manual attachment and submission.
 - Bounded log collection skips links and includes only known diagnostic filenames.
 
+## r30a — release
+
+- Two modes: Stock (stock FX Select) and Am MOD (mixer: tracks A–H, Master, sends, sidechain, stems). Mod Settings → Quick → FX mode.
+- Input channel (mixer pad 15): record point Input / Track A–H / Master, Wet / Dry, monitoring from the same point, Rear modes.
+- Resample a pad or a sequence through the mixer; destination dialog, Replace and stop confirmations, independent banks.
+- Tuner for the input and for the sample of any pad (Stop+Chop), Original note from the tuner.
+- Pad colour from Track on every screen with pad sounds.
+- The "SD Card Access" item is hidden in the Project menu (USB transfer mode cannot work while the mod runs).
+- Fixes: Save Project / Sample, Stems export, resampled attack, dry recording through Track/Master, stock FX Select in Am MOD, resample dialog banks and prompts, compressor and Seq+Sample pad lighting, Shift+Erase in the mixer, K3 Volume read-out.
+- Thanks to Leusha for testing and bug reports.
+
+[English notes](docs/RELEASE_NOTES-r30a.md) · [Русский](docs/RELEASE_NOTES-r30a.ru.md).
+
 ## r29a — release
 
 - Redrawn effect pictures (Tape Delay, cassette Tape with PLAY/STOP and level-driven VU, Vinyl turntable, Sample Delay, Spring Reverb, Tube Drive, Soft Clipper, Ensemble, Multi Chorus, Auto Wah, Pitch Shifter, Flanger, Bit Crusher) with category-coloured AM MOD plates; value strips removed.

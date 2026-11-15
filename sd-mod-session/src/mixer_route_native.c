@@ -3,10 +3,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdatomic.h>
+#include <stdio.h>
 
 #define BUFFER_BYTES 0x130u
 struct route_buffer { unsigned char native[BUFFER_BYTES];float *channel[2]; };
-struct route_source {void *instrument,*buffer,*dest;unsigned pad,native,pair;};
+struct route_source {void *instrument,*buffer,*dest,*orig;unsigned pad,native,pair,id;};
 struct mixer_route_native {
     struct mixer_buses *buses;
     struct mixer_route_ops ops;
@@ -88,6 +89,17 @@ static _Atomic unsigned last_target;
 unsigned mixer_route_last_target(void){return atomic_load_explicit(&last_target,memory_order_relaxed);}
 unsigned mixer_route_last_reject(void){return atomic_load_explicit(&last_reject,memory_order_relaxed);}
 #define REJECT(n) do{atomic_store_explicit(&last_reject,(n),memory_order_relaxed);return 0;}while(0)
+void *mixer_route_pad_destination(const struct mixer_route_ops*ops,void *instrument,void *destination)
+{
+    void *program=ptr(instrument,0x2310);
+    const char *route=(const char*)instrument+0x560;
+    if(word(route,0)==1){
+        unsigned char direct[32];memcpy(direct,route,sizeof direct);set_word(direct,0,2);
+        /* Never fall back to the FX bus when the physical route is missing. */
+        return ops->resolve((char*)program+0xc10,direct);
+    }
+    return destination?destination:ops->buffer((char*)program+0x78,0);
+}
 static int eligible(struct mixer_route_native*a)
 {
     a->main=a->ops.buffer((char*)a->program+0x78,0);
@@ -116,6 +128,11 @@ static int eligible(struct mixer_route_native*a)
         for(unsigned j=0;j<i;++j)if(a->source[j].instrument==instrument||a->source[j].buffer==source)REJECT(6);
         const char *route=(const char*)instrument+0x560;
         void *destination=a->ops.resolve((char*)a->program+0xc10,route);
+        /* The installed Pad sum applies the same policy even without a Mixer
+         * session. Default/null native routes resolve to the Program fallback. */
+        destination=mixer_route_pad_destination(&a->ops,instrument,destination);
+        if(!destination)REJECT(11);
+        void *orig=destination;
         unsigned native=0;void *dest=a->main;
         if(destination){
             float gain;memcpy(&gain,route+24,4);
@@ -137,7 +154,16 @@ static int eligible(struct mixer_route_native*a)
             }
         } /* null destination uses the native fallback route (stereo unity). */
         unsigned pair=dest!=a->main?(word(route,16)|word(route,20)<<8):0;
-        a->source[i]=(struct route_source){instrument,source,dest,word(instrument,0x2168),native,pair};
+        a->source[i]=(struct route_source){instrument,source,dest,orig,word(instrument,0x2168),native,pair,word(route,0)};
+    }
+    {   /* Diagnostic for Knob FX scoping: log when the set of stock Pad destinations changes. */
+        static unsigned long long last_sig;static unsigned lines;
+        unsigned long long sig=a->count;
+        for(unsigned i=0;i<a->count;++i)sig=sig*1099511628211ull^(unsigned long long)(uintptr_t)a->source[i].dest^((unsigned long long)a->source[i].pad<<48)^((unsigned long long)a->source[i].pair<<40)^((unsigned long long)a->source[i].id<<32);
+        if(sig!=last_sig&&lines<80){++lines;last_sig=sig;
+            fprintf(stderr,"ROUTE_PADS count=%u main=%p",a->count,a->main);
+            for(unsigned i=0;i<a->count&&i<16;++i)fprintf(stderr," [pad%u id=%u dest=%s pair=%04x n=%u]",a->source[i].pad,a->source[i].id,a->source[i].dest==a->main?"main":"other",a->source[i].pair,a->source[i].native);
+            fputc('\n',stderr);}
     }
     /* Tracks sit between every Pad and the Master: all Pads with a usable
      * route are captured, whatever buffer the stock route names. The mixed
@@ -204,7 +230,7 @@ int mixer_route_sum(const struct mixer_route_ops*ops,void*instrument,void*source
        ptr(instrument,0x2310)==a->program&&frames==a->frames){
         ++a->captured;return ops->sum(instrument,source,destination,route,frames);
     }
-    if(!s||s->instrument!=instrument||s->buffer!=source||destination!=s->dest||
+    if(!s||s->instrument!=instrument||s->buffer!=source||destination!=s->orig||
        ptr(instrument,0x2310)!=a->program||word(instrument,0x2168)!=s->pad||
        frames!=a->frames||!stereo(source,frames)){
         recover(a);return ops->sum(instrument,source,destination,route,frames);

@@ -200,13 +200,13 @@ int music_ui_waveform_tint(uint32_t*rgb){
  if(feedback==1){*rgb=SAMPLE_MUTED_TINT;return 1;}
 #ifdef MPC_MIXER_LIVE
  if(feedback==MIXER_SAMPLE_SOLO_EXCLUDED){
-    uint32_t hue=music_identity_rgb((unsigned)music_pad_colour(pad));
+    uint32_t hue=music_pad_rgb(pad);
     *rgb=(hue&0xfefefeu)>>1;
     return 1;
  }
 #endif
  if(!music_pad_lighting_mode()||!music_mod_setting(MUSIC_SETTING_WAVE))return 0;
- *rgb=music_identity_rgb((unsigned)music_pad_colour(pad));return 1;
+ *rgb=music_pad_rgb(pad);return 1;
 }
 int music_ui_filter_spectrum_visible(void*p){
 #ifdef MPC_PAD_EQ
@@ -268,9 +268,11 @@ static void palette_publish(void){
  }
  atomic_store(&palette_pad_ticket,palette_ticket);
 }
+static void knob_fx_research(void*);
 int music_ui_tick(void)
 {
     atomic_store(&knob_fx_visible,visible(knob_fx_root));
+    if(knob_fx_root)knob_fx_research(knob_fx_root); /* r29g: poll while the stock screen exists, not only on paint */
 #ifdef MPC_PROJECT_RECOVERY
     /* "Restored: <name>" (5 s after an autoload) was drawn only when some
      * native part repainted, so it showed partly, blinked under repainting
@@ -366,10 +368,54 @@ int music_ui_tick(void)
 static void colour(void *g,uint32_t c) { FN(0x102d5e0,void(*)(void*,uint32_t))(g,c); }
 static void rect(void *g,int x,int y,int w,int h)
 { FN(0x102e000,void(*)(void*,int,int,int,int))(g,x,y,w,h); }
+/* Research log (r29f): the stock KNOB FX screen holds the chosen effect, its
+ * Bypass state and the target pads somewhere in its object tree. While the
+ * screen is painted, log which 8-byte words changed (root object + one level
+ * of readable child objects) so the fields can be decoded from the card log. */
+static int mem_readable(const void*q,size_t n){
+    static int pf[2]={-1,-1};
+    if(pf[0]<0&&pipe2(pf,O_NONBLOCK|O_CLOEXEC)){pf[0]=pf[1]=-1;return 0;}
+    ssize_t w=write(pf[1],q,n);if(w<0)return 0;
+    char tmp[512];while(w>0){ssize_t r=read(pf[0],tmp,(size_t)w>sizeof(tmp)?sizeof(tmp):(size_t)w);if(r<=0)break;w-=r;}
+    return 1;
+}
+#define KFX_ROOT 0x400
+#define KFX_CHILD 0x180
+#define KFX_KIDS 48
+static void knob_fx_research(void*p){
+    static unsigned char root_prev[KFX_ROOT];static int have;
+    static uintptr_t kid_ptr[KFX_KIDS];static unsigned char kid_prev[KFX_KIDS][KFX_CHILD];
+    static uint64_t last_ms;static unsigned lines;
+    struct timespec ts;clock_gettime(CLOCK_MONOTONIC,&ts);
+    uint64_t now=(uint64_t)ts.tv_sec*1000+(uint64_t)ts.tv_nsec/1000000;
+    if(now-last_ms<120||lines>=900||!mem_readable(p,KFX_ROOT))return;
+    last_ms=now;
+    unsigned char cur[KFX_ROOT];memcpy(cur,p,KFX_ROOT);
+    unsigned printed=0;
+    for(unsigned o=0;o+8<=KFX_ROOT;o+=8){
+        uint64_t a,b;memcpy(&a,root_prev+o,8);memcpy(&b,cur+o,8);
+        if(have&&a!=b&&printed<40){fprintf(stderr,"KNOBFX root+%03x %016llx -> %016llx\n",o,(unsigned long long)a,(unsigned long long)b);++printed;++lines;}
+    }
+    if(!have)fprintf(stderr,"KNOBFX first snapshot root=%p type=%016llx\n",p,(unsigned long long)FIELD(p,0,uintptr_t));
+    unsigned k=0;
+    for(unsigned o=8;o+8<=KFX_ROOT&&k<KFX_KIDS;o+=8){
+        uintptr_t c;memcpy(&c,cur+o,8);
+        if(c<0x10000||(c&7)||!mem_readable((void*)c,KFX_CHILD))continue;
+        if(kid_ptr[k]!=c){kid_ptr[k]=c;memcpy(kid_prev[k],(void*)c,KFX_CHILD);if(have)fprintf(stderr,"KNOBFX kid%u@root+%03x -> %p (new)\n",k,o,(void*)c);++k;continue;}
+        unsigned char now_bytes[KFX_CHILD];memcpy(now_bytes,(void*)c,KFX_CHILD);
+        for(unsigned co=0;co+8<=KFX_CHILD&&printed<40;co+=8){
+            uint64_t a,b;memcpy(&a,kid_prev[k]+co,8);memcpy(&b,now_bytes+co,8);
+            if(have&&a!=b){fprintf(stderr,"KNOBFX kid%u@root+%03x+%02x %016llx -> %016llx\n",k,o,co,(unsigned long long)a,(unsigned long long)b);++printed;++lines;}
+        }
+        memcpy(kid_prev[k],now_bytes,KFX_CHILD);++k;
+    }
+    memcpy(root_prev,cur,KFX_ROOT);have=1;
+}
 static void knob_underlay(void*p,void*g){
     uintptr_t type=FIELD(p,0,uintptr_t);
     if(type!=base+0x6e1e258)return;
     knob_fx_root=p;atomic_store(&knob_fx_visible,visible(p));
+    if(atomic_load(&knob_fx_visible))knob_fx_research(p);
     if(!atomic_load(&knob_fx_visible))return;
     /* This overlay's stock paint is empty. Cover the complete footer before
      * children paint, including gaps and the parent screen's focus bracket. */
@@ -523,12 +569,16 @@ unsigned music_ui_sequence_presence(unsigned bank){
     }
     return mask;
 }
+void music_ui_sequence_repaint(void){if(atomic_load(&seq_active)&&seq_screen)repaint(seq_screen);}
+extern void resample_ui_paint_overlay(void*) __attribute__((weak));
+extern int resample_ui_active_weak(void) __asm__("resample_ui_active") __attribute__((weak));
 static void sequence_paint(void*p,void*g){
     seq_screen=p;music_ui_tick();
 #ifdef MPC_POWER_BUTTON
     if(power_control_busy()){power_control_paint(p,g);return;}
 #endif
     if(!atomic_load(&seq_active))return;
+    if(resample_ui_paint_overlay){resample_ui_paint_overlay(g);if(resample_ui_active_weak&&resample_ui_active_weak())return;}
     int index=sequence_index();if(index<0)return;
     if(!music_pad_lighting_mode())return;
     int c=music_sequence_colour((unsigned)index);
@@ -718,6 +768,15 @@ static int link_row(unsigned row){return mod_tab==0&&row==1;}
 static int group_row(unsigned row){return mod_tab==0&&row==2;}
 static int fxview_row(unsigned row){return mod_tab==0&&row==3;}
 static int textin_row(unsigned row){return mod_tab==0&&row==4;}
+static int fxmode_row(unsigned row){return mod_tab==0&&row==5;}
+static int rec_row(unsigned row){(void)row;return 0;} /* Record routing now lives in Mixer > Input > ROUTE */
+static int trackcol_row(unsigned row){return mod_tab==1&&row==3;}
+static const char *const rec_point_names[]={"Input","Track","Master"};
+static const char *const rec_track_names[]={"A","B","C","D","E","F","G","H"};
+static const char *const rec_wet_names[]={"Dry","Wet"};
+static const char *rec_label(unsigned row){return row==6?"Record via":row==7?"Record track":"Record FX";}
+static const char *rec_name(unsigned row,unsigned value){return row==6?rec_point_names[value%3]:row==7?rec_track_names[value%8]:rec_wet_names[value%2];}
+static const char *const fxmode_names[]={"Stock","Am MOD"};
 static const char *const textin_names[]={"Encoder","Pads"};
 static const char *const fxview_names[]={"Classic","Illustrated"};
 static const char *const link_modes[]={"Off","Selected","Playing","Both"};
@@ -742,15 +801,30 @@ static uint32_t colour_row_rgb(unsigned row){return relation_row(row)?music_pale
  * (Pad Link, Mute Group, every Colours row) are greyed and locked in Standard. */
 static unsigned mod_rows(void);
 static int row_disabled(unsigned row){
+ if(rec_row(row)&&music_fx_mode_active()!=1)return 1; /* Record routing works only in Am MOD */
+ if(trackcol_row(row)&&music_fx_mode_active()!=1)return 1; /* Track colours exist only in Am MOD */
  if(music_pad_lighting_mode())return 0;
- return link_row(row)||group_row(row)||(mod_tab==2&&row<mod_rows());
+ return trackcol_row(row)||link_row(row)||group_row(row)||(mod_tab==2&&row<mod_rows());
 }
-static unsigned mod_rows(void){return mod_tab==MOD_ABOUT_TAB?0:mod_tab==2?MUSIC_SERVICE_COUNT+MUSIC_RELATION_COUNT+2:mod_tab==1?3:mod_tab==0?5:1;}
+static unsigned mod_rows(void){return mod_tab==MOD_ABOUT_TAB?0:mod_tab==2?MUSIC_SERVICE_COUNT+MUSIC_RELATION_COUNT+2:mod_tab==1?4:mod_tab==0?6:1;}
 static unsigned mod_field(unsigned row){return mod_tab==1?(row==2?MUSIC_SETTING_TAIL:MUSIC_SETTING_WAVE+row):mod_tab==3?MUSIC_SETTING_BLINK:MUSIC_SETTING_LIGHTING;}
 static int palette_row(unsigned row){return mod_tab==2&&row==0;}
-static unsigned mod_value(void){return textin_row(mod_row)?music_text_input():fxview_row(mod_row)?music_fx_view():vivid_row(mod_row)?music_led_vivid():relation_row(mod_row)?music_relation_colour(relation_role(mod_row)):link_row(mod_row)?(unsigned)music_pad_link_lighting():group_row(mod_row)?(unsigned)music_mute_group_lighting():mod_tab==2?music_service_colour(mod_row-1):(unsigned)music_mod_setting(mod_field(mod_row));}
+static unsigned mod_value(void){return trackcol_row(mod_row)?music_pad_colour_source():rec_row(mod_row)?music_rec_get(mod_row-6):fxmode_row(mod_row)?music_fx_mode():textin_row(mod_row)?music_text_input():fxview_row(mod_row)?music_fx_view():vivid_row(mod_row)?music_led_vivid():relation_row(mod_row)?music_relation_colour(relation_role(mod_row)):link_row(mod_row)?(unsigned)music_pad_link_lighting():group_row(mod_row)?(unsigned)music_mute_group_lighting():mod_tab==2?music_service_colour(mod_row-1):(unsigned)music_mod_setting(mod_field(mod_row));}
 static void mod_change(unsigned value,int relative){
  if(mod_tab==MOD_ABOUT_TAB||palette_row(mod_row)||mod_row==mod_rows()||row_disabled(mod_row))return;
+ if(trackcol_row(mod_row)){
+  lighting_save_error=!music_set_pad_colour_source((unsigned)choice(value,(int)music_pad_colour_source(),0,1,relative));
+  repaint(project);return;
+ }
+ if(rec_row(mod_row)){
+  unsigned f=mod_row-6;
+  lighting_save_error=!music_rec_set(f,(unsigned)choice(value,(int)music_rec_get(f),0,f==0?2:f==1?7:1,relative));
+  repaint(project);return;
+ }
+ if(fxmode_row(mod_row)){
+  lighting_save_error=!music_set_fx_mode((unsigned)choice(value,(int)music_fx_mode(),0,1,relative));
+  repaint(project);return;
+ }
  if(textin_row(mod_row)){
   lighting_save_error=!music_set_text_input((unsigned)choice(value,(int)music_text_input(),0,1,relative));
   repaint(project);return;
@@ -854,7 +928,7 @@ static void mod_settings_paint(void*g){
  if(palette_edit){palette_paint(g);return;}
  static const char*const tabs[]={"Quick","Sample","Colours","Cursor","About"};
  static const char*const titles[]={"Quick settings","Sample","System colours","Selected pad","About"};
- static const char*const sample_labels[]={"Waveform tint","Spectrum tint","Preview from end"};
+ static const char*const sample_labels[]={"Waveform tint","Spectrum tint","Preview from end","Pad colour from"};
  static const char*const services[]={"Cursor / selection","Free target","Occupied target","Original value","Play position","Muted","Pad Link","Mute Group"};
  static const char*const speeds[]={"Steady","Slow","Normal","Fast"};
  colour(g,0xff000000);rect(g,0,0,320,240);colour(g,0xffffffff);
@@ -898,12 +972,12 @@ static void mod_settings_paint(void*g){
    if(current){k1_label="Restore";k1_value="Press";}
    continue;
   }
-  const char*label=mod_tab==0?(link_row(i)?"Pad Link":group_row(i)?"Mute Group":fxview_row(i)?"FX view":textin_row(i)?"Text input":"Pad lighting"):mod_tab==1?sample_labels[i]:mod_tab==2?(vivid_row(i)?"LED strength":services[i-1]):"Cursor pulse";
+  const char*label=mod_tab==0?(rec_row(i)?rec_label(i):link_row(i)?"Pad Link":group_row(i)?"Mute Group":fxview_row(i)?"FX view":fxmode_row(i)?"FX mode":textin_row(i)?"Text input":"Pad lighting"):mod_tab==1?sample_labels[i]:mod_tab==2?(vivid_row(i)?"LED strength":services[i-1]):"Cursor pulse";
   unsigned field=mod_field(i);
-  unsigned value=textin_row(i)?music_text_input():fxview_row(i)?music_fx_view():vivid_row(i)?music_led_vivid():relation_row(i)?music_relation_colour(relation_role(i)):link_row(i)?(unsigned)music_pad_link_lighting():group_row(i)?(unsigned)music_mute_group_lighting():mod_tab==2?music_service_colour(i-1):(unsigned)music_mod_setting(field);
+  unsigned value=trackcol_row(i)?music_pad_colour_source():rec_row(i)?music_rec_get(i-6):fxmode_row(i)?music_fx_mode():textin_row(i)?music_text_input():fxview_row(i)?music_fx_view():vivid_row(i)?music_led_vivid():relation_row(i)?music_relation_colour(relation_role(i)):link_row(i)?(unsigned)music_pad_link_lighting():group_row(i)?(unsigned)music_mute_group_lighting():mod_tab==2?music_service_colour(i-1):(unsigned)music_mod_setting(field);
   char duration[16];
   if(field==MUSIC_SETTING_TAIL){if(music_tail_ms(value))snprintf(duration,sizeof(duration),"%u ms",music_tail_ms(value));else snprintf(duration,sizeof(duration),"Off");}
-  const char*name=mod_tab==0?(link_row(i)?link_modes[value]:group_row(i)?link_modes[value]:fxview_row(i)?fxview_names[value]:textin_row(i)?textin_names[value]:(value?"Am MOD":"Standard")):field==MUSIC_SETTING_TAIL?duration:mod_tab==1?(value?"Pad colour":"Original"):mod_tab==2?(vivid_row(i)?vivid_names[value]:music_palette_name(value)):speeds[value];
+  const char*name=trackcol_row(i)?(value?"Track":"Pad"):mod_tab==0?(rec_row(i)?rec_name(i,value):link_row(i)?link_modes[value]:group_row(i)?link_modes[value]:fxview_row(i)?fxview_names[value]:fxmode_row(i)?fxmode_names[value]:textin_row(i)?textin_names[value]:(value?"Am MOD":"Standard")):field==MUSIC_SETTING_TAIL?duration:mod_tab==1?(value?"Pad colour":"Original"):mod_tab==2?(vivid_row(i)?vivid_names[value]:music_palette_name(value)):speeds[value];
   colour(g,off?0xff606060:0xffffffff);text_aligned(g,label,14,y,190,21,13,0x21);
   int value_width=110;
   if(mod_tab==2&&!vivid_row(i)){
@@ -914,9 +988,9 @@ static void mod_settings_paint(void*g){
   if(current){k1_label=label;snprintf(value_text,sizeof(value_text),"%s",name);k1_value=value_text;}
  }
  colour(g,0xffa0a0a0);
- text_aligned(g,textin_row(mod_row)?"Naming, search and export windows open in Pads or Encoder":fxview_row(mod_row)?"Mixer effects: Illustrated pictures or Classic traces":row_disabled(mod_row)?"Off: set Pad lighting to Am MOD (Quick tab)":mod_tab==2?(relation_row(mod_row)||vivid_row(mod_row)?(music_pad_lighting_mode()?(vivid_row(mod_row)?"Washed-out colours: Strong or Max":"Blinks with the pad's own colour"):"Used only with Pad lighting: Am MOD"):music_service_colours_fallback()?"System colours overlap: using defaults":"Shift + B2: edit RGB palette"):mod_tab==1?"Hold STOP and tap a pad to hear its end":mod_tab==3?"Sequence pulses still follow tempo":link_row(mod_row)?"Sample: selected links / playing double pulse":group_row(mod_row)?"Sample: group blinks when selected / flashes when playing":"Standard keeps Piano, Scale and Degrees",12,172,300,13,11,0x21);
+ text_aligned(g,trackcol_row(mod_row)&&row_disabled(mod_row)?"Needs Am MOD and Pad lighting: Am MOD":trackcol_row(mod_row)?"Sample window: Pad = own colour, Track = its Mixer track colour":rec_row(mod_row)&&row_disabled(mod_row)?"Am MOD only: Stock records through its own effects":rec_row(mod_row)?(mod_row==6?"Input: Input FX. Track: + Track FX, fader, pan. Master: + Master FX":mod_row==7?"Track used by Record via Track or Master":"Dry: record and monitor without effects"):fxmode_row(mod_row)?"Am MOD: Knob FX opens the Mixer. Restart to apply":textin_row(mod_row)?"Naming, search and export windows open in Pads or Encoder":fxview_row(mod_row)?"Mixer effects: Illustrated pictures or Classic traces":row_disabled(mod_row)?"Off: set Pad lighting to Am MOD (Quick tab)":mod_tab==2?(relation_row(mod_row)||vivid_row(mod_row)?(music_pad_lighting_mode()?(vivid_row(mod_row)?"Washed-out colours: Strong or Max":"Blinks with the pad's own colour"):"Used only with Pad lighting: Am MOD"):music_service_colours_fallback()?"System colours overlap: using defaults":"Shift + B2: edit RGB palette"):mod_tab==1?"Hold STOP and tap a pad to hear its end":mod_tab==3?"Sequence pulses still follow tempo":link_row(mod_row)?"Sample: selected links / playing double pulse":group_row(mod_row)?"Sample: group blinks when selected / flashes when playing":"Standard keeps Piano, Scale and Degrees",12,172,300,13,11,0x21);
  colour(g,lighting_save_error?0xffff4040:0xffa0a0a0);
- text_aligned(g,lighting_save_error?"Could not change setting":link_row(mod_row)||group_row(mod_row)||fxview_row(mod_row)||textin_row(mod_row)?"Saved on this card; applies to all projects":"Saved in the project and as card default",12,185,300,13,11,0x21);
+ text_aligned(g,lighting_save_error?"Could not change setting":trackcol_row(mod_row)||rec_row(mod_row)||link_row(mod_row)||group_row(mod_row)||fxview_row(mod_row)||fxmode_row(mod_row)||textin_row(mod_row)?"Saved on this card; applies to all projects":"Saved in the project and as card default",12,185,300,13,11,0x21);
  /* K1 changes the selected row directly; the encoder selects and edits. */
  colour(g,0xff000000);rect(g,0,198,320,42);
  colour(g,mod_edit?0xffffc247:0xffffffff);text(g,k1_label,4,200,98,12,12);text(g,k1_value,4,214,98,19,16);

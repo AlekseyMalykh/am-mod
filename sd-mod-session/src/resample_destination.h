@@ -30,6 +30,10 @@ struct resample_destination {
     char sample[80],sequence[80],error[96];
 };
 void resample_destination_init(struct resample_destination*,const struct resample_destination_backend*);
+int resample_destination_open_sound(struct resample_destination*,unsigned source_pad,const char*sample,
+    const char*sequence,int has_sample,int has_sequence,uint64_t source_epoch,const uint64_t occupied[2]);
+int resample_destination_open_sequence(struct resample_destination*,unsigned source_pad,const char*sample,
+    const char*sequence,int has_sample,int has_sequence,uint64_t source_epoch,const uint64_t occupied[2]);
 int resample_destination_open(struct resample_destination*,unsigned source_pad,const char*sample,
     const char*sequence,int has_sample,int has_sequence,uint64_t source_epoch,const uint64_t occupied[2]);
 int resample_destination_button(struct resample_destination*,unsigned button,int down);

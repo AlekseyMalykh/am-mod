@@ -75,10 +75,10 @@ extern "C" int mixer_archive_native_probe(uintptr_t base)
     std::string music_payload(music_bytes.data(),length);
     std::string old=save();assert(old.find("amMixerV1")==std::string::npos&&old.find("stockSentinel")!=std::string::npos);
     mixer_project project{};uint64_t revision;unsigned mode;assert(mixer_archive_snapshot(&project,&revision,&mode));
-    project.output[127]=8;project.track[3].mix.level_db=-9;assert(mixer_archive_replace(&project,revision)==MIXER_EDIT_OK);
+    project.output[127]=8;project.track[3].mix.level_db=-9;project.input.fx.count=1;project.input.fx.stage[0].kind=FX_STAGE_NATIVE;project.input.fx.stage[0].native_id=0x61465444;project.input.fx_bypass=1;assert(mixer_archive_replace(&project,revision)==MIXER_EDIT_OK);
     std::string payload=payload_of_model(),known=save();assert(known.find(payload)!=std::string::npos);
     mixer_archive_reset();music_reset();Input loaded(payload,music_payload);read(loaded);
-    assert(mixer_archive_snapshot(&project,&revision,&mode)&&mode==MIXER_ARCHIVE_KNOWN&&project.output[127]==8&&project.track[3].mix.level_db==-9);
+    assert(mixer_archive_snapshot(&project,&revision,&mode)&&mode==MIXER_ARCHIVE_KNOWN&&project.output[127]==8&&project.track[3].mix.level_db==-9&&project.input.fx.count==1&&project.input.fx_bypass);
     music_snapshot(&musical);assert(musical.tonic==9&&musical.scale==1&&musical.pad_colours[127]==12);
     assert(payload_of_model()==payload);
     succeed=0;Input discarded("future",music_payload);read(discarded);succeed=1;

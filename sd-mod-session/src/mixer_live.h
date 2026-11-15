@@ -5,6 +5,7 @@
 extern "C" {
 #endif
 struct mixer_live;
+int mixer_live_native_input_position(void *position88);
 struct mixer_live_ops {
     struct mixer_route_ops route;
     void(*engine)(void*,void*,unsigned);

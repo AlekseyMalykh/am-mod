@@ -32,6 +32,7 @@ int workflow_startup_loading(void); /* UI-only; false while a native modal is ac
 int workflow_active(void);
 /* Atomic ownership:0 off,1 sample browser,2 native Copy Pad. RGB must not inspect Components. */
 int workflow_native_pad_colours(void);
+void workflow_want_occupancy(void); /* Compute occupancy of the browser bank on the next tick. */
 int workflow_native_occupied(void); /* atomic16-bit mask, -1 unavailable */
 int workflow_native_selected(void); /* UI-published absolute browser destination, -1 unavailable */
 /* UI thread: actual browser/Copy/Batch/Mono ownership, excluding the

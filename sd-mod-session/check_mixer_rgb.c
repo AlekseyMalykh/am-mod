@@ -36,6 +36,7 @@ int step_native_browser_bank(int selected){if(selected>=0)bank_fixture=(unsigned
 int music_ui_pad_settings_visible(void){return 0;}
 int music_ui_palette_light(unsigned pad,uint64_t *out){(void)pad;(void)out;return 0;}
 int note_native_sample_visible(void){return 1;}
+int note_native_sample_shown(void){return 1;}
 int music_ui_sequence_visible(void){return 0;}
 int step_native_sound_layout(void){return 0;}
 int step_native_active(void){return 0;}

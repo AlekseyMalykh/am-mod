@@ -16,6 +16,8 @@ int rear_native_busy(void);
 int rear_native_source(void);
 int rear_native_monitor(void);
 void rear_native_monitor_on(void);
+/* Recorder monitor switch: 0 Off, 1 Auto, 2 On. Returns 0 when no recorder session is live. */
+int rear_native_monitor_set(unsigned value);
 void rear_native_stop(void);
 unsigned rear_native_occupied(void);
 unsigned rear_native_bank_occupied(unsigned bank);

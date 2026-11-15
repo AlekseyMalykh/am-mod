@@ -10,7 +10,7 @@
  * its name. Only the exact job's sibling -Track-...wav may replace its empty
  * requested WAV. The selected pad is still assigned by the original callback. */
 class ResampleOutputFile {
- int fd=-1;struct stat identity{};std::string requested;
+ int fd=-1;struct stat identity{};std::string requested;bool replace=false;
  static bool sane(const std::string&p){return p.size()<4096&&!p.empty()&&p[0]=='/'&&p.find("/../")==std::string::npos&&p.find("/./")==std::string::npos;}
  static ResampleFileProbe probe_fd(int source){
   int copy=dup(source);if(copy<0)return ResampleFileProbe{};
@@ -22,8 +22,10 @@ public:
  ResampleOutputFile()=default;ResampleOutputFile(const ResampleOutputFile&)=delete;
  ResampleOutputFile&operator=(const ResampleOutputFile&)=delete;
  ~ResampleOutputFile(){reset();}
- void reset(){if(fd>=0)close(fd);fd=-1;requested.clear();}
- bool capture(const std::string&want,const std::string&actual,unsigned rate,uint64_t minimum){
+ void reset(){if(fd>=0)close(fd);fd=-1;requested.clear();replace=false;}
+ /* replace: the sibling is the Mixer's finished result and must overwrite whatever the stock primary
+  * accumulated (in Am MOD the primary holds only the late part of the sound). */
+ bool capture(const std::string&want,const std::string&actual,unsigned rate,uint64_t minimum,bool force=false){
   reset();if(!sane(want)||!sane(actual)||want.size()<4||want.compare(want.size()-4,4,".wav")||actual.size()<4||actual.compare(actual.size()-4,4,".wav"))return false;
   std::string prefix=want.substr(0,want.size()-4)+"-Track-";
   if(actual!=want&&(actual.compare(0,prefix.size(),prefix)||actual.find('/',prefix.size())!=std::string::npos))return false;
@@ -31,7 +33,7 @@ public:
   if(fd<0)return false;
   auto p=probe_fd(fd);
   if(fstat(fd,&identity)||!S_ISREG(identity.st_mode)||identity.st_size<=0||(uint64_t)identity.st_size>UINT32_MAX||!p.valid||p.peak==0||p.rate!=rate||!p.channels||!p.bits||(uint64_t)p.bytes/(p.channels*(p.bits/8))<minimum){reset();return false;}
-  requested=want;return true;
+  requested=want;replace=force;return true;
  }
  bool pending()const{return fd>=0;}
  bool commit(const std::string&want){
@@ -42,7 +44,7 @@ public:
   /* Never follow a new symlink or replace another kind of filesystem node. */
   if(lstat(want.c_str(),&dst)||!S_ISREG(dst.st_mode)||dst.st_nlink!=1)return false;
   auto existing=resample_file_probe(want.c_str());
-  if(existing.valid&&existing.peak>0)return true;
+  if(!replace&&existing.valid&&existing.peak>0)return true;
   auto slash=want.find_last_of('/');std::string pattern=want.substr(0,slash+1)+".mpc-resample-XXXXXX";
   std::vector<char> name(pattern.begin(),pattern.end());name.push_back(0);int out=mkstemp(name.data());if(out<0)return false;
   struct Temp{int fd;const char*name;~Temp(){if(fd>=0)close(fd);unlink(name);}}temp{out,name.data()};

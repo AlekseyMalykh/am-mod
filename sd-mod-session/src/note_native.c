@@ -2,6 +2,8 @@
 #include "shift_badge.h"
 #include "note_native.h"
 #include "music_settings.h"
+extern int music_pad_colour_locked(void) __attribute__((weak));
+#define COLOUR_LOCKED() (music_pad_colour_locked&&music_pad_colour_locked())
 #include "music_ui.h"
 #include "music_lighting.h"
 #include <math.h>
@@ -265,6 +267,10 @@ int note_native_request_poly(void)
     return 2;
 }
 
+int note_native_sample_shown(void)
+{
+    return note_native_context() && FN(0x112fd50,int(*)(void*))(root);
+}
 int note_native_sample_visible(void)
 {
     return note_native_context() && FN(0x112fd50,int(*)(void*))(root)
@@ -415,6 +421,7 @@ int note_native_control(void *event)
         if (cc==0x64 && !atomic_load(&focused_trim)) return 0;
         unsigned pad;
         if (!note_native_pad_index(&pad)) return 1;
+        if (COLOUR_LOCKED()) return 1; /* Track colour source: Pad Colour is not editable */
         int current=(int)music_identity_index((unsigned)music_pad_colour(pad)),next;
         int choices=(int)music_identity_count();
         if (cc==0x11) { if(!atomic_load(&focused_trim))take_knob_focus(); next=(int)((value&127)*choices/128); }
@@ -479,7 +486,7 @@ int note_native_reset_knob(unsigned column,unsigned shift){
  if(shift&&column==0&&mix_showing()){unsigned pad;if(note_native_pad_index(&pad))mixer_phone_set_pad_output(pad,0);trim_repaint();return 1;}
 #endif
  if(!shift&&column==1&&trim_showing()&&music_pad_lighting_mode()){
-  unsigned pad;if(note_native_pad_index(&pad))music_set_pad_colour(pad,0);
+  unsigned pad;if(note_native_pad_index(&pad)&&!COLOUR_LOCKED())music_set_pad_colour(pad,0);
   trim_repaint();return 1;
  }
  if(shift&&column==0&&showing()){
@@ -522,10 +529,12 @@ static void pad_colour_cell(void *g,int ox,int oy,int focused)
     colour(g,0xff000000); rect(g,ox,oy,106,38);
     colour(g,ink); text(g,"Pad Colour",ox+7,oy+2,82,12,12.0f);
     shift_badge(g,ox+94,oy+2,0);
-    uint32_t swatch=0xff000000|music_identity_rgb(value);
+    int locked=valid&&COLOUR_LOCKED();
+    if(locked)ink=0xff909090;
+    uint32_t swatch=0xff000000|(locked?music_pad_rgb(pad):music_identity_rgb(value));
 
     colour(g,swatch); rect(g,ox+6,oy+18,10,10);
-    colour(g,ink); text(g,valid ? music_identity_name((unsigned)value) : "--",ox+18,oy+14,84,18,16.0f);
+    colour(g,ink); text(g,locked ? "Track" : valid ? music_identity_name((unsigned)value) : "--",ox+18,oy+14,84,18,16.0f);
     for (int i=0;i<choices;++i) {
         int x=i*98/choices, next=(i+1)*98/choices;
         colour(g,(unsigned)i==choice ? ink : 0xff3b3b3b);

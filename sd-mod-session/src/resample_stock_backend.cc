@@ -10,6 +10,12 @@
 #include <new>
 #include <cstring>
 #include <cstdio>
+#include <chrono>
+#include <unistd.h>
+#include <cmath>
+#include <vector>
+#include <algorithm>
+#include "pad_sample_source.h"
 #define F(p,o,T) (*reinterpret_cast<T*>(reinterpret_cast<char*>(p)+(o)))
 extern "C" void pad_source_layer_sample(void*,int,uintptr_t*,uintptr_t);
 struct resample_stock_backend {
@@ -17,8 +23,55 @@ struct resample_stock_backend {
     std::atomic<bool>live{true},busy{false};std::atomic<uint64_t>epoch{1};
     std::mutex mutex;unsigned command=0;resample_destination_request request{};resample_stock_reply reply{};
     void *mode=nullptr,*things=nullptr,*project=nullptr,*program=nullptr,*sequence=nullptr;
+    struct {unsigned state=0,pad=0;float hz=0;char name[80]{};} tuner;
     struct Job {std::atomic<unsigned>done{0};uint64_t token,epoch;unsigned target;uintptr_t before;bool submitted=false;}*job=nullptr;
 };
+
+namespace {
+bool tuner_yin(const float*x,int n,int rate,float*out,float*conf){
+    int tmax=std::min(rate/60,740),tmin=std::max(rate/1000,2),w=n-tmax;
+    if(w<400||tmax<4)return false;
+    double energy=0;for(int i=0;i<w;++i)energy+=(double)x[i]*x[i];
+    if(energy/w<1e-6)return false;
+    std::vector<float> d((size_t)tmax+1,0.f),c((size_t)tmax+1,1.f);
+    for(int tau=1;tau<=tmax;++tau){float sum=0;for(int i=0;i<w;++i){float t=x[i]-x[i+tau];sum+=t*t;}d[(size_t)tau]=sum;}
+    double run=0;
+    for(int tau=1;tau<=tmax;++tau){run+=d[(size_t)tau];c[(size_t)tau]=run>0?(float)(d[(size_t)tau]*tau/run):1.f;}
+    int best=-1;
+    for(int tau=tmin;tau<tmax;++tau)if(c[(size_t)tau]<.15f){while(tau+1<tmax&&c[(size_t)tau+1]<c[(size_t)tau])++tau;best=tau;break;}
+    if(best<0)return false;
+    float t=(float)best;
+    if(best>1&&best<tmax-1){float a=c[(size_t)best-1],b=c[(size_t)best],e=c[(size_t)best+1],den=a-2*b+e;if(den!=0)t+=.5f*(a-e)/den;}
+    *out=(float)rate/t;*conf=c[(size_t)best];return true;
+}
+/* Model queue only: three 4096-frame windows inside the pad's Trim range, the most periodic wins. */
+unsigned tuner_analyse(pad_sample_selection&sel,float*hz,uint64_t*frames){
+    uint64_t first=sel.first,end=sel.end,len=end>first?end-first:0;
+    *frames=len;
+    int rate=(int)std::lround(sel.stream.rate);
+    if(rate<8000||rate>192000||len<1200)return 3;
+    uint64_t n=len<2048?len:2048;
+    std::vector<float> mono((size_t)n);float stereo[PAD_RENDER_BLOCK_FRAMES*2];
+    float best=1e9f;bool found=false;
+    const double at[3]={.2,.4,.6};
+    for(double k:at){
+        uint64_t start=first+(uint64_t)((double)(len-n)*k);
+        bool ok=true;
+        for(uint64_t pos=0;pos<n;){
+            size_t count=(size_t)std::min<uint64_t>(PAD_RENDER_BLOCK_FRAMES,n-pos);
+            if(!sel.stream.read(sel.stream.user,start+pos,count,stereo)){ok=false;break;}
+            for(size_t i=0;i<count;++i)mono[(size_t)pos+i]=(stereo[i*2]+stereo[i*2+1])*.5f;
+            pos+=count;
+        }
+        if(!ok)continue;
+        float h=0,conf=0;
+        if(tuner_yin(mono.data(),(int)n,rate,&h,&conf)&&conf<best){best=conf;*hz=h;found=true;}
+        if(len==n)break;
+        usleep(3000); /* yield to the audio threads between windows */
+    }
+    return found?2u:3u;
+}
+}
 static void publish(resample_stock_backend*b,unsigned state,uint64_t token,const char*error=nullptr,const resample_stock_snapshot*s=nullptr){
     std::lock_guard<std::mutex>lock(b->mutex);b->reply={};b->reply.status=state;b->reply.token=token;
     if(error)std::snprintf(b->reply.error,sizeof(b->reply.error),"%s",error);
@@ -61,6 +114,31 @@ static int run_tick(void*user){
         /* Tiny callback tokens live until cloned-process exit. Native task
          * copies may be released on another thread after terminal delivery. */
         b->job=nullptr;b->busy.store(false,std::memory_order_release);return 0;
+    }
+    if(command==5){
+        if(b->job)return 0;
+        b->things=F(b->copy,0x78,void*);b->project=F(b->copy,0xc8,void*);
+        b->program=b->things?F(b->things,0xb8,void*):nullptr;b->sequence=b->things?F(b->things,0x1c8,void*):nullptr;
+        unsigned state=3,pad=0;float hz=0;uint64_t frames=0;char name[80]={};
+        if(b->program&&model(b)){
+            pad=F(b->things,0x5f8,unsigned);
+            if(pad<128){
+                sample_at(b,pad,name);
+                /* Reading the pad stream while the pad sounds crackles (device): analyse each pad once. */
+                static unsigned cache_pad=999,cache_state;static char cache_name[80];static float cache_hz;static uint64_t cache_frames;
+                if(cache_pad==pad&&name[0]&&std::strcmp(cache_name,name)==0){state=cache_state;hz=cache_hz;frames=cache_frames;}
+                else{
+                    pad_sample_selection sel{};
+                    if(pad_sample_stream_open_pad(b->base,b->program,pad,&sel)==PAD_RENDER_WORKING){
+                        state=tuner_analyse(sel,&hz,&frames);
+                        sel.stream.close(sel.stream.user);
+                        cache_pad=pad;cache_state=state;cache_hz=hz;cache_frames=frames;std::snprintf(cache_name,sizeof cache_name,"%s",name);
+                    }
+                }
+            }
+        }
+        {std::lock_guard<std::mutex>lock(b->mutex);b->tuner.state=state;b->tuner.hz=hz;b->tuner.pad=pad;std::snprintf(b->tuner.name,sizeof b->tuner.name,"%s",name);}
+        return 0;
     }
     if(command==1||command==4){
         b->things=F(b->copy,0x78,void*);b->project=F(b->copy,0xc8,void*);
@@ -121,6 +199,19 @@ extern "C" int resample_stock_backend_bind_eq(resample_stock_backend*b){
     if(!b||!b->live.load()||b->busy.load())return 0;
     {std::lock_guard<std::mutex>lock(b->mutex);if(b->command)return 0;b->command=4;}
     return resample_queue_wake(b->queue);
+}
+extern "C" int resample_stock_backend_probe(resample_stock_backend*b){
+    if(!b||!b->live.load()||b->busy.load())return 0;
+    {std::lock_guard<std::mutex>lock(b->mutex);if(b->command)return 0;b->command=5;if(b->tuner.state==0)b->tuner.state=1;}
+    return resample_queue_wake(b->queue);
+}
+extern "C" unsigned resample_stock_backend_probe_info(resample_stock_backend*b,float*hz,unsigned*pad,char*name,unsigned size){
+    if(!b)return 3;
+    std::lock_guard<std::mutex>lock(b->mutex);
+    if(hz)*hz=b->tuner.hz;
+    if(pad)*pad=b->tuner.pad;
+    if(name&&size)std::snprintf(name,size,"%s",b->tuner.name);
+    return b->tuner.state;
 }
 extern "C" int resample_stock_backend_start(void*user,const resample_destination_request*r){
     auto*b=static_cast<resample_stock_backend*>(user);if(!b||!r||!b->live.load()||b->busy.exchange(true))return 0;

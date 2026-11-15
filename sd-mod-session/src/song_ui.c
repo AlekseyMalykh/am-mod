@@ -85,6 +85,14 @@ static uint64_t export_route_since;
 static _Alignas(8) unsigned char export_route_template[16];
 /* 0 none, 1 Mixdown naming, 2 Dry Stems naming, 3 Wet Stems naming. Both share the existing
  * TextEditor + pad keyboard; Sequence has no stock name dialog. */
+/* Stock firmware has no stem export: its menu offers Mixdown and Sequence only. */
+static unsigned export_items(void){
+#ifdef MPC_MIXER_LIVE
+    return mixer_stems_available&&mixer_stems_available()?4u:2u;
+#else
+    return 2u;
+#endif
+}
 static int song_export_ready(unsigned choice){
 #ifdef MPC_EARLY_STARTUP
     return choice==1u||startup_song_export_ready();
@@ -393,7 +401,7 @@ int song_ui_control(void *e)
             int previous=(int)atomic_load(&export_choice);
             int next=previous+delta;
             if(next<0) next=0;
-            if(next>3) next=3;
+            if(next>(int)export_items()-1) next=(int)export_items()-1;
             if(next!=previous){
                 atomic_store(&export_choice,(unsigned)next);
                 repaint(screen);
@@ -614,7 +622,7 @@ static void paint(void *p,void *g)
     if(atomic_load(&export_menu_active)){
         /* Paint after SongScreen children. Cover all of the song list/buttons;
          * the old native Cancel/Mixdown/Sequence modal was never entered. */
-        const unsigned selected=atomic_load(&export_choice)%4u;
+        const unsigned selected=atomic_load(&export_choice)%export_items();
         int has_song=song_ref(&r)&&r.count>0;
         int can_export=has_song&&song_export_ready(selected);
         const char *items[]={"Mixdown","Sequence","Stems without FX","Stems with FX"};
@@ -625,7 +633,7 @@ static void paint(void *p,void *g)
         colour(g,0xffffffffu);text(g,"Back",1,7,105,24,14.0f);
         colour(g,can_export?0xffffc247u:0xff777777u);text(g,"Export",215,7,105,24,14.0f);
         colour(g,0xffffffffu);text_at(g,"Song Export",14,31,292,28,20.0f,0x21);
-        for(unsigned i=0;i<4;++i){
+        for(unsigned i=0;i<export_items();++i){
             int y=67+(int)i*31;
             int current=i==selected;
             colour(g,current?0xff302412u:0xff161616u);rect(g,12,y,296,28);
