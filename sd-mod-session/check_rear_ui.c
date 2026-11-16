@@ -14,14 +14,14 @@ void rear_native_stop(void){stops++;busy=0;}
 void rear_native_clear(void){}
 void rear_native_monitor_on(void){monitor_on++;}
 int rear_native_source(void){return 1;}
-static void button(unsigned c){unsigned char e[16]={0};e[8]=c;e[9]=1;assert(rear_ui_button(e));e[9]=0;assert(rear_ui_button(e));}
+static void button(unsigned c){unsigned char e[16]={0};e[8]=c;e[9]=1;assert(rear_ui_button(e)==(c!=0x51));e[9]=0;assert(rear_ui_button(e)==(c!=0x51));}
 static void cc(unsigned c,unsigned v){unsigned char e[16]={0};e[8]=c;e[9]=v;assert(rear_ui_control(e));}
 int main(void){
  atomic_store(&open_panel,1);atomic_store(&visible_roots,2);panel_on_record=1;
  settings[0][REAR_MODE]=REAR_DUAL;
  rear_ui_pad(3,1);assert(waiting_right&&starts==0&&settings[0][REAR_TARGET]==3);
  button(0x0c);assert(!waiting_right&&open_panel&&!starts&&!selected_mask);
- rear_ui_pad(4,1);button(0x51);assert(!waiting_right&&open_panel&&!starts);
+ rear_ui_pad(4,1);button(0x51);button(0x51);assert(!waiting_right&&open_panel&&!starts&&!held[0x51]);
  rear_ui_pad(4,1);rear_ui_pad(4,1);assert(!waiting_right&&!starts);
  rear_ui_pad(4,1);bank=7;rear_ui_pad(5,1);assert(starts==1&&settings[1][REAR_TARGET]==117&&busy);
  button(0x51);assert(stops==1&&!busy);

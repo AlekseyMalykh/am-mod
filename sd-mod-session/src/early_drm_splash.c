@@ -63,6 +63,9 @@ static int choose(struct screen*s){
  }
  errno=ENODEV;return failed("no_connected_320x240_panel");
 }
+#ifdef EARLY_DRM_CUSTOM_FILL
+static int fill(struct screen*s);
+#else
 static int fill(struct screen*s){
  if(s->pitch<1280||s->pitch>16384||s->size<(uint64_t)s->pitch*240||s->size>4*1024*1024){errno=EOVERFLOW;return failed("buffer_bounds");}
  unsigned n=0;
@@ -74,6 +77,7 @@ static int fill(struct screen*s){
  if(n!=320*240){errno=EINVAL;return failed("image_size");}
  am_splash_branding(s->map,s->pitch);return 1;
 }
+#endif
 static void cleanup(struct screen*s){
  if(s->fb){uint32_t fb=s->fb;if(ioctl(s->fd,DRM_IOCTL_MODE_RMFB,&fb))fprintf(stderr,"EARLY_DRM RMFB errno=%d\n",errno);s->fb=0;}
  if(s->map&&s->map!=MAP_FAILED){munmap(s->map,s->size);s->map=NULL;}

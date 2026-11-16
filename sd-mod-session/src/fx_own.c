@@ -10,7 +10,7 @@
 #endif
 struct pitchc {float *buf;unsigned size,mask,w;double phase;};
 struct fx_own {
-    uint32_t id;double rate;float p[PARAMS];
+    uint32_t id;double rate;float p[PARAMS],target[PARAMS];unsigned remaining;
     struct pitchc pitch[2];
     /* Shimmer FDN */
     float *line[4];unsigned len[4],pos[4];float lp[4],gain[4],damp;
@@ -72,6 +72,7 @@ void *fx_own_create(uint32_t id,double rate,const float *parameters)
     struct fx_own *s=calloc(1,sizeof(*s));if(!s)return NULL;
     s->id=id;s->rate=rate;
     for(unsigned i=0;i<PARAMS;++i)s->p[i]=fminf(1.f,fmaxf(0.f,parameters[i]));
+    memcpy(s->target,s->p,sizeof s->p);
     int ok=1;
     if(id==FX_OWN_PITCH)for(unsigned c=0;c<2;++c)ok&=pitch_init(&s->pitch[c],(unsigned)(rate*.12));
     else if(id==FX_OWN_REVERSE)for(unsigned c=0;c<2;++c)ok&=pitch_init(&s->pitch[c],(unsigned)(rate*1.6)+8);
@@ -199,7 +200,7 @@ static float opto(struct fx_own *s,float *x,size_t frames)
     }
     return lo;
 }
-float fx_own_process(void *object,float *samples,size_t frames)
+static float process_current(void *object,float *samples,size_t frames)
 {
     struct fx_own *s=object;if(!s||!samples)return 1.f;
     switch(s->id){
@@ -214,4 +215,39 @@ float fx_own_process(void *object,float *samples,size_t frames)
     default:break;
     }
     return 1.f;
+}
+
+int fx_own_can_update(uint32_t id,const float*a,const float*b)
+{
+    return fx_own_is(id)&&(id!=FX_OWN_SHIMMER||(a[4]==b[4]&&a[6]==b[6]));
+}
+void fx_own_update(void*object,const float*p)
+{
+    struct fx_own*s=object;memcpy(s->target,p,sizeof s->target);
+    s->remaining=(unsigned)(s->rate*.02);
+}
+float fx_own_process(void*object,float*samples,size_t frames)
+{
+    struct fx_own*s=object;if(!s||!samples)return 1;
+    float minimum=1;
+    for(size_t at=0;at<frames;){
+        size_t n=frames-at;
+        if(s->remaining){
+            if(n>32)n=32;
+            if(n>s->remaining)n=s->remaining;
+            float step=(float)n/s->remaining;
+            for(unsigned i=0;i<PARAMS;++i)s->p[i]+=(s->target[i]-s->p[i])*step;
+            s->remaining-=(unsigned)n;
+            if(s->id==FX_OWN_OPTO)fx_own_opto_config(s->p,&s->opto_config);
+            if(s->id==FX_OWN_SHIMMER){
+                double rt60=.3*pow(40.0,s->p[1]);float g=0;
+                for(unsigned i=0;i<4;++i){s->gain[i]=(float)pow(10.,-3.*s->len[i]/(s->rate*rt60));g+=s->gain[i];}
+                g*=.25f;s->in_gain=sqrtf(fmaxf(.02f,1-g*g))*1.8f;s->shim_gain=(1-g)*SHIM_AMOUNT;
+                s->damp=.1f+.85f*s->p[5];
+            }
+        }
+        float gain=process_current(s,samples+at*2,n);if(gain<minimum)minimum=gain;
+        at+=n;
+    }
+    return minimum;
 }

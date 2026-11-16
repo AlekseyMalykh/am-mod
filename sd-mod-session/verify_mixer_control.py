@@ -6,6 +6,8 @@ out=R/'build/mixer-control';out.mkdir(parents=True,exist_ok=True)
 sources=['check_mixer_control.c','src/mixer_control.c','src/phone_input.c','src/mixer_model.c','src/fx_catalog.c','src/fx_chain.c','src/fx_own.c', 'src/compressor_dsp.c','src/fx_eq.c']
 tracked=sources+['src/mixer_control.h','src/mixer_view.h','verify_mixer_control.py']
 sha=lambda p:hashlib.sha256((R/p).read_bytes()).hexdigest()
+tracked += ['src/fx_layout.inc']
+tracked += ['src/fx_amp_models.inc']
 before={p:sha(p) for p in tracked};checks=[]
 root=os.environ.get('MPC_QEMU_SYSROOT','/home/user/mpc-rootfs-user-20260808')
 for name,compiler,flags,runner in [('host','gcc',[],[]),('host-asan','gcc',['-fsanitize=address,undefined','-fno-sanitize-recover=all'],[]),('arm','aarch64-linux-gnu-gcc',['-mbranch-protection=standard'],['qemu-aarch64','-L',root]),('arm-ubsan','aarch64-linux-gnu-gcc',['-mbranch-protection=standard','-fsanitize=undefined','-static-libubsan','-fno-sanitize-recover=all'],['qemu-aarch64','-L',root])]:

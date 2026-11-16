@@ -60,7 +60,27 @@ extern "C" int modern_fx_probe(uintptr_t base,const char**phase){
  if(instance){auto*v=*reinterpret_cast<uintptr_t**>(instance.get());std::printf("AIR instance vptr=%llx\n",(unsigned long long)(reinterpret_cast<uintptr_t>(v)-base));
   unsigned n=reinterpret_cast<int(*)(void*)>(v[24])(instance.get());std::printf("AIR id=%08x params=%u\n",requested_fx,n);assert(n&&n<=32);
   for(unsigned i=0;i<n;++i){auto name=reinterpret_cast<EmptyNativeString(*)(void*,int)>(v[25])(instance.get(),i);auto display=reinterpret_cast<EmptyNativeString(*)(void*,int)>(v[33])(instance.get(),i);std::printf("p%u=%g %s [%s]\n",i,(double)reinterpret_cast<float(*)(void*,int)>(v[27])(instance.get(),i),name.data,display.data);}
+  if(requested_fx==0x61464153){
+   const auto*entry=fx_catalog_find(requested_fx);assert(fx_catalog_choice_count(entry,9)==11);
+   for(unsigned index=0;index<11;++index){float value=index/10.f;
+    reinterpret_cast<void(*)(void*,int,float)>(v[40])(instance.get(),9,value);
+    auto display=reinterpret_cast<EmptyNativeString(*)(void*,int)>(v[33])(instance.get(),9);
+    auto compact=[](const char*in,char*out){while(*in){if(*in!=' '&&*in!='"')*out++=*in;++in;}*out=0;};
+    char actual[64],expected[64];compact(display.data,actual);compact(fx_catalog_choice_name(entry,9,value),expected);
+    assert(!std::strcmp(actual,expected));
+   }
+   reinterpret_cast<void(*)(void*,int,float)>(v[40])(instance.get(),9,entry->defaults[9]);
+   std::puts("PASS all eleven native Amp Sim cabinets match UI choices");
+  }
   *phase="native AIR prepare";reinterpret_cast<void(*)(void*,double,int)>(v[4])(instance.get(),48000.,256);
+  if(requested_fx==0x6153436c){
+   for(float drive:{0.f,.25f,.5f,.75f,1.f}){
+    reinterpret_cast<void(*)(void*,int,float)>(v[40])(instance.get(),0,drive);
+    auto text=reinterpret_cast<EmptyNativeString(*)(void*,int)>(v[33])(instance.get(),0);
+    printf("SOFT_DRIVE normalized=%g native=%s\n",double(drive),text.data);
+   }
+   reinterpret_cast<void(*)(void*,int,float)>(v[40])(instance.get(),0,.5f);
+  }
   OfflinePlayHead playhead;*reinterpret_cast<void**>(reinterpret_cast<char*>(instance.get())+16)=&playhead;
   float left[256]{},right[256]{};float*channels[]={left,right};
   alignas(8) unsigned char audio[320]{};*reinterpret_cast<int*>(audio)=2;*reinterpret_cast<int*>(audio+4)=256;*reinterpret_cast<float***>(audio+16)=channels;
@@ -106,6 +126,26 @@ extern "C" int modern_fx_probe(uintptr_t base,const char**phase){
   float interleaved[512]{};interleaved[0]=interleaved[1]=.5f;
   for(unsigned i=0;i<16;++i){backend.process(backend.user,prepared,interleaved,256);for(float sample:interleaved)assert(std::isfinite(sample));std::memset(interleaved,0,sizeof(interleaved));}
   backend.destroy(backend.user,prepared);std::puts("PASS production native FX backend creates, configures, processes and destroys");
+  if(requested_fx==0x61464153){
+   float previous[512]{};double previous_energy=0;
+   for(unsigned voice=0;voice<fx_amp_model_count();++voice){
+    fx_stage st{};st.kind=FX_STAGE_NATIVE;st.native_id=requested_fx;assert(fx_amp_model_apply(&st,voice));
+    prepared=backend.create(backend.user,requested_fx,48000,st.parameter);assert(prepared);
+    double energy=0,peak=0,difference=0;
+    for(unsigned block=0;block<96;++block){
+     for(unsigned i=0;i<256;++i){double t=(block*256+i)/48000.,tone=0;
+      for(unsigned h=1;h<=9;++h)tone+=std::sin(6.283185307179586*55*h*t)/(h*h);
+      interleaved[i*2]=interleaved[i*2+1]=(float)(.22*tone*std::exp(-t*2));
+     }
+     backend.process(backend.user,prepared,interleaved,256);
+     for(float value:interleaved){assert(std::isfinite(value));energy+=value*value;peak=std::fmax(peak,std::fabs(value));}
+     if(block==48){for(unsigned i=0;i<512;++i){double d=interleaved[i]-previous[i];difference+=d*d;}std::memcpy(previous,interleaved,sizeof previous);}
+    }
+    backend.destroy(backend.user,prepared);assert(energy>1e-5&&peak<2.0);
+    if(voice)assert(difference>1e-6&&std::fabs(energy-previous_energy)>1e-4);
+    previous_energy=energy;std::printf("PASS Amp voice %s real DSP energy=%g peak=%g previous_difference=%g\n",fx_amp_model_name(voice),energy,peak,difference);
+   }
+  }
   if(requested_fx==0x61465075){
    prepared=backend.create(backend.user,requested_fx,48000,entry->defaults);assert(prepared);double modulation=0;
    for(unsigned b=0;b<100;++b){for(unsigned i=0;i<512;++i)interleaved[i]=.25f;backend.process(backend.user,prepared,interleaved,256);for(float sample:interleaved){assert(std::isfinite(sample));modulation+=(sample-.25f)*(sample-.25f);}}

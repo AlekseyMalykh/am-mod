@@ -23,6 +23,7 @@ int main(int argc,char**argv)
     assert(fx_mixer_catalog_stage(index,s.rate,&project.track[0].fx.stage[0]));project.track[0].fx.count=1;
     for(int i=4;i<argc;++i){ /* optional "param=value" overrides */
         unsigned k;float v;if(sscanf(argv[i],"%u=%f",&k,&v)==2&&k<FX_CHAIN_PARAMETERS)project.track[0].fx.stage[0].parameter[k]=v;}
+    if(getenv("AMP"))assert(fx_amp_model_apply(&project.track[0].fx.stage[0],(unsigned)atoi(getenv("AMP"))));
     if(getenv("COMP")){
         project.master.fx=project.track[0].fx;s.master=1;s.fx_slot=MIXER_COMP_SLOT;s.fx_parameters=!strcmp(getenv("COMP"),"edit");
         s.comp=(struct mixer_sample_comp){1,1,1,0,0,-18,3,0,10,1200,6,4.5f,-14.f};if(getenv("SHIFT"))s.shifted=1;
@@ -48,6 +49,8 @@ int main(int argc,char**argv)
     if(getenv("ANIM")){ /* ANIM=N: write N frames argv[3]_000.txt.. at 80 ms steps, same kick-driven signal */
         unsigned n=(unsigned)atoi(getenv("ANIM"));
         for(unsigned f=0;f<n;++f){
+            if(getenv("AMP_CYCLE"))assert(fx_amp_model_apply(&project.track[0].fx.stage[0],f*fx_amp_model_count()/n));
+            if(getenv("BASS_CYCLE"))assert(fx_amp_model_apply(&project.track[0].fx.stage[0],5+f*3/n));
             out=fopen("/dev/null","w");
             for(unsigned step=0;step<2;++step){unsigned k=150+f*2+step;
                 double ph=fmod(k*.04*2.0,1.0);double duck=ph<.08?1:fmax(0.15,1-ph*1.1);

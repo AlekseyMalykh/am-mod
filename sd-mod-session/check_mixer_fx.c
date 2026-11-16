@@ -141,11 +141,17 @@ int main(int argc,char**argv)
         /* Exercise both normalized boundaries through the actual paged UI,
          * then factory defaults. This includes first process after prepare. */
         if(variant<2){
-            unsigned named=0;
-            for(unsigned p=0;p<entry->count;++p)if(entry->parameter[p]&&*entry->parameter[p]){
-                if(named&&named%6==0)assert(mixer_control_cc(c,0x64,1,ticket));
-                mixer_control_button(c,MIXER_SHIFT,named%6>=3,ticket);
-                assert(mixer_control_cc(c,0x10+named%3,variant?127:0,ticket));++named;
+            for(unsigned page=0;page<fx_catalog_page_count(entry);++page){
+                if(page)assert(mixer_control_cc(c,0x64,1,ticket));
+                for(unsigned layer=0;layer<2;++layer){
+                    if(layer&&!fx_catalog_shift_layer(entry,page))continue;
+                    mixer_control_button(c,MIXER_SHIFT,layer,ticket);
+                    for(unsigned knob=0;knob<3;++knob)
+                        if(fx_catalog_parameter_index(entry,page*6+layer*3+knob)>=0&&
+                           fx_catalog_parameter_index(entry,page*6+layer*3+knob)<(int)entry->count)
+                            assert(mixer_control_cc(c,0x10+knob,variant?127:0,ticket));
+                }
+                mixer_control_button(c,MIXER_SHIFT,0,ticket);
             }
             mixer_control_button(c,MIXER_SHIFT,0,ticket);
         }

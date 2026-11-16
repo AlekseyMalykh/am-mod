@@ -64,6 +64,27 @@ void compressor_shift_knob(unsigned k,unsigned value){
   k==1?(unsigned)lroundf((100*powf(40,(float)value/127)-100)/10):(value*48+63)/127;
  v=(v&~((uint64_t)bits<<shift))|((uint64_t)x<<shift);atomic_store_explicit(&settings,v,memory_order_release);
 }
+/* DATA edits the stored resolution directly; no absolute-knob pickup. */
+void compressor_adjust(unsigned parameter,int delta){
+ if(parameter>=6)return;
+ const unsigned shifts[]={2,10,17,25,34,43},bits[]={255,127,255,511,511,63},limits[]={192,70,48,396,390,48};
+ unsigned shift=shifts[parameter];uint64_t v=atomic_load(&settings),mask=(uint64_t)bits[parameter]<<shift;
+ int value=(int)((v>>shift)&bits[parameter])+delta;
+ if(value<0)value=0;
+ if(value>(int)limits[parameter])value=(int)limits[parameter];
+ atomic_store_explicit(&settings,(v&~mask)|((uint64_t)value<<shift),memory_order_release);
+}
+void compressor_duck_adjust(unsigned parameter,int delta){
+ if(parameter>3||!delta)return;
+ void*p=(void*)atomic_load(&owner);if(!p)return;
+ float value=original_get(p,(int)parameter)+(float)delta/127.f;
+ original_set(p,(int)parameter,fmaxf(0,fminf(1,value)));
+}
+extern int compressor_parameter_text(uintptr_t,void*,unsigned,char*,size_t);
+int compressor_duck_text(unsigned parameter,char*out,size_t size){
+ void*p=(void*)atomic_load(&owner);
+ return p&&parameter<4?compressor_parameter_text(image,p,parameter,out,size):0;
+}
 /* UI-thread helper; normal B3 is deliberately left to the native Value binding. */
 void compressor_bypass(void){
  void*p=(void*)atomic_load(&owner);if(!p)return;

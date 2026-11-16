@@ -137,6 +137,10 @@ project_append:
 .type project_dispatch,%function
 project_dispatch:
  bti c
+#ifdef USB_DRIVE_ROW
+ cmp w0,#3
+ b.eq .Lusb_drive
+#endif
 #ifdef NOTE_UI
  cmp w0,#R_KEY
  b.eq .Lkey
@@ -189,6 +193,13 @@ project_dispatch:
  autiasp
  ret
 #ifdef NOTE_UI
+#ifdef USB_DRIVE_ROW
+.Lusb_drive:
+ ldr x0,[x19]
+ orr x0,x0,#4                  // Host-owned SD transfer, UI confirmation first.
+ bl music_project_bridge
+ b .Loff_done
+#endif
 #ifndef NO_MOD_OFF
 .Lconfirm_off:
  ldr x0,[x19]

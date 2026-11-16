@@ -51,7 +51,7 @@ static void t(void*u,const char*s,int x,int y,int w,int h,unsigned size,uint32_t
     if(!strcmp(s,"Add effect")&&y>=199)++catalog_hint;
     if(!strcmp(s,"N/A"))++na;
     if(!strcmp(s,"FX List")||!strcmp(s,"+ EQ Point"))++fx_headers;
-    if(!strcmp(s,"+ EQ Point"))add_point_ink=c;
+    if(!strcmp(s,"Shift+DATA: +"))add_point_ink=c;
     if(strlen(s)==1&&s[0]>='A'&&s[0]<='H'&&size>=18)++letters;
     if(!strcmp(s,"MSTR"))++mstr;
     if(!strncmp(s,"B1",2)&&strlen(s)>3&&s[2]==' '&&s[3]!=':')++tabs;
@@ -96,7 +96,7 @@ int main(int argc,char**argv)
     assert(overview_keys==3&&knob_centres==1&&knob_bars[0]==1&&knob_bars[1]==1&&knob_bars[2]==12);
     project.track[s.primary].mix.pan=-.5f;
     s.shifted=1;overview_keys=0;knob_bars[0]=knob_bars[1]=0;
-    mixer_view_paint(&s,&painter);assert(overview_keys==12&&knob_bars[0]==2&&knob_bars[1]==9);
+    mixer_view_paint(&s,&painter);assert(overview_keys==12&&knob_bars[0]==2&&knob_bars[1]==mixer_routing_choice_count(mixer_send_excluded(&project,s.selected)));
     s.shifted=0;s.cursor=PARAM_PAN;fader_focus=0;
     mixer_view_paint(&s,&painter);assert(!fader_focus);s.cursor=PARAM_LEVEL;
     project.send_to[0]=2;project.track[0].mix.send=1;
@@ -204,7 +204,7 @@ int main(int argc,char**argv)
     s.fx_delete=delete_probe=0;
     eq->count=0;paint_trace(argv[1],"eq-empty",&s,&painter);eq->count=3;
     s.shifted=1;paint_trace(argv[1],"eq-shift",&s,&painter);
-    assert(add_point_ink==0xffffffffu);
+    assert(add_point_ink==0xff9ba5b0u);
     eq->count=MIXER_EQ_POINTS;eq->band[3]=(struct fx_eq_band){8000,0,1,FX_EQ_BELL,1};
     paint_trace(argv[1],"eq-full",&s,&painter);assert(add_point_ink==0xff9ba5b0u);
     eq->count=3;s.shifted=0;

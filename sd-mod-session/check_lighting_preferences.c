@@ -10,6 +10,12 @@ int main(void){
  assert(!music_lighting_preferences_durable()&&!music_palette_set_rgb(0,0));
  char dir[]="/tmp/am-pad-lighting-XXXXXX";assert(mkdtemp(dir));
  assert(music_lighting_preferences_open(dir)&&music_pad_lighting_mode()==MUSIC_LIGHTING_MOD);
+ /* USB stereo is the default; multichannel is durable and card-wide. */
+ assert(!music_usb_audio()&&!music_set_usb_audio(2));
+ assert(music_set_usb_audio(1)&&music_usb_audio()==1);
+ assert(music_lighting_preferences_open(dir)&&music_usb_audio()==1);
+ assert(music_set_usb_audio(0));
+ assert(music_lighting_preferences_open(dir)&&!music_usb_audio());
  music_reset();assert(music_set_pad_colour(0,13)&&music_set_sequence_colour(3,5));
  struct music_sample sample;music_get_sample("Proof",&sample);sample.root=0;sample.mode=MUSIC_PIANO;sample.transpose=7;music_publish(&sample,0);
  struct music_project before,after;music_snapshot(&before);uint64_t published=music_published();int transpose=music_transposition();
@@ -169,6 +175,7 @@ int main(void){
  assert(music_lighting_preferences_open(dir)&&music_palette_rgb(0)==music_palette_default_rgb(0));
  {char fxclean[512];snprintf(fxclean,sizeof(fxclean),"%s/.am-mod-fx-view",dir);unlink(fxclean);}
  {char tclean[512];snprintf(tclean,sizeof(tclean),"%s/.am-mod-text-input",dir);unlink(tclean);}
+ {char uclean[512];snprintf(uclean,sizeof(uclean),"%s/.am-mod-usb-audio",dir);assert(!unlink(uclean));}
  assert(!unlink(palette_path)&&!unlink(sentinel)&&!unlink(path)&&!rmdir(dir));
  assert(!music_palette_set_rgb(0,0)&&music_palette_rgb(0)==music_palette_default_rgb(0));
  assert(!music_set_pad_lighting_mode(MUSIC_LIGHTING_MOD)&&music_pad_lighting_mode()==MUSIC_LIGHTING_STANDARD);

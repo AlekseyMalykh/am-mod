@@ -60,6 +60,8 @@ static void fx_slots(void)
     assert(accepted.track[0].mix.level_db==6&&view(c).fx_catalog);
     button(c,MIXER_SELECT);ack(c);
     assert(accepted.track[0].fx.stage[0].eq.count==1);
+    button(c,MIXER_B2);ack(c);assert(accepted.track[0].fx.stage[0].bypass==1);
+    button(c,MIXER_B2);ack(c);assert(accepted.track[0].fx.stage[0].bypass==0);
     uint64_t ticket=mixer_control_ticket(c);
     mixer_control_button(c,MIXER_SHIFT,1,ticket);
     button(c,MIXER_B3);
@@ -71,7 +73,7 @@ static void fx_slots(void)
     assert(mixer_control_reset(c,0x14,0,ticket));ack(c);
     assert(accepted.track[0].mix.level_db==0&&view(c).fx_parameters);
     mixer_control_button(c,MIXER_SHIFT,1,ticket);
-    for(unsigned i=0;i<4;++i)button(c,MIXER_B3);
+    for(unsigned i=0;i<4;++i)button(c,MIXER_SELECT);
     ack(c);assert(accepted.track[0].fx.stage[0].eq.count==MIXER_EQ_POINTS);
     assert(accepted.track[0].fx.stage[0].eq.band[3].hz==8000);
     assert(!strcmp(mixer_control_message(c),"Four EQ points maximum"));
@@ -116,7 +118,7 @@ static void fx_slots(void)
     assert(view(c).fx_parameters&&eq->count==0&&accepted.track[0].fx.count==1);
     cc(c,0x10,127);mixer_control_tick(c);assert(!view(c).pending);
     mixer_control_button(c,MIXER_SHIFT,1,ticket);
-    button(c,MIXER_B3);ack(c);assert(eq->count==1);
+    button(c,MIXER_SELECT);ack(c);assert(eq->count==1);
     for(unsigned i=0;i<4;++i){button(c,MIXER_BANK_PREVIOUS);ack(c);}
     mixer_control_button(c,MIXER_SHIFT,0,ticket);
     assert(eq->count==3);
@@ -152,12 +154,13 @@ static void fx_slots(void)
     ack(c);assert(accepted.track[1].fx_bypass==1&&!accepted.track[1].mix.mute);
     button(c,MIXER_B1);assert(view(c).page==MIXER_OVERVIEW);
     pad(c,8,1);pad(c,8,0);assert(view(c).fx_parameters&&view(c).fx_slot==0);
-    /* On an effect page B2 is the effect Bypass; Shift+B2 is Chain Bypass. */
+    /* Shift+B2 pastes from an effect page and never toggles the chain. */
     mixer_control_button(c,MIXER_SHIFT,1,ticket);button(c,MIXER_B2);mixer_control_button(c,MIXER_SHIFT,0,ticket);
-    ack(c);assert(accepted.track[1].fx_bypass==0);
+    ack(c);assert(accepted.track[1].fx_bypass==1&&!view(c).fx_parameters);
+    button(c,MIXER_SELECT);
     mixer_control_button(c,MIXER_SHIFT,1,ticket);button(c,MIXER_B3);mixer_control_button(c,MIXER_SHIFT,0,ticket);
-    ack(c);assert(accepted.track[1].fx_bypass==0);
-    mixer_control_button(c,MIXER_SHIFT,1,ticket);button(c,MIXER_B2);mixer_control_button(c,MIXER_SHIFT,0,ticket);
+    ack(c);assert(accepted.track[1].fx_bypass==0&&view(c).fx_parameters);
+    mixer_control_button(c,MIXER_SHIFT,1,ticket);button(c,MIXER_B3);mixer_control_button(c,MIXER_SHIFT,0,ticket);
     ack(c);assert(accepted.track[1].fx_bypass==1);
     unsigned bank=view(c).bank;
     button(c,MIXER_BANK);assert(view(c).bank==bank);
@@ -176,7 +179,7 @@ static void fx_slots(void)
     cc(c,0x10,0);button(c,MIXER_SELECT);assert(view(c).parameter_page==1);
     mixer_control_button(c,MIXER_SHIFT,1,ticket);cc(c,0x10,127);
     mixer_control_button(c,MIXER_SHIFT,0,ticket);ack(c);
-    int mix=fx_catalog_parameter_index(entry,9);
+    int mix=fx_catalog_parameter_index(entry,fx_catalog_shift_layer(entry,1)?9:6);
     assert(mix>=0&&delay->parameter[0]==0&&delay->parameter[mix]==1);
     assert(mixer_control_reset(c,0x10,1,ticket));ack(c);
     assert(delay->parameter[mix]==entry->defaults[mix]&&delay->parameter[0]==0);
@@ -219,8 +222,9 @@ static void master_comp_row(void)
     mixer_control_button(c,MIXER_SHIFT,1,ticket);cc(c,0x12,50);mixer_control_button(c,MIXER_SHIFT,0,ticket);assert(fake.knob[1][2]==50);
     button(c,MIXER_B2);assert(fake.bypass==1&&view(c).comp.bypass);
     button(c,MIXER_B3);assert(fake.type==1);
-    mixer_control_button(c,MIXER_SHIFT,1,ticket);button(c,MIXER_B3);assert(fake.warm==1);
-    button(c,MIXER_B2);ack(c);assert(accepted.master.fx_bypass==1&&fake.bypass==1);
+    mixer_control_button(c,MIXER_SHIFT,1,ticket);button(c,MIXER_SELECT);assert(fake.warm==1);
+    button(c,MIXER_B3);ack(c);assert(accepted.master.fx_bypass==1&&fake.bypass==1);
+    button(c,MIXER_B2);ack(c);assert(accepted.master.fx_bypass==1&&!strcmp(mixer_control_message(c),"No effect copied"));
     mixer_control_button(c,MIXER_SHIFT,0,ticket);
     assert(mixer_control_reset(c,0x11,0,ticket)&&fake.reset==1);
     button(c,MIXER_B1);assert(!view(c).fx_parameters&&view(c).fx_slot==MIXER_COMP_SLOT);
@@ -245,7 +249,7 @@ static void send_name_history(void)
     uint64_t ticket=mixer_control_ticket(c);
     cc(c,0x11,127);ack(c);assert(accepted.track[0].mix.send==1);
     mixer_control_button(c,MIXER_SHIFT,1,ticket);
-    cc(c,0x11,32);ack(c);assert(accepted.send_to[0]==2);
+    cc(c,0x11,16);ack(c);assert(accepted.send_to[0]==2);
     button(c,MIXER_B2);assert(view(c).name_edit&&!view(c).name_pads); /* default: Encoder */
     mixer_control_button(c,MIXER_SHIFT,0,ticket);
     cc(c,0x64,1);button(c,MIXER_B3);ack(c);assert(!strcmp(accepted.track[0].name,"Urack A"));
@@ -312,7 +316,7 @@ static void routing_controls(void)
     assert(view(c).selected==3);
     button(c,MIXER_B2);button(c,MIXER_B3);
     assert(view(c).page==MIXER_INSPECT&&view(c).route_tab==MIXER_ROUTE_SENDS);
-    cc(c,0x11,32); /* A -> B, before the audio acknowledgement. */
+    cc(c,0x11,18); /* A -> B, before the audio acknowledgement. */
     assert(view(c).project->send_to[0]==2&&view(c).project->send_to[1]==0);
     cc(c,0x12,64);ack(c);
     assert(accepted.send_to[0]==2&&accepted.track[0].mix.send==.5f&&accepted.track[1].mix.send==0);
@@ -323,9 +327,9 @@ static void routing_controls(void)
 
     cc(c,0x10,16);assert(view(c).primary==1&&view(c).selected==2);
     unsigned before=submissions;
-    cc(c,0x11,16);mixer_control_tick(c);
-    assert(submissions==before&&accepted.send_to[1]==0&&!strcmp(mixer_control_message(c),"Send would create a loop"));
-    cc(c,0x11,48);cc(c,0x12,127);ack(c);
+    cc(c,0x11,16);ack(c);
+    assert(submissions>before&&accepted.send_to[1]==3&&!strstr(mixer_control_message(c),"loop"));
+    cc(c,0x11,21);cc(c,0x12,127);ack(c);
     assert(accepted.send_to[1]==3&&accepted.track[1].mix.send==1);
     assert(mixer_control_reset(c,0x11,0,mixer_control_ticket(c)));ack(c);
     assert(!accepted.send_to[1]);
@@ -389,8 +393,80 @@ static void input_controls(void){
  mixer_control_close(c);assert(mixer_control_open(c,1,0));assert(view(c).master!=2);
  mixer_control_destroy(c);puts("PASS Input FX entry by Shift+Knob/Pad15, editing and chain bypass isolated from Track/Master; fader/reset safe; navigation exits cleanly");
 }
+static void takeover_controls(void){
+ mixer_defaults(&accepted);++revision;++epoch;
+ struct mixer_control_ops ops={NULL,submit};struct mixer_control*c=mixer_control_create(&ops,48000);assert(c);
+ assert(mixer_control_confirm(c,&accepted,revision,epoch)&&mixer_control_open(c,1,0));
+ mixer_control_takeover(c,0,0,0);
+ cc(c,0x10,0);cc(c,0x10,30);ack(c);assert(accepted.track[0].mix.pan==0);
+ cc(c,0x10,64);cc(c,0x10,80);ack(c);assert(accepted.track[0].mix.pan>0);
+ pad(c,1,1);pad(c,1,0);cc(c,0x10,90);ack(c);assert(accepted.track[1].mix.pan==0);
+ cc(c,0x14,0);cc(c,0x14,60);ack(c);assert(accepted.track[1].mix.level_db==0);
+ cc(c,0x14,103);cc(c,0x14,110);ack(c);assert(accepted.track[1].mix.level_db>0);
+ mixer_control_takeover(c,1,1,1);
+ float pan=accepted.track[1].mix.pan;cc(c,0x10,10);ack(c);assert(accepted.track[1].mix.pan==pan);
+ cc(c,0x10,11);ack(c);assert(accepted.track[1].mix.pan>pan&&accepted.track[1].mix.pan-pan<.05f);
+ cc(c,0x10,127);ack(c);assert(accepted.track[1].mix.pan==1);
+ float db=accepted.track[1].mix.level_db;cc(c,0x14,20);ack(c);assert(accepted.track[1].mix.level_db==db);
+ cc(c,0x14,127);ack(c);assert(accepted.track[1].mix.level_db==6);
+ cc(c,0x14,0);ack(c);assert(isinf(accepted.track[1].mix.level_db));
+ mixer_control_close(c);mixer_defaults(&accepted);++revision;++epoch;
+ unsigned tube=0;while(fx_catalog_at(tube)->id!=0x61465444)++tube;
+ assert(fx_catalog_stage(tube,48000,&accepted.track[0].fx.stage[0]));accepted.track[0].fx.count=1;
+ assert(mixer_control_confirm(c,&accepted,revision,epoch)&&mixer_control_open(c,1,0));
+ pad(c,0,1);pad(c,0,0);mixer_control_set_fx_editing(c,1);button(c,MIXER_KNOB);button(c,MIXER_SELECT);
+ mixer_control_takeover(c,0,0,0);
+ cc(c,0x10,127);cc(c,0x10,90);ack(c);assert(accepted.track[0].fx.stage[0].parameter[0]==0);
+ cc(c,0x10,0);cc(c,0x10,32);ack(c);assert(accepted.track[0].fx.stage[0].parameter[0]>.2f);
+ mixer_control_takeover(c,1,1,1);float drive=accepted.track[0].fx.stage[0].parameter[0];
+ cc(c,0x10,100);ack(c);assert(accepted.track[0].fx.stage[0].parameter[0]==drive);
+ cc(c,0x10,101);ack(c);assert(accepted.track[0].fx.stage[0].parameter[0]>drive);
+ cc(c,0x10,127);ack(c);assert(accepted.track[0].fx.stage[0].parameter[0]==1);
+ mixer_control_takeover(c,2,2,2);cc(c,0x10,0);ack(c);assert(accepted.track[0].fx.stage[0].parameter[0]==0);
+ mixer_control_destroy(c);
+ puts("PASS Mixer/FX Pickup and Scaled: no first-event jump, parameter crossing, track rebinding, knob and fader endpoints, Jump restored");
+}
+static void routing_omits_cycles(void){
+ for(unsigned group=0;group<2;++group){
+  mixer_defaults(&accepted);accepted.send_to[0]=2;accepted.send_to[1]=3;++revision;++epoch;
+  assert((mixer_send_excluded(&accepted,4)&7)==7);
+  assert((mixer_send_excluded(&accepted,12)&15)==15);
+  struct mixer_control_ops ops={NULL,submit};struct mixer_control*c=mixer_control_create(&ops,48000);assert(c);
+  assert(mixer_control_confirm(c,&accepted,revision,epoch)&&mixer_control_open(c,1,0));pad(c,2,1);pad(c,2,0);
+  if(group){pad(c,2,1);pad(c,3,1);pad(c,2,0);pad(c,3,0);assert(view(c).selected==12);}
+  uint64_t ticket=mixer_control_ticket(c);mixer_control_button(c,MIXER_SHIFT,1,ticket);cc(c,0x11,0);ack(c);
+  for(unsigned n=0;n<128;++n){cc(c,0x11,n);ack(c);assert(accepted.send_to[2]!=1&&accepted.send_to[2]!=2&&!strstr(mixer_control_message(c),"loop"));}
+  for(unsigned n=0;n<12;++n){cc(c,0x64,127);ack(c);assert(accepted.send_to[2]!=1&&accepted.send_to[2]!=2&&!strstr(mixer_control_message(c),"loop"));}
+  assert(!accepted.send_to[2]);
+  mixer_control_button(c,MIXER_SHIFT,0,ticket);button(c,MIXER_B2);button(c,MIXER_B3);pad(c,2,1);pad(c,2,0);
+  cc(c,0x11,0);ack(c); /* Focus To, then sweep the encoder both ways. */
+  for(unsigned n=0;n<12;++n){cc(c,0x64,1);ack(c);assert(accepted.send_to[2]!=1&&accepted.send_to[2]!=2&&!strstr(mixer_control_message(c),"loop"));}
+  for(unsigned n=0;n<12;++n){cc(c,0x64,127);ack(c);assert(accepted.send_to[2]!=1&&accepted.send_to[2]!=2&&!strstr(mixer_control_message(c),"loop"));}
+  assert(!accepted.send_to[2]);mixer_control_destroy(c);
+ }
+ puts("PASS Send To excludes direct/transitive feedback paths for Route DATA, knobs and grouped sends without loop errors");
+}
+static void routing_omits_self(void){
+ for(unsigned track=0;track<8;++track){
+  mixer_defaults(&accepted);++revision;++epoch;
+  assert(fx_mixer_catalog_stage(fx_catalog_count(),48000,&accepted.track[track].fx.stage[0]));accepted.track[track].fx.count=1;
+  struct mixer_control_ops ops={NULL,submit};struct mixer_control*c=mixer_control_create(&ops,48000);assert(c);
+  assert(mixer_control_confirm(c,&accepted,revision,epoch)&&mixer_control_open(c,1,0));pad(c,track,1);pad(c,track,0);
+  uint64_t ticket=mixer_control_ticket(c);mixer_control_button(c,MIXER_SHIFT,1,ticket);cc(c,0x11,0);ack(c);
+  for(unsigned n=0;n<8;++n){cc(c,0x64,1);ack(c);assert(accepted.send_to[track]!=track+1&&!strstr(mixer_control_message(c),"loop"));}
+  for(unsigned n=0;n<8;++n){cc(c,0x64,127);ack(c);assert(accepted.send_to[track]!=track+1&&!strstr(mixer_control_message(c),"loop"));}
+  assert(!accepted.send_to[track]);
+  for(unsigned n=0;n<128;++n){cc(c,0x11,n);ack(c);assert(accepted.send_to[track]!=track+1);}
+  mixer_control_button(c,MIXER_SHIFT,0,ticket);
+  mixer_control_set_fx_editing(c,1);button(c,MIXER_KNOB);button(c,MIXER_SELECT);
+  for(unsigned n=0;n<128;++n){cc(c,0x10,n);ack(c);assert((unsigned)fx_sidechain_value(0,accepted.track[track].fx.stage[0].parameter[0])!=track+1);}
+  mixer_control_destroy(c);
+ }
+ puts("PASS all eight tracks: Send To DATA forward/back and full K2 sweep omit own track; Sidechain Key full K1 sweep omits own track");
+}
 int main(void)
 {
+    takeover_controls();routing_omits_self();routing_omits_cycles();
     group_fader_limits();
     master_comp_row();
     mixer_defaults(&accepted);accepted.track[0].mix.level_db=-3;accepted.track[1].mix.level_db=-9;accepted.track[2].mix.level_db=-6;

@@ -9,11 +9,11 @@ struct sidechain {
     float threshold,slope,attack,release,mix,gain;
 };
 struct fx_instance { unsigned kind,bypass; struct fx_eq eq; struct sidechain duck; void *native; void *own; };
-struct fx_program { unsigned count; double rate; struct fx_backend backend; struct fx_instance stage[FX_CHAIN_MAX]; };
+struct fx_program { unsigned delta,reuse; struct fx_chain_config config; unsigned count; double rate; struct fx_backend backend; struct fx_instance stage[FX_CHAIN_MAX]; };
 struct fx_exchange {
     _Atomic(struct fx_program*) pending,retired;
     struct fx_program *active,*fading;
-    unsigned fade_left,fade_total;
+    unsigned fade_left,fade_total,stage_fade;
     float old_buffer[512];
 };
 float fx_sidechain_value(unsigned index,float value)
@@ -94,7 +94,7 @@ struct fx_program *fx_program_prepare(const struct fx_chain_config *c,double rat
 {
     if(!fx_chain_valid(c,rate))return NULL;
     struct fx_program *p=calloc(1,sizeof(*p));if(!p)return NULL;
-    p->rate=rate;if(backend)p->backend=*backend;
+    p->config=*c;p->rate=rate;if(backend)p->backend=*backend;
     for(unsigned i=0;i<c->count;++i){const struct fx_stage *s=&c->stage[i];struct fx_instance *t=&p->stage[i];
         t->kind=s->kind;t->bypass=s->bypass;p->count=i+1;
         if(s->kind==FX_STAGE_EQ){struct fx_eq_config config=s->eq;config.bypass|=s->bypass;
@@ -107,29 +107,92 @@ struct fx_program *fx_program_prepare(const struct fx_chain_config *c,double rat
     return p;
 fail:fx_program_destroy(p);return NULL;
 }
+/* A parameter packet prepares only changed processors. Unchanged slots and
+ * smoothly updated EQ/own DSP retain their live state on the audio owner. */
+struct fx_program *fx_program_prepare_delta(const struct fx_chain_config*c,double rate,
+    const struct fx_backend*backend,const struct fx_chain_config*previous)
+{
+    if(!previous||!fx_chain_valid(c,rate)||!fx_chain_valid(previous,rate)||c->count!=previous->count)
+        return fx_program_prepare(c,rate,backend);
+    for(unsigned i=0;i<c->count;++i)
+        if(c->stage[i].kind!=previous->stage[i].kind||c->stage[i].native_id!=previous->stage[i].native_id)
+            return fx_program_prepare(c,rate,backend);
+    struct fx_program*p=calloc(1,sizeof(*p));if(!p)return NULL;
+    p->delta=1;p->config=*c;p->rate=rate;p->count=c->count;if(backend)p->backend=*backend;
+    for(unsigned i=0;i<c->count;++i){
+        const struct fx_stage*a=previous->stage+i,*b=c->stage+i;
+        if(b->kind==FX_STAGE_EQ||(a->bypass==b->bypass&&
+           (!memcmp(a->parameter,b->parameter,sizeof(a->parameter))||
+            (b->kind==FX_STAGE_NATIVE&&fx_own_can_update(b->native_id,a->parameter,b->parameter))))){
+            p->reuse|=1u<<i;
+        }else{
+            struct fx_chain_config one={.count=1,.stage={*b}};
+            struct fx_program*prepared=fx_program_prepare(&one,rate,backend);
+            if(!prepared){fx_program_destroy(p);return NULL;}
+            p->stage[i]=prepared->stage[0];prepared->count=0;fx_program_destroy(prepared);
+        }
+    }
+    return p;
+}
+static int adopt_delta(struct fx_program*p,struct fx_program*old)
+{
+    int fading=0;
+    for(unsigned i=0;i<p->count;++i){
+        if(!(p->reuse&(1u<<i))){fading=1;continue;}
+        p->stage[i]=old->stage[i];memset(old->stage+i,0,sizeof(old->stage[i]));
+        const struct fx_stage*s=p->config.stage+i;
+        if(s->kind==FX_STAGE_EQ){struct fx_eq_config c=s->eq;c.bypass|=s->bypass;fx_eq_update(&p->stage[i].eq,&c);}
+        else if(p->stage[i].own&&memcmp(s->parameter,old->config.stage[i].parameter,sizeof(s->parameter)))
+            fx_own_update(p->stage[i].own,s->parameter);
+    }
+    p->delta=0;return fading;
+}
 void fx_program_destroy(struct fx_program *p)
 {
     if(!p)return;
     for(unsigned i=0;i<p->count;++i){if(p->stage[i].own)fx_own_destroy(p->stage[i].own);else if(p->stage[i].native)p->backend.destroy(p->backend.user,p->stage[i].native);}
     free(p);
 }
-static void program_process(struct fx_program *p,float *samples,size_t frames,unsigned slot,fx_stage_tap tap,void *user,
-                            const float *const*keys,size_t offset)
+static float instance_process(struct fx_program*p,struct fx_instance*s,float*samples,size_t frames,
+                              const float*const*keys,size_t offset,int monitored)
+{
+    if(!s->kind)return 1;
+    if(s->kind==FX_STAGE_EQ){fx_eq_process(&s->eq,samples,frames);return 1;}
+    if(s->bypass)return 1;
+    if(s->kind==FX_STAGE_SIDECHAIN){unsigned source=s->duck.source;
+        const float*key=keys&&source?keys[source-1]:NULL;
+        return sidechain_process(&s->duck,samples,frames,key?key+offset:NULL,monitored);
+    }
+    if(s->own)return fx_own_process(s->own,samples,frames);
+    p->backend.process(p->backend.user,s->native,samples,frames);return 1;
+}
+static void program_process(struct fx_program*p,float*samples,size_t frames,unsigned slot,fx_stage_tap tap,void*user,
+                            const float*const*keys,size_t offset)
 {
     if(!p||!samples)return;
-    for(unsigned i=0;i<p->count;++i){struct fx_instance *s=&p->stage[i];
-        int monitored=tap&&i==slot;
-        float minimum_gain=1;
+    for(unsigned i=0;i<p->count;++i){int monitored=tap&&i==slot;
         if(monitored)tap(user,samples,frames,0,1);
-        if(s->kind==FX_STAGE_EQ)fx_eq_process(&s->eq,samples,frames);
-        else if(!s->bypass&&s->kind==FX_STAGE_SIDECHAIN){
-            unsigned source=s->duck.source;
-            const float*key=keys&&source?keys[source-1]:NULL;
-            minimum_gain=sidechain_process(&s->duck,samples,frames,key?key+offset:NULL,monitored);
+        float gain=instance_process(p,p->stage+i,samples,frames,keys,offset,monitored);
+        if(monitored)tap(user,samples,frames,1,gain);
+    }
+}
+/* Crossfade the changed slot from the same input, then run downstream DSP
+ * once. Delay tails/oscillator phases in every unaffected slot stay alive. */
+static void transition_stages(struct fx_exchange*e,float*out,size_t n,unsigned slot,fx_stage_tap tap,void*user,
+                              const float*const*keys,size_t offset)
+{
+    for(unsigned i=0;i<e->active->count;++i){int monitored=tap&&i==slot;
+        if(monitored)tap(user,out,n,0,1);
+        if(e->fading->stage[i].kind){
+            memcpy(e->old_buffer,out,n*2*sizeof(float));
+            instance_process(e->fading,e->fading->stage+i,e->old_buffer,n,keys,offset,0);
         }
-        else if(!s->bypass&&s->own)minimum_gain=fx_own_process(s->own,samples,frames);
-        else if(!s->bypass)p->backend.process(p->backend.user,s->native,samples,frames);
-        if(monitored)tap(user,samples,frames,1,minimum_gain);
+        float gain=instance_process(e->active,e->active->stage+i,out,n,keys,offset,monitored);
+        if(e->fading->stage[i].kind)for(size_t f=0;f<n;++f){
+            float wet=1.f-(float)(e->fade_left-f-1)/e->fade_total;
+            for(unsigned c=0;c<2;++c){size_t k=f*2+c;out[k]=e->old_buffer[k]+wet*(out[k]-e->old_buffer[k]);}
+        }
+        if(monitored)tap(user,out,n,1,gain);
     }
 }
 void fx_program_process(struct fx_program *p,float *samples,size_t frames)
@@ -174,7 +237,12 @@ void fx_exchange_process_keyed(struct fx_exchange *e,float *data,size_t frames,u
     /* A full retirement slot delays the next swap; it never blocks audio. */
     if(!e->fade_left&&!atomic_load_explicit(&e->retired,memory_order_acquire)){
         struct fx_program *p=atomic_exchange_explicit(&e->pending,NULL,memory_order_acquire);
-        if(p){e->fading=e->active;e->active=p;
+        if(p&&p->delta&&e->active){
+            struct fx_program*old=e->active;
+            int fading=adopt_delta(p,old);e->active=p;
+            if(fading){e->fading=old;e->stage_fade=1;e->fade_total=e->fade_left=(unsigned)(p->rate*.02);}
+            else atomic_store_explicit(&e->retired,old,memory_order_release);
+        }else if(p){p->delta=0;e->fading=e->active;e->active=p;e->stage_fade=0;
             e->fade_total=e->fade_left=(unsigned)(p->rate*.005);}
     }
     size_t position=0;
@@ -182,7 +250,11 @@ void fx_exchange_process_keyed(struct fx_exchange *e,float *data,size_t frames,u
         size_t n=frames-position;if(n>256)n=256;
         if(e->fade_left && n>e->fade_left)n=e->fade_left;
         float *out=data+position*2;
-        if(e->fade_left){
+        if(e->fade_left&&e->stage_fade){
+            transition_stages(e,out,n,slot,tap,user,keys,position);
+            e->fade_left-=(unsigned)n;
+            if(!e->fade_left){atomic_store_explicit(&e->retired,e->fading,memory_order_release);e->fading=NULL;}
+        }else if(e->fade_left){
             memcpy(e->old_buffer,out,n*2*sizeof(float));
             program_process(e->fading,e->old_buffer,n,0,NULL,NULL,keys,position);
             program_process(e->active,out,n,slot,tap,user,keys,position);

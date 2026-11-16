@@ -1,5 +1,18 @@
 # Changelog
 
+
+## r30b — USB audio, SD access and updated effects
+
+- Restored SD Card Access with safe eject and B3 return; updates over the exported card drive.
+- Optional 18-channel USB audio (Master + stereo A–H), device-supplied names; Stock/phone stereo retained.
+- New effect artwork/GIFs, dedicated knob pages and seven guitar/bass Amp voices.
+- Background pitch analysis and state-preserving FX edits; user confirmed clicks resolved.
+- Unified FX controls, compressor DATA/focus/takeover, feedback-safe Send To choices.
+- Am MOD hides stock Rec Input Effects; Sample Record monitor indication corrected; Routing Stop reaches transport. New device checks are explicitly pending.
+- Rewritten EN/RU README, user/USB guides, current verification status and build/media documentation.
+
+[English notes](docs/RELEASE_NOTES-r30b.md) · [Русский](docs/RELEASE_NOTES-r30b.ru.md).
+
 ## Installer 1.1.0
 
 - GitHub and release history links, latest release news and a download action for the displayed release.

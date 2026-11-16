@@ -189,6 +189,21 @@ int main(void){
  knob_reset_button(0x23,0);atomic_store(&native_buttons_down[0x23],0);send_step_lights();atomic_store(&pad_colour_target_phase,0);native_rgb(0,0x008000);assert(sent[0]==PAD_SELECT);
  puts("PASS actual RGB interception/timer preserves native bank picker pads1-8 over browser/custom identity after a 300 ms hold (short press keeps mod colours), then restores selected white cursor on release");
 #endif
+ /* Native compressor can broadcast one colour to every pad. Only the
+  * actual selected pad may pulse; occupancy never depends on RGB hue. */
+ levels_on=steps_on=events_visible=0;bank=0;
+ atomic_store(&pad_colour_bank,0);atomic_store(&pad_colour_sample_layout,1);
+ atomic_store(&compressor_pad_layout,1);atomic_store(&settings_pad_mask,0xffff);
+ atomic_store(&last_pad_pressed,5);
+ uint64_t stable[16];
+ for(unsigned i=0;i<16;++i){atomic_store(&original_lights[i],0x00ff00);assert(pad_colour_light(i,stable+i));}
+ for(unsigned ms=0;ms<1000;ms+=11){
+  atomic_store(&pad_colour_target_phase,ms);
+  for(unsigned i=0;i<16;++i){uint64_t v;atomic_store(&original_lights[i],ms&1?0xff7700:0);assert(pad_colour_light(i,&v));if(i!=5)assert(v==stable[i]);}
+ }
+ atomic_store(&settings_pad_mask,1u<<5);uint64_t empty;assert(pad_colour_light(0,&empty)&&empty==0);
+ atomic_store(&compressor_pad_layout,0);
+ puts("PASS compressor selection/playback broadcasts cannot blink other pads; empty pads stay dark");
  munmap(p,0x7500000);settings_visible=1;
     atomic_store(&settings_pad_bank,0);atomic_store(&settings_pad_mask,1u);
     uint64_t settings_light=0;

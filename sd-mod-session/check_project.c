@@ -115,7 +115,11 @@ memcpy(base+0x1643908,&b,4);
   if(row==0)assert(command==0x20a6&&clears==0);
   if(row==1)assert(command==0x30f7&&clears==1);
   if(row==2)assert(new_project==1&&command==0);
+#ifdef TEST_USB_DRIVE
+  if(row==3)assert(command==0&&clears==0&&captured_project==((uintptr_t)screen|4));
+#else
   if(row==3)assert(command==0x30f2&&clears==0);
+#endif
 
 #ifndef TEST_LIGHTING_MENU
  assert(access("/run/mpc-trial-app/mod-off.request",F_OK)!=0);

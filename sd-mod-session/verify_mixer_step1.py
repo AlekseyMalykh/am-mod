@@ -13,6 +13,8 @@ out.mkdir(parents=True, exist_ok=True)
 core = ["src/mixer_buses.c", "src/mixer_model.c", "src/mixer_meters.c", "src/fx_chain.c", "src/fx_own.c", "src/compressor_dsp.c", "src/fx_eq.c"]
 tracked = core + ["check_mixer_updates.c", "check_mixer_view.c", "src/mixer_view.c", "src/mixer_view.h", "src/fx_visual.inc", "src/fx_catalog.c", "src/fx_catalog.h", "src/mixer_buses.h", "src/fx_chain.h", "verify_mixer_step1.py"]
 sha = lambda p: hashlib.sha256((R / p).read_bytes()).hexdigest()
+tracked += ['src/fx_layout.inc']
+tracked += ['src/fx_amp_models.inc']
 before = {p: sha(p) for p in tracked}
 sysroot = os.environ.get("MPC_QEMU_SYSROOT", "/home/user/mpc-rootfs-user-20260808")
 checks = []

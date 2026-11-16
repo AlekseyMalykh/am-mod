@@ -33,6 +33,32 @@ static _Atomic unsigned bank_lights;
 extern void rear_ui_wake(void);
 extern unsigned phone_native_button_light(unsigned code);
 static const char *const modes[]={"Stereo","Rear L","Rear R","L+R Split","L+R Mix"};
+/* InputConfig's final row is a stock FX Select control. The Mixer has its
+ * own Input FX/Wet path, so omit that row at its single native insertion. */
+static void input_effects_row(void *list,void *row,void *control){
+    if(music_fx_mode_active()!=1)FN(0x3b6ff70,void(*)(void*,void*,void*))(list,row,control);
+}
+static int install_input_effects_row(void){
+    const uintptr_t site=0x16237a4;
+    if(FIELD((void*)image,site,uint32_t)!=0x949531f3u)return 0;
+    void *relay=MAP_FAILED;
+    for(uintptr_t off=0x7700000;off-site<0x7ff0000;off+=0x10000){
+        relay=mmap((void*)(image+off),4096,PROT_READ|PROT_WRITE,
+            MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED_NOREPLACE,-1,0);
+        if(relay!=MAP_FAILED)break;
+    }
+    if(relay==MAP_FAILED)return 0;
+    const uint32_t jump[]={0xd503245f,0x58000070,0xd61f0200,0xd503201f};
+    memcpy(relay,jump,sizeof jump);FIELD(relay,16,uintptr_t)=(uintptr_t)input_effects_row;
+    __builtin___clear_cache(relay,(char*)relay+24);
+    if(mprotect(relay,4096,PROT_READ|PROT_EXEC)){munmap(relay,4096);return 0;}
+    void *page=(void*)((image+site)&~(uintptr_t)4095);
+    if(mprotect(page,4096,PROT_READ|PROT_WRITE)){munmap(relay,4096);return 0;}
+    FIELD((void*)image,site,uint32_t)=0x94000000u|((uint32_t)(((uintptr_t)relay-image-site)/4)&0x3ffffffu);
+    __builtin___clear_cache((char*)image+site,(char*)image+site+4);
+    if(mprotect(page,4096,PROT_READ|PROT_EXEC))_exit(121);
+    return 1;
+}
 static int visible(void *p){return p&&FN(0x112fd50,int(*)(void*))(p)&&!FN(0x112f6b0,int(*)(void*))(p);}
 static void repaint(void){for(unsigned i=0;i<2;++i)if(roots[i]&&!atomic_load(&dead[i]))FN(0x1149880,void(*)(void*,uint64_t,uint64_t))(roots[i],0,FIELD(roots[i],0x28,uint64_t));}
 static void rect(void *g,int x,int y,int w,int h,uint32_t colour){FN(0x102d5e0,void(*)(void*,uint32_t))(g,colour);FN(0x102e000,void(*)(void*,int,int,int,int))(g,x,y,w,h);}
@@ -66,6 +92,21 @@ static void panel(void *g,unsigned i,const char *label,const char *value,int bad
 }
 static void tuner_rect(void *g,int x,int y,int w,int h,uint32_t colour){if(w>0&&h>0)rect(g,x,y,w,h,colour);}
 static void tuner_text(void *g,const char *s,int x,int y,int w,int h,unsigned size,uint32_t colour,int centre){text_aligned(g,s,x,y,w,h,(float)size,colour,centre?0x24:0x21);}
+/* B1's native label is 98x38 (SampleRecord::resized). Rear routing disables
+ * the recorder's dry monitor switch to avoid doubling audio. Show the user's
+ * three-state setting here, rather than that temporarily suppressed switch. */
+static void monitor_header(void *g,unsigned mode){
+    if(mode>2)mode=0;
+    const char *names[]={"Off","Record","On"};
+    uint32_t ink=mode?REAR_WHITE:REAR_GREY;
+    rect(g,0,0,98,38,0xff000000u);rect(g,1,1,96,28,0xff202020u);
+    /* Headphones. Only Off carries a slash; Record has its own status dot. */
+    rect(g,10,8,13,2,ink);rect(g,8,10,2,13,ink);rect(g,23,10,2,13,ink);
+    rect(g,10,17,3,9,ink);rect(g,20,17,3,9,ink);
+    if(!mode)for(int i=0;i<19;++i)rect(g,7+i,26-i,2,1,ink);
+    if(mode==1)rect(g,27,8,3,3,REAR_RED);
+    text(g,names[mode],32,2,62,25,14,ink);
+}
 static void pad_name(char *s,unsigned pad){snprintf(s,8,"%c%02u",'A'+pad/16,pad%16+1);}
 static unsigned mask(void){unsigned mode=rear_setting(0,REAR_MODE);return mode==REAR_DUAL?3:(mode==REAR_LEFT||mode==REAR_MIX)?1:mode==REAR_RIGHT?2:0;}
 
@@ -99,6 +140,7 @@ static void paint(void *p,void *g){
         return;
     }
     if(!atomic_load(&open_panel)){
+        if(kind)monitor_header(g,(unsigned)rear_native_monitor());
         if(kind&&mixer_view_tuner)text(g,"Tuner",206,19,70,17,14,0xffddddddu);
         if(rear_native_source()!=1)return;
         rect(g,107,0,105,35,0xff000000u);
@@ -174,6 +216,7 @@ int rear_ui_install(uintptr_t base){
     const uintptr_t expected[]={0x10e2e10,0x10e2e10,0x1682430,0x1682d70,0x16248e0,0x1624d50,0x1682d60,0x1682da0,0x1624d40,0x1624d80};
     uintptr_t callbacks[]={(uintptr_t)paint,(uintptr_t)paint,(uintptr_t)destroy,(uintptr_t)deleting,(uintptr_t)destroy,(uintptr_t)deleting,(uintptr_t)secondary_destroy_record,(uintptr_t)secondary_delete_record,(uintptr_t)secondary_destroy_config,(uintptr_t)secondary_delete_config};
     for(unsigned n=0;n<10;++n)if(*(uintptr_t*)(base+offsets[n])!=base+expected[n])return 0;
+    if(!install_input_effects_row())return 0;
     for(unsigned n=0;n<10;++n){void *p=(void*)((base+offsets[n])&~(uintptr_t)4095);if(mprotect(p,4096,PROT_READ|PROT_WRITE))return 0;*(uintptr_t*)(base+offsets[n])=callbacks[n];if(mprotect(p,4096,PROT_READ))_exit(121);}
     return 1;
 }
@@ -185,6 +228,9 @@ int rear_ui_tick(void){
     atomic_store(&visible_roots,visible_mask);
     if(!(visible_mask&2))atomic_store(&tuner_open,0);
     rear_native_tick((visible_mask&2)!=0);
+    static int last_monitor=-1;
+    int monitor=rear_native_monitor();
+    if(monitor!=last_monitor){last_monitor=monitor;if(visible_mask&2)repaint();}
     static int last_rear;
     int rear=rear_native_source()==1;
     if(atomic_load(&open_panel)&&(!rear||!(visible_mask&(1u<<panel_on_record)))){
@@ -217,10 +263,12 @@ int rear_ui_owns(unsigned kind,unsigned code){
 int rear_ui_button(void *event){
     unsigned code=FIELD(event,8,unsigned char),down=FIELD(event,9,unsigned char)!=0;
     if(code>=112||!rear_ui_owns(2,code))return 0;
-    if(!down){held[code]=0;return 1;}if(held[code])return 1;held[code]=1;
+    if(!down){held[code]=0;return code!=0x51;}if(held[code])return code!=0x51;held[code]=1;
     if(atomic_load(&tuner_open)){atomic_store(&tuner_open,0);repaint();return 1;}
     if(!atomic_load(&open_panel)&&(code==0x0e||code==0x6d)){atomic_store(&tuner_open,1);repaint();return 1;}
-    if(code==0x51||code==0x49){if(rear_native_busy())rear_native_stop();else cancel_choice();return 1;}
+    /* Stop also reaches the stock transport: its second press kills voices.
+     * Local recording cancellation and the paired release are retained. */
+    if(code==0x51||code==0x49){if(rear_native_busy())rear_native_stop();else cancel_choice();return code!=0x51;}
     if(rear_native_busy()&&code!=0x0d&&code!=0x0e&&code!=0x6c&&code!=0x6d)return 1;
     if(!atomic_load(&open_panel)){
         panel_on_record=(atomic_load(&visible_roots)&2)!=0;cancel_choice();

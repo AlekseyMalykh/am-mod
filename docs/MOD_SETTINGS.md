@@ -1,6 +1,8 @@
-# Mod Settings — r27n
+# Mod Settings — r30b
 
-Available in public prerelease r27n; stable remains r26s.
+Project → Mod Settings → **Quick**: FX mode (Stock / Am MOD), USB audio (Stereo / Master + A–H), FX view, Text input, Pad lighting, Record via / Record track / Record FX. FX mode and USB audio require restart. Stock hides mixer-only FX view; recording-route controls are Am MOD-only.
+
+[User guide](USER_GUIDE.md) · [USB](USB_GUIDE.md). The lighting sections below are the detailed reference retained from earlier versions.
 
 **Project → Mod Settings** replaces Pad Lighting. **B2/B3** cycle tabs and are
 labelled with the neighbouring tabs (`< Pads`, `Colours >`); **B1** returns. Dots

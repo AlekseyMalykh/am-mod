@@ -13,7 +13,8 @@ static int test_program;
 static void *sample_lookup(void *program,int pad){assert(program==&test_program);return pad==18?muted_sample:NULL;}
 static int sequence_only,project_open,repeat_open,knob_open;
 static unsigned char knob_screen[0x300],config_screen[0x300];
-static int config_open;
+static int config_open,compressor_overlay;
+int compressor_ui_active(void){return compressor_overlay;}
 static unsigned char project_screen[0x2000];
 static _Alignas(8) unsigned char tempo_app[0xe0],tempo_audio[0x150],tempo_core[0x590],tempo_control[0x30],tempo_seq[0xac8];
 static void set_tempo(void *p,float bpm){assert(p==tempo_control);F(tempo_seq,0xac0,float)=bpm;}
@@ -36,6 +37,7 @@ int music_archive_status(void){return 0;}
 int project_exit_start(uintptr_t b,void*s){(void)b;(void)s;assert(!"Unexpected save in EQ test");return 0;}
 int project_exit_status(void){return 0;}
 const char*project_exit_message(void){return "";}
+const char*project_exit_path(void){return "";}
 void*workflow_project_services(void){return NULL;}
 void resample_ui_prime_eq(void){++primes;}
 static int shown(void*p){if(p==config_screen)return config_open;if(p==knob_screen)return knob_open;if(p==repeat_screen)return repeat_open;if(p>=(void*)repeat_screen&&p<(void*)(repeat_screen+sizeof(repeat_screen)))return ((char*)p-(char*)repeat_screen-0x1c0)%0x440==0;assert(p==screen||p==sequence_screen||p==project_screen);if(p==project_screen)return project_open;return p==sequence_screen?sequence_only:!sequence_only;}
@@ -61,13 +63,18 @@ int main(int argc,char**argv){
  music_ui_init(base);paint_ui();assert(!key(0x0e,1)&&!music_ui_owns(0x10)); /* First native Filter page untouched. */
  /* Only the active B3 group watches audio. All native controls remain unowned. */
  F(screen,0xe50+0x21c,int)=2;paint_ui();assert(!graph_cleared&&music_ui_filter_spectrum_visible(screen)&&pad_eq_spectrum_wanted(current_pad));
+ /* Both Duck and Opto are native overlays above a still-showing Sample.
+  * The covered EQ/Lights editor must release DATA, click and knob ownership. */
+ compressor_overlay=1;music_ui_tick();
+ assert(!music_ui_owns(0x64)&&!music_ui_button_owns(0x6f));
+ compressor_overlay=0;music_ui_tick();
  usleep(650000);music_ui_tick();assert(pad_eq_spectrum_wanted(current_pad));pad_eq_spectrum_dirty();assert(pad_eq_spectrum_wanted(current_pad)); /* idle page must still capture the next note */
  for(unsigned i=0;i<2048;++i)left[i]=right[i]=.5f*(float)sin(2*3.141592653589793*1000*i/48000);
  pad_eq_spectrum_capture(current_pad,channels,2,2048,48000);spectrum_bars=0;paint_ui();assert(!graph_cleared&&spectrum_bars&&!music_ui_owns(0x10));
  F(screen,0xe50+0x218,int)=1;spectrum_bars=0;paint_ui();assert(!graph_cleared&&spectrum_bars&&!music_ui_owns(0x11));
  patch(0x286bbe0,sample_lookup);current_context=current_things;F(current_things,0xb8,void*)=&test_program;
- muted_sample[0x78]=1;uint32_t tint=0;assert(music_ui_waveform_tint(&tint)&&tint==0x999999);
- assert(music_set_mod_setting(MUSIC_SETTING_WAVE,0));assert(music_ui_waveform_tint(&tint)&&tint==0x999999);
+ assert(music_set_mod_setting(MUSIC_SETTING_WAVE,1));muted_sample[0x78]=1;uint32_t tint=0;assert(music_ui_waveform_tint(&tint)&&tint==0x999999);
+ assert(music_set_mod_setting(MUSIC_SETTING_WAVE,0));assert(!music_ui_waveform_tint(&tint));
  for(int page=0;page<2;++page){F(screen,0xe50+0x218,int)=page;pad_eq_spectrum_capture(current_pad,channels,2,2048,48000);muted_bars=0;paint_ui();assert(muted_bars&&!graph_cleared);}
  assert(key(0x0e,1)&&key(0x0e,0));pad_eq_spectrum_capture(current_pad,channels,2,2048,48000);muted_bars=0;paint_ui();assert(muted_bars&&strstr(captions,"EQ"));
  assert(!key(0x0e,1));key(0x0e,0);F(screen,0xe50+0x218,int)=1;
@@ -89,6 +96,8 @@ int main(int argc,char**argv){
  F(controller,0x22a0,unsigned char)=1;knob(0x11,90);uint64_t q=music_get_pad_eq(18);assert((q&~(UINT64_C(127)<<14))==(saved&~(UINT64_C(127)<<14)));knob(0x12,127);assert(music_get_pad_eq(18)==q);paint_ui();assert(strstr(captions,"Q"));
  F(controller,0x22a0,unsigned char)=0;knob(0x12,1);paint_ui();assert(strstr(captions,"BYPASS"));
  knob(0x12,110);knob(0x10,20);knob(0x11,110);
+ compressor_overlay=1;music_ui_tick();assert(!music_ui_owns(0x64)&&!music_ui_button_owns(0x6f));
+ compressor_overlay=0;music_ui_tick();assert(music_ui_owns(0x64)&&music_ui_button_owns(0x6f));
  uint64_t reset_before=music_get_pad_eq(18),factory=pad_eq_default();
  assert(music_ui_reset_knob(0,0));uint64_t reset_after=music_get_pad_eq(18);
  assert(reset_after==((reset_before&~UINT64_C(127))|(factory&127)));
@@ -211,6 +220,7 @@ int main(int argc,char**argv){
  assert(!key(0x37,1)&&!key(0x37,0));
  char preferences[]="/tmp/am-pad-eq-XXXXXX";
  assert(mkdtemp(preferences)&&music_lighting_preferences_open(preferences));
+ if(getenv("AM_SAMPLE_OVERLAY_ONLY")){puts("PASS Sample overlay releases hidden EQ DATA/click for Duck and Opto; Original waveform bypasses all palette/Mute tint overrides");return 0;}
  phase="Project Mod Settings tabs, encoder, reset and Standard/AM Mod switching";
  project_open=1;music_ui_project(project_screen,screen);
  assert(music_set_pad_colour(18,13)&&music_set_sequence_colour(11,4));

@@ -385,7 +385,7 @@ struct mixer_bus_update*mixer_buses_update_prepare_delta(const struct mixer_proj
         if(i<MIXER_TRACKS)u->output_gate[i]=!u->solo||m->solo;
         if(!c->fx_bypass)u->config[i]=c->fx;
         if(!previous||!same_fx(previous+i,u->config+i)){
-            u->fx[i]=fx_program_prepare(u->config+i,rate,backend);
+            u->fx[i]=fx_program_prepare_delta(u->config+i,rate,backend,previous?previous+i:NULL);
             if(!u->fx[i]){result(error,MIXER_BUS_FX_ERROR);goto fail;}
         }
     }

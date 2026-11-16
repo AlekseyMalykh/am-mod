@@ -40,6 +40,8 @@ unsigned music_fx_view(void){return atomic_load(&fx_view);}
 static _Atomic unsigned rec_route[3]={0,0,1};
 static _Atomic unsigned pad_colour_source;
 static _Atomic unsigned fx_mode_saved=1,fx_mode_active=1;static _Atomic int fx_mode_latched;
+static _Atomic unsigned usb_audio_saved;
+unsigned music_usb_audio(void){return atomic_load(&usb_audio_saved);}
 unsigned music_fx_mode(void){return atomic_load(&fx_mode_saved);}
 unsigned music_fx_mode_active(void){return atomic_load(&fx_mode_active);}
 unsigned music_relation_colour(unsigned role){return role<MUSIC_RELATION_COUNT?(atomic_load(&relation_colours)>>(4*role))&15u:0;}
@@ -233,6 +235,11 @@ int music_lighting_preferences_open(const char *directory){
    if(!fstat(vf,&vs)&&S_ISREG(vs.st_mode)&&vn==12&&!memcmp(t,"AM_FXVIEW ",10)&&(t[10]=='0'||t[10]=='1')&&t[11]=='\n')view=(unsigned)(t[10]-'0');
    close(vf);}}
  atomic_store(&fx_view,view);
+ {unsigned mode=0;int uf=openat(dir,".am-mod-usb-audio",O_RDONLY|O_CLOEXEC|O_NOFOLLOW|O_NONBLOCK);
+  if(uf>=0){char t[20]={0};struct stat us;ssize_t un=read(uf,t,sizeof(t)-1);
+   if(!fstat(uf,&us)&&S_ISREG(us.st_mode)&&un==14&&!memcmp(t,"AM_USBAUDIO ",12)&&(t[12]=='0'||t[12]=='1')&&t[13]=='\n')mode=(unsigned)(t[12]-'0');
+   close(uf);}
+  atomic_store(&usb_audio_saved,mode);}
  {unsigned mode=1;int mf=openat(dir,".am-mod-fx-mode",O_RDONLY|O_CLOEXEC|O_NOFOLLOW|O_NONBLOCK);
   if(mf>=0){char t[16]={0};struct stat ms;ssize_t mn=read(mf,t,sizeof(t)-1);
    if(!fstat(mf,&ms)&&S_ISREG(ms.st_mode)&&mn==12&&!memcmp(t,"AM_FXMODE ",10)&&(t[10]=='0'||t[10]=='1')&&t[11]=='\n')mode=(unsigned)(t[10]-'0');
@@ -379,6 +386,12 @@ int music_set_fx_mode(unsigned mode){
  char text[13];snprintf(text,sizeof(text),"AM_FXMODE %u\n",mode);
  if(!save_preference(".am-mod-fx-mode",text,12))return 0;
  atomic_store(&fx_mode_saved,mode);return 1;
+}
+int music_set_usb_audio(unsigned mode){
+ if(mode>1)return 0;
+ char text[15];snprintf(text,sizeof(text),"AM_USBAUDIO %u\n",mode);
+ if(!save_preference(".am-mod-usb-audio",text,14))return 0;
+ atomic_store(&usb_audio_saved,mode);return 1;
 }
 int music_set_led_vivid(unsigned level){
  return level<=2&&save_card_settings(atomic_load(&mod_settings),atomic_load(&relation_lighting),atomic_load(&relation_colours),level);

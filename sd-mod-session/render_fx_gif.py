@@ -1,9 +1,10 @@
 """Render the mixer effect screens as animated GIFs for the release notes.
 usage: render_fx_gif.py <rfv binary> <catalog index> <out.gif> [param=value ...]
-Needs the host harness built from render_fx_view.c (see build_fx_gifs.sh)."""
+Needs the host harness built from render_fx_view.c (see build_fx_gifs.py).
+The PCM and meters are synthetic; these are not device recordings."""
 import os,subprocess,sys,tempfile
 from PIL import Image,ImageDraw,ImageFont
-F='/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf'
+F='/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
 def frame(path):
     im=Image.new('RGB',(320,240),'black');d=ImageDraw.Draw(im)
     for line in open(path,encoding='utf-8'):
@@ -23,7 +24,11 @@ def main():
         env=dict(os.environ,ANIM=str(frames))
         subprocess.run([binary,index,'1',os.path.join(t,'f')]+sys.argv[4:],check=True,env=env)
         imgs=[frame(os.path.join(t,'f_%03d.txt'%i)) for i in range(frames)]
-    pal=imgs[0].quantize(colors=64,method=Image.Quantize.MEDIANCUT)
+    # Include every model's colours when an animation switches Amp voices.
+    samples=imgs[::max(1,len(imgs)//8)]
+    atlas=Image.new('RGB',(160*len(samples),120))
+    for n,im in enumerate(samples):atlas.paste(im.resize((160,120)),(n*160,0))
+    pal=atlas.quantize(colors=128,method=Image.Quantize.MEDIANCUT)
     q=[i.quantize(palette=pal,dither=Image.Dither.NONE) for i in imgs]
     q[0].save(out,save_all=True,append_images=q[1:],duration=80,loop=0,optimize=True,disposal=1)
-main()
+if __name__=='__main__':main()

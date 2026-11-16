@@ -19,6 +19,9 @@ extern "C" {
 #define FX_OWN_COUNT 8u
 int fx_own_is(uint32_t id);
 void *fx_own_create(uint32_t id,double rate,const float *parameters /* normalized 0..1 */);
+/* Size/predelay changes in Shimmer still need a prepared replacement. */
+int fx_own_can_update(uint32_t,const float*,const float*);
+void fx_own_update(void*,const float*);
 void fx_own_destroy(void *);
 /* Interleaved stereo, in place. Returns the lowest linear gain applied (1 = no reduction),
  * which the mixer shows as gain reduction. */

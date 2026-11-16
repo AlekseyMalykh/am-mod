@@ -1,12 +1,27 @@
-# Known issues, testing status and requests
+# Known limitations and status — r30b
 
-Updated **12 November 2026**. Latest release **r29a**. The final build still needs physical device testing.
-[r28d changes and verification limits](RELEASE_NOTES-r28d.md) ·
-[Settings](MOD_SETTINGS.md) · [Original Leusha list, Russian](TESTER_FEEDBACK_LEUSHA.ru.md).
+Updated **17 November 2026**. [Release notes](RELEASE_NOTES-r30b.md) · [USB guide](USB_GUIDE.md) · [Feedback](FEEDBACK.md).
 
-Implemented means the change and stated coverage exist, not that the entire
-original hardware report is closed. Mod Off is removed: current tests use normal
-power-off, External saves and stock startup without the mod card.
+| Area | Current status |
+|---|---|
+| USB SD / B3 return | Confirmed on MPC during r30b development; after OS ejection use B3 → B3, cable can stay connected |
+| 18 channels / names | Confirmed on MPC and Windows/REAPER; the device supplies USB names |
+| Tuner / FX clicks | User confirmed disappearance after worker/DSP changes |
+| Two EQs / FX order | Second-slot PCM test and user recheck confirmed serial processing |
+| Route feedback-choice filtering | Host/ASan/ARM/UBSan passed; latest UI needs a device check |
+| Duck/OptoCat K1 and DATA | Real native parameters and forward/reverse order checked; latest focus appearance needs hardware viewing |
+| Input Config / B1 / Routing Stop | Fixed and covered by ARM/QEMU; Input FX monitoring covered on host/ARM/UBSan; new hardware checks pending |
+| Native FX parameter changes | Unchanged slots retain state; a rebuilt native slot can still change its own tail |
+| SD Card Access | Application/audio stop while sharing the drive; safe OS ejection is required |
+| Phones, other OSes/drivers | Universal compatibility is not claimed; choose Stereo for phones |
+| Clean-card USB first install | Stock workflow documented, not separately confirmed end to end on hardware |
+| FAT32 | Experimental, files smaller than 4 GiB |
+| Internal storage | Temporary in a mod session; save to External |
+| Clean-checkout build | Not self-contained: local firmware/rootfs and frozen build inputs required |
+
+Historical reports below refer to their stated versions. They are not current button/USB instructions. Mod Off is removed; use normal power-off and stock boot without the mod card.
+
+## Historical reports
 
 | ID | Status | Implementation / next check |
 | --- | --- | --- |

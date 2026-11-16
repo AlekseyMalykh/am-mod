@@ -72,6 +72,18 @@ int mixer_send_order(const unsigned char destination[MIXER_TRACKS],unsigned orde
     }
     return 1;
 }
+unsigned mixer_send_excluded(const struct mixer_project*p,unsigned mask)
+{
+    unsigned excluded=mask&255u;
+    if(!p||!mask)return 255u;
+    for(unsigned d=1;d<=MIXER_TRACKS;++d){
+        unsigned char route[MIXER_TRACKS];unsigned order[MIXER_TRACKS];
+        memcpy(route,p->send_to,sizeof route);
+        for(unsigned i=0;i<MIXER_TRACKS;++i)if(mask&(1u<<i))route[i]=(unsigned char)d;
+        if(!mixer_send_order(route,order))excluded|=1u<<(d-1);
+    }
+    return excluded;
+}
 int mixer_set_send_to(struct mixer_project*p,unsigned mask,unsigned destination)
 {
     if(!p||!mask||destination>MIXER_TRACKS)return 0;

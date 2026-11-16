@@ -33,6 +33,9 @@ enum fx_result fx_chain_replace(struct fx_chain_config *,unsigned,const struct f
 enum fx_result fx_chain_remove(struct fx_chain_config *,unsigned);
 enum fx_result fx_chain_move(struct fx_chain_config *,unsigned,unsigned);
 struct fx_program *fx_program_prepare(const struct fx_chain_config *,double,const struct fx_backend *);
+/* previous must describe the preceding serialized program at the same rate.
+ * Publish deltas in order to that same exchange; no independent processing. */
+struct fx_program *fx_program_prepare_delta(const struct fx_chain_config *,double,const struct fx_backend *,const struct fx_chain_config *previous);
 void fx_program_destroy(struct fx_program *);
 void fx_program_process(struct fx_program *,float*,size_t);
 /* One control owner, one audio owner. Only complete prepared programs cross

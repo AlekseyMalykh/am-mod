@@ -18,6 +18,20 @@ extern "C" {
 #define MIXER_MODEL_VERSION 1u
 #define MIXER_COLOURS 12u
 #define MIXER_DEFAULT_TRACK_COLOUR 6u /* Yellow */
+/* UI choice lists omit source tracks while preserving stored 0=Off, 1..8=A..H. */
+static inline unsigned mixer_routing_choice_count(unsigned excluded){
+ unsigned n=1;for(unsigned i=0;i<8;++i)if(!(excluded&(1u<<i)))++n;return n;
+}
+static inline unsigned mixer_routing_source(unsigned excluded,unsigned index){
+ if(!index)return 0;
+ for(unsigned i=0;i<8;++i)if(!(excluded&(1u<<i))&&!--index)return i+1;
+ return 0;
+}
+static inline unsigned mixer_routing_index(unsigned excluded,unsigned source){
+ if(!source)return 0;
+ unsigned index=0;for(unsigned i=0;i<8;++i)if(!(excluded&(1u<<i))){++index;if(source==i+1)return index;}
+ return 0;
+}
 enum mixer_result { MIXER_OK, MIXER_INVALID, MIXER_FULL, MIXER_UNSUPPORTED,
                     MIXER_CORRUPT, MIXER_SHORT_BUFFER };
 enum mixer_scene_field { MIXER_SCENE_LEVEL=1, MIXER_SCENE_PAN=2,
@@ -56,6 +70,8 @@ const char*mixer_colour_name(uint32_t rgb); /* NULL for a custom RGB value. */
 int mixer_project_valid(const struct mixer_project*);
 int mixer_send_order(const unsigned char destination[MIXER_TRACKS],unsigned order[MIXER_TRACKS]);
 int mixer_set_send_to(struct mixer_project*,unsigned track_mask,unsigned destination);
+/* Exclude every destination that would form a cycle for this selection. */
+unsigned mixer_send_excluded(const struct mixer_project*,unsigned track_mask);
 enum mixer_result mixer_set_output(struct mixer_project*,unsigned pad,unsigned output);
 enum mixer_result mixer_scene_set(struct mixer_project*,const struct mixer_scene*);
 int mixer_scene_remove(struct mixer_project*,uint64_t part_id);

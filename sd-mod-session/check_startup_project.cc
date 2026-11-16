@@ -7,13 +7,18 @@
 #include <vector>
 #include <fstream>
 static const char*metadata;
-static const char*autosave_path;
+static const char*autosave_path="/data/TempProjects/Temp-Project.xpj";
 static const char*temp_root;
+static const char*usb_resume_path;
+#ifndef STARTUP_TEST_PARENT
+#define STARTUP_TEST_PARENT "/media"
+#endif
 static unsigned named_saved;static std::string named_target;
 #define MPC_PROJECT_RECOVERY 1
 #define STARTUP_STORAGE_META metadata
 #define STARTUP_AUTOSAVE_PATH autosave_path
 #define STARTUP_TEMP_ROOT temp_root
+#define STARTUP_USB_RESUME_PATH usb_resume_path
 #include "src/startup_project.cc"
 extern "C" void project_recovery_saved(const char*path){++named_saved;named_target=path;}
 static void elf(const char*path,uintptr_t base){
@@ -56,14 +61,23 @@ static int explicit_save(void*p,const uint64_t*file,bool a,bool b,bool c){
 }
 int main(int argc,char**argv){
  assert(argc==2);setbuf(stdout,nullptr);elf(argv[1],0x5000000000ULL);image=0x5000000000ULL;
- char dir[]="/media/am-startup-XXXXXX";assert(mkdtemp(dir));std::string root=std::string(dir)+"/MPC-Sample",projects=root+"/Projects";assert(!mkdir(root.c_str(),0700)&&!mkdir(projects.c_str(),0700));
+ char dir[]=STARTUP_TEST_PARENT "/am-startup-XXXXXX";assert(mkdtemp(dir));std::string root=std::string(dir)+"/MPC-Sample",projects=root+"/Projects";assert(!mkdir(root.c_str(),0700)&&!mkdir(projects.c_str(),0700));
  std::string meta=std::string(dir)+"/meta";metadata=meta.c_str();{std::ofstream f(meta);f<<root<<'\n';}
+ std::string resume_marker=std::string(dir)+"/usb-resume";usb_resume_path=resume_marker.c_str();
  std::string temp_folder=root+"/TempProjects";temp_root=temp_folder.c_str();workspace=temp_folder+"/Temp-Project_[ProjectData]";remove_workspace=true;
  auto create=[](const std::string&p){std::ofstream f(p);f<<"project fixture";};
  auto a=projects+"/A.xpj",b=projects+"/B.xpj";create(a);create(b);create(projects+"/Mod-Exit-saving-bad.xpj");
  struct timespec stamp[2]={{1000,0},{1000,0}};assert(!utimensat(AT_FDCWD,a.c_str(),stamp,0)&&!utimensat(AT_FDCWD,b.c_str(),stamp,0));
  assert(!symlink("B.xpj",(projects+"/Z.xpj").c_str()));
  assert(startup_project_install(image));assert(!strcmp(selected,b.c_str()));original=receiver;
+ {std::ofstream f(resume_marker);f<<a;}
+ selected[0]=0;choose();assert(!strcmp(selected,a.c_str())&&access(resume_marker.c_str(),F_OK));
+ selected[0]=0;choose();assert(!strcmp(selected,b.c_str()));
+ {std::ofstream f(resume_marker);f<<"/etc/passwd";}
+ selected[0]=0;choose();assert(!strcmp(selected,b.c_str())&&access(resume_marker.c_str(),F_OK));
+ {std::ofstream f(resume_marker);f<<projects+"/Z.xpj";}
+ selected[0]=0;choose();assert(!strcmp(selected,b.c_str())&&access(resume_marker.c_str(),F_OK));
+ puts("PASS USB resume loads the exact older saved copy once; ordinary newest-project selection returns, outside-root and symlink targets rejected");
  original_save=explicit_save;File explicit_file(b.c_str());
  auto save_method=*reinterpret_cast<Save*>(image+0x6d8cc18);
  assert(save_method((void*)0x1234,&explicit_file.value,true,false,true)==7&&explicit_calls==1&&named_saved==1&&named_target==b);

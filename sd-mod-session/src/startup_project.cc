@@ -26,6 +26,9 @@
 #ifndef STARTUP_TEMP_ROOT
 #define STARTUP_TEMP_ROOT "/data/TempProjects"
 #endif
+#ifndef STARTUP_USB_RESUME_PATH
+#define STARTUP_USB_RESUME_PATH "/run/mpc-trial-app/usb-resume-project"
+#endif
 namespace {
 uintptr_t image;
 std::atomic<unsigned> phase{0}; /* 0 uninstalled, 1 waiting, 2 native load, 3 done */
@@ -165,6 +168,19 @@ void scan(const char*folder,unsigned depth,time_t&best){
 void choose(){
  char root[PATH_MAX],canonical[PATH_MAX];
  if(!card_root(root))return;
+ /* USB Drive restarts the app after the card returns. Load the exact copy
+  * made before handoff, even if the PC added a newer XPJ. Consume once; later
+  * ordinary launches keep their usual newest-project selection. */
+ const char*resume=STARTUP_USB_RESUME_PATH;
+ int fd=open(resume,O_RDONLY|O_NOFOLLOW|O_CLOEXEC|O_NONBLOCK);
+ if(fd>=0){
+  char path[PATH_MAX]={0};struct stat st;ssize_t n=fstat(fd,&st)||!S_ISREG(st.st_mode)?-1:read(fd,path,sizeof(path)-1);close(fd);unlink(resume);
+  size_t root_size=std::strlen(root);
+  if(n>(ssize_t)(root_size+10)&&std::strlen(path)==(size_t)n&&!std::strncmp(path,root,root_size)&&!std::strncmp(path+root_size,"/Projects/",10)&&
+     !std::strstr(path,"/../")&&realpath(path,canonical)&&!std::strcmp(path,canonical)&&!lstat(path,&st)&&regular(path,st)){
+   std::snprintf(selected,sizeof(selected),"%s",path);std::fprintf(stderr,"STARTUP_PROJECT USB_RESUME_SELECTED\n");return;
+  }
+ }
  char projects[PATH_MAX];if(std::snprintf(projects,sizeof(projects),"%s/Projects",root)>=(int)sizeof(projects))return;
  if(!realpath(projects,canonical)||std::strcmp(projects,canonical))return;
  time_t best=0;scan(projects,1,best);

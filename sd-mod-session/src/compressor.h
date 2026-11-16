@@ -23,6 +23,9 @@ int compressor_select(unsigned);
 void compressor_config(struct comp_config*);
 void compressor_knob(unsigned,unsigned);
 void compressor_shift_knob(unsigned,unsigned);
+void compressor_adjust(unsigned parameter,int delta);
+void compressor_duck_adjust(unsigned parameter,int delta);
+int compressor_duck_text(unsigned parameter,char*,size_t);
 void compressor_bypass(void);
 void compressor_warm(void);
 /* Versioned XPJ companion data. Duck controls and shared Bypass are owned

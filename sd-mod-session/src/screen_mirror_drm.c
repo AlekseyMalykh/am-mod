@@ -5,6 +5,7 @@
 #include <drm/drm_mode.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <linux/dma-buf.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -15,16 +16,19 @@
 #include <unistd.h>
 
 struct mirror_buffer {
-    int fd;
+    int fd,read_fd,dma_fd;
     uint32_t id,handle,pitch;
     uint8_t bits;
 };
 
 static struct mirror_buffer buffers[8];
+struct mirror_display {int fd;uint32_t crtc;};
+static struct mirror_display displays[4];
 static unsigned char frame[MIRROR_BMP_BYTES];
 static uint64_t last_frame;
 static pthread_mutex_t lock=PTHREAD_MUTEX_INITIALIZER;
 static pthread_once_t native_once=PTHREAD_ONCE_INIT;
+static pthread_once_t worker_once=PTHREAD_ONCE_INIT;
 static int (*native_add)(int,uint32_t,uint32_t,uint8_t,uint8_t,uint32_t,uint32_t,uint32_t*);
 static int (*native_remove)(int,uint32_t);
 static int (*native_flip)(int,uint32_t,uint32_t,uint32_t,void*);
@@ -83,34 +87,80 @@ static void publish_frame(void)
        rename(staging,SCREEN_MIRROR_FRAME))unlink(staging);
 }
 
-static void capture_buffer(int fd,uint32_t id)
+static void capture_buffer(int fd,uint32_t crtc)
 {
     int saved=errno;
     if(pthread_mutex_trylock(&lock))return;
     struct timespec time;
     clock_gettime(CLOCK_MONOTONIC,&time);
     uint64_t now=(uint64_t)time.tv_sec*1000+(unsigned long)time.tv_nsec/1000000;
-    if(id&&now-last_frame>=180){
-        last_frame=now;
+    if(crtc&&now-last_frame>=180){
         if(access(SCREEN_MIRROR_FLAG,F_OK))goto done;
+        int query=-1;
+        for(unsigned i=0;i<sizeof(buffers)/sizeof(buffers[0]);++i)
+            if(buffers[i].id&&buffers[i].fd==fd&&buffers[i].read_fd>=0){query=buffers[i].read_fd;break;}
+        if(query<0)goto done;
+        /* A successful PageFlip queues a future buffer. Only the framebuffer
+         * actually selected by KMS is a candidate for a complete screenshot. */
+        struct drm_mode_crtc current={.crtc_id=crtc};
+        if(ioctl(query,DRM_IOCTL_MODE_GETCRTC,&current)||!current.mode_valid)goto done;
         for(unsigned i=0;i<sizeof(buffers)/sizeof(buffers[0]);++i){
-            const struct mirror_buffer *b=&buffers[i];
-            if(b->id!=id||b->fd!=fd)continue;
-            struct drm_mode_map_dumb offset={.handle=b->handle};
-            if(ioctl(fd,DRM_IOCTL_MODE_MAP_DUMB,&offset))break;
-            size_t size=(size_t)b->pitch*MIRROR_HEIGHT;
-            const unsigned char *pixels=mmap(NULL,size,PROT_READ,MAP_SHARED,fd,(off_t)offset.offset);
-            if(pixels!=MAP_FAILED){
-                encode_frame(pixels,b->pitch,b->bits);
-                munmap((void*)pixels,size);
-                publish_frame();
+            struct mirror_buffer *b=&buffers[i];
+            if(b->id!=current.fb_id||b->fd!=fd||b->read_fd<0)continue;
+            if(b->dma_fd<0){
+                struct drm_prime_handle prime={.handle=b->handle,.flags=DRM_CLOEXEC};
+                if(ioctl(b->read_fd,DRM_IOCTL_PRIME_HANDLE_TO_FD,&prime))break;
+                b->dma_fd=prime.fd;
             }
+            /* RGA renders into DMA memory. mmap alone can expose stale CPU
+             * cache lines: new glyphs over an old menu, unlike the LCD. */
+            struct dma_buf_sync sync={.flags=DMA_BUF_SYNC_START|DMA_BUF_SYNC_READ};
+            if(ioctl(b->dma_fd,DMA_BUF_IOCTL_SYNC,&sync))break;
+            struct drm_mode_map_dumb offset={.handle=b->handle};
+            int complete=0;
+            if(!ioctl(b->read_fd,DRM_IOCTL_MODE_MAP_DUMB,&offset)){
+                size_t size=(size_t)b->pitch*MIRROR_HEIGHT;
+                const unsigned char *pixels=mmap(NULL,size,PROT_READ,MAP_SHARED,b->read_fd,(off_t)offset.offset);
+                if(pixels!=MAP_FAILED){
+                    encode_frame(pixels,b->pitch,b->bits);
+                    munmap((void*)pixels,size);
+                    struct drm_mode_crtc after={.crtc_id=crtc};
+                    complete=!ioctl(b->read_fd,DRM_IOCTL_MODE_GETCRTC,&after)&&after.mode_valid&&after.fb_id==b->id;
+                }
+            }
+            sync.flags=DMA_BUF_SYNC_END|DMA_BUF_SYNC_READ;
+            if(ioctl(b->dma_fd,DMA_BUF_IOCTL_SYNC,&sync))complete=0;
+            if(complete){last_frame=now;publish_frame();}
             break;
         }
     }
 done:
     pthread_mutex_unlock(&lock);
     errno=saved;
+}
+
+static void*mirror_worker(void*unused)
+{
+    (void)unused;
+    for(;;){
+        if(!access(SCREEN_MIRROR_FLAG,F_OK)){
+            struct mirror_display current[4];
+            pthread_mutex_lock(&lock);memcpy(current,displays,sizeof(current));pthread_mutex_unlock(&lock);
+            for(unsigned i=0;i<4;++i)if(current[i].crtc)capture_buffer(current[i].fd,current[i].crtc);
+        }
+        usleep(200000);
+    }
+    return NULL;
+}
+static void start_worker(void){pthread_t worker;if(!pthread_create(&worker,NULL,mirror_worker,NULL))pthread_detach(worker);}
+static void remember_display(int fd,uint32_t crtc)
+{
+    pthread_mutex_lock(&lock);
+    for(unsigned i=0;i<4;++i)if(!displays[i].crtc||(displays[i].fd==fd&&displays[i].crtc==crtc)){
+        displays[i]=(struct mirror_display){fd,crtc};break;
+    }
+    pthread_mutex_unlock(&lock);
+    pthread_once(&worker_once,start_worker);
 }
 
 int drmModeAddFB(int fd,uint32_t width,uint32_t height,uint8_t depth,uint8_t bits,
@@ -125,7 +175,12 @@ int drmModeAddFB(int fd,uint32_t width,uint32_t height,uint8_t depth,uint8_t bit
         pthread_mutex_lock(&lock);
         for(unsigned i=0;i<sizeof(buffers)/sizeof(buffers[0]);++i){
             if(!buffers[i].id||(buffers[i].fd==fd&&buffers[i].id==*id)){
-                buffers[i]=(struct mirror_buffer){fd,*id,handle,pitch,bits};
+                int copy=fcntl(fd,F_DUPFD_CLOEXEC,0);
+                if(buffers[i].id){
+                    if(buffers[i].read_fd>=0)close(buffers[i].read_fd);
+                    if(buffers[i].dma_fd>=0)close(buffers[i].dma_fd);
+                }
+                buffers[i]=(struct mirror_buffer){fd,copy,-1,*id,handle,pitch,bits};
                 break;
             }
         }
@@ -140,7 +195,11 @@ int drmModeRmFB(int fd,uint32_t id)
     if(!native_remove){errno=ENOSYS;return -1;}
     pthread_mutex_lock(&lock);
     for(unsigned i=0;i<sizeof(buffers)/sizeof(buffers[0]);++i)
-        if(buffers[i].fd==fd&&buffers[i].id==id)buffers[i].id=0;
+        if(buffers[i].id&&buffers[i].fd==fd&&buffers[i].id==id){
+            if(buffers[i].read_fd>=0)close(buffers[i].read_fd);
+            if(buffers[i].dma_fd>=0)close(buffers[i].dma_fd);
+            buffers[i].id=0;
+        }
     pthread_mutex_unlock(&lock);
     return native_remove(fd,id);
 }
@@ -150,7 +209,7 @@ int drmModePageFlip(int fd,uint32_t crtc,uint32_t id,uint32_t flags,void *data)
     pthread_once(&native_once,resolve_native);
     if(!native_flip){errno=ENOSYS;return -1;}
     int result=native_flip(fd,crtc,id,flags,data);
-    if(!result)capture_buffer(fd,id);
+    if(!result)remember_display(fd,crtc);
     return result;
 }
 
@@ -160,6 +219,6 @@ int drmModeSetCrtc(int fd,uint32_t crtc,uint32_t id,uint32_t x,uint32_t y,
     pthread_once(&native_once,resolve_native);
     if(!native_set){errno=ENOSYS;return -1;}
     int result=native_set(fd,crtc,id,x,y,connectors,count,mode);
-    if(!result&&!x&&!y)capture_buffer(fd,id);
+    if(!result&&!x&&!y)remember_display(fd,crtc);
     return result;
 }

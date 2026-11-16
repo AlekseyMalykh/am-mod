@@ -103,7 +103,8 @@ int lane_update(Lane&L,const fx_chain_config&next,unsigned rate,uintptr_t image,
   std::memcpy(L.context.initial_position,binding.position,88);L.context.position=clock;L.context.position_user=nullptr;
   fx_native_backend(&L.context,&L.backend);
  }
- fx_program*program=fx_program_prepare(&next,rate,next.count?&L.backend:nullptr);
+ fx_program*program=fx_program_prepare_delta(&next,rate,next.count?&L.backend:nullptr,
+     L.valid&&L.generation==gen&&L.source==src&&L.flushed==fl?&L.configured:nullptr);
  if(!program){L.active.store(0,std::memory_order_release);return 3;}
  L.publishing.store(1,std::memory_order_release);
  uint64_t version=L.published.fetch_add(1,std::memory_order_acq_rel)+1;

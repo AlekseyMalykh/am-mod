@@ -1,6 +1,8 @@
-# Mod Settings — r27n
+# Mod Settings — r30b
 
-Доступны в публичной предварительной r27n; стабильной остаётся r26s.
+Project → Mod Settings → **Quick**: FX mode (Stock / Am MOD), USB audio (Stereo / Master + A–H), FX view, Text input, Pad lighting, Record via / Record track / Record FX. После смены FX mode или USB audio нужен перезапуск. В Stock скрыт FX view микшера; выбор точки записи доступен только в Am MOD.
+
+[Руководство](USER_GUIDE.ru.md) · [USB](USB_GUIDE.ru.md). Ниже сохранён подробный справочник подсветки из предыдущих версий.
 
 Палитра содержит восемь пользовательских и шесть системных цветов. Старые сохранённые палитры поддерживаются.
 

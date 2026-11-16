@@ -1,5 +1,8 @@
 #define _GNU_SOURCE
 #include "mixer_live.h"
+#ifdef MPC_USB_AUDIO
+#include "usb_audio.h"
+#endif
 #ifdef MPC_LOOP_FEEDBACK
 #include "sample_playing.h"
 #endif
@@ -132,10 +135,29 @@ static void engine(void*p,void*c,unsigned n)
                expected!=atomic_load_explicit(&binding_epoch,memory_order_acquire))s=NULL;
         }
     }
+    int mixed=0;
     if (!s && mixer_stems_offline_block && (caller == image + 0x18b98c0 || caller == image + 0x18b5570) &&
         mixer_stems_offline_block(p,c,n,atomic_load(&kit_vptr))) goto finished;
-    if(s)mixer_live_render(s,p,c,n);else ops.engine(p,c,n);
+    if(s)mixed=mixer_live_render(s,p,c,n);else ops.engine(p,c,n);
 finished:
+#ifndef MPC_USB_AUDIO
+    (void)mixed;
+#endif
+#ifdef MPC_USB_AUDIO
+    if(caller==image+0x18dc010&&usb_audio_enabled()){
+        void*out=ops.final_output(p);
+        unsigned channels=0,capacity=0;if(out){memcpy(&channels,out,4);memcpy(&capacity,(char*)out+4,4);}
+        if(out&&channels==2&&capacity>=n&&n<=AM_USB_CAPACITY){
+            float **master=ptr(out,16);const float *tap[AM_USB_CHANNELS]={0};
+            if(master&&master[0]&&master[1]){
+                if(!*((unsigned char*)out+0x128)){tap[0]=master[0];tap[1]=master[1];}
+                for(unsigned bus=0;bus<8;++bus){struct mixer_pcm_view v;
+                    if(s&&mixed&&mixer_live_bus_view(s,bus,&v)&&v.frames==n){tap[2+2*bus]=v.channel[0];tap[3+2*bus]=v.channel[1];}}
+                usb_audio_capture(tap,n);
+            }
+        }
+    }
+#endif
     /* Only the real live callsite may discover a session. Offline renderers
      * call the same entry from18b556c/18b98bc and have independent lifetimes. */
     if (caller == image + 0x18dc010) {
@@ -254,6 +276,9 @@ int mixer_live_native_binding(struct mixer_native_binding *out)
 }
 void mixer_live_native_invalidate(void)
 {
+#ifdef MPC_USB_AUDIO
+    usb_audio_reset();
+#endif
     atomic_fetch_add_explicit(&binding_epoch,1,memory_order_acq_rel);
 }
 int mixer_live_native_attach_binding(struct mixer_live *session,const struct mixer_native_binding *source)

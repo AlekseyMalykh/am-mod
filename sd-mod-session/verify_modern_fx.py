@@ -12,6 +12,8 @@ stock=runtime/'extracted_v1.3.0/partitions/part3/usr/bin/MPC Sample'
 assert sha256(stock.read_bytes()).hexdigest()=='b6584cba76e416e432ad202509099d34373dc2c3d6a8fb625f5678bf0193b508'
 sources=['check_modern_fx.cc','src/fx_native.cc','src/fx_eq.c','src/fx_catalog.c','src/fx_chain.c', 'src/fx_own.c', 'src/compressor_dsp.c']
 tracked=sources+['check_modern_fx.c','check_fx_metadata.h','check_fx_native.c','src/fx_native.h','src/fx_chain.h','src/fx_catalog.h','src/fx_eq.h','verify_modern_fx.py']
+tracked += ['src/fx_layout.inc']
+tracked += ['src/fx_amp_models.inc']
 before={s:sha256((R/s).read_bytes()).hexdigest() for s in tracked}
 objects=[]
 for source in sources:

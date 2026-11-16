@@ -48,6 +48,8 @@ uint64_t mixer_control_ticket(const struct mixer_control*);
 int mixer_control_button(struct mixer_control*,enum mixer_action,int down,uint64_t ticket);
 int mixer_control_pad(struct mixer_control*,unsigned pad,int down,uint64_t ticket);
 int mixer_control_focus_sound_fx(struct mixer_control*,unsigned sound);
+/* Native settings: 0 Pickup, 1 Scaled, 2 Jump. */
+void mixer_control_takeover(struct mixer_control*,unsigned parameter,unsigned fx,unsigned fader);
 int mixer_control_cc(struct mixer_control*,unsigned cc,unsigned value,uint64_t ticket);
 /* Pad Bank held + Fader/K1/K3: default Level/Pan/Colour for the selection. */
 int mixer_control_reset(struct mixer_control*,unsigned cc,int shift,uint64_t ticket);

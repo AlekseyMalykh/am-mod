@@ -215,6 +215,34 @@ static void sidechain(void)
     mixer_buses_destroy(b);
     puts("PASS Sidechain key from muted Track B ducks Track A, stays out of the mix and reaches the FX detector meter");
 }
+static void serial_eq_monitor(void)
+{
+    mixer_defaults(&project);project.output[0]=1;
+    struct fx_chain_config *chain=&project.track[0].fx;chain->count=2;
+    for(unsigned i=0;i<2;++i){chain->stage[i].kind=FX_STAGE_EQ;fx_eq_default(&chain->stage[i].eq);}
+    chain->stage[0].eq.count=1;
+    chain->stage[0].eq.band[0]=(struct fx_eq_band){300,0,.707,FX_EQ_LOW_PASS,1};
+    struct mixer_buses*b=prepare();mixer_buses_monitor(b,0,1);
+    struct fx_eq first,second;assert(fx_eq_init(&first,48000,&chain->stage[0].eq));assert(fx_eq_init(&second,48000,&chain->stage[1].eq));
+    struct mixer_fx_monitor monitor;float tone[128],reference[256],window[MIXER_FX_MONITOR_FRAMES];
+    for(unsigned block=0;block<96;++block){
+        for(unsigned i=0;i<128;++i){unsigned frame=block*128+i;tone[i]=.3f*sinf((float)(frame*6.283185307179586*6000/48000));reference[2*i]=reference[2*i+1]=tone[i];}
+        fx_eq_process(&first,reference,128);
+        for(unsigned i=0;i<128;++i)window[(block%32)*128+i]=reference[2*i];
+        fx_eq_process(&second,reference,128);
+        assert(mixer_buses_begin(b,128)==MIXER_BUS_OK);
+        assert(mixer_buses_accumulate(b,0,tone,NULL,1,0)==MIXER_BUS_OK);
+        assert(mixer_buses_finish(b,NULL,0)==MIXER_BUS_OK);
+        for(unsigned i=0;i<128;++i)compare(value(b,0,0,i),reference[2*i]);
+        if((block+1)%32==0){
+            assert(mixer_buses_take_monitor(b,&monitor)&&monitor.slot==1);
+            for(unsigned i=0;i<MIXER_FX_MONITOR_FRAMES;++i){compare(monitor.input_pcm[i],window[i]);compare(monitor.pcm[i],window[i]);}
+            if(block>32)assert(monitor.input_peak<.001f&&monitor.output_peak<.001f);
+        }
+    }
+    mixer_buses_destroy(b);
+    puts("PASS sequential EQs: second-slot input/output spectrum PCM equals first EQ output, 6kHz cut by preceding 300Hz low-pass; final audio matches serial reference");
+}
 static void failures(void)
 {
     mixer_defaults(&project);enum mixer_bus_result error;project.master.mix.send=.5f;
@@ -238,4 +266,4 @@ static void failures(void)
     mixer_buses_destroy(b);assert(creates==destroys);
     puts("PASS invalid PCM/overflow/FX fault blocks incomplete output; explicit clear silence and unsupported Send rejection");
 }
-int main(void){routing();controls();effects();sends();sidechain();failures();puts("PASS real PCM eight-bus core (native Pad adapter not installed)");return 0;}
+int main(void){routing();controls();effects();sends();sidechain();serial_eq_monitor();failures();puts("PASS real PCM eight-bus core (native Pad adapter not installed)");return 0;}

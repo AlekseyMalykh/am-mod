@@ -38,26 +38,66 @@ unsigned fx_catalog_parameter_count(const struct fx_catalog_entry*e)
     if(e)for(unsigned i=0;i<e->count;++i)if(e->parameter[i]&&*e->parameter[i])++n;
     return n;
 }
+#include "fx_layout.inc"
+static const struct fx_layout*layout_for(const struct fx_catalog_entry*e)
+{
+    if(e)for(unsigned i=0;i<sizeof(layouts)/sizeof(layouts[0]);++i)if(layouts[i].id==e->id)return layouts+i;
+    return NULL;
+}
+unsigned fx_catalog_page_count(const struct fx_catalog_entry*e)
+{
+    const struct fx_layout*l=layout_for(e);
+    if(l)return l->slots/6;
+    unsigned n=fx_catalog_parameter_count(e);return n?(n+5)/6:1;
+}
+const char*fx_catalog_page_name(const struct fx_catalog_entry*e,unsigned page)
+{
+    const struct fx_layout*l=layout_for(e);
+    return l&&page<l->slots/6?l->page[page]:"Parameters";
+}
 int fx_catalog_parameter_index(const struct fx_catalog_entry*e,unsigned position)
 {
-    if(e&&e->id==FX_SIDECHAIN_ID){
-        /* Display order: Attack, Threshold, Ratio | Shift: Key Track, Release, Mix (storage order is unchanged). */
-        static const int order[6]={3,1,2,0,4,5};
-        return position<6?order[position]:-1;
-    }
+    const struct fx_layout*l=layout_for(e);
+    if(l)return position<l->slots?l->index[position]:-1;
     if(e)for(unsigned i=0;i<e->count;++i)
         if(e->parameter[i]&&*e->parameter[i]&&position--==0)return (int)i;
     return -1;
 }
-unsigned fx_catalog_choice_count(const struct fx_catalog_entry*e,unsigned index){return e&&e->id==0x61464153u&&index==9?8u:0u;}
+const char*fx_catalog_parameter_label(const struct fx_catalog_entry*e,unsigned index)
+{
+    if(e&&e->id==0x61464153u&&index==FX_CONTROL_AMP_MODEL)return "Amp Model";
+    if(!e||index>=e->count||!e->parameter[index])return "";
+    const char*label=e->parameter[index];
+    static const char*const short_names[][2]={
+        {"Freq","Frequency"},{"Res","Resonance"},{"Thresh","Threshold"},
+        {"Rels","Release"},{"DryWet","Mix"},{"Feedbk","Feedback"},
+        {"WowFlut","Wow/Flutter"},{"Head1","Head 1"},{"Head2","Head 2"},
+        {"Head3","Head 3"},{"Head4","Head 4"},{"Cutoff Frequency","Cutoff"},
+        {"Saturation Drive","Sat Drive"},{"Saturation Type","Sat Type"},
+        {"Denoise Threshold","Denoise Thresh"},{"True Peak Lim","True Peak"},
+        {"Attack Time","Attack"},{"Hold Time","Hold"},{"Release Time","Release"},
+        {"Trigger Offset","Offset"},{"Mode","Channels"}
+    };
+    for(unsigned i=0;i<sizeof(short_names)/sizeof(short_names[0]);++i)
+        if(!strcmp(label,short_names[i][0]))return short_names[i][1];
+    return label;
+}
+unsigned fx_catalog_choice_count(const struct fx_catalog_entry*e,unsigned index){
+    return e&&e->id==0x61464153u?(index==FX_CONTROL_AMP_MODEL?fx_amp_model_count():index==9?11u:index==10?2u:0u):0u;
+}
 const char *fx_catalog_choice_name(const struct fx_catalog_entry*e,unsigned index,float v)
 {
-    static const char*const cab[8]={"Dense","Gritty","Loose","Roomy","Boxy","Cramped","Tiny","Nano"};
+    /* Labels and round-to-nearest spacing verified on the actual pinned AIR instance. */
+    static const char*const cab[11]={"D.I.","Brit","1x8\"","1x12\"","2x10\"","2x12\"","4x10\"","4x12\"","1x15 Bass","4x10 Bass","Radio"};
     unsigned n=fx_catalog_choice_count(e,index);
     if(!n)return "";
     v=fminf(1.f,fmaxf(0.f,v));
+    if(index==FX_CONTROL_AMP_MODEL)return fx_amp_model_name((unsigned)lroundf(v*(n-1)));
+    if(index==10)return v<.5f?"Mono":"Stereo";
     return cab[(unsigned)(v*(float)(n-1)+.5f)];
 }
+#include "fx_amp_models.inc"
+
 int fx_catalog_shift_layer(const struct fx_catalog_entry*e,unsigned page)
 {
     for(unsigned k=0;k<3;++k)if(fx_catalog_parameter_index(e,page*6+3+k)>=0)return 1;

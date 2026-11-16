@@ -7,6 +7,10 @@
 #endif
 #include <atomic>
 #include <mutex>
+#include <condition_variable>
+#include <thread>
+#include <sys/resource.h>
+#include <sys/syscall.h>
 #include <new>
 #include <cstring>
 #include <cstdio>
@@ -24,6 +28,14 @@ struct resample_stock_backend {
     std::mutex mutex;unsigned command=0;resample_destination_request request{};resample_stock_reply reply{};
     void *mode=nullptr,*things=nullptr,*project=nullptr,*program=nullptr,*sequence=nullptr;
     struct {unsigned state=0,pad=0;float hz=0;char name[80]{};} tuner;
+    struct TuneSnapshot {
+        uint64_t epoch=0,serial=0,first=0,end=0;uintptr_t sample=0;
+        unsigned pad=0,n=0,windows=0;int rate=0;char name[80]{};
+        std::vector<float> mono;
+    } tune_pending;
+    std::condition_variable tune_wake;bool tune_pending_ready=false;
+    uint64_t tune_serial=0,tune_epoch=0,tune_first=0,tune_end=0;
+    uintptr_t tune_sample=0;int tune_rate=0;
     struct Job {std::atomic<unsigned>done{0};uint64_t token,epoch;unsigned target;uintptr_t before;bool submitted=false;}*job=nullptr;
 };
 
@@ -44,32 +56,50 @@ bool tuner_yin(const float*x,int n,int rate,float*out,float*conf){
     if(best>1&&best<tmax-1){float a=c[(size_t)best-1],b=c[(size_t)best],e=c[(size_t)best+1],den=a-2*b+e;if(den!=0)t+=.5f*(a-e)/den;}
     *out=(float)rate/t;*conf=c[(size_t)best];return true;
 }
-/* Model queue only: three 4096-frame windows inside the pad's Trim range, the most periodic wins. */
-unsigned tuner_analyse(pad_sample_selection&sel,float*hz,uint64_t*frames){
-    uint64_t first=sel.first,end=sel.end,len=end>first?end-first:0;
-    *frames=len;
-    int rate=(int)std::lround(sel.stream.rate);
-    if(rate<8000||rate>192000||len<1200)return 3;
-    uint64_t n=len<2048?len:2048;
-    std::vector<float> mono((size_t)n);float stereo[PAD_RENDER_BLOCK_FRAMES*2];
-    float best=1e9f;bool found=false;
+/* Native stream access stays on its model owner. The worker receives only
+ * copied PCM: it never borrows Sample/Program/stream objects or blocks audio. */
+void tuner_capture(pad_sample_selection&sel,resample_stock_backend::TuneSnapshot&job){
+    uint64_t len=sel.end-sel.first;
+    if(job.rate<8000||job.rate>192000||len<1200)return;
+    job.n=(unsigned)std::min<uint64_t>(len,2048);
+    job.mono.resize(job.n*3);float stereo[PAD_RENDER_BLOCK_FRAMES*2];
     const double at[3]={.2,.4,.6};
     for(double k:at){
-        uint64_t start=first+(uint64_t)((double)(len-n)*k);
-        bool ok=true;
-        for(uint64_t pos=0;pos<n;){
-            size_t count=(size_t)std::min<uint64_t>(PAD_RENDER_BLOCK_FRAMES,n-pos);
+        uint64_t start=sel.first+(uint64_t)((len-job.n)*k);bool ok=true;
+        for(unsigned pos=0;pos<job.n;){
+            size_t count=std::min<size_t>(PAD_RENDER_BLOCK_FRAMES,job.n-pos);
             if(!sel.stream.read(sel.stream.user,start+pos,count,stereo)){ok=false;break;}
-            for(size_t i=0;i<count;++i)mono[(size_t)pos+i]=(stereo[i*2]+stereo[i*2+1])*.5f;
-            pos+=count;
+            for(size_t i=0;i<count;++i)job.mono[job.windows*job.n+pos+i]=(stereo[i*2]+stereo[i*2+1])*.5f;
+            pos+=(unsigned)count;
         }
-        if(!ok)continue;
-        float h=0,conf=0;
-        if(tuner_yin(mono.data(),(int)n,rate,&h,&conf)&&conf<best){best=conf;*hz=h;found=true;}
-        if(len==n)break;
-        usleep(3000); /* yield to the audio threads between windows */
+        if(ok)++job.windows;
+        if(len==job.n)break;
     }
-    return found?2u:3u;
+}
+void tuner_worker(resample_stock_backend*b){
+    /* Linux nice is per thread: leave the native model/audio priorities alone. */
+    setpriority(PRIO_PROCESS,(id_t)syscall(SYS_gettid),19);
+    for(;;){
+        resample_stock_backend::TuneSnapshot job;
+        {
+            std::unique_lock<std::mutex>lock(b->mutex);
+            b->tune_wake.wait(lock,[b]{return !b->live.load()||b->tune_pending_ready;});
+            if(!b->live.load())return;
+            job=std::move(b->tune_pending);b->tune_pending_ready=false;
+        }
+        float hz=0,best=1e9f;unsigned state=3;
+        for(unsigned i=0;i<job.windows;++i){
+            float h=0,confidence=0;
+            if(tuner_yin(job.mono.data()+i*job.n,(int)job.n,job.rate,&h,&confidence)&&confidence<best){
+                hz=h;best=confidence;state=2;
+            }
+        }
+        std::lock_guard<std::mutex>lock(b->mutex);
+        if(b->live.load()&&job.epoch==b->epoch.load()&&job.serial==b->tune_serial){
+            b->tuner.state=state;b->tuner.hz=hz;b->tuner.pad=job.pad;
+            std::snprintf(b->tuner.name,sizeof b->tuner.name,"%s",job.name);
+        }
+    }
 }
 }
 static void publish(resample_stock_backend*b,unsigned state,uint64_t token,const char*error=nullptr,const resample_stock_snapshot*s=nullptr){
@@ -119,25 +149,36 @@ static int run_tick(void*user){
         if(b->job)return 0;
         b->things=F(b->copy,0x78,void*);b->project=F(b->copy,0xc8,void*);
         b->program=b->things?F(b->things,0xb8,void*):nullptr;b->sequence=b->things?F(b->things,0x1c8,void*):nullptr;
-        unsigned state=3,pad=0;float hz=0;uint64_t frames=0;char name[80]={};
+        resample_stock_backend::TuneSnapshot job;job.epoch=b->epoch.load();
+        pad_sample_selection sel{};bool opened=false;
         if(b->program&&model(b)){
-            pad=F(b->things,0x5f8,unsigned);
-            if(pad<128){
-                sample_at(b,pad,name);
-                /* Reading the pad stream while the pad sounds crackles (device): analyse each pad once. */
-                static unsigned cache_pad=999,cache_state;static char cache_name[80];static float cache_hz;static uint64_t cache_frames;
-                if(cache_pad==pad&&name[0]&&std::strcmp(cache_name,name)==0){state=cache_state;hz=cache_hz;frames=cache_frames;}
-                else{
-                    pad_sample_selection sel{};
-                    if(pad_sample_stream_open_pad(b->base,b->program,pad,&sel)==PAD_RENDER_WORKING){
-                        state=tuner_analyse(sel,&hz,&frames);
-                        sel.stream.close(sel.stream.user);
-                        cache_pad=pad;cache_state=state;cache_hz=hz;cache_frames=frames;std::snprintf(cache_name,sizeof cache_name,"%s",name);
-                    }
-                }
+            job.pad=F(b->things,0x5f8,unsigned);
+            if(job.pad<128){
+                job.sample=sample_at(b,job.pad,job.name);
+                opened=pad_sample_stream_open_pad(b->base,b->program,job.pad,&sel)==PAD_RENDER_WORKING;
             }
         }
-        {std::lock_guard<std::mutex>lock(b->mutex);b->tuner.state=state;b->tuner.hz=hz;b->tuner.pad=pad;std::snprintf(b->tuner.name,sizeof b->tuner.name,"%s",name);}
+        if(opened){
+            job.first=sel.first;job.end=sel.end;job.rate=(int)std::lround(sel.stream.rate);
+            bool cached;
+            {
+                std::lock_guard<std::mutex>lock(b->mutex);
+                cached=b->tuner.state&&b->tuner.pad==job.pad&&b->tune_epoch==job.epoch&&
+                    b->tune_sample==job.sample&&b->tune_first==job.first&&b->tune_end==job.end&&b->tune_rate==job.rate;
+            }
+            if(cached){sel.stream.close(sel.stream.user);return 0;}
+            try{tuner_capture(sel,job);}catch(...){sel.stream.close(sel.stream.user);throw;}
+            sel.stream.close(sel.stream.user);
+        }
+        {
+            std::lock_guard<std::mutex>lock(b->mutex);
+            job.serial=++b->tune_serial;b->tune_epoch=job.epoch;b->tune_sample=job.sample;
+            b->tune_first=job.first;b->tune_end=job.end;b->tune_rate=job.rate;
+            b->tuner.state=1;b->tuner.hz=0;b->tuner.pad=job.pad;
+            std::snprintf(b->tuner.name,sizeof b->tuner.name,"%s",job.name);
+            b->tune_pending=std::move(job);b->tune_pending_ready=true;
+        }
+        b->tune_wake.notify_one();
         return 0;
     }
     if(command==1||command==4){
@@ -183,10 +224,12 @@ static int tick(void*user){
 extern "C" resample_stock_backend*resample_stock_backend_create(uintptr_t base,void*copy){
     if(!base||!copy)return nullptr;
     auto*b=new(std::nothrow)resample_stock_backend{};if(!b)return nullptr;b->base=base;b->copy=copy;
-    b->queue=resample_queue_create(base,copy,tick,b);if(!b->queue){delete b;return nullptr;}return b;
+    b->queue=resample_queue_create(base,copy,tick,b);if(!b->queue){delete b;return nullptr;}
+    try{std::thread(tuner_worker,b).detach();}catch(...){resample_queue_stop(b->queue);b->live.store(false);return nullptr;}
+    return b;
 }
-extern "C" void resample_stock_backend_stop(resample_stock_backend*b){if(b){b->live.store(false,std::memory_order_release);b->epoch.fetch_add(1);resample_queue_stop(b->queue);}}
-extern "C" void resample_stock_backend_changed(resample_stock_backend*b){if(b)b->epoch.fetch_add(1,std::memory_order_acq_rel);
+extern "C" void resample_stock_backend_stop(resample_stock_backend*b){if(b){{std::lock_guard<std::mutex>lock(b->mutex);b->live.store(false,std::memory_order_release);b->epoch.fetch_add(1);}resample_queue_stop(b->queue);b->tune_wake.notify_one();}}
+extern "C" void resample_stock_backend_changed(resample_stock_backend*b){if(b){b->epoch.fetch_add(1,std::memory_order_acq_rel);std::lock_guard<std::mutex>lock(b->mutex);++b->tune_serial;b->tuner.state=0;b->tuner.hz=0;}
 #ifdef MPC_PAD_EQ
     pad_eq_native_clear();
 #endif
@@ -202,7 +245,7 @@ extern "C" int resample_stock_backend_bind_eq(resample_stock_backend*b){
 }
 extern "C" int resample_stock_backend_probe(resample_stock_backend*b){
     if(!b||!b->live.load()||b->busy.load())return 0;
-    {std::lock_guard<std::mutex>lock(b->mutex);if(b->command)return 0;b->command=5;if(b->tuner.state==0)b->tuner.state=1;}
+    {std::lock_guard<std::mutex>lock(b->mutex);if(b->command)return 0;b->command=5;}
     return resample_queue_wake(b->queue);
 }
 extern "C" unsigned resample_stock_backend_probe_info(resample_stock_backend*b,float*hz,unsigned*pad,char*name,unsigned size){

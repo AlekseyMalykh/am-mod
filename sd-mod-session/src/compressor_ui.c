@@ -21,7 +21,7 @@ static _Atomic unsigned active,owned[112];
 static _Atomic uint64_t epoch=1;
 static unsigned painted_type=~0u;
 static unsigned repeat_seen,repeat_previous,header_dirty;
-static int knob_focus=-1;
+static int knob_focus=0;
 static struct comp_animation animation;
 static double next_frame;
 struct knob_anchor {unsigned valid,physical,picked;float parameter;};
@@ -94,7 +94,7 @@ int compressor_ui_tick(void){
  if(repeat_seen&&repeat_previous&&!repeat)header_dirty=1;
  repeat_seen=1;repeat_previous=repeat;
  if(show&&!repeat&&header_dirty){header_dirty=0;repaint();}
- if(atomic_exchange(&active,show)!=show){atomic_fetch_add(&epoch,1);knob_focus=-1;reset_knob_anchors();
+ if(atomic_exchange(&active,show)!=show){atomic_fetch_add(&epoch,1);knob_focus=0;reset_knob_anchors();
 #ifdef MPC_CHORDS
   /* Opto owns K1-K3, so the native bindings never saw those turns. On the
    * way out let the next Scaled binding pick up instead of jumping. */
@@ -111,8 +111,8 @@ int compressor_ui_owns(unsigned kind,unsigned code){
  if(kind==PHONE_BUTTON&&code<112&&atomic_load(&owned[code]))return 1;
  if(!atomic_load(&active))return 0;
  if(kind==PHONE_BUTTON&&code>=0x0c&&code<=0x0e&&music_ui_repeat_active())return 0;
- if(kind==PHONE_BUTTON)return code==0x0d||(compressor_type()==COMP_OPTO&&code==0x0c);
- return kind==PHONE_CONTROLLER&&compressor_type()==COMP_OPTO&&code>=0x10&&code<=0x12;
+ if(kind==PHONE_BUTTON)return code==0x6f||code==0x0d||(compressor_type()==COMP_OPTO&&code==0x0c);
+ return kind==PHONE_CONTROLLER&&(code==0x64||(compressor_type()==COMP_OPTO&&code>=0x10&&code<=0x12));
 }
 int compressor_ui_button(void*e,uint64_t ticket){
  unsigned code=F(e,8,unsigned char),down=F(e,9,unsigned char)!=0;
@@ -121,15 +121,27 @@ int compressor_ui_button(void*e,uint64_t ticket){
  if((ticket&T_REPEAT)&&code>=0x0c&&code<=0x0e)return 0;
  if(!current_ticket(ticket)||!visible())return 1; /* Never replay a stale Type press in another screen. */
  if(!down)return 0;
- if(code==0x0d){compressor_select(compressor_type()==COMP_DUCK?COMP_OPTO:COMP_DUCK);reset_knob_anchors();repaint();}
+ if(code==0x6f){
+  int direction=(ticket&T_SHIFT)?-1:1;
+  knob_focus=(knob_focus<0?0:(knob_focus+direction+3)%3);reset_knob_anchors();repaint();
+ }
+ else if(code==0x0d){compressor_select(compressor_type()==COMP_DUCK?COMP_OPTO:COMP_DUCK);reset_knob_anchors();repaint();}
  else if(compressor_type()==COMP_OPTO&&code==0x0c){compressor_warm();repaint();}
  else return 0;
  atomic_store(&owned[code],1);return 1;
 }
 int compressor_ui_control(void*e,uint64_t ticket){
- if(!current_ticket(ticket)||!visible()||compressor_type()!=COMP_OPTO)return 1;
+ if(!current_ticket(ticket)||!visible())return 1;
  unsigned cc=F(e,8,unsigned char),value=F(e,9,unsigned char);
- if(cc<0x10||cc>0x12)return 0;
+ if(cc==0x64){
+  if(value>127)return 1;
+  int delta=value>64?(int)value-128:value==64?0:(int)value;
+  if(knob_focus<0)knob_focus=0;
+  if(compressor_type()==COMP_DUCK)compressor_duck_adjust((ticket&T_SHIFT)&&knob_focus==2?3u:(unsigned)knob_focus,delta);
+  else compressor_adjust((unsigned)knob_focus+((ticket&T_SHIFT)?3u:0u),delta);
+  reset_knob_anchors();repaint();return 1;
+ }
+ if(compressor_type()!=COMP_OPTO||cc<0x10||cc>0x12)return 0;
  if(value>127)return 1;
  unsigned k=cc-0x10,layer=(ticket&T_SHIFT)!=0;
  knob_focus=(int)k;
@@ -185,7 +197,19 @@ static void paint(void*p,void*g){
  colour(g,ready?0xffffc247:0xff707070);text(g,"Type",110,1,98,22,14);
  for(unsigned i=0;i<COMP_TYPES;++i){colour(g,i==type?0xffffc247:0xff606060);rect(g,153+(int)i*7,25,5,i==type?3:1);}
  if(!ready){colour(g,0xffffffff);text(g,"OptoCat not ready",106,31,108,15,11);return;}
- if(type!=COMP_OPTO)return;
+ if(type!=COMP_OPTO){
+  int shifted=music_ui_shift_active();const char*labels[]={"Attack","Release",shifted?"In Boost":"Amount"};
+  for(int k=0;k<3;++k){int x=k==0?0:k==1?106:213,w=k==2?107:106;char value[64]="--";
+   compressor_duck_text(shifted&&k==2?3u:(unsigned)k,value,sizeof(value));
+   colour(g,0xff000000u);rect(g,x,198,w,40);
+   colour(g,k==knob_focus?0xff302412u:0xff202020u);rect(g,x+2,198,w-4,38);
+   colour(g,k==knob_focus?0xffffc247u:0xffffffffu);
+   if(k==knob_focus)rect(g,x+2,198,w-4,1);
+   text(g,labels[k],x+4,200,w-22,12,12);if(k==2)shift_badge(g,306,shifted);
+   text(g,value,x+4,214,w-8,19,16);
+  }
+  return;
+ }
  struct comp_config c;compressor_config(&c);char value[64];
  colour(g,0xff000000);rect(g,0,34,320,164);
  colour(g,0xff202020);rect(g,1,1,105,28);rect(g,215,1,105,28);

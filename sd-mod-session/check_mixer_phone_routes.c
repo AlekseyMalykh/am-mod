@@ -365,6 +365,12 @@ int main(void)
     button(0,1);button(0,0);drain();pad(14,1);pad(14,0);drain();
     mixer_control_view(session.control,0,&view);assert(view.master==2&&view.page==MIXER_KNOB_FX);
     mixer_control_close(session.control);mixer_publish_route();
+    /* Compressor deliberately has no Mixer shortcut; neither normal nor
+     * Shift+KNOB FX may navigate via Sample. */
+    atomic_store(&mixer_route,0);atomic_store(&mixer_last_reasons,2u|128u);
+    button(0,1);button(0,0);drain();assert(!mixer_control_active(session.control));
+    button(0x31,1);button(0,1);button(0,0);button(0x31,0);drain();assert(!mixer_control_active(session.control)&&!mixer_open_after);
+    mixer_publish_route();
     atomic_store(&mixer_route,0);atomic_store(&mixer_last_reasons,~0u);
     button(0,1);button(0,0);button(0x31,1);button(0,1);button(0,0);button(0x31,0);drain();
     mixer_publish_route();atomic_store(&mixer_input_fault,1);button(0,1);button(0,0);drain();atomic_store(&mixer_input_fault,0);

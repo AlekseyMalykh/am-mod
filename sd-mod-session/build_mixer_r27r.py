@@ -27,17 +27,17 @@ mixer = ['src/mixer_model.c', 'src/mixer_meters.c', 'src/fx_chain.c', 'src/fx_ow
          'src/mixer_live.c', 'src/mixer_live_native.c', 'src/mixer_view.c',
          'src/mixer_control.c', 'src/mixer_session.cc', 'src/mixer_input.c',
          'src/mixer_runtime.cc', 'src/mixer_sources.cc', 'src/mixer_leds.c',
-         'src/mixer_fx.cc', 'src/input_fx.cc', 'src/fx_native.cc', 'src/song_ui.c', 'src/mixer_stems.c', 'src/screen_mirror_drm.c']
+         'src/mixer_fx.cc', 'src/input_fx.cc', 'src/fx_native.cc', 'src/song_ui.c', 'src/mixer_stems.c', 'src/screen_mirror_drm.c', 'src/usb_audio.c', 'src/usb_audio_alsa.c']
 sources = list(dict.fromkeys(sources + mixer))
 sha = lambda b: hashlib.sha256(b).hexdigest()
-hashes = {s: sha((R / s).read_bytes()) for s in sources + ['build_mixer_r27r.py', 'build/phone_hooks.h', 'src/shift_badge.h', 'src/mod_build.h', 'src/spectrum_plot.h', 'src/screen_mirror_frame.h']}
+hashes = {s: sha((R / s).read_bytes()) for s in sources + ['build_mixer_r27r.py', 'build/phone_hooks.h', 'src/shift_badge.h', 'src/mod_build.h', 'src/spectrum_plot.h', 'src/screen_mirror_frame.h', 'src/usb_audio.h', 'src/fx_layout.inc', 'src/fx_visual.inc', 'src/fx_catalog.h', 'src/fx_amp_models.inc']}
 common = ['-O2', '-g', '-fPIC', '-Wall', '-Wextra', '-Werror', '-Ibuild',
           '-DMPC_RESAMPLE_TRIAL=1', '-DMPC_STOCK_RESAMPLE=1', '-DMPC_EXPERIMENTAL_CHOP_EXPORT=1',
           '-DMPC_PAD_EQ=1', '-DMPC_FAST_RESAMPLE=1', '-DMPC_SEQUENCE_COLOURS=1',
           '-DMPC_POLY_RECORD=1', '-DMPC_POWER_BUTTON=1', '-DMPC_CHORDS=1', '-DMPC_COMPRESSOR=1',
           '-DMPC_PROJECT_RECOVERY=1', '-DMPC_STARTUP_SPLASH=1', '-DMPC_EARLY_STARTUP=1',
           '-DMPC_KNOB_RESET=1', '-DMPC_LOOP_FEEDBACK=1', '-DMPC_REAR_ROUTING=1',
-          '-DMPC_MIXER_ARCHIVE=1', '-DMPC_MIXER_LIVE=1', '-DMPC_MIXER_AUTOBIND=1', '-DMPC_SONG_UI=1',
+          '-DMPC_USB_AUDIO=1', '-DMPC_MIXER_ARCHIVE=1', '-DMPC_MIXER_LIVE=1', '-DMPC_MIXER_AUTOBIND=1', '-DMPC_SONG_UI=1',
           '-mbranch-protection=standard']
 objects = []
 for source in sources:

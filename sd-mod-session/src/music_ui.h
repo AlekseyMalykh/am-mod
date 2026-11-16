@@ -1,6 +1,7 @@
 #ifndef MPC_MUSIC_UI_H
 #define MPC_MUSIC_UI_H
 int music_ui_exit_saving(void);
+int music_ui_take_stop(void); /* USB Drive confirmation: native Stop before save */
 #include <stdint.h>
 void music_ui_init(uintptr_t base);
 void music_ui_requested(unsigned code,unsigned down);
