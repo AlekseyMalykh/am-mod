@@ -334,7 +334,7 @@ static void header(const struct mixer_view_state*s,const struct resample_painter
             uint32_t ink=s->shifted?(on?SEND:i==0?WHITE:GREY):on?AMBER:WHITE;
             mixer_key(p,tab[i],x+2,1,w-4,18,strlen(tab[i])>10?(i==2&&s->sequence_muted?10:12):14,ink,on);}
     }
-    if(s->name_edit){names[0]="Cancel";names[1]=s->shifted?"Clear":"Erase";names[2]="Save";lit[1]=lit[2]=off=0;}
+    if(s->name_edit){names[0]="Cancel";names[1]=s->shifted?"Clear":"Erase";names[2]=s->name_title&&s->name_title[0]=='F'?"Find":"Save";lit[1]=lit[2]=off=0;}
     else if(s->shifted&&s->page==MIXER_OVERVIEW){names[1]="Rename";names[2]="Clear Solo";lit[2]=0;}
     for(unsigned i=0;i<3&&!input_tabs;++i){int x=i==2?213:(int)i*106,w=i==0?106:107;
         if(i==2&&s->sequence_muted)w-=25;

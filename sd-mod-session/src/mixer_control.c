@@ -450,7 +450,7 @@ int mixer_control_button(struct mixer_control*c,enum mixer_action action,int dow
             if(!phone_utf8(&c->name,name,sizeof(name))){c->message="Name required (max 31 bytes)";return 1;}
             if(strcmp(selected(c)->name,name)){memcpy(selected(c)->name,name,sizeof(name));c->name_since=0;changed(c);}
             c->naming=0;
-        }else if(action==MIXER_ERASE&&c->shift){
+        }else if((action==MIXER_ERASE||action==MIXER_B2)&&c->shift){
             /* Shift+Erase clears the whole name, as in Search. */
             phone_move(&c->name,(int)c->name.length);while(c->name.length&&phone_delete(&c->name,0));
         }else if(action==MIXER_ERASE||action==MIXER_B2)phone_delete(&c->name,!c->name.enabled&&c->name.cursor<c->name.length);
