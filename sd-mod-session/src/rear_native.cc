@@ -451,6 +451,7 @@ extern "C" void rear_native_project_changed() {
     auto *s = session.load(); if (s) s->epoch.fetch_add(1);
     rear_record_cancel();
 }
+extern "C" int rear_mic_screen_visible(void) { return mic_screen_visible.load(std::memory_order_acquire); }
 extern "C" void rear_native_tick(int visible) {
     mic_screen_visible.store(visible?1:0,std::memory_order_release);
     if (!visible) mic_state_now.store(0,std::memory_order_release); /* never keep the input gated off the record screen */

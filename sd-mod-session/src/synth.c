@@ -126,3 +126,28 @@ int am_synth_peek(struct am_synth_state*out){
  for(unsigned i=0;i<4;++i)out->notes[i]=atomic_load(&st_notes[i]);
  return 1;
 }
+
+/* Pad keyboard outside the Mixer (Sample Record screen): 16 Levels layout for the synth. */
+static _Atomic int keys_on;static _Atomic unsigned cfg_layout,cfg_root,cfg_scale,cfg_octave=3,pad_mask;static unsigned char pad_note[16];
+void am_synth_keys_cfg(unsigned layout,unsigned root,unsigned scale,unsigned octave){atomic_store(&cfg_layout,layout);atomic_store(&cfg_root,root);atomic_store(&cfg_scale,scale);atomic_store(&cfg_octave,octave);}
+int am_synth_keys_get(void){return atomic_load(&keys_on);}
+void am_synth_pad(unsigned pad,int down){
+ if(pad>=16)return;
+ unsigned bit=1u<<pad;
+ if(down){
+  if(atomic_load(&pad_mask)&bit)am_synth_note(pad_note[pad],0,0);
+  unsigned n=am_synth_key_note(atomic_load(&cfg_layout),atomic_load(&cfg_root),atomic_load(&cfg_scale),atomic_load(&cfg_octave),pad);
+  pad_note[pad]=(unsigned char)n;
+  atomic_fetch_or(&pad_mask,bit);
+  am_synth_note(n,100,1);
+ }else if(atomic_load(&pad_mask)&bit){
+  atomic_fetch_and(&pad_mask,~bit);
+  am_synth_note(pad_note[pad],0,0);
+ }
+}
+void am_synth_keys_set(int on){
+ atomic_store(&keys_on,on?1:0);
+ if(!on){
+  for(unsigned i=0;i<16;++i){if(atomic_load(&pad_mask)&(1u<<i))am_synth_pad(i,0);}
+ }
+}

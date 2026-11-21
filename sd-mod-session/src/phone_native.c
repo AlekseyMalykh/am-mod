@@ -2511,6 +2511,10 @@ static int mixer_sample_button(unsigned code,unsigned down){
     return 0;
 }
 #endif
+extern int rear_mic_screen_visible(void) __attribute__((weak));
+extern int am_synth_keys_get(void) __attribute__((weak));
+extern void am_synth_keys_set(int) __attribute__((weak));
+extern void am_synth_pad(unsigned,int) __attribute__((weak));
 static unsigned char button_template[16];static _Atomic int button_template_ready;
 static void buttons(void *event)
 {
@@ -2528,6 +2532,11 @@ static void buttons(void *event)
 #ifdef MPC_MIXER_LIVE
     if(mixer_sample_button(native_code,native_down))return;
 #endif
+    /* 16 Levels on the Sample Record screen toggles the synth pad keyboard (no MIDI keyboard needed). */
+    if(native_code==0x28&&am_synth_keys_set&&am_synth_keys_get&&rear_mic_screen_visible&&rear_mic_screen_visible()){
+        if(native_down)am_synth_keys_set(!am_synth_keys_get());
+        return;
+    }
     if(tuner_button(native_code,native_down))return;
     if(seqmute_button(native_code,native_down))return;
 #ifdef MPC_MIXER_LIVE
@@ -2665,6 +2674,12 @@ static void pad_event(void *event)
             if(mb<0&&step_native_bank_or_last)mb=step_native_bank_or_last();
             if(mb>=0&&mb<8)am_midi_ui_pad_hit((unsigned)mb*16+pad);}}
     int up = FN(0xddff20,int(*)(void*,int))(msg,1);
+    /* Sample Record screen: pads play the synth (16 Levels layout) while its keyboard is on. */
+    if (am_synth_keys_get && am_synth_pad && rear_mic_screen_visible && am_synth_keys_get() && rear_mic_screen_visible()) {
+        if (down) am_synth_pad(pad,1);
+        if (up) am_synth_pad(pad,0);
+        return;
+    }
 #ifdef MPC_MIXER_LIVE
     if (mixer_pad_pairs[pad] && mixer_queue_pad(event,pad,down,up)) return;
 #endif
