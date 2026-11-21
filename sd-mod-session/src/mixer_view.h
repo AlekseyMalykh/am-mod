@@ -48,7 +48,7 @@ struct mixer_view_state {
     unsigned input_tuner; /* Input: the full-screen tuner window is open */
     unsigned synth_pick,synth_prev,synth_transpose,synth_colour,synth_role; unsigned char synth_cols[6]; /* project colour slots: tonic, scale, other, original, V, IV */ /* transpose 0..24 = -12..+12; colour index; prev: page before the 16 Levels settings (B2) */
      /* Loop held: pads 1-3 jump between synth pages */
-    unsigned synth_page,synth_shift,synth_cursor,synth_keys,synth_layout,synth_root,synth_scale,synth_octave; /* synth_keys: 16 Levels keyboard on pads */ /* trial synth window (Mixer pad 13) */
+    unsigned synth_hold,synth_hold_note,synth_page,synth_shift,synth_cursor,synth_keys,synth_layout,synth_root,synth_scale,synth_octave; /* synth_keys: 16 Levels keyboard on pads */ /* trial synth window (Mixer pad 13) */
     double rate;
 };
 /* synth param id (0-9) or key setting (10-13) on a K knob, -1 none */

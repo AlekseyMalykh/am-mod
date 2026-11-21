@@ -41,7 +41,7 @@ struct mixer_control {
     unsigned name_target;
     uint64_t revision,epoch,ticket,submitted,present[2];
     double rate;
-    unsigned synth_notes,synth_hold;uint8_t synth_pad_note[16];
+    unsigned synth_notes,synth_hold;uint8_t synth_pad_note[16],synth_hold_note,synth_last;
     unsigned active,shift,owned_buttons,owned_pads,held_tracks,temporary,dirty,exit_requested,fx_editing;
     unsigned pickup,last_fader_valid,last_fader;
     float anchors[8];
@@ -136,7 +136,7 @@ static unsigned synth_key_note(const struct mixer_control*c,unsigned pad){
     unsigned n=60u+pad;(void)c;if(am_synth_pad_info)am_synth_pad_info(pad,&n);return n;
 }
 static void synth_release_all(struct mixer_control*c){
-    if(am_synth_note){for(unsigned i=0;i<16;++i)if(c->synth_notes&(1u<<i))am_synth_note(c->synth_pad_note[i],0,0);if(c->synth_hold)am_synth_note(60,0,0);}
+    if(am_synth_note){for(unsigned i=0;i<16;++i)if(c->synth_notes&(1u<<i))am_synth_note(c->synth_pad_note[i],0,0);if(c->synth_hold)am_synth_note(c->synth_hold_note,0,0);}
     c->synth_notes=c->synth_hold=0;
 }
 static void synth_set_slot(struct mixer_control*c,int id,unsigned value){
@@ -414,7 +414,13 @@ int mixer_control_button(struct mixer_control*c,enum mixer_action action,int dow
     c->owned_buttons|=bit;c->message="";
     if(!c->naming&&c->view.synth_page){
         if(action==MIXER_B1){synth_release_all(c);c->view.synth_page=0;}
-        else if(action==MIXER_B3&&am_synth_note){c->synth_hold=!c->synth_hold;am_synth_note(60,100,c->synth_hold);}
+        else if(action==MIXER_B3&&am_synth_note){
+            /* Hold the last 16 Levels note played (C4 if none yet); with Hold on, B3 moves it to a newer note, otherwise releases. */
+            unsigned want=c->synth_last?c->synth_last:60u;
+            if(c->synth_hold&&want!=c->synth_hold_note&&c->view.synth_keys){am_synth_note(c->synth_hold_note,0,0);c->synth_hold_note=(uint8_t)want;am_synth_note(want,100,1);}
+            else if(c->synth_hold){am_synth_note(c->synth_hold_note,0,0);c->synth_hold=0;}
+            else{c->synth_hold_note=(uint8_t)want;c->synth_hold=1;am_synth_note(want,100,1);}
+        }
         else if(action==MIXER_B2){if(c->view.synth_cursor==2)c->view.synth_cursor=c->view.synth_prev<2?c->view.synth_prev:0;else{c->view.synth_prev=c->view.synth_cursor;c->view.synth_cursor=2;}}
         else if(action==MIXER_LEVELS){synth_release_all(c);c->view.synth_keys^=1;if(am_synth_keys_set)am_synth_keys_set(c->view.synth_keys);}
         return 1;
@@ -667,7 +673,7 @@ int mixer_control_pad(struct mixer_control*c,unsigned pad,int down,uint64_t tick
     c->owned_pads|=bit;
     if(c->view.synth_page&&!c->naming&&c->view.synth_pick){if(pad<3){if(pad==2&&c->view.synth_cursor<2)c->view.synth_prev=c->view.synth_cursor;c->view.synth_cursor=pad;}return 1;}
     if(c->view.synth_page&&!c->naming&&pad!=12&&!c->view.synth_keys){synth_release_all(c);c->view.synth_page=0;} /* pads navigate to other entities */
-    if(c->view.synth_page&&!c->naming){if(c->view.synth_keys&&am_synth_note){unsigned n=synth_key_note(c,pad);c->synth_pad_note[pad]=(uint8_t)n;am_synth_note(n,100,1);c->synth_notes|=bit;}return 1;}
+    if(c->view.synth_page&&!c->naming){if(c->view.synth_keys&&am_synth_note){unsigned n=synth_key_note(c,pad);c->synth_pad_note[pad]=(uint8_t)n;c->synth_last=(uint8_t)n;am_synth_note(n,100,1);c->synth_notes|=bit;}return 1;}
     if(pad==12&&!c->naming&&!c->view.fx_delete&&(c->view.page==MIXER_OVERVIEW||c->view.page==MIXER_KNOB_FX)&&am_synth_note){c->view.synth_page=1;c->view.synth_cursor=0;c->view.synth_keys=am_synth_keys_get?(unsigned)am_synth_keys_get():0;if(am_synth_keys_cfg)am_synth_keys_cfg(c->view.synth_layout,c->view.synth_root,c->view.synth_scale,c->view.synth_octave,c->view.synth_transpose,c->view.synth_cols);c->owned_pads&=~bit;return 1;}
     if(c->naming){c->name.shift=c->shift;phone_pad(&c->name,pad+1,1,name_time());return 1;}
     int fx_pad=pad>=8&&pad<8+MIXER_FX_SLOTS;
@@ -1210,7 +1216,7 @@ void mixer_control_meter(struct mixer_control*c,const struct mixer_meter_snapsho
 }
 void mixer_control_view(struct mixer_control*c,uint64_t now,struct mixer_view_state*out)
 {
-    if(c&&out){*out=c->view;memset(&out->comp,0,sizeof(out->comp));out->synth_shift=c->shift;
+    if(c&&out){*out=c->view;memset(&out->comp,0,sizeof(out->comp));out->synth_hold=c->synth_hold;out->synth_hold_note=c->synth_hold_note;out->synth_shift=c->shift;
         if(comp_visible(c)){out->comp.visible=1;comp_ops->state(&out->comp);out->comp.visible=1;}
         out->fx_signal=c->fx_signal_ms&&now>=c->fx_signal_ms&&now-c->fx_signal_ms<=250?&c->fx_signal:NULL;out->project=c->view.page==MIXER_KNOB_FX||(c->view.page==MIXER_INSPECT&&c->view.route_tab)||c->view.cursor==PARAM_SEND?&c->desired:&c->model;out->meter=&c->meter;out->epoch=c->epoch;out->now_ms=now;
         out->revision=c->revision;out->pending=c->submitted||c->dirty;out->fx_catalog=c->catalog;out->parameter_page=c->parameter_page;

@@ -1316,7 +1316,10 @@ void mixer_view_synth(const struct mixer_view_state*s,const struct resample_pain
     rect(p,0,0,320,240,BLACK);
     rect(p,2,2,102,26,0xff242424u);text(p,"Back",2,2,102,25,13,WHITE,1);
     rect(p,108,2,102,26,page==2?0xff4a3a10u:0xff242424u);text(p,"16 Levels",108,2,102,25,13,s->synth_keys?AMBER:WHITE,1);
-    rect(p,214,2,104,26,0xff242424u);text(p,"Hold note",214,2,104,25,13,AMBER,1);
+    {char hold[16]="Hold note";
+    if(s->synth_hold){static const char*const nn[12]={"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
+        unsigned n=s->synth_hold_note;snprintf(hold,sizeof(hold),"Hold %s%d",nn[n%12],(int)(n/12)-1);}
+    rect(p,214,2,104,26,s->synth_hold?0xff4a3a10u:0xff242424u);text(p,hold,214,2,104,25,13,s->synth_hold?AMBER:WHITE,1);}
     struct synth_live live;int playing=am_synth_peek&&am_synth_peek(&live);if(!playing)memset(&live,0,sizeof live);
     /* top left: oscilloscope (Keys page: the 16 Levels pad grid) */
     rect(p,4,32,152,96,0xff141414u);
