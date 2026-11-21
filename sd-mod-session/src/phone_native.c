@@ -2495,13 +2495,17 @@ static int seqmute_light(unsigned pad,uint64_t *out){
     *out=pad_light(music_pad_rgb((unsigned)bank*16+pad),.70f);return 1;
 }
 #ifdef MPC_MIXER_LIVE
+static int mixer_synth_open(unsigned*keys,unsigned*pick){
+    struct mixer_control*c=mixer_session_control(mixer_ui_session);
+    return c&&mixer_control_synth_state(c,keys,pick);
+}
 static int mixer_sample_button(unsigned code,unsigned down){
     /* Loop (Shift: Reverse), Chop (Shift: Note On), 16 Levels. */
     unsigned bit=code==0x4a?1u:code==0x4b?2u:code==0x28?4u:0;
     static _Atomic unsigned swallowed;
     if(!bit)return 0;
     if(!down&&(atomic_fetch_and(&swallowed,~bit)&bit))return 1;
-    if(down&&(atomic_load(&mixer_route)&MIXER_OPEN)&&!atomic_load(&native_buttons_down[code])){
+    if(down&&(atomic_load(&mixer_route)&MIXER_OPEN)&&!atomic_load(&native_buttons_down[code])&&!mixer_synth_open(NULL,NULL)){
         atomic_fetch_or(&swallowed,bit);return 1;
     }
     return 0;
@@ -3705,6 +3709,7 @@ static int mixer_buttons_active(void)
  * 16 Levels, Chop and Loop stay dark. */
 static unsigned mixer_button_value(unsigned code,unsigned value)
 {
+    if(code==0x28||code==0x4a){unsigned keys=0,pick=0;if(mixer_synth_open(&keys,&pick))return (code==0x28?keys:pick)?127u:1u;} /* lit on the Synth page */
     if(code==0x28||code==0x4b||code==0x4a)return 0; /* 16 Levels, Chop, Loop */
     if(code==0x2b&&!value)return 1;
     return value;

@@ -1185,3 +1185,11 @@ void mixer_control_view(struct mixer_control*c,uint64_t now,struct mixer_view_st
         out->shifted=c->shift;out->fx_editing=c->fx_editing;out->rate=c->rate;}
 }
 const char*mixer_control_message(const struct mixer_control*c){return c?c->message:"";}
+
+int mixer_control_synth_state(const struct mixer_control*c,unsigned*keys,unsigned*pick)
+{
+    if(!c||!c->active||!c->view.synth_page)return 0;
+    if(keys)*keys=c->view.synth_keys;
+    if(pick)*pick=c->view.synth_pick;
+    return 1;
+}

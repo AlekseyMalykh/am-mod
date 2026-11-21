@@ -13,6 +13,8 @@ void am_synth_key(const unsigned char *data,unsigned size); /* note on/off from 
 /* Parameters 0..6: Wave, Cutoff, Attack, Decay, Sustain, Release, Level (0..127; Wave 0..3), MIDI channel (0..15 = channel 1..16). */
 #define AM_SYNTH_PARAMS 10u
 void am_synth_fader(unsigned value);
+struct am_synth_state{float peak,env_level,bend,mod;unsigned env_stage,voices;unsigned notes[4];}; /* env_stage: 1 attack 2 decay 3 sustain 4 release */
+int am_synth_peek(struct am_synth_state*out); /* live state for the Mixer illustration; 0 when the synth is idle */
 int am_synth_mic_muted(void); /* synth in use and Mic param Off: the input callback silences the microphone */
 unsigned am_synth_param_get(unsigned index);
 void am_synth_param_set(unsigned index,unsigned value);

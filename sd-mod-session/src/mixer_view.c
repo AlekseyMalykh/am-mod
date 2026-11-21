@@ -1238,6 +1238,8 @@ void mixer_view_tuner(const struct resample_painter*p)
     mixer_view_tuner_ex(p,"Input",have,hz,"Play or sing a note","");
 }
 extern unsigned am_synth_param_get(unsigned) __attribute__((weak));
+struct synth_live{float peak,env_level,bend,mod;unsigned env_stage,voices;unsigned notes[4];};
+extern int am_synth_peek(struct synth_live*) __attribute__((weak));
 extern unsigned am_synth_key_note(unsigned,unsigned,unsigned,unsigned,unsigned) __attribute__((weak));
 static void synth_text(const struct mixer_view_state*s,int id,char*name,size_t nn,char*val,size_t vn)
 {
@@ -1278,13 +1280,21 @@ void mixer_view_synth(const struct mixer_view_state*s,const struct resample_pain
         if(t==page)rect(p,x+10,49,80,2,AMBER);}
     /* graph area 8..312 x 56..152 */
     rect(p,8,56,304,96,0xff141414u);
+    struct synth_live live;int playing=am_synth_peek&&am_synth_peek(&live);if(!playing)memset(&live,0,sizeof live);
     if(page==0){
         unsigned w=am_synth_param_get?am_synth_param_get(0):0,cut=am_synth_param_get?am_synth_param_get(1):100;
+        float amp=0.18f+0.82f*(live.peak*5.0f>1.0f?1.0f:live.peak*5.0f);
+        float phase=(float)(s->now_ms%1000u)/1000.0f*(1.0f+live.bend*0.5f);
+        float wob=live.mod*0.05f*sinf((float)(s->now_ms%1000u)/1000.0f*6.2831853f*5.5f);
         for(unsigned i=0;i<76;++i){
-            float x=synth_wave_at(w,(float)i/76.0f);
-            int h=(int)(x*38.0f*(0.35f+0.65f*(float)cut/127.0f));int mid=104;
-            if(h>=0)rect(p,12+(int)i*4,mid-h,3,h+1,AMBER);else rect(p,12+(int)i*4,mid,3,-h+1,AMBER);
+            float ph=(float)i/76.0f+phase+wob;ph-=(float)(int)ph;if(ph<0.0f)ph+=1.0f;
+            float x=synth_wave_at(w,ph);
+            int h=(int)(x*40.0f*amp*(0.35f+0.65f*(float)cut/127.0f));int mid=104;
+            uint32_t col=playing?AMBER:0xff806018u;
+            if(h>=0)rect(p,12+(int)i*4,mid-h,3,h+1,col);else rect(p,12+(int)i*4,mid,3,-h+1,col);
         }
+        int bh=(int)(live.peak*5.0f*90.0f);if(bh>90)bh=90;rect(p,300,148-bh,8,bh+1,AMBER);
+        char info[40];snprintf(info,sizeof info,"Voices %u",live.voices);text(p,info,12,58,80,12,10,GREY,0);
     }else if(page==1){
         unsigned a=am_synth_param_get?am_synth_param_get(2):0,d=am_synth_param_get?am_synth_param_get(3):0,su=am_synth_param_get?am_synth_param_get(4):0,r=am_synth_param_get?am_synth_param_get(5):0;
         int wa=8+(int)(a*70/127),wd=8+(int)(d*70/127),ws=50,wr=8+(int)(r*70/127);
@@ -1296,13 +1306,22 @@ void mixer_view_synth(const struct mixer_view_state*s,const struct resample_pain
         for(int i=0;i<ws;++i)rect(p,x+i,sus,2,base-sus+1,0xffa07020u);
         x+=ws;
         for(int i=0;i<wr;++i){int y=sus+(int)((float)(base-sus)*(float)i/(float)wr);rect(p,x+i,y,2,base-y+1,AMBER);}
+        if(playing&&live.env_stage){
+            int mx=12,lvl=base-(int)((float)(base-top)*live.env_level);
+            if(live.env_stage==1)mx=12+(int)(live.env_level*(float)wa);
+            else if(live.env_stage==2){float susf=(float)su/127.0f;float t=susf<1.0f?(1.0f-live.env_level)/(1.0f-susf):1.0f;mx=12+wa+(int)(t*(float)wd);}
+            else if(live.env_stage==3)mx=12+wa+wd+ws/2;
+            else{float susf=(float)su/127.0f;float t=susf>0.0f?1.0f-live.env_level/susf:1.0f;mx=12+wa+wd+ws+(int)(t*(float)wr);}
+            rect(p,mx-3,lvl-3,7,7,WHITE);
+        }
     }else{
         for(unsigned row=0;row<4;++row)for(unsigned col=0;col<4;++col){
             unsigned pad=(3-row)*4+col;char n[16];unsigned note=am_synth_key_note?am_synth_key_note(s->synth_layout,s->synth_root,s->synth_scale,s->synth_octave,pad):pad;
             static const char*const nm[12]={"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
             snprintf(n,sizeof n,"%s%d",nm[note%12],(int)(note/12)-1);
             int cx=12+(int)col*74,cy=60+(int)row*23;int root=note%12==s->synth_root%12;
-            rect(p,cx,cy,70,21,root?0xff4a3a10u:0xff242424u);text(p,n,cx,cy,70,20,13,root?AMBER:WHITE,1);
+            int on=playing&&((live.notes[note>>5]>>(note&31))&1u);
+            rect(p,cx,cy,70,21,on?AMBER:root?0xff4a3a10u:0xff242424u);text(p,n,cx,cy,70,20,13,on?BLACK:root?AMBER:WHITE,1);
         }
     }
     char hn[3][24],hv[3][16],dn[3][24],dv[3][16];

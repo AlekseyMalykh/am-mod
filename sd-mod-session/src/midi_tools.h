@@ -14,7 +14,7 @@ enum { AM_MIDI_NATIVE, AM_MIDI_OFF, AM_MIDI_NOTE, AM_MIDI_CC, AM_MIDI_PROGRAM, A
  * DRUM: stock pad map. SELECTED: one channel (0 any) plays the pad selected on the MPC,
  * note-root transposes it. CHANNELS: channel N plays its assigned pad, note-root transposes. */
 enum { AM_MIDI_MODE_DRUM, AM_MIDI_MODE_SELECTED, AM_MIDI_MODE_CHANNELS, AM_MIDI_MODE_INSTRUMENT };
-enum { AM_MIDI_KEY_TUNE, AM_MIDI_KEY_CHOP };
+enum { AM_MIDI_KEY_TUNE, AM_MIDI_KEY_CHOP, AM_MIDI_KEY_SYNTH }; /* SYNTH: channel plays the built-in synth instrument */
 struct am_midi_mode { uint8_t mode,channel,root,pad[16],kind[16]; }; /* pad[ch]=pad+1, 0 none; kind: TUNE=16 Levels semitones, CHOP=16 slices */
 int am_midi_mode_get(struct am_midi_mode*);
 int am_midi_mode_set(const struct am_midi_mode*);

@@ -58,7 +58,7 @@ void am_midi_ui_tick(void*p){
   else {am_midi_ui_destroyed(input_host);input_host=NULL;}
  }
  root=p;atomic_store(&visible,p!=NULL);if(!p){atomic_store(&page,0);am_midi_learn(0,0);}am_midi_learn_tick();am_midi_diagnostic_tick();
- {unsigned c,d;while(am_midi_button_take(&c,&d)){if(p&&atomic_load(&page)==6)continue;if(c&0x80u){if(phone_native_inject_controller)phone_native_inject_controller(c&0x7fu,d);}else if(phone_native_inject_button){unsigned sh=c&0x200u;c&=0x1ffu;if(sh&&d)phone_native_inject_button(0x31,1);phone_native_inject_button(c,d);if(sh&&!d)phone_native_inject_button(0x31,0);}}}
+ {unsigned c,d;while(am_midi_button_take(&c,&d)){if(p&&atomic_load(&page)==6)continue;if(c&0x80u){if(phone_native_inject_controller)phone_native_inject_controller(c&0x7fu,d);}else if(phone_native_inject_button){unsigned sh=c&0x200u;c&=0x1ffu;if(sh&&d)phone_native_inject_button(0x31,1);phone_native_inject_button(c,d);if(sh&&d)phone_native_inject_button(0x31,0);} /* Shift is only a tap: held MIDI key must not hold MPC Shift */}}
  {unsigned hit=atomic_exchange(&pad_hit,0);if(hit&&atomic_load(&page)>=3&&atomic_load(&page)<=5){pad=hit-1;notice[0]=0;if(atomic_load(&page)==5)mode_assign_pad(pad);repaint();}}
  /* Only copied program note numbers leave the UI owner. No native pointer is
   * read by an ALSA worker. Native pad-to-note getter 157f800 reads Program+12a8;
@@ -150,11 +150,11 @@ static void mode_paint(void*g){
   snprintf(c,sizeof c,"%u",k+1);pad_name(p,sizeof p,m.pad[k]);
   uint32_t col=k==sel?0xffffc247:0xffffffff;
   label(g,c,12,y,40,16,13,col);label(g,m.pad[k]?p:"All pads",70,y,90,16,13,col);
-  label(g,!m.pad[k]?"Stock drum map":m.kind[k]==AM_MIDI_KEY_CHOP?"Chop (16 keys)":"Tune (16 Levels)",170,y,140,16,13,col);
+  label(g,!m.pad[k]?"Stock drum map":m.kind[k]==AM_MIDI_KEY_CHOP?"Chop (16 keys)":m.kind[k]==AM_MIDI_KEY_SYNTH?"Synth":"Tune (16 Levels)",170,y,140,16,13,col);
  }
  label(g,"Tap pad: assign channel   B3: input mode",8,184,304,12,10,0xff999999);
  char a[24],b[24],c2[24];snprintf(a,sizeof a,"%u",mode_channel);
- snprintf(b,sizeof b,"%s",!m.pad[sel]?"Drum":m.kind[sel]==AM_MIDI_KEY_CHOP?"Chop":"Tune");
+ snprintf(b,sizeof b,"%s",!m.pad[sel]?"Drum":m.kind[sel]==AM_MIDI_KEY_CHOP?"Chop":m.kind[sel]==AM_MIDI_KEY_SYNTH?"Synth":"Tune");
  snprintf(c2,sizeof c2,"%s",music_ui_shift_active()?"Root":"Pad");
  char pv[24];if(music_ui_shift_active())snprintf(pv,sizeof pv,"%u",m.root);else pad_name(pv,sizeof pv,m.pad[sel]);
  knob(g,0,"Channel",a);knob(g,1,"Role",b);knob(g,2,c2,pv);
@@ -173,7 +173,7 @@ static void mode_control(unsigned code,unsigned v,int delta,unsigned shift){
   am_midi_mode_set(&m);return;
  }
  if(code==0x10)mode_channel=1+v*16/128;
- else if(code==0x11){unsigned a=v*3/128;if(!a)m.pad[i]=0;else{m.kind[i]=(uint8_t)(a==2);if(!m.pad[i])m.pad[i]=1;}}
+ else if(code==0x11){unsigned a=v*4/128;if(!a)m.pad[i]=0;else{m.kind[i]=(uint8_t)(a==2?AM_MIDI_KEY_CHOP:a==3?AM_MIDI_KEY_SYNTH:AM_MIDI_KEY_TUNE);if(!m.pad[i])m.pad[i]=1;}}
  else if(code==0x12){if(shift)m.root=(uint8_t)v;else m.pad[i]=(uint8_t)(v*129/128>128?128:v*129/128);}
  else if(code==0x64){int n=(int)mode_channel+delta;mode_channel=(unsigned)(n<1?1:n>16?16:n);}
  if(code==0x11||(code==0x12&&!shift))m.mode=AM_MIDI_MODE_CHANNELS;

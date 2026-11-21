@@ -1,4 +1,6 @@
+#define _POSIX_C_SOURCE 200809L
 #include <stdint.h>
+#include <time.h>
 #include "synth.h"
 #include <math.h>
 #include <stdatomic.h>
@@ -13,6 +15,7 @@ static _Atomic unsigned mic_on,fader_mode;static _Atomic int used; /* used: a no
 static _Atomic unsigned wave,cutoff=100,attack=2,decay=40,sustain=90,release_cc=40,gain=100,midi_channel=15;
 static _Atomic unsigned *const params[AM_SYNTH_PARAMS]={&wave,&cutoff,&attack,&decay,&sustain,&release_cc,&gain,&midi_channel,&mic_on,&fader_mode};
 static _Atomic int active_voices;
+static _Atomic float st_peak,st_env_level,st_bend,st_mod;static _Atomic unsigned st_env_stage,st_voices,st_notes[4]; /* for the Mixer illustration */
 static float bend_semitones,mod_depth,lfo_phase; /* audio thread only: pitch wheel +-2 semitones, mod wheel -> vibrato */
 /* MIDI thread pushes, audio thread pops: single producer, single consumer. */
 #define QUEUE 64u
@@ -20,7 +23,9 @@ static _Atomic unsigned event_queue[QUEUE];static _Atomic unsigned event_head,ev
 static void push(unsigned value){unsigned h=atomic_load_explicit(&event_head,memory_order_relaxed);
  if(h-atomic_load_explicit(&event_tail,memory_order_acquire)>=QUEUE)return;
  atomic_store_explicit(&event_queue[h%QUEUE],value,memory_order_relaxed);atomic_store_explicit(&event_head,h+1,memory_order_release);}
-void am_synth_note(unsigned note,unsigned velocity,int on){if(note>127)return;if(on&&velocity)atomic_store(&used,1);push((on&&velocity?1u:0u)<<16|(velocity&127)<<8|note);}
+static unsigned long long now_ms(void){struct timespec t;clock_gettime(CLOCK_MONOTONIC,&t);return (unsigned long long)t.tv_sec*1000ull+(unsigned long long)t.tv_nsec/1000000ull;}
+static _Atomic unsigned long long last_note_ms;
+void am_synth_note(unsigned note,unsigned velocity,int on){if(note>127)return;if(on&&velocity){atomic_store(&used,1);atomic_store(&last_note_ms,now_ms());}push((on&&velocity?1u:0u)<<16|(velocity&127)<<8|note);}
 void am_synth_cc(unsigned cc,unsigned value){push(2u<<16|(value&127)<<8|(cc&127));}
 void am_synth_midi(const unsigned char *d,unsigned n){
  if(!d||n<2||(d[0]&0x0f)!=atomic_load(&midi_channel))return;
@@ -81,13 +86,21 @@ void am_synth_render_add(float *left,float *right,unsigned frames){
    float x=v->lp*v->level*v->velocity*out;left[f]+=x;if(right)right[f]+=x;
   }
  }
+ {float pk=0.0f,el=0.0f;unsigned es=0,vc=0;unsigned long newest=0;uint32_t nb[4]={0,0,0,0};
+  for(unsigned f=0;f<frames;++f){float x=left[f]<0?-left[f]:left[f];if(x>pk)pk=x;}
+  for(unsigned i=0;i<VOICES;++i){struct voice *v=&voices[i];if(v->env==ENV_OFF)continue;++vc;if(v->env!=ENV_RELEASE)nb[v->note>>5]|=1u<<(v->note&31);if(v->age>=newest){newest=v->age;el=v->level;es=v->env;}}
+  float old=atomic_load(&st_peak);atomic_store(&st_peak,pk>old*0.9f?pk:old*0.9f);
+  atomic_store(&st_env_level,el);atomic_store(&st_env_stage,es);atomic_store(&st_voices,vc);
+  atomic_store(&st_bend,bend_semitones);atomic_store(&st_mod,mod_depth);
+  for(unsigned i=0;i<4;++i)atomic_store(&st_notes[i],nb[i]);}
  lfo_phase+=(float)frames*5.5f/RATE;if(lfo_phase>=1.0f)lfo_phase-=(float)(int)lfo_phase;
  atomic_store_explicit(&active_voices,alive,memory_order_release);
 }
 unsigned am_synth_param_get(unsigned index){return index<AM_SYNTH_PARAMS?atomic_load(params[index]):0;}
 void am_synth_param_set(unsigned index,unsigned value){if(index<AM_SYNTH_PARAMS)atomic_store(params[index],index==0?value%4:index==7?value%16:index==8?value%2:index==9?value%3:value>127?127:value);}
 
-int am_synth_mic_muted(void){return atomic_load_explicit(&used,memory_order_acquire)&&!atomic_load_explicit(&mic_on,memory_order_acquire);}
+/* The microphone is muted only while the synth is being played (10 s after the last note), so the mic works again by itself. */
+int am_synth_mic_muted(void){return atomic_load_explicit(&used,memory_order_acquire)&&!atomic_load_explicit(&mic_on,memory_order_acquire)&&(am_synth_active()||now_ms()-atomic_load(&last_note_ms)<10000ull);}
 
 static const uint8_t key_scales[7][12]={{0,2,4,5,7,9,11},{0,2,3,5,7,8,10},{0,2,3,5,7,9,10},{0,2,4,5,7,9,10},{0,2,4,7,9},{0,3,5,7,10},{0,3,5,6,7,10}};
 static const uint8_t key_scale_len[7]={7,7,7,7,5,5,6};
@@ -102,4 +115,14 @@ void am_synth_fader(unsigned value){
  unsigned mode=atomic_load(&fader_mode);value&=127u;
  if(mode==1)am_synth_cc(1,value);
  else if(mode==2){unsigned v14=value*16383u/127u;push(3u<<16|((v14>>7)&127u)<<8|(v14&127u));}
+}
+
+int am_synth_peek(struct am_synth_state*out){
+ if(!out)return 0;
+ memset(out,0,sizeof *out);
+ if(!am_synth_active())return 0;
+ out->peak=atomic_load(&st_peak);out->env_level=atomic_load(&st_env_level);out->bend=atomic_load(&st_bend);out->mod=atomic_load(&st_mod);
+ out->env_stage=atomic_load(&st_env_stage);out->voices=atomic_load(&st_voices);
+ for(unsigned i=0;i<4;++i)out->notes[i]=atomic_load(&st_notes[i]);
+ return 1;
 }
