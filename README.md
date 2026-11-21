@@ -25,7 +25,7 @@ Am MOD starts from an SD card on firmware **1.3.0.12**. The application runs in 
 
 ## Install and start
 
-1. Back up your projects, samples and card settings. The r30c storage candidate preserves user projects, samples and audio exports in **Internal** as well as **External**. Use the native K3 Storage control in Save/Export dialogs; system settings outside the pinned user folders still use the private session layer. Final device verification is pending.
+1. Back up your projects, samples and card settings. **Beta:** compatibility with other mods (Stock, SampQOL, D.S.B) still needs testing — keep a copy of your projects and your previous card setup. The r30c storage candidate preserves user projects, samples and audio exports in **Internal** as well as **External**. Use the native K3 Storage control in Save/Export dialogs; system settings outside the pinned user folders still use the private session layer. Final device verification is pending.
 2. Download `am-mod-r30c-beta1.zip` and `MPC-Sample-Mod-Installer.exe` from the release above. On macOS/Linux use the Python installer.
 3. Connect the card through a reader or SD Card Access, select the ZIP and card, then Install. The installer detects the boot layout; do not replace the root autorun folder of a boot-menu card manually.
 4. Safely eject the drive, leave SD Card Access, and power the MPC off and on. On a boot-menu card choose **AM Mod**.

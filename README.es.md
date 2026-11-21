@@ -25,7 +25,7 @@ Am MOD arranca desde una tarjeta SD con firmware **1.3.0.12**. La aplicación se
 
 ## Instalar y arrancar
 
-1. Haz una copia de seguridad de proyectos, samples y ajustes. El candidato r30c conserva proyectos, samples y exportaciones de audio tanto en **Internal** como en **External**. Selecciona el destino con el control K3 de los diálogos Save/Export; los ajustes del sistema fuera de las carpetas de usuario siguen en la capa de sesión. La verificación final en el MPC está pendiente.
+1. Haz una copia de seguridad de proyectos, samples y ajustes. **Beta:** falta probar la compatibilidad con otros mods (Stock, SampQOL, D.S.B); conserva una copia de tus proyectos y de la configuración anterior de la tarjeta. El candidato r30c conserva proyectos, samples y exportaciones de audio tanto en **Internal** como en **External**. Selecciona el destino con el control K3 de los diálogos Save/Export; los ajustes del sistema fuera de las carpetas de usuario siguen en la capa de sesión. La verificación final en el MPC está pendiente.
 2. Descarga `am-mod-r30c-beta1.zip` y `MPC-Sample-Mod-Installer.exe` del enlace anterior. En macOS/Linux utiliza el instalador Python.
 3. Conecta la tarjeta con un lector o SD Card Access, selecciona el ZIP y la tarjeta y pulsa Install. El instalador detecta el gestor de arranque; no reemplaces manualmente el autorun raíz de una tarjeta con menú.
 4. Expulsa la unidad de forma segura, sal de SD Card Access y apaga/enciende el MPC. En el menú de arranque selecciona **AM Mod**.
