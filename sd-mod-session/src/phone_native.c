@@ -573,7 +573,7 @@ static void mixer_publish_route(void)
     struct mixer_view_state view = {0};
     mixer_control_view(control,now_ms(),&view);
     int tracks=(state&MIXER_OPEN)&&!mixer_view_sound_pads(&view)
-        ? (view.master?0:(int)(view.selected&0xffu)) : -1;
+        ? ((view.master||view.synth_page)?0:(int)(view.selected&0xffu)) : -1;
     mixer_bank_lights_tracks(tracks);
     /* Device report: the Sample pad colours stayed lit in the Mixer. Outside
      * Assign/Inspect the pads select Tracks: pads 1-8 = Track A-H in their
