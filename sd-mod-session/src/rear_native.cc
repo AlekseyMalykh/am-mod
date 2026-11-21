@@ -299,8 +299,16 @@ extern "C" void *rear_native_process(void *thread, void *position, void *buffer,
         && !(step_native_transport_playing && step_native_transport_playing()) && pcm && frames > 0 && frames <= 8192) {
         for (int ch = 0; ch < channels && ch < 8; ++ch) if (pcm[ch]) std::memset(pcm[ch],0,(size_t)frames*sizeof(float));
     }
+    static float synth_keep[2][8192]; int synth_direct = 0;
     if (am_synth_active && am_synth_render_add && am_synth_active() && pcm && frames > 0 && frames <= 8192 && channels >= 1 && pcm[0])
-    { am_synth_render_add(pcm[0], channels >= 2 ? pcm[1] : nullptr, (unsigned)frames); FIELD(buffer,0x128,unsigned char) &= (unsigned char)~1u; /* no longer a silent buffer */ }
+    {
+        static float synth_out[2][8192];
+        std::memset(synth_out,0,sizeof synth_out);
+        am_synth_render_add(synth_out[0], synth_out[1], (unsigned)frames);
+        for (int n = 0; n < frames; ++n) { pcm[0][n] += synth_out[0][n]; if (channels >= 2 && pcm[1]) pcm[1][n] += synth_out[1][n]; }
+        FIELD(buffer,0x128,unsigned char) &= (unsigned char)~1u; /* no longer a silent buffer */
+        synth_direct = frames; std::memcpy(synth_keep, synth_out, sizeof synth_keep);
+    }
     bool prepared_mix=input_active.load(std::memory_order_acquire)&&rear_setting(0,REAR_MODE)==REAR_MIX&&
         channels>=2&&frames>0&&frames<=8192&&pcm&&pcm[0]&&pcm[1];
     if(prepared_mix){
@@ -319,6 +327,14 @@ extern "C" void *rear_native_process(void *thread, void *position, void *buffer,
         else { std::memcpy(raw[0],pcm[0],(size_t)frames*sizeof(float)); std::memcpy(raw[1],pcm[1],(size_t)frames*sizeof(float)); }
     }
     void *result=original(thread,position,buffer);
+    if (synth_direct > 0 && !monitor_active.load(std::memory_order_acquire)) {
+        /* Synth is heard even when the input is not monitored: add it to the output buffer like the monitor path does. */
+        float **op = FIELD(buffer,0x10,float **);
+        if (op && FIELD(buffer,0,int) >= 2 && op[0] && op[1]) {
+            for (int n = 0; n < synth_direct; ++n) { op[0][n] += synth_keep[0][n] * .8f; op[1][n] += synth_keep[1][n] * .8f; }
+            FIELD(buffer,0x128,unsigned char) = 0;
+        }
+    }
     if (!capture) return result;
     pcm = FIELD(buffer,0x10,float **);
     bool monitor = monitor_active.load(std::memory_order_acquire) != 0;
