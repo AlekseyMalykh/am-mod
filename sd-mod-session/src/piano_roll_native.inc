@@ -516,7 +516,15 @@ static void roll_paint(void*g){
  int thumb=clamp(120*roll.rows_visible/roll.row_count,3,120);rect(g,314,70+120-thumb-(roll.top*(120-thumb)/(roll.row_count>1?roll.row_count-1:1)),2,thumb);
  const char *labels[3]={roll_editing?(shift?"Fine move":"Move"):shift?"Zoom rows":"Scroll rows",roll_editing?(shift?"Velocity":"Pad / Pitch"):"Grid",roll_editing?(shift?"Fine length":"Length"):shift?"Zoom time":"Scroll time"};
  for(int k=0;k<3;++k){colour(g,0xff242424);rect(g,k*106,209,105,31);colour(g,WHITE);
-  if(k==1&&!roll_editing){text(g,labels[k],106,210,105,11,10);colour(g,AMBER);text(g,roll_grid_name(),106,222,105,16,13);}
+  char value[40];value[0]=0;
+  if(k==1&&!roll_editing)snprintf(value,sizeof(value),"%s",roll_grid_name());
+  else if(!roll_editing&&k==0){if(shift)snprintf(value,sizeof(value),"%d rows",roll.rows_visible);else snprintf(value,sizeof(value),"%d / %d",roll.top+1,roll.row_count);}
+  else if(!roll_editing&&k==2){if(shift){int64_t b=roll.span/960;if(b>=4&&b%4==0)snprintf(value,sizeof(value),"%lld bars",(long long)(b/4));else snprintf(value,sizeof(value),"%lld beats",(long long)(b>0?b:1));}
+   else snprintf(value,sizeof(value),"%lld.%lld",(long long)(roll.left/3840+1),(long long)(roll.left%3840/960+1));}
+  else if(roll_editing){int64_t t=k==0?roll_delta_time:k==2?roll_delta_length:0;
+   if(k==1)snprintf(value,sizeof(value),shift?"%+d":"%+d rows",shift?roll_delta_velocity:roll_delta_row);
+   else if(t%960==0)snprintf(value,sizeof(value),"%+lld beat",(long long)(t/960));else snprintf(value,sizeof(value),"%+lld tick",(long long)t);}
+  if(value[0]){text(g,labels[k],k*106,210,105,11,10);colour(g,AMBER);text(g,value,k*106,222,105,16,13);}
   else text(g,labels[k],k*106,212,105,20,12);}
  colour(g,AMBER);left_text(g,roll.range?"Range: DATA = time, Fader = rows":message[0]?message:roll.error[0]?roll.error:roll_editing?"DATA: Move | Fader: Rows | Shift: Zoom":roll.note_focus?"MUTE: Row | DATA: Notes | Click: Select":roll.follow?"MUTE: Row | Follow On | Shift B3: Actions":"MUTE: Row | B2: Range | Shift B3: Actions",4,199,308,9,9);
 }

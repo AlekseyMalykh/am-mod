@@ -1,5 +1,6 @@
 #include "midi_ui.h"
 #include "midi_tools.h"
+#include "synth.h"
 #include "note_native.h"
 #include "music_ui.h"
 #include "music_settings.h"
@@ -20,7 +21,7 @@ static _Atomic unsigned char held[112];
 static unsigned held_count;
 static uint64_t seen;
 static char notice[56];
-static const char*const menu[]={"MIDI Monitor","MIDI In Map","MIDI Out Map","MIDI Input Mode","MIDI Buttons"};
+static const char*const menu[]={"MIDI Monitor","MIDI In Map","MIDI Out Map","MIDI Input Mode","MIDI Buttons","Synth"};
 static unsigned mode_channel=1;
 extern void phone_native_inject_button(unsigned code,unsigned down);
 #pragma weak phone_native_inject_button
@@ -66,6 +67,27 @@ void am_midi_ui_tick(void*p){
  if(program){void*instrument=F(things,0x668,void*);int selected=instrument?FN(0x286bc20,int(*)(void*,void*))(program,instrument):-1;am_midi_selected_pad(selected>=0&&selected<128?selected:-1);}
  if(program){int notes[128],valid=1;for(unsigned i=0;i<128;++i){notes[i]=F(program,0x12a8+i*4,int);if(notes[i]<0||notes[i]>127||F(program,0x14a8+notes[i]*4,int)!=(int)i)valid=0;}am_midi_native_notes(valid?notes:NULL);}else am_midi_native_notes(NULL);
  uint64_t revision=am_midi_log_revision();if(p&&atomic_load(&page)&&revision!=seen){seen=revision;repaint();}
+}
+static unsigned clamp(int n,unsigned hi);
+static const char*const synth_waves[]={"Sine","Saw","Square","Triangle"};
+static const char*const synth_names[]={"Wave","Cutoff","Attack","Decay","Sustain","Release","Level"};
+static unsigned synth_cursor,synth_test;
+static void synth_value(char*s,size_t n,unsigned i){unsigned v=am_synth_param_get(i);if(i==0)snprintf(s,n,"%s",synth_waves[v%4]);else snprintf(s,n,"%u",v);}
+static void synth_paint(void*g){
+ heads(g,"Back","",synth_test?"Playing":"Test C4");centre(g,"Synth (MIDI channel 16)",4,31,312,22,16,0xffffc247);
+ for(unsigned i=0;i<AM_SYNTH_PARAMS;++i){int y=58+(int)i*18;char v[16];synth_value(v,sizeof v,i);
+  if(i==synth_cursor)rect(g,4,y,312,18,0xff302412);
+  label(g,synth_names[i],12,y,140,18,13,i==synth_cursor?0xffffc247:0xffffffff);label(g,v,170,y,140,18,13,i==synth_cursor?0xffffc247:0xffffffff);}
+ label(g,"DATA: row / change   B3: hold to play",8,186,304,12,10,0xff999999);
+ char a[16],b[16],c[16];
+ if(music_ui_shift_active()){synth_value(a,sizeof a,2);synth_value(b,sizeof b,3);synth_value(c,sizeof c,5);knob(g,0,"Attack",a);knob(g,1,"Decay",b);knob(g,2,"Release",c);}
+ else{synth_value(a,sizeof a,0);synth_value(b,sizeof b,1);synth_value(c,sizeof c,6);knob(g,0,"Wave",a);knob(g,1,"Cutoff",b);knob(g,2,"Level",c);}
+}
+static unsigned synth_scaled(unsigned index,unsigned v){return index==0?v*4/128:v;}
+static void synth_control(unsigned code,unsigned v,int delta,unsigned shift){
+ static const unsigned plain[3]={0,1,6},fine[3]={2,3,5};
+ if(code>=0x10&&code<=0x12){unsigned i=(shift?fine:plain)[code-0x10];am_synth_param_set(i,synth_scaled(i,v));synth_cursor=i;}
+ else if(code==0x64&&delta){if(edit){int n=(int)am_synth_param_get(synth_cursor)+delta;if(synth_cursor==0)n=(n%4+4)%4;am_synth_param_set(synth_cursor,n<0?0:(unsigned)n);}else synth_cursor=clamp((int)synth_cursor+delta,AM_SYNTH_PARAMS-1);}
 }
 static int matches(const struct am_midi_record*r){
  if(direction&&r->direction!=direction-1)return 0;
@@ -182,9 +204,10 @@ void am_midi_ui_paint(void*p,void*g){
  root=p;atomic_store(&visible,1);unsigned which=atomic_load(&page);
  if(!which){rect(g,108,2,104,26,0xff242424);centre(g,"Map / Log",110,2,100,25,13,0xffffc247);return;}
  rect(g,0,0,320,240,0xff000000);
- if(which==1){heads(g,"Back","","Open");centre(g,"MIDI Tools",4,35,312,25,19,0xffffffff);for(unsigned i=0;i<5;++i){if(row==i)rect(g,4,70+(int)i*26,312,25,0xff302412);label(g,menu[i],12,70+(int)i*26,295,25,16,row==i?0xffffc247:0xffffffff);}label(g,"DATA: select   Press / B3: open",8,204,304,22,12,0xffaaaaaa);return;}
+ if(which==1){heads(g,"Back","","Open");centre(g,"MIDI Tools",4,35,312,25,19,0xffffffff);for(unsigned i=0;i<6;++i){if(row==i)rect(g,4,70+(int)i*26,312,25,0xff302412);label(g,menu[i],12,70+(int)i*26,295,25,16,row==i?0xffffc247:0xffffffff);}label(g,"DATA: select   Press / B3: open",8,204,304,22,12,0xffaaaaaa);return;}
  if(which==5){mode_paint(g);return;}
  if(which==6){button_paint(g);return;}
+ if(which==7){synth_paint(g);return;}
  if(which>=3){map_paint(g,which);return;}
  heads(g,"Back",am_midi_log_paused()?"Resume":"Pause","Clear");centre(g,"MIDI Monitor",4,30,312,20,16,0xffffffff);
  struct am_midi_record all[AM_MIDI_LOG];uint64_t latest;unsigned n=am_midi_snapshot(all,AM_MIDI_LOG,&latest),indices[AM_MIDI_LOG],found=0;
@@ -219,17 +242,18 @@ static void change_field(unsigned value,int relative){
 int am_midi_ui_control(void*e,unsigned shift){
  unsigned code=F(e,8,uint8_t),v=F(e,9,uint8_t),which=atomic_load(&page);if(!am_midi_ui_owns(code,0))return 0;
  int delta=v>64?(int)v-128:v==64?0:(int)v;focus=code>=0x10&&code<=0x12?code-0x10:focus;
- if(which==1){if(code==0x64)row=clamp((int)row+delta,4);}
+ if(which==1){if(code==0x64)row=clamp((int)row+delta,5);}
  else if(which==2){if(code==0x10){direction=v*3/128;scroll_anchor=0;}else if(code==0x11){port=v*3/128;scroll_anchor=0;}else if(code==0x12){if(shift)channel=v*17/128;else type=v*8/128;scroll_anchor=0;}else if(code==0x64)scroll_by(-delta);}
  else if(which==6){if((code==0x10||code==0x11||code==0x12||code==0x64)&&!am_midi_button_learning())am_midi_button_learn(code|0x80u,1);repaint();}
  else if(which==5)mode_control(code,v,delta,shift);
- else if(which>=3){if(code==0x10){if(which==4&&shift){map_layer=v*2/128;edit=0;}else pad=v;notice[0]=0;am_midi_learn(0,0);}else if(code==0x11)field=v*4/128;else if(code==0x12)change_field(v,0);else if(code==0x64){if(edit)change_field((unsigned)delta,1);else field=clamp((int)field+delta,3);}}
+ else if(which==7){synth_control(code,v,delta,shift);repaint();}
+ else if(which>=3&&which!=7){if(code==0x10){if(which==4&&shift){map_layer=v*2/128;edit=0;}else pad=v;notice[0]=0;am_midi_learn(0,0);}else if(code==0x11)field=v*4/128;else if(code==0x12)change_field(v,0);else if(code==0x64){if(edit)change_field((unsigned)delta,1);else field=clamp((int)field+delta,3);}}
  repaint();return 1;
 }
 int am_midi_ui_button(void*e){
  unsigned code=F(e,8,uint8_t),down=F(e,9,uint8_t)!=0;
  if(code>=112)return 0;
- if(held[code]){if(!down){held[code]=0;if(held_count)--held_count;}return 1;}
+ if(held[code]){if(!down){if(code==0x0e&&synth_test){synth_test=0;am_synth_note(60,0,0);}held[code]=0;if(held_count)--held_count;}return 1;}
  if(!atomic_load(&visible))return 0;
  unsigned which=atomic_load(&page);
  if(!am_midi_ui_owns(code,1)){
@@ -247,8 +271,9 @@ int am_midi_ui_button(void*e){
  }
  else if(which==1&&(code==0x0e||code==0x6f)){atomic_store(&page,row+2);notice[0]=0;scroll_anchor=0;}
  else if(which==2){if(code==0x0d)am_midi_log_pause(!am_midi_log_paused());else if(code==0x0e){am_midi_log_clear();scroll_anchor=0;}else if(code==0x36)scroll_by(-7);else if(code==0x37)scroll_by(7);}
+ else if(which==7){if(code==0x0e){synth_test=1;am_synth_note(60,100,1);}else if(code==0x6f)edit=!edit;}
  else if(which==6){if(code==0x0e)am_midi_button_clear();else if(code!=0x0c)am_midi_button_learn(code,1);}
  else if(which==5){if(code==0x0d){atomic_store(&page,3);edit=0;}else if(code==0x0e){struct am_midi_mode m;am_midi_mode_get(&m);if(music_ui_shift_active()){memset(&m,0,sizeof m);m.root=60;}else m.mode=m.mode==AM_MIDI_MODE_DRUM?AM_MIDI_MODE_CHANNELS:m.mode==AM_MIDI_MODE_CHANNELS?AM_MIDI_MODE_SELECTED:AM_MIDI_MODE_DRUM;am_midi_mode_set(&m);}}
- else if(which>=3){if(code==0x0e||code==0x6f)edit=!edit;else if(code==0x0d){if(which==3)am_midi_learn(pad,!am_midi_learn_active());else if(map_layer){struct am_midi_map m;am_midi_layer_get(pad,&m,NULL);am_midi_layer_set(pad,&m,0);}else{struct am_midi_map m;am_midi_map_get(pad,&m);m.out_kind=m.out_port=m.out_channel=m.out_number=0;am_midi_map_set(pad,&m);}}else if(code==0x36||code==0x37)pad=clamp((int)pad+(code==0x36?1:-1),127);}
+ else if(which>=3&&which!=7){if(code==0x0e||code==0x6f)edit=!edit;else if(code==0x0d){if(which==3)am_midi_learn(pad,!am_midi_learn_active());else if(map_layer){struct am_midi_map m;am_midi_layer_get(pad,&m,NULL);am_midi_layer_set(pad,&m,0);}else{struct am_midi_map m;am_midi_map_get(pad,&m);m.out_kind=m.out_port=m.out_channel=m.out_number=0;am_midi_map_set(pad,&m);}}else if(code==0x36||code==0x37)pad=clamp((int)pad+(code==0x36?1:-1),127);}
  repaint();return 1;
 }

@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+extern void am_synth_midi(const unsigned char*,unsigned) __attribute__((weak));
 _Static_assert(sizeof(struct am_midi_map)==8,"Explicit map wire fields");
 static _Atomic uint64_t maps[128];
 static _Atomic int native_notes[128];
@@ -322,6 +323,7 @@ void am_midi_learn_tick(void){uint64_t n=atomic_exchange(&learn_message,0);if(n&
 void am_midi_observe(unsigned dir,unsigned port,const struct am_midi_message*m){
     if(port==AM_MIDI_SURFACE||!m||!m->size||m->size>3)return;
     if(dir==AM_MIDI_IN&&port>0&&port<3&&(atomic_load(&learn_pad)||atomic_load(&learn_btn))&&m->size==3&&((m->data[0]&0xf0)==0x90||(m->data[0]&0xf0)==0xb0)&&m->data[2]){uint64_t empty=0,value=((uint64_t)port<<32)|((uint64_t)m->data[0]<<16)|((uint64_t)m->data[1]<<8)|1;atomic_compare_exchange_strong(&learn_message,&empty,value);}
+    if(dir==AM_MIDI_IN&&am_synth_midi)am_synth_midi(m->data,m->size);
     if(atomic_load(&paused))return;
     if(pthread_mutex_trylock(&log_lock)){atomic_fetch_add(&dropped,1);return;}
     unsigned at=(log_head+log_used)%AM_MIDI_LOG;if(log_used==AM_MIDI_LOG){at=log_head;log_head=(log_head+1)%AM_MIDI_LOG;}else ++log_used;

@@ -29,7 +29,7 @@ mixer = ['src/mixer_model.c', 'src/mixer_meters.c', 'src/fx_chain.c', 'src/fx_ow
          'src/mixer_control.c', 'src/mixer_session.cc', 'src/mixer_input.c',
          'src/mixer_runtime.cc', 'src/mixer_sources.cc', 'src/mixer_leds.c',
          'src/mixer_fx.cc', 'src/input_fx.cc', 'src/fx_native.cc', 'src/song_ui.c', 'src/mixer_stems.c', 'src/seq_mutes.c', 'src/seq_audition.c', 'src/screen_mirror_drm.c', 'src/usb_audio.c', 'src/usb_audio_alsa.c',
-         'src/midi_tools.c', 'src/midi_alsa.c', 'src/midi_ui.c',
+         'src/midi_tools.c', 'src/synth.c', 'src/midi_alsa.c', 'src/midi_ui.c',
          'src/midi_event.c', 'src/midi_context.c', 'src/midi_native.c', 'src/sample_live_tuner.cc','src/internal_storage.c']
 sources = list(dict.fromkeys(sources + mixer + ['src/piano_roll.c','src/midi_route.c','src/midi_voice.c','src/midi_wire.c','src/midi_file.c','src/midi_file_native.c','src/program_pgm.c','src/program_import.cc','src/program_manifest.cc']))
 pgm_probe = os.environ.get('AM_MOD_PGM_NATIVE_PROBE') == '1'

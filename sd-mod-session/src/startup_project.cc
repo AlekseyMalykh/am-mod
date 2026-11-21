@@ -162,6 +162,13 @@ int save(void*saver,const uint64_t*file,bool a,bool b,bool c){
  char restored[1200];int redirect=project_recovery_save_target(target,restored,sizeof(restored));
  if(redirect)std::snprintf(target,sizeof(target),"%s",restored);
 #endif
+ {struct stat seen;std::fprintf(stderr,"SAVE_TARGET path=%s exists=%d redirect=%d\n",target,lstat(target,&seen)==0,
+#ifdef MPC_PROJECT_RECOVERY
+   redirect
+#else
+   0
+#endif
+   );}
  if(!project_save_destination(target)){
   std::fprintf(stderr,"STARTUP_PROJECT SAVE_REQUIRES_PERSISTENT_STORAGE\n");
   return 0;
