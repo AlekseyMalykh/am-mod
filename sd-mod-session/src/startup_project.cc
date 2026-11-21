@@ -61,6 +61,48 @@ bool prepare_workspace(){
  else if(created)std::fprintf(stderr,"STARTUP_PROJECT TEMP_WORKSPACE_CREATED path=%s/Temp-Project_[ProjectData]\n",STARTUP_TEMP_ROOT);
  errno=saved;return !error;
 }
+/* Stock Load Project leaves every audio file of the project in the shared
+ * Temp-Project_[ProjectData] workspace; the recorder, Library import and render
+ * choose the next free "Sample NNN" name by looking there. Loading the XPJ in
+ * place leaves that folder empty, so the first take is named "Sample 001" again
+ * and the native SamplePool hands back the older sample with the same name.
+ * Add the missing audio files to the workspace as plain copies. Nothing already
+ * there is touched, symlinks and sub-folders are skipped, the project folder is
+ * only read. */
+void stage_project_data(const char*xpj){
+ size_t n=xpj?std::strlen(xpj):0;
+ if(n<=4||std::strcmp(xpj+n-4,".xpj")||n+14>=PATH_MAX)return;
+ char data[PATH_MAX];std::snprintf(data,sizeof(data),"%.*s_[ProjectData]",(int)(n-4),xpj);
+ DIR*source=opendir(data);if(!source){std::fprintf(stderr,"STARTUP_PROJECT STAGE_DATA none path=%s errno=%d\n",data,errno);return;}
+ int sfd=dirfd(source);
+ int wfd=open(STARTUP_TEMP_ROOT "/Temp-Project_[ProjectData]",O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);
+ if(wfd<0){std::fprintf(stderr,"STARTUP_PROJECT STAGE_DATA workspace errno=%d\n",errno);closedir(source);return;}
+ static char buffer[1<<20];
+ unsigned copied=0,present=0,failed=0;unsigned long long bytes=0;
+ while(dirent*entry=readdir(source)){
+  const char*name=entry->d_name;
+  if(!*name||name[0]=='.'||std::strchr(name,'/'))continue;
+  struct stat st;
+  if(fstatat(sfd,name,&st,AT_SYMLINK_NOFOLLOW)||!S_ISREG(st.st_mode))continue;
+  int in=openat(sfd,name,O_RDONLY|O_NOFOLLOW|O_CLOEXEC);if(in<0){++failed;continue;}
+  int out=openat(wfd,name,O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0644);
+  if(out<0){if(errno==EEXIST)++present;else ++failed;close(in);continue;}
+  bool ok=true;
+  for(;;){
+   ssize_t got=read(in,buffer,sizeof(buffer));
+   if(got<0){if(errno==EINTR)continue;ok=false;break;}
+   if(!got)break;
+   for(ssize_t done=0;done<got;){ssize_t put=write(out,buffer+done,(size_t)(got-done));if(put<0){if(errno==EINTR)continue;ok=false;break;}done+=put;}
+   if(!ok)break;
+   bytes+=(unsigned long long)got;
+  }
+  close(in);
+  if(close(out))ok=false;
+  if(ok)++copied;else{unlinkat(wfd,name,0);++failed;}
+ }
+ close(wfd);closedir(source);
+ std::fprintf(stderr,"STARTUP_PROJECT STAGE_DATA copied=%u present=%u failed=%u bytes=%llu\n",copied,present,failed,bytes);
+}
 char selected[PATH_MAX];
 /* Native std::vector<error> uses x8 for its nontrivial indirect result.
  * The native caller owns destruction. This wrapper transfers its three words
@@ -236,6 +278,7 @@ Errors load(void*saver,const uint64_t*file){
  std::fprintf(stderr,"STARTUP_PROJECT SINGLE_LOAD path=%s\n",selected);
  Errors result=native_load(saver,&chosen.value);phase.store(3);
  std::fprintf(stderr,"STARTUP_PROJECT NATIVE_LOAD_FINISHED sd=1 errors=%u\n",result.begin!=result.end);
+ if(result.begin==result.end)stage_project_data(selected);
 #ifdef MPC_PROJECT_RECOVERY
  if(result.begin==result.end)project_recovery_adopt_name(image,saver,selected);
 #endif

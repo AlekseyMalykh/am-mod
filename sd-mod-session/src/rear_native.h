@@ -34,6 +34,8 @@ int rear_ui_control_at(void *event,unsigned shift);
 int rear_ui_reset_knob(unsigned column,unsigned shift);
 void rear_ui_pad(unsigned pad, int down);
 int rear_ui_pad_owns(void);
+int rear_ui_waiting_for_play(void);
+int rear_native_mic_waiting(void);
 int rear_ui_light(unsigned pad, uint64_t *colour);
 void rear_ui_fault(void);
 #ifdef __cplusplus

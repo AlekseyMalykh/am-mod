@@ -1194,9 +1194,9 @@ void mixer_view_tuner_ex(const struct resample_painter*p,const char*tag,int have
         else shown+=(cents-shown)*.45;
     }else last_note=-1000;
     rect(p,0,0,320,240,BLACK);
-    rect(p,1,6,105,26,DARK);
-    text(p,"Back",1,7,105,24,14,WHITE,1);
-    text(p,"Tuner",107,7,105,24,15,AMBER,1);
+    rect(p,2,2,102,26,0xff242424u);
+    text(p,"Back",2,2,102,25,13,WHITE,1);
+    text(p,"Tuner",108,2,102,25,13,AMBER,1);
     int index=ok?(int)(((note%12)+12)%12):-1;
     for(int i=0;i<12;++i){
         int x=10+i*25;
@@ -1228,7 +1228,7 @@ void mixer_view_tuner_ex(const struct resample_painter*p,const char*tag,int have
     }else{
         text(p,idle,12,178,296,26,17,GREY,1);
     }
-    if(hint&&*hint){rect(p,214,6,105,26,DARK);text(p,hint,214,7,105,24,14,WHITE,1);}
+    if(hint&&*hint){rect(p,214,2,105,26,0xff242424u);text(p,hint,214,2,105,25,13,WHITE,1);}
     text(p,tag,180,214,132,16,12,GREY,1);
 }
 void mixer_view_tuner(const struct resample_painter*p)

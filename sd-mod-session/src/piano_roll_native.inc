@@ -19,7 +19,7 @@ static int roll_midi_state;
 static void roll_midi_close(void),roll_midi_open(void),roll_midi_tick(void),roll_midi_paint(void*),roll_midi_pad(unsigned);
 static int roll_midi_button(unsigned),roll_midi_control(unsigned,unsigned);
 #endif
-static const char *const roll_action_names[]={"Copy","Cut","Paste","Delete","Select all","Snap starts","Snap ends","Snap both","Grid","Tune / Chop","Show target pad","Insert event","Undo: Shift -","Redo: Shift +","Move / Length / Velocity","Import MIDI","Export MIDI"};
+static const char *const roll_action_names[]={"Copy","Cut","Paste","Delete","Select all","Select none","Snap starts","Snap ends","Snap both","Grid","Tune / Chop","Show target pad","Insert event","Undo: Shift -","Redo: Shift +","Move / Length / Velocity","Import MIDI","Export MIDI"};
 #define ROLL_ACTIONS_COUNT ((int)(sizeof(roll_action_names)/sizeof(roll_action_names[0])))
 static const char *roll_grid_name(void){return roll.grid==10?"Off / 1 tick":grid_names[roll.grid];}
 static int roll_sequence_index(void){
@@ -200,13 +200,14 @@ static void roll_action_run(void){
  else if(action==2)roll_error(pr_paste(&roll),"Selection pasted; Undo / Redo available");
  else if(action==3)roll_error(pr_delete(&roll,0),"Selection deleted; Undo / Redo available");
  else if(action==4){pr_select_all(&roll);repaint();}
- else if(action>=5&&action<=7)roll_error(pr_quantize(&roll,(enum pr_snap)(action-5)),"Selection quantized; Undo / Redo available");
- else if(action==8){roll.grid=(roll.grid+1)%11;char msg[64];snprintf(msg,sizeof(msg),"Grid: %s",roll_grid_name());say(msg);}
- else if(action==9){if(roll.layer==PR_PADS)roll_enter();else roll_layer_open(roll.layer==PR_TUNE?PR_CHOP:PR_TUNE,roll.sound);}
- else if(action==10){
+ else if(action==5){for(unsigned i=0;i<roll.count;++i)roll.notes[i].selected=0;roll.range=0;pr_cancel(&roll);say("Selection cleared");}
+ else if(action>=6&&action<=8)roll_error(pr_quantize(&roll,(enum pr_snap)(action-6)),"Selection quantized; Undo / Redo available");
+ else if(action==9){roll.grid=(roll.grid+1)%11;char msg[64];snprintf(msg,sizeof(msg),"Grid: %s",roll_grid_name());say(msg);}
+ else if(action==10){if(roll.layer==PR_PADS)roll_enter();else roll_layer_open(roll.layer==PR_TUNE?PR_CHOP:PR_TUNE,roll.sound);}
+ else if(action==11){
   if(roll.layer!=PR_PADS){say("Show target pad is available on Pad rows");return;}
   int pad=roll.rows[roll.cursor_row];pad=(pad+1)%128;roll.pinned[pad]=1;pr_rows(&roll);pr_cursor(&roll,roll.cursor_tick,pr_row_index(&roll,pad));
- }else if(action==11){
+ }else if(action==12){
   int pad=roll.layer==PR_PADS?roll.rows[roll.cursor_row]:roll.sound;
   unsigned note=(unsigned)FN(0x157f800,int(*)(void*,int))(controller,pad);
   if(note>127){say("Destination pad has no native note");return;}
@@ -215,10 +216,10 @@ static void roll_action_run(void){
   if(roll.layer==PR_CHOP){int slice=roll.rows[roll.cursor_row]+1;if(event_slices(&e)<slice){say("This Chop is unavailable");return;}event_choice_set(&e,15,slice);}
   pr_cancel(&roll);roll.plan.title="Piano Roll Insert";roll.plan.revision=roll.revision;roll.plan.added[0]=e;roll.plan.added_count=1;
   roll_error(pr_apply(&roll),"Event inserted; Undo / Redo available");
- }else if(action==14)roll_edit_start();
+ }else if(action==15)roll_edit_start();
 #ifdef MPC_MIDI_TOOLS
- else if(action==15)roll_midi_open();
- else if(action==16){char path[512],error[96];void *things=FIELD(controller,0x248,void*);
+ else if(action==16)roll_midi_open();
+ else if(action==17){char path[512],error[96];void *things=FIELD(controller,0x248,void*);
   if(step_native_transport_state()&4){say("Stop recording before MIDI export");return;}
   if(am_midi_file_export(base,am_midi_file_project(base),things,sequence,NULL,path,error)){char text[160];const char*name=strrchr(path,'/');snprintf(text,sizeof(text),"Saved %.60s",name?name+1:path);say(text);}
   else say(error);
@@ -346,7 +347,18 @@ static void roll_row_clear(int value){
  roll_row_confirm=value;roll_row_layer=roll.layer;roll_row_sound=roll.sound;roll_row_until=now+15000;
  char msg[96];snprintf(msg,sizeof(msg),"Erase %u events on %s? B1 Cancel, B3 Do It!",count,name);say(msg);message_until=milliseconds()+15000;
 }
-static void roll_pad(unsigned pad){
+/* Event of this row (pad / tune / chop value) the cursor stands on or next to (half a grid step). */
+static int roll_near_note(int value){
+ int64_t tol=pr_grid_ticks(roll.grid)/2,best_d=0;int best=-1;
+ for(unsigned i=0;i<roll.count;++i){const struct pr_note*n=roll.notes+i;
+  int row=roll.layer==PR_PADS?n->sound:pr_note_row(&roll,n);if(row!=value)continue;
+  int64_t t=n->event.time,d=FIELD(&n->event,0x28,int64_t);if(d<=0)d=1;
+  int64_t dist=roll.cursor_tick<t?t-roll.cursor_tick:roll.cursor_tick>=t+d?roll.cursor_tick-(t+d)+1:0;
+  if(dist>tol)continue;
+  if(best<0||dist<best_d){best=(int)i;best_d=dist;}
+ }return best;
+}
+static void roll_pad(unsigned pad,int pad_shift){
 #ifdef MPC_MIDI_TOOLS
  if(roll_midi_state){roll_midi_pad(pad);return;}
 #endif
@@ -355,6 +367,14 @@ static void roll_pad(unsigned pad){
  if(value<0)return;
  if((roll_erase_held||atomic_load(&requested_erase))&&!roll_editing){roll_erase_used=1;roll_row_clear(value);repaint();return;}
  roll_row_confirm=-1;
+ if(pad_shift&&!roll_editing){ /* Shift + pad: add / remove this pad's event at the cursor to the selection. */
+  int idx=roll_near_note(value);char name[16],msg[64];
+  if(roll.layer==PR_PADS)pad_name(value,name);else snprintf(name,sizeof(name),"Row");
+  if(idx>=0){roll.notes[idx].selected=!roll.notes[idx].selected;roll.range=0;pr_cancel(&roll);
+   snprintf(msg,sizeof(msg),"%s %s (%u selected)",name,roll.notes[idx].selected?"added":"removed",pr_selected(&roll));}
+  else snprintf(msg,sizeof(msg),"%s: no event at cursor",name);
+  say(msg);repaint();return;
+ }
  if(roll_editing){if(roll.layer==PR_PADS)return;
   for(unsigned i=0;i<roll.count;++i)if(roll.notes[i].selected){roll_delta_row=value-pr_note_row(&roll,roll.notes+i);break;}
   roll_error(pr_edit(&roll,roll_delta_time,roll_delta_row,roll_delta_length,roll_delta_velocity),NULL);
@@ -380,25 +400,28 @@ static void roll_pad(unsigned pad){
  }repaint();
 }
 static void roll_pad_up(unsigned pad){if(pad<16&&(roll_input_held&(1u<<pad))){workflow_piano_input(NULL,NULL,pad);roll_input_held&=~(1u<<pad);}if(roll_audition>=0&&(unsigned)roll_audition==pad){workflow_event_preview_stop(0);roll_audition=-1;}}
+#define ROLL_DIM .22f /* pads with events elsewhere; pads at the cursor are brighter, selected ones white */
 static void roll_palette(void){
  if(!atomic_load(&piano_active))return;
  atomic_store(&event_edit_mask,roll.layer==PR_TUNE?1u:roll.layer==PR_CHOP?2u:category_buttons(roll_categories(roll.rows[roll.cursor_row])));
  uint64_t phase=milliseconds();
  for(unsigned pad=0;pad<16;++pad){
   int value=roll.layer==PR_PADS?browse_bank*16+(int)pad:roll_pad_rows[pad];
-  uint32_t hue=0;float brightness=0.f;int selected=0,playing=0;
+  uint32_t hue=0;float brightness=0.f;int selected=0,playing=0,near_chosen=0;
   if(value>=0){
+   int near_note=roll_near_note(value);
    if(roll.layer==PR_PADS){int present=roll.loaded[value];for(unsigned i=0;i<roll.count;++i)if(roll.notes[i].sound==value)present=1;
-    if(present){hue=music_pad_rgb((unsigned)value);brightness=PAD_BRIGHT_CONTENT;}
+    if(present){hue=music_pad_rgb((unsigned)value);brightness=ROLL_DIM;}
     selected=roll.rows[roll.cursor_row]==value;
-   }else {hue=roll.layer==PR_CHOP?music_pad_rgb((unsigned)roll.sound):0xffffffu;brightness=PAD_BRIGHT_CONTENT;
+   }else {hue=roll.layer==PR_CHOP?music_pad_rgb((unsigned)roll.sound):0xffffffu;brightness=ROLL_DIM;
     if(roll.layer==PR_TUNE){int replace=0;uint64_t light=music_pitch_light(roll_tune_lights,value-120,&replace);if(replace){hue=(uint32_t)light;uint32_t bits=(uint32_t)(light>>32);memcpy(&brightness,&bits,4);}}
     selected=roll.rows[roll.cursor_row]==value;
    }
+   if(near_note>=0){brightness=.85f;near_chosen=roll.notes[near_note].selected;}
    if(was_playing)for(unsigned i=0;i<roll.count;++i){const struct pr_note *n=roll.notes+i;int row=roll.layer==PR_PADS?n->sound:pr_note_row(&roll,n);
     if(row==value&&!(n->event.type&0x200)&&play_tick>=n->event.time&&play_tick<n->event.time+FIELD(&n->event,0x28,int64_t)){playing=1;break;}}
   }
-  atomic_store(&lights[pad],playing?pad_light(PAD_PLAYHEAD,.95f):selected?pad_selection_light(hue?hue:PAD_SELECT,brightness,phase):pad_light(hue,brightness));
+  atomic_store(&lights[pad],playing?pad_light(PAD_PLAYHEAD,.95f):near_chosen?pad_light(0xffffffu,1.f):selected?pad_selection_light(hue?hue:PAD_SELECT,brightness,phase):pad_light(hue,brightness));
  }
 }
 static int roll_x(int64_t tick){return 70+(int)((tick-roll.left)*240/roll.span);}
@@ -417,9 +440,18 @@ static void roll_paint(void*g){
  colour(g,AMBER);text(g,roll_row_pending()?"Do It!":shift?"Actions":roll_actions?"Choose":roll_editing?"Apply":roll.layer==PR_PADS&&!pr_selected(&roll)?"Open":"Edit",214,6,105,23,14);
  char title[80],pad[8];pad_name(roll.sound,pad);
  uint64_t sequence_muted[2];int has_seq_mutes=roll_sequence_mutes(sequence_muted);
- snprintf(title,sizeof(title),"%s%s%s  %s  [%u]",roll.layer==PR_PADS?"Pad Roll":pad,roll.layer==PR_PADS?"":" / ",roll.layer==PR_PADS?"":roll.layer==PR_TUNE?"Tune":"Chop",roll_grid_name(),pr_selected(&roll));
- colour(g,WHITE);left_text(g,title,6,34,has_seq_mutes?274:308,20,14);
- if(has_seq_mutes){colour(g,0xffff4747u);text(g,"SM",284,36,28,16,12);}
+ /* Title: pad + its sample name (as in Sample/Steps), grid and selection on the right.
+  * Row mutes are shown by the red "M" on the row itself, no extra SM badge here. */
+ {int title_pad=roll.layer==PR_PADS?(roll.cursor_row>=0&&roll.cursor_row<roll.row_count?roll.rows[roll.cursor_row]:-1):roll.sound;
+  char caption[64],sample[513];
+  if(title_pad>=0&&title_pad<128){pad_name(title_pad,pad);read_sample_for_pad(title_pad,sample);}
+  else{strcpy(pad,"--");strcpy(sample,"Empty");}
+  (void)has_seq_mutes;
+  int pad_colour=title_pad>=0&&title_pad<128?music_pad_colour((unsigned)title_pad):0;
+  colour(g,pad_colour?0xff000000u|music_pad_rgb((unsigned)title_pad):AMBER);left_text(g,pad,6,34,40,20,15);
+  ui_caption(caption,sizeof(caption),sample,18);colour(g,!strcmp(sample,"Empty")?GREY:WHITE);left_text(g,caption,46,34,150,20,14);
+  {unsigned nsel=pr_selected(&roll);char cnt[24];snprintf(cnt,sizeof(cnt),nsel?"  %u sel":"",nsel);snprintf(title,sizeof(title),"%s%s%s",roll.layer==PR_PADS?"":roll.layer==PR_TUNE?"Tune ":"Chop ",roll_grid_name(),cnt);}
+  colour(g,GREY);right_text(g,title,196,34,118,20,12);}
  if(roll_actions){int first=roll_action<5?0:roll_action-4;
   for(int i=first;i<ROLL_ACTIONS_COUNT&&i<first+6;++i){int y=61+(i-first)*21;if(i==roll_action){colour(g,0xff303030);rect(g,6,y,308,21);}
    colour(g,i==roll_action?AMBER:WHITE);left_text(g,roll_action_names[i],12,y,294,21,14);
@@ -482,7 +514,7 @@ static void roll_paint(void*g){
  int width=(int)(roll.span*240/roll.length);width=clamp(width,3,240);
  colour(g,WHITE);rect(g,70+clamp((int)(roll.left*240/roll.length),0,240-width),196,width,1);
  int thumb=clamp(120*roll.rows_visible/roll.row_count,3,120);rect(g,314,70+120-thumb-(roll.top*(120-thumb)/(roll.row_count>1?roll.row_count-1:1)),2,thumb);
- const char *labels[3]={roll_editing?(shift?"Fine move":"Move"):"Scroll rows",roll_editing?(shift?"Velocity":"Pad / Pitch"):"Grid",roll_editing?(shift?"Fine length":"Length"):"Scroll time"};
+ const char *labels[3]={roll_editing?(shift?"Fine move":"Move"):shift?"Zoom rows":"Scroll rows",roll_editing?(shift?"Velocity":"Pad / Pitch"):"Grid",roll_editing?(shift?"Fine length":"Length"):shift?"Zoom time":"Scroll time"};
  for(int k=0;k<3;++k){colour(g,0xff242424);rect(g,k*106,209,105,31);colour(g,WHITE);
   if(k==1&&!roll_editing){text(g,labels[k],106,210,105,11,10);colour(g,AMBER);text(g,roll_grid_name(),106,222,105,16,13);}
   else text(g,labels[k],k*106,212,105,20,12);}

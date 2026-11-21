@@ -598,14 +598,25 @@ static void paint_rows(void *p,void *g,const struct song_ref *r)
     int custom_colours=music_pad_lighting_mode();
     void *listbox=(char*)p+0x798;
     struct row_hit rows[16]; unsigned n=find_rows(listbox,FIELD(listbox,0x24,int),0,rows,0);
+    /* Real row pitch: the firmware lays rows out at the component's own height (26 px on
+     * this build), not always the 33 px of the first probe. Use the smallest gap between rows
+     * and fall back to the row height field. */
+    int pitch=0;
+    for(unsigned a=0;a<n;++a){
+        int ay=FIELD(rows[a].row,0x24,int);
+        for(unsigned b=0;b<n;++b){int d=FIELD(rows[b].row,0x24,int)-ay;if(d>0&&(!pitch||d<pitch))pitch=d;}
+    }
+    if(n&&(pitch<16||pitch>64)){int h=FIELD(rows[0].row,0x2c,int);pitch=h>=16&&h<=64?h:ROW_HEIGHT;}
+    if(!pitch)pitch=ROW_HEIGHT;
+    {static int logged;if(n&&logged<6){++logged;fprintf(stderr,"SONG_UI ROW_GEOMETRY rows=%u pitch=%d height=%d first_y=%d\n",n,pitch,FIELD(rows[0].row,0x2c,int),FIELD(rows[0].row,0x24,int));}}
     for(unsigned i=0;i<n;++i){
         void *row=rows[i].row; int ry=FIELD(row,0x24,int);
-        if(ry<0||ry%ROW_HEIGHT||!FN(0x112fd50,int(*)(void*))(row)) continue;
-        int index=ry/ROW_HEIGHT,seq,rep;
+        if(ry<0||ry%pitch||!FN(0x112fd50,int(*)(void*))(row)) continue;
+        int index=ry/pitch,seq,rep;
         if(!step_at(r,index,&seq,&rep)) continue;
         int y=rows[i].y;
         int top=y<LIST_TOP?LIST_TOP:y;
-        int bottom=y+ROW_HEIGHT>LIST_BOTTOM?LIST_BOTTOM:y+ROW_HEIGHT;
+        int bottom=y+pitch>LIST_BOTTOM?LIST_BOTTOM:y+pitch;
         if(bottom-top<14)continue;
         int selected=index==r->row;
         uint32_t ink=selected?0xffffc247u:0xffaaaaaau;
@@ -618,9 +629,9 @@ static void paint_rows(void *p,void *g,const struct song_ref *r)
             colour(g,0xff000000u|hue);rect(g,0,top+3,3,bottom-top-6);
         }
         if(rep>1){
-            char bars[24];snprintf(bars,sizeof(bars),"%d bar ×%d",sequence_bars(r,seq),rep);
-            colour(g,background);rect(g,247,top+2,57,bottom-top-4);
-            colour(g,ink);text_at(g,bars,248,top,54,bottom-top,11.0f,0x22);
+            char bars[24];snprintf(bars,sizeof(bars),"%d bars ×%d",sequence_bars(r,seq),rep);
+            colour(g,background);rect(g,236,top+2,72,bottom-top-4);
+            colour(g,selected?0xff3aa0e8u:0xffffffffu);text_at(g,bars,236,top,72,bottom-top,11.0f,0x24);
         }
     }
 }
@@ -661,9 +672,9 @@ static void paint(void *p,void *g)
         const char *detail[]={"One stereo WAV","Combine into a sequence",
                               "Separate WAVs without mixer FX","Separate WAVs with mixer FX","Song steps and repeats as .mid","Pad-selected sequence as .mid"};
         colour(g,0xff000000u);rect(g,0,0,320,240);
-        colour(g,0xff202020u);rect(g,1,6,105,26);rect(g,215,6,105,26);
-        colour(g,0xffffffffu);text(g,"Back",1,7,105,24,14.0f);
-        colour(g,can_export?0xffffc247u:0xff777777u);text(g,"Export",215,7,105,24,14.0f);
+        colour(g,0xff242424u);rect(g,2,2,102,26);rect(g,214,2,105,26);
+        colour(g,0xffffffffu);text(g,"Back",2,2,102,25,13.0f);
+        colour(g,can_export?0xffffc247u:0xff777777u);text(g,"Export",214,2,105,25,13.0f);
         colour(g,0xffffffffu);text_at(g,"Song Export",14,31,292,28,20.0f,0x21);
         unsigned first=selected>3?selected-3:0;
         for(unsigned i=first;i<export_items()&&i<first+4;++i){
@@ -682,19 +693,19 @@ static void paint(void *p,void *g)
     }
     if(atomic_load(&clear_pending)){
         colour(g,0xff000000u);rect(g,0,0,320,240);
-        colour(g,0xff202020u);rect(g,1,6,105,26);rect(g,215,6,105,26);
-        colour(g,0xffffffffu);text(g,"Cancel",1,7,105,24,14.0f);
-        colour(g,0xffff4040u);text(g,"Clear All",215,7,105,24,14.0f);
+        colour(g,0xff242424u);rect(g,2,2,102,26);rect(g,214,2,105,26);
+        colour(g,0xffffffffu);text(g,"Cancel",2,2,102,25,13.0f);
+        colour(g,0xffff4040u);text(g,"Clear All",214,2,105,25,13.0f);
         colour(g,0xffffffffu);text(g,"Clear all song steps?",12,74,296,29,20.0f);
         text(g,"Sequences stay in the project",12,116,296,22,14.0f);
         return;
     }
     { struct song_ref pr; if(song_ref(&pr)) paint_rows(p,g,&pr); }
     if(atomic_load(&export_shift)){
+        /* Same look and baseline as the native Remove/Insert labels (no boxes, centred at y=17). */
         colour(g,0xff000000u);rect(g,107,2,213,34);
-        colour(g,0xff202020u);rect(g,108,6,105,26);rect(g,215,6,105,26);
-        colour(g,0xffff4040u);text(g,"Clear All",108,7,105,24,14.0f);
-        colour(g,0xffffffffu);text(g,"Duplicate",215,7,105,24,14.0f);
+        colour(g,0xffff4040u);text(g,"Clear All",110,2,107,30,14.0f);
+        colour(g,0xffffffffu);text(g,"Duplicate",216,2,104,30,14.0f);
     }
     if(!song_footer_ready(p))return;
     int have_step=song_ref(&r)&&step_at(&r,r.row,&seq,&rep);

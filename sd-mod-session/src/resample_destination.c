@@ -125,8 +125,8 @@ void resample_destination_paint(const struct resample_destination*d,const struct
         if(d->page==RD_SOURCE&&((i==1&&!d->has_sequence)||(i==2&&!d->has_sample)))ink=grey;
         if(i==2&&d->page==RD_TARGET)ink=d->target_pad<128?amber:grey;
         if(i==2&&d->page==RD_CONFIRM)ink=red;
-        p->rect(p->user,i*107+1,6,105,26,0xff202020u);
-        p->text(p->user,heads[i],i*107+1,7,105,24,14,ink,1);
+        p->rect(p->user,i*106+2,2,i==2?105:102,26,0xff242424u);
+        p->text(p->user,heads[i],i*106+2,2,i==2?105:102,25,13,ink,1);
     }
     p->text(p->user,d->page==RD_SOURCE?"Resample":d->kind==RESAMPLE_SEQUENCE?"Resample Seq":"Resample Sample",8,40,304,28,20,white,d->page==RD_SOURCE);
     char text[112];

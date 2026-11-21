@@ -1169,7 +1169,7 @@ static void mono_paint(void*g){
  char line[96];colour(g,0xff000000);rect(g,0,5,320,235);
  /* Header blocks, as in Chords: B1 Cancel/Close, B2 Left, B3 Right. */
  const char*heads[3]={mono_job?(mono_progress.phase>=BATCH_JOB_DONE?"Close":"Working..."):"Cancel",mono_job?"":"Left",mono_job?"":"Right"};
- for(int i=0;i<3;++i){int x=i*107;colour(g,0xff202020);rect(g,x+1,6,105,26);colour(g,WHITE);text(g,heads[i],x+1,7,105,24,15);}
+ for(int i=0;i<3;++i){int x=i*106+2,w=i==2?105:102;colour(g,0xff242424);rect(g,x,2,w,26);colour(g,WHITE);text(g,heads[i],x,2,w,25,13);}
  colour(g,WHITE);text(g,"Stereo > Mono",8,38,304,26,20);
  /* Source and target blocks; all occupied targets remain red, including source. */
  void*tp=current_program()==mono_program?FN(0x286bbe0,void*(*)(void*,int))(mono_program,(int)mono_target):NULL;
@@ -1431,10 +1431,10 @@ static void batch_paint(void*g){
  if(batch_leaving){colour(g,0xff000000);rect(g,0,5,320,235);colour(g,WHITE);text(g,"Closing Copy...",8,92,304,30,20);return;}
  if(batch_job){batch_job_paint(g);return;}
  colour(g,0xff000000);rect(g,0,5,320,235);colour(g,WHITE);
- colour(g,0xff202020u);rect(g,1,6,105,26);if(batch_page)rect(g,108,6,105,26);rect(g,215,6,105,26);
- colour(g,WHITE);text(g,"Cancel",1,7,105,24,14);if(batch_page)text(g,"Sources",108,7,105,24,14);
+ colour(g,0xff242424u);rect(g,2,2,102,26);if(batch_page)rect(g,108,2,102,26);rect(g,214,2,105,26);
+ colour(g,WHITE);text(g,"Cancel",2,2,102,25,13);if(batch_page)text(g,"Sources",108,2,102,25,13);
  colour(g,batch_confirm?RED:missing_targets()&&batch_page?GREY:AMBER);
- text(g,batch_confirm?"Confirm":batch_page?(missing_targets()?"No space":chop_export?"Extract":"Copy"):"Next",215,7,105,24,14);
+ text(g,batch_confirm?"Confirm":batch_page?(missing_targets()?"No space":chop_export?"Extract":"Copy"):"Next",214,2,105,25,13);
  char line[96];colour(g,WHITE);left_text(g,chop_export?"EXTRACT CHOPS":batch_events?"COPY PADS + EVENTS":"COPY PADS",8,36,304,22,17);
  if(!batch_page){
   unsigned selected_count=0;for(unsigned i=0;i<128;++i)selected_count+=selected_sources[i];

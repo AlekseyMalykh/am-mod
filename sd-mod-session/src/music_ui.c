@@ -1000,9 +1000,9 @@ void music_ui_palette_pad(unsigned pad,int down,int shift,uint64_t when,uint64_t
  palette_publish();repaint(project);
 }
 static void ui_header_key(void*g,unsigned i,const char *label,uint32_t ink){
- int x=(int)i*107+1;
- colour(g,0xff202020u);rect(g,x,6,105,26);
- colour(g,ink);text(g,label,x,7,105,24,14);
+ int x=(int)i*106+2,w=i==2?105:102;
+ colour(g,0xff242424u);rect(g,x,2,w,26);
+ colour(g,ink);text(g,label,x,2,w,25,13);
 }
 static void palette_paint(void*g){
  colour(g,0xff000000u);rect(g,0,0,320,240);

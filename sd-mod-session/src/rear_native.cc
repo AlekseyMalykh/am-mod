@@ -22,6 +22,9 @@ extern "C" {
 #define FIELD(p,o,T) (*reinterpret_cast<T *>(reinterpret_cast<char *>(p)+(o)))
 extern "C" void pad_source_layer_sample(void *,int,uintptr_t *,uintptr_t);
 extern "C" void rear_load_sample(void *,const uint64_t *,uintptr_t *,uintptr_t,float);
+#ifdef MPC_RECORD_DIAGNOSTICS
+#include "record_probe.inc"
+#endif
 namespace {
 uintptr_t image;
 struct Session;
@@ -223,6 +226,9 @@ int owner_tick(void *p) {
     auto *s = static_cast<Session *>(p);
     unsigned command = s->command.exchange(0);
     if (!s->live.load()) return 0;
+#ifdef MPC_RECORD_DIAGNOSTICS
+    if(command==3){record_probe_snapshot(image,s->copy);return 0;}
+#endif
     if (command == 1) {
         if(s->stop_requested.load()) { s->busy.store(false); s->phase.store(0); return 0; }
         s->start_epoch = s->epoch.load();
@@ -275,9 +281,22 @@ int guarded_tick(void *p) {
     s->busy.store(false,std::memory_order_release); s->phase.store(0); return 0;
 }
 }
+extern "C" unsigned rear_ui_to_seq(void) __attribute__((weak));
+extern "C" unsigned step_native_transport_playing(void) __attribute__((weak));
+namespace { std::atomic<unsigned> mic_state_now{0}; std::atomic<int> mic_screen_visible{0}; }
+extern "C" int rear_native_mic_waiting(void) { return mic_state_now.load() == 1; }
 extern "C" void *rear_native_process(void *thread, void *position, void *buffer,rear_render_fn original) {
+#ifdef MPC_RECORD_CHAIN_BYPASS
+    return original(thread,position,buffer);
+#endif
     int channels = FIELD(buffer,0,int), frames = FIELD(buffer,4,int);
     auto **pcm = FIELD(buffer,0x10,float **);
+    /* To Seq: the native Mic recorder is armed but the sequence is not playing yet. Keep the
+     * recorder's threshold closed (silence in) until Play starts, then the take begins on signal. */
+    if ((mic_state_now.load(std::memory_order_acquire) == 1 || (mic_screen_visible.load(std::memory_order_acquire) && mic_state_now.load(std::memory_order_acquire) == 0)) && rear_ui_to_seq && rear_ui_to_seq()
+        && !(step_native_transport_playing && step_native_transport_playing()) && pcm && frames > 0 && frames <= 8192) {
+        for (int ch = 0; ch < channels && ch < 8; ++ch) if (pcm[ch]) std::memset(pcm[ch],0,(size_t)frames*sizeof(float));
+    }
     bool prepared_mix=input_active.load(std::memory_order_acquire)&&rear_setting(0,REAR_MODE)==REAR_MIX&&
         channels>=2&&frames>0&&frames<=8192&&pcm&&pcm[0]&&pcm[1];
     if(prepared_mix){
@@ -314,12 +333,85 @@ extern "C" void *rear_native_process(void *thread, void *position, void *buffer,
     return result;
 }
 
+extern "C" void step_native_find_controller(void *) __attribute__((weak));
+extern "C" void am_record_state_stub(void);
+extern "C" uintptr_t am_record_state_resume;
+namespace {
+std::atomic<unsigned> mic_state{0}, mic_events{0}, mic_pad{0};
+bool install_record_hook() {
+    // SampleRecordModeScreen state handler: first six instructions are position independent.
+    constexpr uint32_t expected[] = {0xd503233f,0xa9bc7bfd,0x910003fd,0xa90153f3,0xaa0003f4,0xf94dfc13};
+    auto *entry = reinterpret_cast<unsigned char *>(image + 0x167b550);
+    if (std::memcmp(entry,expected,sizeof(expected)) != 0) return false;
+    auto *page = reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(entry) & ~uintptr_t(4095));
+    if (mprotect(page,4096,PROT_READ|PROT_WRITE) != 0) return false;
+    constexpr uint32_t jump[] = {0xd503245f,0x58000070,0xd61f0200,0xd503201f};
+    const auto callback = reinterpret_cast<uintptr_t>(am_record_state_stub);
+    am_record_state_resume = reinterpret_cast<uintptr_t>(entry) + 24;
+    std::memcpy(entry,jump,sizeof(jump));
+    std::memcpy(entry+sizeof(jump),&callback,sizeof(callback));
+    __builtin___clear_cache(reinterpret_cast<char *>(entry),reinterpret_cast<char *>(entry+24));
+    if (mprotect(page,4096,PROT_READ|PROT_EXEC) != 0) _exit(122);
+    return true;
+}
+}
+extern "C" void am_record_state_seen(void *screen,int state) {
+    unsigned pad = 0xffffu;
+    if (screen) {
+        void *a = FIELD(screen,288,void *);
+        void *b = a ? FIELD(a,96,void *) : nullptr;
+        if (b) pad = static_cast<unsigned>(FIELD(b,8552,int));
+    }
+    std::fprintf(stderr,"MIC_STATE state=%d pad=%u\n",state,pad);
+#ifdef MPC_RECORD_DIAGNOSTICS
+    auto*s=session.load();unsigned target=s&&s->recorder?FIELD(s->recorder,0x118,unsigned):128;
+    unsigned prev=probe_state.exchange((unsigned)state);
+    if(state==3&&prev!=3){probe_pad.store(target);probe_id.fetch_add(1);}
+    std::fprintf(stderr,"MIC_TAKE id=%u state=%d recorder_pad=%u selected_pad=%u chain=%s\n",probe_id.load(),state,target,pad,
+#ifdef MPC_RECORD_CHAIN_BYPASS
+      "dry"
+#else
+      "normal"
+#endif
+    );
+#endif
+    if (state == 1 || state == 3) {
+        auto *sess = session.load();
+        void *objs[3] = {sess ? sess->recorder : nullptr, sess ? sess->properties_input : nullptr, nullptr};
+        if (screen) { void *a = FIELD(screen,288,void *); objs[2] = a ? FIELD(a,96,void *) : nullptr; }
+        static const char *names[3] = {"rec","prop","sel"};
+        for (int k = 0; k < 3; ++k) if (objs[k]) {
+            char line[700]; int n = std::snprintf(line,sizeof line,"MIC_DUMP s=%d %s:",state,names[k]);
+            unsigned lim = k==2 ? 0x2400 : 0x400;
+            for (unsigned off = k==2 ? 0x2000 : 0; off < lim && n < 650; off += 4) {
+                int v = FIELD(objs[k],off,int);
+                if (v >= 0 && v <= 63 && v != 0) n += std::snprintf(line+n,sizeof line-n," %x=%d",off,v);
+            }
+            std::fprintf(stderr,"%s\n",line);
+        }
+    }
+    mic_pad.store(pad); mic_state.store(static_cast<unsigned>(state));
+    mic_state_now.store(static_cast<unsigned>(state),std::memory_order_release);
+    // Observed on device: 0 idle, 1 armed/waiting for signal, 3 recording.
+    static int previous = 0;
+    if (state == 3 && previous != 3) { if (step_native_find_controller) step_native_find_controller(screen); mic_events.fetch_add(1); }
+    previous = state;
+}
+extern "C" int rear_native_mic_event(unsigned *pad) {
+    static unsigned seen;
+    unsigned n = mic_events.load();
+    if (n == seen) return 0;
+    seen = n; if (pad) *pad = mic_pad.load();
+    return 1;
+}
 extern "C" int rear_native_install(uintptr_t base) {
     image = base;
     auto *instruction = reinterpret_cast<uint32_t *>(base+0x14e9cfc);
     constexpr uint32_t expected = 0x94000000u | ((0x18d7630u-0x14e9cfcu)/4);
     if (*instruction != expected || sysconf(_SC_PAGESIZE) != 4096) return 0;
-    return install_monitor_feedback();
+    if (!install_monitor_feedback()) return 0;
+    if (!install_record_hook()) std::fprintf(stderr,"MIC_HOOK not installed\n");
+    return 1;
 }
 extern "C" void rear_native_bind(void *copy, void *services) {
     auto *s = new(std::nothrow)Session{}; if (!s) return;
@@ -337,7 +429,12 @@ extern "C" void rear_native_project_changed() {
     rear_record_cancel();
 }
 extern "C" void rear_native_tick(int visible) {
+    mic_screen_visible.store(visible?1:0,std::memory_order_release);
+    if (!visible) mic_state_now.store(0,std::memory_order_release); /* never keep the input gated off the record screen */
     auto *s = session.load(); if (!s || !s->live.load()) return;
+#ifdef MPC_RECORD_DIAGNOSTICS
+    {static unsigned tick;unsigned expected=0;if(probe_id.load()&&++tick%20==0&&!s->busy.load()&&s->command.compare_exchange_strong(expected,3))if(!resample_queue_wake(s->queue))s->command.store(0);}
+#endif
     if(!s->looked_up){
         s->looked_up=true;
         auto *engine=lookup(s->services,image+0x6e0c988);

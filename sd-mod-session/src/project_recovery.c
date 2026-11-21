@@ -232,7 +232,7 @@ void project_recovery_tick(uintptr_t image,void*services){
  if(strcmp(path,recovery_path))return;
  if(waiting_revision!=revision||!waiting_since){waiting_revision=revision;waiting_since=milliseconds();return;}
  if(milliseconds()-waiting_since<2500)return;
- if(origin==PROJECT_ORIGIN_UNKNOWN){snprintf(notice,sizeof(notice),"Original location unknown; save a new copy");notice_until=milliseconds()+5000;return;}
+ if(origin==PROJECT_ORIGIN_UNKNOWN){fprintf(stderr,"PROJECT_RECOVERY ORIGIN_UNKNOWN path=%s name=%s payload=%.60s\n",path,name,payload);snprintf(notice,sizeof(notice),"Original location unknown; save a new copy");notice_until=milliseconds()+5000;return;}
  int written=snprintf(target,sizeof(target),"%s/%s",origin==PROJECT_ORIGIN_INTERNAL?PROJECT_RECOVERY_INTERNAL:root,relative);
  if(written>=(int)sizeof(target))return;
  /* A missing/linked origin never falls back to another volume or folder. */
@@ -246,7 +246,9 @@ void project_recovery_tick(uintptr_t image,void*services){
  if(origin==PROJECT_ORIGIN_INTERNAL&&(!internal_storage_project_path||!internal_storage_project_path(target))){
   snprintf(notice,sizeof(notice),"Internal storage unavailable; save a new copy");notice_until=milliseconds()+5000;return;
  }
- uint64_t value=0;FN(0xf535c0,void(*)(uint64_t*,const char*))(&value,target);
+ uint64_t value=0;
+#ifndef MPC_RECORD_KEEP_RECOVERY_PATH
+ FN(0xf535c0,void(*)(uint64_t*,const char*))(&value,target);
  /* Native String/File property setter notifies the UI. Preserve +9b8/+a08:
   * it is the recovery data directory used by samples. Do not call290cd00,
   * which would also redirect that directory to the original project. */
@@ -254,6 +256,7 @@ void project_recovery_tick(uintptr_t image,void*services){
  /* Match290cd00's basename-without-extension display property. It stores
   * a project name, while +960 stores a File; do not put a path in the name. */
  FN(0xf0a290,void(*)(uint64_t*))(&value);value=0;
+#endif
  FN(0xf535c0,void(*)(uint64_t*,const char*))(&value,name);
  FN(0x13bf450,void(*)(void*,const uint64_t*))((char*)things+0x908,&value);
  FN(0xf0a290,void(*)(uint64_t*))(&value);

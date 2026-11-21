@@ -26,6 +26,9 @@ static _Atomic unsigned dead[2], visible_roots, open_panel, fault;
 static unsigned confirm, overwrite;
 static _Atomic unsigned panel_on_record;
 static _Atomic unsigned tuner_open;
+/* Sample Record B2 "To Seq": recording is placed into the sequence (SampQOL-style). */
+static _Atomic unsigned to_seq;
+unsigned rear_ui_to_seq(void){return atomic_load(&to_seq);}
 extern void mixer_view_tuner(const struct resample_painter*) __attribute__((weak));
 static int knob_focus=-1;
 static _Atomic unsigned waiting_right;
@@ -65,6 +68,12 @@ static int install_input_effects_row(void){
 }
 static int visible(void *p){return p&&FN(0x112fd50,int(*)(void*))(p)&&!FN(0x112f6b0,int(*)(void*))(p);}
 static void repaint(void){for(unsigned i=0;i<2;++i)if(roots[i]&&!atomic_load(&dead[i]))FN(0x1149880,void(*)(void*,uint64_t,uint64_t))(roots[i],0,FIELD(roots[i],0x28,uint64_t));}
+
+extern unsigned step_native_transport_playing(void) __attribute__((weak));
+static _Atomic uint64_t play_notice_until;
+static uint64_t now_ms_ui(void){struct timespec t;clock_gettime(CLOCK_MONOTONIC,&t);return (uint64_t)t.tv_sec*1000+(uint64_t)t.tv_nsec/1000000;}
+static int to_seq_needs_play(void){return atomic_load(&to_seq)&&!(step_native_transport_playing&&step_native_transport_playing());}
+static void play_notice(void){atomic_store(&play_notice_until,now_ms_ui()+2500);repaint();}
 static void rect(void *g,int x,int y,int w,int h,uint32_t colour){FN(0x102d5e0,void(*)(void*,uint32_t))(g,colour);FN(0x102e000,void(*)(void*,int,int,int,int))(g,x,y,w,h);}
 static void text_aligned(void *g,const char *value,int x,int y,int w,int h,float height,uint32_t colour,int align){
     uint64_t s=0,font=0;FN(0xf535c0,void(*)(void*,const char*))(&s,value);FN(0x1082810,void(*)(void*,int,float))(&font,0,height);
@@ -118,6 +127,7 @@ static _Atomic unsigned record_stop_owned;
 static void cancel_choice(void){waiting_right=confirm=overwrite=0;atomic_store(&selected_mask,0);repaint();}
 static void close_panel(void){atomic_store(&open_panel,0);knob_focus=-1;cancel_choice();}
 static void start_recording(void){
+    if(to_seq_needs_play()){play_notice();return;}
     unsigned selected=mask(),occupied=0;
     for(unsigned ch=0;ch<2;++ch)if(selected&(1u<<ch)){
         unsigned target=rear_setting(ch,REAR_TARGET);
@@ -149,10 +159,24 @@ static void paint(void *p,void *g){
         if(!kind&&am_midi_ui_open_input)text(g,"MIDI In",214,2,105,23,14,0xffffffffu);
         if(kind)monitor_header(g,(unsigned)rear_native_monitor());
         if(kind&&mixer_view_tuner)text(g,"Tuner",206,19,70,17,14,0xffddddddu);
+        if(kind){
+            /* Sample Record: B2 is To Seq (underlined while on); Rear Routing moved to Shift+B2. */
+            unsigned on=atomic_load(&to_seq);
+            unsigned routing=rear_native_source()==1;
+            rect(g,107,0,105,35,0xff000000u);
+            /* Baseline matches the neighbouring Record label (centre y=19); with the Routing hint
+             * the label moves up to make room for it. */
+            if(rear_ui_waiting_for_play())text(g,"Waiting for Play",107,routing?1:8,105,routing?20:22,12,REAR_AMBER);
+            else if(now_ms_ui()<atomic_load(&play_notice_until))text(g,"Start playback",107,routing?1:8,105,routing?20:22,14,0xffff6040u);
+            else text(g,"To Seq",107,routing?1:8,105,routing?20:22,14,on?REAR_AMBER:0xffffffffu);
+            if(on)rect(g,107+105/2-22,routing?22:31,44,2,REAR_AMBER);
+            if(routing)text(g,"Shift+B2 Routing",107,24,105,11,9,0xffbbbbbb);
+            return;
+        }
         if(rear_native_source()!=1)return;
         rect(g,107,0,105,35,0xff000000u);
-        text(g,"Routing",107,kind?5:2,105,kind?23:17,14,0xffffffffu);
-        if(!kind)text(g,"Shift+B2",107,19,105,13,10,0xffbbbbbb);
+        text(g,"Routing",107,2,105,17,14,0xffffffffu);
+        text(g,"Shift+B2",107,19,105,13,10,0xffbbbbbb);
         return;
     }
     if(kind!=panel_on_record)return;
@@ -169,8 +193,8 @@ static void paint(void *p,void *g){
         return;
     }
     unsigned busy=rear_native_busy(),selected=kind?mask():0,shift=music_ui_shift_active()!=0;
-    for(unsigned i=0;i<3;++i)rect(g,(int)i*107+1,6,105,26,0xff202020u);
-    text(g,waiting_right?"Cancel":"Back",1,7,105,24,14,REAR_WHITE);
+    for(unsigned i=0;i<3;++i)rect(g,(int)i*106+2,2,i==2?105:102,26,0xff242424u);
+    text(g,waiting_right?"Cancel":"Back",2,2,102,25,13,REAR_WHITE);
     for(unsigned ch=0;ch<2;++ch){
         unsigned on=rear_setting(ch,REAR_MONITOR);int x=ch?214:107,w=ch?106:105;
         text(g,ch?"Mon R":"Mon L",x,7,w,24,14,on?REAR_AMBER:REAR_GREY);
@@ -197,7 +221,7 @@ static void paint(void *p,void *g){
     if(busy){snprintf(status,sizeof(status),"%s  %.1f s",state==REAR_RECORDING?"Recording":state==REAR_WAITING?"Waiting for input":"Saving",(double)rear_record_frames()/44100.);ink=state==REAR_RECORDING?REAR_RED:REAR_WHITE;}
     else if(waiting_right)snprintf(status,sizeof(status),"Now press the pad for R");
     else if(rear_native_status())snprintf(status,sizeof(status),"%s",rear_native_message());
-    else snprintf(status,sizeof(status),"%s",!kind?"Sample Record > B2 to record":selected==3?"Press the pad for L":"Press a pad to record");
+    else snprintf(status,sizeof(status),"%s",!kind?"Sample Record > Shift+B2 to record":selected==3?"Press the pad for L":"Press a pad to record");
     text(g,status,8,130,304,26,17,ink);
     const char *hint=busy?"STOP: finish recording":waiting_right?"B1 or STOP: cancel":kind?"Pad Bank + pads 1-8: bank":"B2 / B3: monitor on or off";
     text(g,hint,8,158,304,16,12,REAR_GREY);
@@ -228,6 +252,8 @@ int rear_ui_install(uintptr_t base){
     return 1;
 }
 int rear_ui_input_config_visible(void){return (atomic_load(&visible_roots)&1u)!=0;}
+extern int step_native_insert_pad_note(unsigned) __attribute__((weak));
+extern int rear_native_mic_event(unsigned *);
 int rear_ui_tick(void){
     if(atomic_exchange(&fault,0))close_panel();
     unsigned visible_mask=0;
@@ -235,6 +261,25 @@ int rear_ui_tick(void){
     atomic_store(&visible_roots,visible_mask);
     if(!(visible_mask&2))atomic_store(&tuner_open,0);
     rear_native_tick((visible_mask&2)!=0);
+    {static int shown;uint64_t until=atomic_load(&play_notice_until);int active=until&&now_ms_ui()<until;if(shown&&!active)repaint();shown=active;}
+    {static int waiting;int now=rear_ui_waiting_for_play();if(now!=waiting)repaint();waiting=now;}
+    {unsigned mic_pad;
+     if(rear_native_mic_event(&mic_pad)&&atomic_load(&to_seq)){
+       int result=step_native_insert_pad_note?step_native_insert_pad_note(mic_pad):-2;
+       fprintf(stderr,"TO_SEQ mic pad=%u result=%d\n",mic_pad,result);}}
+    {   /* To Seq: the recorder just got its signal -> put the target pad(s) into the playing sequence. */
+        static unsigned last_status;
+        unsigned status=rear_native_status();
+        if(status==REAR_RECORDING&&last_status!=REAR_RECORDING&&atomic_load(&to_seq)){
+            unsigned selected=atomic_load(&selected_mask)?atomic_load(&selected_mask):mask();
+            for(unsigned ch=0;ch<2;++ch)if(selected&(1u<<ch)){
+                unsigned pad=rear_setting(ch,REAR_TARGET);
+                int result=step_native_insert_pad_note?step_native_insert_pad_note(pad):-2;
+                fprintf(stderr,"TO_SEQ pad=%u result=%d\n",pad,result);
+            }
+        }
+        last_status=status;
+    }
     static int last_monitor=-1;
     int monitor=rear_native_monitor();
     if(monitor!=last_monitor){last_monitor=monitor;if(visible_mask&2)repaint();}
@@ -265,7 +310,7 @@ int rear_ui_owns(unsigned kind,unsigned code){
     if(!panel&&(atomic_load(&visible_roots)&1)&&am_midi_ui_open_input&&(code==0x0e||code==0x6d))return 1;
     if(atomic_load(&tuner_open)&&(atomic_load(&visible_roots)&2))return code==0x0c||code==0x0d||code==0x0e||code==0x6b||code==0x6c||code==0x6d;
     if(!panel&&mixer_view_tuner&&(atomic_load(&visible_roots)&2)&&(code==0x0e||code==0x6d))return 1;
-    if(code==0x0d||code==0x6c)return panel||(rear_native_source()==1&&((atomic_load(&visible_roots)&2)||music_ui_shift_active()));
+    if(code==0x0d||code==0x6c)return panel||(atomic_load(&visible_roots)&2)||(rear_native_source()==1&&music_ui_shift_active());
     if(!panel)return 0;
     return code==0x51||code==0x49||code==0x6f||code==0x0c||code==0x0e||code==0x6b||code==0x6d;
 }
@@ -288,6 +333,10 @@ int rear_ui_button(void *event){
      * both Stop edges so stock cannot close Record and cancel the WAV. */
     if(code==0x51||code==0x49){if(rear_native_busy())rear_native_stop();else cancel_choice();return code!=0x51;}
     if(rear_native_busy()&&code!=0x0d&&code!=0x0e&&code!=0x6c&&code!=0x6d)return 1;
+    if(!atomic_load(&open_panel)&&(atomic_load(&visible_roots)&2)&&(code==0x0d||code==0x6c)){
+        if(!music_ui_shift_active()){atomic_store(&to_seq,!atomic_load(&to_seq));fprintf(stderr,"TO_SEQ %u\n",atomic_load(&to_seq));repaint();return 1;}
+        if(rear_native_source()!=1)return 1;
+    }
     if(!atomic_load(&open_panel)){
         panel_on_record=(atomic_load(&visible_roots)&2)!=0;cancel_choice();
         if(!rear_setting(0,REAR_MODE))rear_set_setting(0,REAR_MODE,REAR_LEFT);
@@ -327,6 +376,7 @@ int rear_ui_control_at(void *event,unsigned shift){
 int rear_ui_control(void *event){return rear_ui_control_at(event,music_ui_shift_active());}
 int rear_ui_pad_owns(void){return atomic_load(&panel_on_record)&& !music_ui_repeat_active()&&!music_ui_knob_fx_active()&&atomic_load(&open_panel);}
 
+int rear_ui_waiting_for_play(void){return to_seq_needs_play()&&rear_native_mic_waiting();}
 void rear_ui_pad(unsigned pad,int down){
     if(!down||pad>=16||!atomic_load(&open_panel)||!panel_on_record||confirm||rear_native_busy())return;
     int bank=step_native_browser_bank(-1);if(bank<0||bank>=8)return;

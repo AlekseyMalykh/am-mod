@@ -36,6 +36,9 @@ if mode=='stage':
     if not n.startswith('autorun/') or n.endswith('/'):continue
     relative=Path(n);assert len(relative.parts)==2 and relative.name not in ('.','..')
     target=autorun/relative.name;assert not target.is_symlink();target.write_bytes(z.read(n));assert target.read_bytes()==z.read(n)
+  if VERSION.startswith('r30c-mic-probe-'):
+   preferences=mount/'MPC-Sample/Projects';assert preferences.is_dir() and not preferences.is_symlink()
+   (preferences/'.am-mod-fx-mode').write_text('AM_FXMODE '+('0' if VERSION.endswith('-dry') else '1')+'\n')
   os.sync()
  finally:subprocess.run(['umount',str(mount)],check=True)
  owner=R.stat();os.chown(RUN,owner.st_uid,owner.st_gid);os.chown(mount,owner.st_uid,owner.st_gid)

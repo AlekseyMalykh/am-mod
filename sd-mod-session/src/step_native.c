@@ -18,6 +18,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/uio.h>
 #include <time.h>
 #include <unistd.h>
 #include "pad_palette.h"
@@ -70,7 +71,7 @@
 static _Atomic unsigned piano_active;
 /* Native shortcuts need their release even if the roll or its ticket changes. */
 static _Atomic unsigned piano_forwarded_buttons[112];
-static void roll_open(void),roll_close(void),roll_pad(unsigned),roll_paint(void*);
+static void roll_open(void),roll_close(void),roll_pad(unsigned,int),roll_paint(void*);
 static float roll_input_velocity=100.f/127.f;
 static int roll_refresh(int),roll_button(unsigned,int),roll_control(unsigned,unsigned,int);
 static void roll_erase_release(void);
@@ -599,6 +600,78 @@ static void set_sound_bank(int bank)
 int step_native_bank_or_last(void)
 {
     static int last;int b=native_bank();if(b>=0)last=b;return last;
+}
+/* Sample Record > To Seq: when the recorder gets its signal, a note of the target pad goes into the
+ * playing sequence at the current position (native add, one Undo). Returns 1 added, 0 failed, -1 not playing. */
+unsigned step_native_transport_playing(void){return atomic_load(&clock_running)&&atomic_load(&clock_valid);}
+static int insert_pad_note_at(unsigned,int64_t);
+static void *fallback_controller;
+static int safe_word(uintptr_t address,uintptr_t *value)
+{ struct iovec l={value,8},r={(void*)address,8}; return process_vm_readv(getpid(),&l,1,&r,1,0)==8; }
+/* To Seq from the Sample Record screen: the stock Step controller is not the current screen
+ * there, but the screen can reach one through its own object graph. Look two levels deep. */
+void step_native_find_controller(void *screen)
+{
+    fallback_controller=NULL;
+    if(!screen||!base)return;
+    uintptr_t want=base+CONTROLLER_VPTR;
+    static unsigned char top[0x1000],inner[0x600];
+    struct iovec l={top,sizeof top},r={screen,sizeof top};
+    if(process_vm_readv(getpid(),&l,1,&r,1,0)!=(ssize_t)sizeof top)return;
+    unsigned logged=0;
+    for(unsigned i=0;i<sizeof top/8;++i){
+        uintptr_t p=((uintptr_t*)top)[i],w;
+        if(p<0x10000||(p&7)||!safe_word(p,&w))continue;
+        if(w==want){fallback_controller=(void*)p;if(logged++<4)fprintf(stderr,"CTL_SCAN direct screen+0x%x\n",i*8);return;}
+        struct iovec il={inner,sizeof inner},ir={(void*)p,sizeof inner};
+        if(process_vm_readv(getpid(),&il,1,&ir,1,0)!=(ssize_t)sizeof inner)continue;
+        for(unsigned j=0;j<sizeof inner/8;++j){
+            uintptr_t q=((uintptr_t*)inner)[j],v;
+            if(q<0x10000||(q&7)||!safe_word(q,&v))continue;
+            if(v==want){fallback_controller=(void*)q;fprintf(stderr,"CTL_SCAN found screen+0x%x -> +0x%x\n",i*8,j*8);return;}
+        }
+    }
+    fprintf(stderr,"CTL_SCAN none\n");
+}
+static int insert_with_fallback(unsigned pad,int64_t tick)
+{
+    void *c=fallback_controller;
+    if(!c||FIELD(c,0,uintptr_t)!=base+CONTROLLER_VPTR)return -3;
+    void *things=FIELD(c,0x248,void*),*seq=things?FIELD(things,0x1c8,void*):NULL;
+    if(!seq)return -4;
+    void *old_c=controller,*old_s=sequence,*old_e=event_list;int64_t old_l=length;
+    controller=c;sequence=seq;event_list=FIELD(c,0xc0,void*);
+    length=FN(0x29571f0,int64_t(*)(void*))(seq);
+    int r=insert_pad_note_at(pad,tick);
+    controller=old_c;sequence=old_s;event_list=old_e;length=old_l;
+    return r;
+}
+static _Atomic unsigned pending_pad_note;      /* pad+1, waiting for the Step controller */
+static _Atomic int64_t pending_pad_tick;
+static int insert_pad_note_at(unsigned pad,int64_t tick)
+{
+    if(!controller||pad>=128||length<=0||tick<0)return 0;
+    if(tick>=length)tick%=length;
+    unsigned note=(unsigned)FN(0x157f800,int(*)(void*,int))(controller,(int)pad);
+    if(note>127){report("TO_SEQ pad has no native note");return 0;}
+    struct step_event e=FN(0x27e54d0,struct step_event(*)(unsigned,int64_t,int64_t,unsigned,unsigned,float))(note,tick,480,100,0,100.f/127.f);
+    {char text[96];snprintf(text,sizeof text,"TO_SEQ pad=%u tick=%lld length=%lld",pad,(long long)tick,(long long)length);report(text);}
+    return add_event(&e);
+}
+int step_native_insert_pad_note(unsigned pad)
+{
+    if(pad>=128||!atomic_load(&clock_running)||!atomic_load(&clock_valid)){char text[96];snprintf(text,sizeof text,"TO_SEQ skipped run=%d valid=%d",(int)atomic_load(&clock_running),(int)atomic_load(&clock_valid));report(text);return -1;}
+    int64_t tick=(int64_t)atomic_load(&clock_tick);
+    if(!controller){
+        int via=insert_with_fallback(pad,tick);
+        {char text[96];snprintf(text,sizeof text,"TO_SEQ fallback pad=%u result=%d",pad,via);report(text);}
+        if(via==1)return 1;
+        /* Keep the start position and insert when the Step screen returns. */
+        atomic_store(&pending_pad_tick,tick);atomic_store(&pending_pad_note,pad+1);
+        {char text[96];snprintf(text,sizeof text,"TO_SEQ pending pad=%u tick=%lld",pad,(long long)tick);report(text);}
+        return 2;
+    }
+    return insert_pad_note_at(pad,tick);
 }
 int step_native_browser_bank(int bank)
 {
@@ -1286,6 +1359,24 @@ static void read_sample_name(char out[513])
     }
     if (sample[1]) FN(0x123bca0,void(*)(void*))((void*)sample[1]);
 }
+/* Sample name of any pad (piano roll title); same lookup as read_sample_name. */
+static void read_sample_for_pad(int pad,char out[513])
+{
+    strcpy(out,"Empty");
+    if (!controller||pad<0||pad>=128) return;
+    void *things=FIELD(controller,0x248,void*),*program=things ? FIELD(things,0xb8,void*) : NULL;
+    if (!program) return;
+    void *instrument=FN(0x286bbe0,void*(*)(void*,int))(program,pad);
+    if (!instrument || !FIELD(instrument,0x22e8,void*)) return;
+    uintptr_t sample[2]={0};
+    step_layer_sample(instrument,0,sample,base+0x2803b90);
+    if (sample[0]) {
+        const char *name=FIELD((void*)sample[0],0xa8,const char*);
+        size_t size=name ? strnlen(name,513) : 0;
+        if (size && size<=512) memcpy(out,name,size+1);
+    }
+    if (sample[1]) FN(0x123bca0,void(*)(void*))((void*)sample[1]);
+}
 static unsigned read_sound_presence(void)
 {
     if(!controller)return 0;
@@ -1514,7 +1605,7 @@ int step_native_tick(void)
     if (!on_ui()) return 0;
     if(picker_preview_wait&&!workflow_event_preview_pending()){picker_preview_wait=0;picker_probe("PAD_DONE",picker_audition_pad);}
     if (atomic_exchange(&dead,0)) { root=NULL;controller=NULL;steps=menu=showing=0;reset_mute();invalidate(); }
-    if (atomic_exchange(&project_reset,0)) { roll_project_reset();atomic_store(&write_armed,0);atomic_store(&toggle_armed,0);sound_initialized=0;clip_valid=0;steps=want_steps=menu=0;last_sequence=NULL;reset_mute();invalidate(); }
+    if (atomic_exchange(&project_reset,0)) { atomic_store(&pending_pad_note,0);roll_project_reset();atomic_store(&write_armed,0);atomic_store(&toggle_armed,0);sound_initialized=0;clip_valid=0;steps=want_steps=menu=0;last_sequence=NULL;reset_mute();invalidate(); }
     if (atomic_exchange(&queue_fault,0)) { roll_close();atomic_store(&write_armed,0);atomic_store(&toggle_armed,0);steps=want_steps=menu=0;reset_mute();invalidate();say("Steps stopped: input queue full"); }
     if(menu!=3){stop_picker_audition();preview_gate_set(NULL,NULL);}
     int previous_showing=showing;
@@ -1531,6 +1622,9 @@ int step_native_tick(void)
     void *program=things ? FIELD(things,0xb8,void*) : NULL;
     event_list=FIELD(controller,0xc0,void*);
     length=sequence ? FN(0x29571f0,int64_t(*)(void*))(sequence) : 0;
+    {unsigned pending=atomic_exchange(&pending_pad_note,0);
+     if(pending&&length>0){int r=insert_pad_note_at(pending-1,(int64_t)atomic_load(&pending_pad_tick));
+        {char text[64];snprintf(text,sizeof text,"TO_SEQ pending applied result=%d",r);report(text);}}}
     if (!event_list || !program || length<=0 || length>960*128*64) { stop_picker_audition();preview_gate_set(NULL,NULL);showing=0;steps=menu=0;publish();return 0; }
     if(menu!=3&&picker_muted)picker_set_muted(0);
     if(menu || !steps)reset_mute();
@@ -1875,7 +1969,7 @@ void step_native_pad_velocity(unsigned pad,uint64_t t,unsigned velocity)
     if (!on_ui() || pad>=16) return;
     roll_input_velocity=clamp((int)velocity,1,127)/127.f;
     step_native_tick();if (!current(t)) return;
-    if(atomic_load(&piano_active)){roll_pad(pad);return;}
+    if(atomic_load(&piano_active)){roll_pad(pad,!!(t&T_SHIFT));return;}
     if (menu==3 && (t&T_PICKER)) {
         ++picker_probe_serial;picker_probe("PAD_BUSY",pad);
         int valid=(picker_mode!=8||picker_base+(int)pad<=picker_slice_count)&&(picker_mode!=1||picker_pad_ok(pad));
@@ -2007,8 +2101,8 @@ void step_native_paint(void *p,void *g)
         char bank_title[16];snprintf(bank_title,sizeof(bank_title),"Bank %c",'A'+browse_bank);
         /* Header: B1-B3 as blocks (same as Chords). */
         const char*heads[3]={atomic_load(&requested_sound)?bank_title:"Sound",shift?"Follow":"Events","Edit"};
-        for(int i=0;i<3;++i){int x=i*107;colour(g,0xff202020);rect(g,x+1,6,105,26);
-            colour(g,i==0&&atomic_load(&requested_sound)?AMBER:i==1&&shift&&follow?AMBER:WHITE);text(g,heads[i],x+1,7,105,24,14);}
+        for(int i=0;i<3;++i){int x=i*106+2,w=i==2?105:102;colour(g,0xff242424);rect(g,x,2,w,26);
+            colour(g,i==0&&atomic_load(&requested_sound)?AMBER:i==1&&shift&&follow?AMBER:WHITE);text(g,heads[i],x,2,w,25,13);}
         char s[64],name[8];pad_name(sound,name);
         /* Info: sound and sample, mode on the right; then step, positions. */
         int pad_colour=music_pad_colour((unsigned)sound);
@@ -2043,7 +2137,7 @@ void step_native_paint(void *p,void *g)
     }
     if (menu) {
         colour(g,0xff000000);rect(g,0,5,320,235);
-        {const char*heads[3]={"Back","","Do It"};for(int i=0;i<3;++i){int x=i*107;colour(g,0xff202020);rect(g,x+1,6,105,26);colour(g,WHITE);text(g,heads[i],x+1,7,105,24,14);}}
+        {const char*heads[3]={"Back","","Do It"};for(int i=0;i<3;++i){int x=i*106+2,w=i==2?105:102;colour(g,0xff242424);rect(g,x,2,w,26);colour(g,WHITE);text(g,heads[i],x,2,w,25,13);}}
         if (menu==3) {
             colour(g,0xff000000);rect(g,0,5,320,235);colour(g,WHITE);
             text(g,"Cancel",0,6,106,23,14);text(g,"Apply",213,6,107,23,14);

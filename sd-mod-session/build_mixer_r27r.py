@@ -20,7 +20,7 @@ sources = frozen['compile_verification']['linked_sources'] + [
     'src/compressor_animation.c', 'src/compressor_image.cc',
     'src/project_recovery.c', 'src/startup_splash.cc', 'src/startup_project.cc',
     'src/knob_reset.c', 'src/sample_load_trace.c', 'src/sample_playing.c',
-    'src/rear_audio.cc', 'src/rear_native.cc', 'src/rear_ui.c', 'src/rear_abi.S',
+    'src/rear_audio.cc', 'src/rear_native.cc', 'src/rear_ui.c', 'src/rear_abi.S', 'src/record_hook_abi.S',
     'src/pad_resample_commit.cc', 'src/pad_sample_pool.cc', 'src/pad_assignment.cc',
     'src/pad_assignment_abi.S', 'src/pad_source_abi.S', 'src/pad_memory_abi.S', 'src/pad_sample_source.cc']
 mixer = ['src/mixer_model.c', 'src/mixer_meters.c', 'src/fx_chain.c', 'src/fx_own.c', 'src/compressor_dsp.c', 'src/fx_catalog.c',
@@ -50,6 +50,15 @@ common = ['-O2', '-g', '-fPIC', '-Wall', '-Wextra', '-Werror', '-Ibuild',
           '-DMPC_SAMPLE_LIVE_TUNER=1', '-DMPC_MIDI_TOOLS=1', '-DMPC_USB_AUDIO=1', '-DMPC_MIXER_ARCHIVE=1', '-DMPC_MIXER_LIVE=1', '-DMPC_MIXER_AUTOBIND=1', '-DMPC_SONG_UI=1',
           '-mbranch-protection=standard']
 if os.environ.get('AM_MOD_MIDI_EVENT_CONTEXT','1')!='0':common.append('-DMPC_MIDI_EVENTS=1')
+if os.environ.get('AM_MOD_RECORD_DIAGNOSTICS')=='1':
+    common.append('-DMPC_RECORD_DIAGNOSTICS=1')
+    hashes['src/record_probe.inc']=sha((R/'src/record_probe.inc').read_bytes())
+if os.environ.get('AM_MOD_RECORD_CHAIN_BYPASS')=='1':
+    assert os.environ.get('AM_MOD_RECORD_DIAGNOSTICS')=='1','Input bypass is a diagnostic build only'
+    common.append('-DMPC_RECORD_CHAIN_BYPASS=1')
+if os.environ.get('AM_MOD_RECORD_KEEP_RECOVERY_PATH')=='1':
+    assert os.environ.get('AM_MOD_RECORD_DIAGNOSTICS')=='1','Recovery path A/B experiment only'
+    common.append('-DMPC_RECORD_KEEP_RECOVERY_PATH=1')
 if pgm_probe:
     common.append('-DMPC_PGM_NATIVE_PROBE=1')
     hashes['src/program_pgm.h'] = sha((R / 'src/program_pgm.h').read_bytes())

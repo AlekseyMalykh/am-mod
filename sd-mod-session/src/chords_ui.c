@@ -241,8 +241,8 @@ int chords_ui_paint(void*root,void*g){
  colour(g,0xff000000);rect(g,0,5,320,fx?193:235);
  /* Header: B1-B3 in blocks, like the other mod windows. */
  const char*heads[3]={"Back","Reset",c.latch?"Latch On":"Latch Off"};
- for(int i=0;i<3;++i){int x=i*107;colour(g,0xff202020);rect(g,x+1,6,105,26);
-  colour(g,i==2&&c.latch?0xffffc247:0xffffffff);text(g,heads[i],x+1,7,105,24,15);}
+ for(int i=0;i<3;++i){int x=i*106+2,w=i==2?105:102;colour(g,0xff242424);rect(g,x,2,w,26);
+  colour(g,i==2&&c.latch?0xffffc247:0xffffffff);text(g,heads[i],x,2,w,25,13);}
  /* Info block: chord, its notes, then sample and key (or a warning). */
  int root_note=(c.tonic+chords_degree(c.scale,(unsigned)c.last_root))%12;
  snprintf(line,sizeof(line),"%s %s",music_note_names[root_note],chords_quality_name(c.types));
