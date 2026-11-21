@@ -6,7 +6,11 @@
 - Input Config has a B3 MIDI In entry sharing the existing channel and Map/Learn settings.
 - Recovery metadata identifies Internal/SD and the nested project folder; native Save retains that folder, with no fallback to a same-named project on another volume.
 - Internal audio exports now remain on Internal flash. Save/Export K3 retains the native storage selector when persistent Internal user folders are available.
-- Piano Roll shows the K2 grid value directly above the knob, independently of zoom.
+- Piano Roll shows the K1/K2/K3 values directly above the knobs (scroll, zoom, move, length, velocity, grid), independently of zoom.
+- Sample Record B2 is To Seq: the native Mic recording inserts the target pad's note into the playing sequence at the moment the take starts. With To Seq on and playback stopped the input waits (silenced) until Play starts, so recording and sequence stay aligned.
+- Startup auto-load now stages the project's `_[ProjectData]` audio into the native temporary project, so the native recorder no longer returns an older sample with the same "Sample NNN" name (a take could show the previous recording or another pad's sample).
+- Trial synth: 8-voice synth (sine / saw / square / triangle, ADSR, lowpass) played from MIDI channel 16 and mixed into the Input chain; parameters in MIDI Tools > Synth (K1-K3, Shift K1-K3, B3 plays a test note).
+- New diagnostics for the save/recovery investigation: `SAVE_TARGET` and `PROJECT_RECOVERY ORIGIN_UNKNOWN` log lines.
 - Press Mute on the selected Piano Roll row to toggle that pad's local mute in the current sequence; red M marks muted rows, including the source pad's Tune/Chop layers.
 - Red SM now also appears in Piano Roll and ordinary Mixer/FX headers, with space reserved for the B3 caption.
 - D.S.B shared-mount SD Card Access and return to AM are confirmed on MPC. The new Piano Roll/Mixer UI changes still need final device verification.
