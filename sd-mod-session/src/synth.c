@@ -11,9 +11,9 @@ enum { ENV_OFF, ENV_ATTACK, ENV_DECAY, ENV_SUSTAIN, ENV_RELEASE };
 struct voice { unsigned note,env;float phase,inc,level,velocity,lp;unsigned long age; };
 static struct voice voices[VOICES];
 static unsigned long clock_age;
-static _Atomic unsigned mic_on,fader_mode;static _Atomic int used; /* used: a note was played; the MPC microphone is then muted unless Mic is On */
+static _Atomic unsigned mic_on,fader_mode,tail_s=15;static _Atomic int used; /* used: a note was played; the MPC microphone is then muted unless Mic is On */
 static _Atomic unsigned wave,cutoff=100,attack=2,decay=40,sustain=90,release_cc=40,gain=100,midi_channel=15;
-static _Atomic unsigned *const params[AM_SYNTH_PARAMS]={&wave,&cutoff,&attack,&decay,&sustain,&release_cc,&gain,&midi_channel,&mic_on,&fader_mode};
+static _Atomic unsigned *const params[AM_SYNTH_PARAMS]={&wave,&cutoff,&attack,&decay,&sustain,&release_cc,&gain,&midi_channel,&mic_on,&fader_mode,&tail_s};
 static _Atomic int active_voices;
 static _Atomic float st_peak,st_env_level,st_bend,st_mod;static _Atomic unsigned st_env_stage,st_voices,st_notes[4]; /* for the Mixer illustration */
 static float bend_semitones,mod_depth,lfo_phase; /* audio thread only: pitch wheel +-2 semitones, mod wheel -> vibrato */
@@ -97,7 +97,8 @@ void am_synth_render_add(float *left,float *right,unsigned frames){
  atomic_store_explicit(&active_voices,alive,memory_order_release);
 }
 unsigned am_synth_param_get(unsigned index){return index<AM_SYNTH_PARAMS?atomic_load(params[index]):0;}
-void am_synth_param_set(unsigned index,unsigned value){if(index<AM_SYNTH_PARAMS)atomic_store(params[index],index==0?value%4:index==7?value%16:index==8?value%2:index==9?value%3:value>127?127:value);}
+void am_synth_param_set(unsigned index,unsigned value){if(index<AM_SYNTH_PARAMS)atomic_store(params[index],index==0?value%4:index==7?value%16:index==8?value%2:index==9?value%3:index==10?(value>30?30:value):value>127?127:value);}
+unsigned am_synth_tail_ms(void){return atomic_load(&tail_s)*1000u;}
 
 /* The microphone is muted only while the synth is being played (10 s after the last note), so the mic works again by itself. */
 int am_synth_mic_muted(void){return atomic_load_explicit(&used,memory_order_acquire)&&!atomic_load_explicit(&mic_on,memory_order_acquire)&&(am_synth_active()||now_ms()-atomic_load(&last_note_ms)<10000ull);}

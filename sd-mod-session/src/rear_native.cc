@@ -22,6 +22,7 @@ extern "C" {
 
 #define FIELD(p,o,T) (*reinterpret_cast<T *>(reinterpret_cast<char *>(p)+(o)))
 extern "C" int am_synth_active(void) __attribute__((weak));
+extern "C" unsigned am_synth_tail_ms(void) __attribute__((weak));
 extern "C" int am_synth_mic_muted(void) __attribute__((weak));
 extern "C" void am_synth_render_add(float *,float *,unsigned) __attribute__((weak));
 extern "C" void pad_source_layer_sample(void *,int,uintptr_t *,uintptr_t);
@@ -305,12 +306,16 @@ extern "C" void *rear_native_process(void *thread, void *position, void *buffer,
     if (am_synth_mic_muted && am_synth_mic_muted() && pcm && frames > 0 && frames <= 8192)
         for (int ch = 0; ch < channels && ch < 8; ++ch) if (pcm[ch]) std::memset(pcm[ch],0,(size_t)frames*sizeof(float)); /* synth replaces the microphone */
     static long long synth_last_ms = 0;
-    bool synth_run = false;
+    bool synth_run = false; float synth_gain = 1.0f; static float synth_gain_prev = 1.0f;
     if (am_synth_active && am_synth_render_add && pcm && frames > 0 && frames <= 8192 && channels >= 1 && pcm[0]) {
         struct timespec ts; clock_gettime(CLOCK_MONOTONIC,&ts); long long now = (long long)ts.tv_sec*1000 + ts.tv_nsec/1000000;
         if (am_synth_active()) synth_last_ms = now;
         /* keep running silent for 15 s after the last note: the Input FX tails must not be cut and the chain never gates on/off */
-        synth_run = synth_last_ms && now - synth_last_ms < 15000;
+        long long tail = am_synth_tail_ms ? (long long)am_synth_tail_ms() : 15000;
+        long long left = synth_last_ms ? tail - (now - synth_last_ms) : 0;
+        synth_run = left > 0;
+        if (am_synth_active()) synth_gain = 1.0f;
+        else if (left < 1000 && tail > 0) synth_gain = (float)left / (float)(tail < 1000 ? tail : 1000); /* smooth fade-out of the last second */
     }
     if (synth_run)
     {
@@ -346,7 +351,11 @@ extern "C" void *rear_native_process(void *thread, void *position, void *buffer,
         /* Synth is heard even when the input is not monitored: add it to the output buffer like the monitor path does. */
         float **op = FIELD(buffer,0x10,float **);
         if (op && FIELD(buffer,0,int) >= 2 && op[0] && op[1]) {
-            for (int n = 0; n < synth_direct; ++n) { op[0][n] += synth_keep[0][n]; op[1][n] += synth_keep[1][n]; }
+            for (int n = 0; n < synth_direct; ++n) {
+                float g = synth_gain_prev + (synth_gain - synth_gain_prev) * (float)(n + 1) / (float)synth_direct;
+                op[0][n] += synth_keep[0][n] * g; op[1][n] += synth_keep[1][n] * g;
+            }
+            synth_gain_prev = synth_gain;
             FIELD(buffer,0x128,unsigned char) = 0;
         }
     }

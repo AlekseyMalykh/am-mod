@@ -70,9 +70,9 @@ void am_midi_ui_tick(void*p){
 }
 static unsigned clamp(int n,unsigned hi);
 static const char*const synth_waves[]={"Sine","Saw","Square","Triangle"};
-static const char*const synth_names[]={"Wave","Cutoff","Attack","Decay","Sustain","Release","Level","MIDI channel","Mic","Fader"};
+static const char*const synth_names[]={"Wave","Cutoff","Attack","Decay","Sustain","Release","Level","MIDI channel","Mic","Fader","Tail"};
 static unsigned synth_cursor,synth_test;
-static void synth_value(char*s,size_t n,unsigned i){unsigned v=am_synth_param_get(i);if(i==0)snprintf(s,n,"%s",synth_waves[v%4]);else if(i==7)snprintf(s,n,"%u",v+1);else if(i==8)snprintf(s,n,"%s",v?"On":"Off");else if(i==9)snprintf(s,n,"%s",v==1?"Mod":v==2?"Pitch":"Off");else snprintf(s,n,"%u",v);}
+static void synth_value(char*s,size_t n,unsigned i){unsigned v=am_synth_param_get(i);if(i==0)snprintf(s,n,"%s",synth_waves[v%4]);else if(i==7)snprintf(s,n,"%u",v+1);else if(i==8)snprintf(s,n,"%s",v?"On":"Off");else if(i==9)snprintf(s,n,"%s",v==1?"Mod":v==2?"Pitch":"Off");else if(i==10)snprintf(s,n,v?"%u s":"Off",v);else snprintf(s,n,"%u",v);}
 static void synth_paint(void*g){
  heads(g,"Back","",synth_test?"Playing":"Test C4");centre(g,"Synth",4,31,312,22,16,0xffffc247);
  for(unsigned i=0;i<AM_SYNTH_PARAMS;++i){int y=52+(int)i*15;char v[16];synth_value(v,sizeof v,i);
@@ -83,7 +83,7 @@ static void synth_paint(void*g){
  if(music_ui_shift_active()){synth_value(a,sizeof a,2);synth_value(b,sizeof b,3);synth_value(c,sizeof c,5);knob(g,0,"Attack",a);knob(g,1,"Decay",b);knob(g,2,"Release",c);}
  else{synth_value(a,sizeof a,0);synth_value(b,sizeof b,1);synth_value(c,sizeof c,6);knob(g,0,"Wave",a);knob(g,1,"Cutoff",b);knob(g,2,"Level",c);}
 }
-static unsigned synth_scaled(unsigned index,unsigned v){return index==0?v*4/128:index==7?v*16/128:v;}
+static unsigned synth_scaled(unsigned index,unsigned v){return index==0?v*4/128:index==7?v*16/128:index==10?v*31/128:v;}
 static void synth_control(unsigned code,unsigned v,int delta,unsigned shift){
  static const unsigned plain[3]={0,1,6},fine[3]={2,3,5};
  if(code>=0x10&&code<=0x12){unsigned i=(shift?fine:plain)[code-0x10];am_synth_param_set(i,synth_scaled(i,v));synth_cursor=i;}
@@ -183,19 +183,23 @@ static void button_name(char*s,size_t n,unsigned code){
  if(code&0x80){unsigned k=code&0x7f;if(k==0x64)snprintf(s,n,"Data encoder");else if(k==0x14)snprintf(s,n,"Fader");else snprintf(s,n,"K%u",k-0x0f);}
  else if(code==0x50)snprintf(s,n,"Rec");else if(code==0x51)snprintf(s,n,"Stop");else if(code==0x52)snprintf(s,n,"Play");else snprintf(s,n,"Button %02x",code);
 }
+static unsigned bsel,bpick;
+static unsigned button_used(unsigned*idx){unsigned n=0;for(unsigned i=0;i<AM_MIDI_BUTTON_SLOTS;++i){struct am_midi_button b;am_midi_button_get(i,&b);if(b.kind)idx[n++]=i;}return n;}
 static void button_paint(void*g){
- unsigned learning=am_midi_button_learning();
- heads(g,"Back","","Clear");centre(g,"MIDI Buttons",4,31,312,20,15,0xffffc247);
- label(g,learning?"Move a control on your MIDI device...":"Press a button, then a control. Hold+press = Shift+",8,53,304,16,11,learning?0xffffc247:0xff999999);
- unsigned shown=0;char nm[48];
+ unsigned learning=am_midi_button_learning(),idx[AM_MIDI_BUTTON_SLOTS],n=button_used(idx);char nm[48];
+ if(n&&bsel>=n)bsel=n-1;
+ heads(g,"Back",learning||bpick?"Cancel":"Delete",learning||bpick?"":"Assign");centre(g,"MIDI Buttons",4,31,312,20,15,0xffffc247);
+ label(g,bpick?"Press an MPC button or knob to assign":learning?"Move a control on your MIDI device...":"B3: assign (or press an MPC button)",8,53,304,16,11,learning||bpick?0xffffc247:0xff999999);
+ unsigned shown=0,rows=learning?6:7,first=bsel>=rows?bsel-rows+1:0;
  if(learning){button_name(nm,sizeof nm,learning-1);rect(g,4,70,312,16,0xff302412);label(g,nm,12,70,120,16,13,0xffffc247);label(g,"waiting...",140,70,170,16,13,0xffffc247);++shown;}
- for(unsigned i=0;i<AM_MIDI_BUTTON_SLOTS&&shown<7;++i){struct am_midi_button b;am_midi_button_get(i,&b);if(!b.kind||(learning&&(unsigned)b.code+1u==learning))continue;
+ for(unsigned k=first;k<n&&shown<7;++k){struct am_midi_button b;am_midi_button_get(idx[k],&b);if(learning&&(unsigned)b.code+1u==learning)continue;
   char src[48],chan[8];int y=70+(int)shown*16;button_name(nm,sizeof nm,b.code);if(b.mkind){char t[64];snprintf(t,sizeof t,"Shift+%s",nm);memcpy(nm,t,sizeof nm-1);nm[sizeof nm-1]=0;}
   if(b.channel)snprintf(chan,sizeof chan,"%u",b.channel);else snprintf(chan,sizeof chan,"All");
   if(b.mkind)snprintf(src,sizeof src,"%s %u + %s %u",b.mkind==1?"N":"CC",b.mnumber,b.kind==1?"N":"CC",b.number);else snprintf(src,sizeof src,"%s %u  ch %s  %s",b.kind==1?"Note":"CC",b.number,chan,b.port?am_midi_port_name(b.port):"Any");
-  label(g,nm,12,y,110,16,13,0xffffffff);label(g,src,128,y,184,16,12,0xffaaaaaa);++shown;}
+  int sel=!learning&&!bpick&&k==bsel;if(sel)rect(g,4,y,312,16,0xff302412);
+  label(g,nm,12,y,110,16,13,sel?0xffffc247:0xffffffff);label(g,src,128,y,184,16,12,sel?0xffffc247:0xffaaaaaa);++shown;}
  if(!shown)label(g,"No buttons assigned",8,70,304,16,13,0xff999999);
- label(g,learning?"B3: delete this one   B1: back":"B3: clear all   B1: back",8,204,304,16,11,0xff999999);
+ label(g,learning||bpick?"B2: cancel   B1: back":"DATA: scroll   B2: delete   Shift+B2: all",8,204,304,16,11,0xff999999);
 }
 static void map_paint(void*g,unsigned which){
  static const char*in_names[]={"Off","Note","CC"};static const char*out_names[]={"Native","Off","Note","CC","Program"};
@@ -233,7 +237,7 @@ int am_midi_ui_owns(unsigned code,int button){
  if(!atomic_load(&visible))return 0;
  if(!atomic_load(&page))return button&&code==0x0d;
  if(button&&atomic_load(&page)==6)return code<112&&code!=0x31;
- return button?(code==0x0c||code==0x0d||code==0x0e||code==0x6f||code==0x36||code==0x37):code==0x10||code==0x11||code==0x12||code==0x64;
+ return button?(code==0x0c||code==0x0d||code==0x0e||code==0x6f||code==0x36||code==0x37):code==0x10||code==0x11||code==0x12||code==0x64||(code==0x14&&atomic_load(&page)==6);
 }
 static unsigned clamp(int n,unsigned hi){return n<0?0:(unsigned)n>hi?hi:(unsigned)n;}
 static void change_field(unsigned value,int relative){
@@ -252,7 +256,11 @@ int am_midi_ui_control(void*e,unsigned shift){
  int delta=v>64?(int)v-128:v==64?0:(int)v;focus=code>=0x10&&code<=0x12?code-0x10:focus;
  if(which==1){if(code==0x64)row=clamp((int)row+delta,5);}
  else if(which==2){if(code==0x10){direction=v*3/128;scroll_anchor=0;}else if(code==0x11){port=v*3/128;scroll_anchor=0;}else if(code==0x12){if(shift)channel=v*17/128;else type=v*8/128;scroll_anchor=0;}else if(code==0x64)scroll_by(-delta);}
- else if(which==6){if((code==0x10||code==0x11||code==0x12||code==0x14||code==0x64)&&!am_midi_button_learning())am_midi_button_learn(code|0x80u,1);repaint();}
+ else if(which==6){
+  unsigned idx[AM_MIDI_BUTTON_SLOTS],n=button_used(idx);
+  if(code==0x64&&!bpick&&!am_midi_button_learning()){if(n)bsel=clamp((int)bsel+delta,n-1);}
+  else if(!am_midi_button_learning()){bpick=0;am_midi_button_learn(code|0x80u,1);}
+  repaint();}
  else if(which==5)mode_control(code,v,delta,shift);
  else if(which==7){synth_control(code,v,delta,shift);repaint();}
  else if(which>=3&&which!=7){if(code==0x10){if(which==4&&shift){map_layer=v*2/128;edit=0;}else pad=v;notice[0]=0;am_midi_learn(0,0);}else if(code==0x11)field=v*4/128;else if(code==0x12)change_field(v,0);else if(code==0x64){if(edit)change_field((unsigned)delta,1);else field=clamp((int)field+delta,3);}}
@@ -275,12 +283,19 @@ int am_midi_ui_button(void*e){
  else if(code==0x0c){
   if(input_host&&which==5){void*p=input_host;input_host=NULL;atomic_store(&page,0);atomic_store(&visible,0);repaint();if(root==p)root=NULL;}
   else atomic_store(&page,input_host?5:which==1?0:1);
-  am_midi_learn(0,0);edit=0;
+  am_midi_learn(0,0);edit=0;bpick=0;
  }
  else if(which==1&&(code==0x0e||code==0x6f)){atomic_store(&page,row+2);notice[0]=0;scroll_anchor=0;}
  else if(which==2){if(code==0x0d)am_midi_log_pause(!am_midi_log_paused());else if(code==0x0e){am_midi_log_clear();scroll_anchor=0;}else if(code==0x36)scroll_by(-7);else if(code==0x37)scroll_by(7);}
  else if(which==7){if(code==0x0e){synth_test=1;am_synth_note(60,100,1);}else if(code==0x6f)edit=!edit;}
- else if(which==6){if(code==0x0e){unsigned l=am_midi_button_learning();if(l)am_midi_button_remove(l-1);else am_midi_button_clear();}else if(code!=0x0c)am_midi_button_learn(code,1);}
+ else if(which==6){
+  unsigned l=am_midi_button_learning(),idx[AM_MIDI_BUTTON_SLOTS],n=button_used(idx);
+  if(bpick){bpick=0;if(code!=0x0d)am_midi_button_learn(code,1);}
+  else if(l){if(code==0x0d)am_midi_button_learn(0,0);else if(code!=0x0e)am_midi_button_learn(code,1);}
+  else if(code==0x0e)bpick=1;
+  else if(code==0x0d){if(music_ui_shift_active())am_midi_button_clear();else if(n){struct am_midi_button b;am_midi_button_get(idx[bsel<n?bsel:n-1],&b);am_midi_button_remove(b.code);}}
+  else if(code!=0x0c&&code!=0x6f)am_midi_button_learn(code,1);
+ }
  else if(which==5){if(code==0x0d){atomic_store(&page,3);edit=0;}else if(code==0x0e){struct am_midi_mode m;am_midi_mode_get(&m);if(music_ui_shift_active()){memset(&m,0,sizeof m);m.root=60;}else m.mode=m.mode==AM_MIDI_MODE_DRUM?AM_MIDI_MODE_CHANNELS:m.mode==AM_MIDI_MODE_CHANNELS?AM_MIDI_MODE_SELECTED:m.mode==AM_MIDI_MODE_SELECTED?AM_MIDI_MODE_INSTRUMENT:AM_MIDI_MODE_DRUM;am_midi_mode_set(&m);}}
  else if(which>=3&&which!=7){if(code==0x0e||code==0x6f)edit=!edit;else if(code==0x0d){if(which==3)am_midi_learn(pad,!am_midi_learn_active());else if(map_layer){struct am_midi_map m;am_midi_layer_get(pad,&m,NULL);am_midi_layer_set(pad,&m,0);}else{struct am_midi_map m;am_midi_map_get(pad,&m);m.out_kind=m.out_port=m.out_channel=m.out_number=0;am_midi_map_set(pad,&m);}}else if(code==0x36||code==0x37)pad=clamp((int)pad+(code==0x36?1:-1),127);}
  repaint();return 1;
