@@ -26,6 +26,10 @@ Para el **firmware original de Akai MPC Sample 1.3.0.12**. Continúa r30b; el fi
 - **16 Levels del sintetizador** usa el mismo motor y los mismos colores que el 16 Levels del proyecto: Monochrome, Piano, Scale y Degrees, con la tonalidad y la escala del proyecto por defecto. Transpose mueve las notas a lo largo de la escala (grados en Degrees, semitonos en el resto); la tonalidad se mantiene y las luces de los pads siguen a las notas. En Sample Record el teclado empieza apagado y el botón 16 Levels lo enciende (el botón está iluminado mientras el teclado está activo).
 - Pad Bank + mando restablece un parámetro del sintetizador a su valor por defecto. Las letras A–H de Pad Bank permanecen apagadas en la página del sintetizador, igual que en Master e Input.
 
+## Efectos de Henry Skillz
+
+- El Mezclador incorpora tres efectos de **Henry Skillz**: **HS Saturator**, **HS Bass Focus** y **HS Heat**. DSP de [hs-mpc-plugins](https://github.com/Holla-Back-Entertainment/hs-mpc-plugins), incluido con permiso del autor. Aún sin probar en el MPC.
+
 ## Piano Roll, Song y Mixer
 
 - Piano Roll muestra los valores de K1–K3 sobre los mandos (desplazamiento, zoom, movimiento, longitud, velocity, cuadrícula).

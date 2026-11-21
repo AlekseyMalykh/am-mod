@@ -45,3 +45,9 @@ Professional и MPC — товарные знаки inMusic Brands, Inc.; зде
 - Снимки экрана и GIF показывают штатное приложение с работающим модом и служат
   документацией.
 - Используйте на свой риск; см. отказ от гарантий в [LICENSE](LICENSE).
+
+## Henry Skillz effects / Эффекты Henry Skillz
+
+- **EN:** HS Saturator, HS Bass Focus and HS Heat in the Am MOD Mixer use DSP code by **Henry Skillz** (Holla Back Entertainment), from [https://github.com/Holla-Back-Entertainment/hs-mpc-plugins](https://github.com/Holla-Back-Entertainment/hs-mpc-plugins) (hs-mpc-plugins 0.3.0), included with the author's permission. The unmodified files are in `sd-mod-session/src/hs_dsp/`; Am MOD only adds a small adapter. Please direct effect-quality feedback to the original project.
+- **RU:** HS Saturator, HS Bass Focus и HS Heat в Микшере Am MOD используют DSP-код **Henry Skillz** (Holla Back Entertainment) из [https://github.com/Holla-Back-Entertainment/hs-mpc-plugins](https://github.com/Holla-Back-Entertainment/hs-mpc-plugins) (hs-mpc-plugins 0.3.0); включены с разрешения автора. Исходные файлы без изменений лежат в `sd-mod-session/src/hs_dsp/`, Am MOD добавляет лишь небольшой адаптер.
+- **ES:** HS Saturator, HS Bass Focus y HS Heat del Mezclador de Am MOD usan código DSP de **Henry Skillz** (Holla Back Entertainment), de [https://github.com/Holla-Back-Entertainment/hs-mpc-plugins](https://github.com/Holla-Back-Entertainment/hs-mpc-plugins) (hs-mpc-plugins 0.3.0), incluido con permiso del autor.

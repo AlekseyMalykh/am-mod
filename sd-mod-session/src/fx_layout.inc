@@ -36,5 +36,8 @@ static const struct fx_layout layouts[]={
  {FX_OWN_SWELL,6,{"Envelope"},{0,1,2,-1,-1,-1}},
  {FX_OWN_RING,6,{"Modulation"},{0,-1,1,-1,-1,-1}},
  {FX_OWN_CRUSH,6,{"Digital"},{0,1,2,-1,-1,-1}},
+ {FX_OWN_HS_SATURATOR,6,{"Drive"},{0,1,2,-1,-1,-1}},
+ {FX_OWN_HS_BASS,6,{"Bass"},{0,1,2,-1,-1,-1}},
+ {FX_OWN_HS_HEAT,18,{"Drive","Filter","Motion"},{0,1,6,2,16,17,3,4,5,15,7,8,9,10,11,12,13,14}},
  {FX_OWN_OPTO,12,{"Dynamics","Character"},{0,1,2,3,4,5,6,-1,-1,-1,-1,-1}},
 };

@@ -1,5 +1,13 @@
 #include "fx_own.h"
 #include "compressor.h"
+#include "fx_hs.h"
+/* Henry Skillz effects live in fx_hs.c; weak so test builds without it still link (those ids then fail to create). */
+int fx_hs_is(uint32_t) __attribute__((weak));
+void *fx_hs_create(uint32_t,double,const float*) __attribute__((weak));
+void fx_hs_update(void*,const float*) __attribute__((weak));
+void fx_hs_destroy(void*) __attribute__((weak));
+float fx_hs_process(void*,float*,size_t) __attribute__((weak));
+static int hs_id(uint32_t id){return fx_hs_is&&fx_hs_is(id);}
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -62,6 +70,7 @@ int fx_own_shimmer_semitones(float v){static const int steps[5]={-12,5,7,12,19};
 void fx_own_destroy(void *object)
 {
     struct fx_own *s=object;if(!s)return;
+    if(hs_id(s->id)){fx_hs_destroy(object);return;}
     for(unsigned i=0;i<2;++i)free(s->pitch[i].buf);
     for(unsigned i=0;i<4;++i)free(s->line[i]);
     free(s->pre);free(s);
@@ -69,6 +78,7 @@ void fx_own_destroy(void *object)
 void *fx_own_create(uint32_t id,double rate,const float *parameters)
 {
     if(!fx_own_is(id)||!parameters||!isfinite(rate)||rate<8000||rate>192000)return NULL;
+    if(id>=FX_OWN_HS_SATURATOR)return hs_id(id)?fx_hs_create(id,rate,parameters):NULL;
     struct fx_own *s=calloc(1,sizeof(*s));if(!s)return NULL;
     s->id=id;s->rate=rate;
     for(unsigned i=0;i<PARAMS;++i)s->p[i]=fminf(1.f,fmaxf(0.f,parameters[i]));
@@ -223,12 +233,15 @@ int fx_own_can_update(uint32_t id,const float*a,const float*b)
 }
 void fx_own_update(void*object,const float*p)
 {
-    struct fx_own*s=object;memcpy(s->target,p,sizeof s->target);
+    struct fx_own*s=object;if(!s)return;
+    if(hs_id(s->id)){fx_hs_update(object,p);return;}
+    memcpy(s->target,p,sizeof s->target);
     s->remaining=(unsigned)(s->rate*.02);
 }
 float fx_own_process(void*object,float*samples,size_t frames)
 {
     struct fx_own*s=object;if(!s||!samples)return 1;
+    if(hs_id(s->id))return fx_hs_process(object,samples,frames);
     float minimum=1;
     for(size_t at=0;at<frames;){
         size_t n=frames-at;

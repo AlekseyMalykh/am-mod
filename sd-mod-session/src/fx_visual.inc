@@ -1102,6 +1102,44 @@ static void fxv_crush(const struct resample_painter*p,const struct fx_stage*stag
         previ=yi;prevo=yo;
     }
 }
+/* ---- Henry Skillz effects (fx_hs.c): simple live pictures, credited in the corner. ---- */
+static void fxv_hs_credit(const struct resample_painter*p)
+{
+    text(p,"HENRY SKILLZ",FXV_X+FXV_W-76,FXV_Y+FXV_H-12,72,10,7,0xff6a7480U,0);
+}
+/* Sine through the effect's clip: drive pushes it into the rails, the accent trace is the output. */
+static void fxv_hs_drive(const struct resample_painter*p,const struct fx_stage*stage,double drive,double mix)
+{
+    rect(p,FXV_X,FXV_Y,FXV_W,FXV_H,WELL);
+    int cy=FXV_Y+FXV_H/2-4,amp=FXV_H/2-12;
+    rect(p,FXV_X+8,cy,FXV_W-16,1,0xff1a222aU);
+    double gain=1.0+drive*7.0;int prevo=cy,previ=cy;(void)stage;
+    for(int x=0;x<FXV_W-16;x+=2){
+        double s=sin(x*.07+fxv_now*.002)*.85,o=s*gain;o=o/(1.0+fabs(o));
+        o=s*(1-mix)+o*mix*(1.0+.15*drive);if(o>1)o=1;if(o<-1)o=-1;
+        int yi=cy-(int)lround(amp*s),yo=cy-(int)lround(amp*o);
+        rect(p,FXV_X+8+x,yi<previ?yi:previ,2,abs(yi-previ)+1,0xff4a525aU);
+        rect(p,FXV_X+8+x,yo<prevo?yo:prevo,2,abs(yo-prevo)+2,fxv_acc);
+        previ=yi;prevo=yo;
+    }
+    fxv_hs_credit(p);
+}
+static void fxv_hs_saturator(const struct resample_painter*p,const struct fx_stage*stage)
+{fxv_hs_drive(p,stage,fxv_p(stage,0),fxv_p(stage,2));}
+static void fxv_hs_heat(const struct resample_painter*p,const struct fx_stage*stage)
+{fxv_hs_drive(p,stage,fxv_p(stage,1),fxv_p(stage,16));}
+/* Crossover line on a log axis; the bar left of it is the bass level, Mono Bass shades it. */
+static void fxv_hs_bass(const struct resample_painter*p,const struct fx_stage*stage)
+{
+    rect(p,FXV_X,FXV_Y,FXV_W,FXV_H,WELL);
+    int x0=FXV_X+8,w=FXV_W-16,cx=x0+(int)lround(w*fxv_p(stage,0)),base=FXV_Y+FXV_H-16,top=FXV_Y+10;
+    int level=(int)lround((base-top)*(.25+.75*fxv_p(stage,1)));
+    rect(p,x0,base,w,1,0xff1a222aU);
+    rect(p,x0,base-level,cx-x0,level,fxv_p(stage,2)>=.5?0xff5a6a78U:fxv_acc);
+    rect(p,cx,top,1,base-top,0xff4a525aU);
+    rect(p,cx+1,base-(base-top)/3,w-(cx-x0)-1,(base-top)/3,0xff2a323aU);
+    fxv_hs_credit(p);
+}
 static int fx_visual_dispatch_inner(const struct resample_painter*p,const struct fx_catalog_entry*e,
                            const struct fx_stage*stage,const struct mixer_fx_monitor*m,double rate,
                            uint32_t identity,uint64_t now_ms)
@@ -1143,6 +1181,9 @@ static int fx_visual_dispatch_inner(const struct resample_painter*p,const struct
     case FX_OWN_SWELL:fxv_swell(p,stage);return 1;
     case FX_OWN_RING:fxv_ring(p,stage);return 1;
     case FX_OWN_CRUSH:fxv_crush(p,stage);return 1;
+    case FX_OWN_HS_SATURATOR:fxv_hs_saturator(p,stage);return 1;
+    case FX_OWN_HS_BASS:fxv_hs_bass(p,stage);return 1;
+    case FX_OWN_HS_HEAT:fxv_hs_heat(p,stage);return 1;
     default:return 0;
     }
 }

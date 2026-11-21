@@ -16,7 +16,10 @@ extern "C" {
 #define FX_OWN_RING    0x414d4f06u
 #define FX_OWN_CRUSH   0x414d4f07u
 #define FX_OWN_OPTO    0x414d4f08u
-#define FX_OWN_COUNT 8u
+#define FX_OWN_HS_SATURATOR 0x414d4f09u /* Henry Skillz DSP, see fx_hs.h */
+#define FX_OWN_HS_BASS      0x414d4f0au
+#define FX_OWN_HS_HEAT      0x414d4f0bu
+#define FX_OWN_COUNT 11u
 int fx_own_is(uint32_t id);
 void *fx_own_create(uint32_t id,double rate,const float *parameters /* normalized 0..1 */);
 /* Size/predelay changes in Shimmer still need a prepared replacement. */

@@ -4,6 +4,8 @@
 
 **Beta:** compatibility with other mods (Stock, SampQOL, D.S.B) still needs testing; hardware verification is ongoing.
 
+- Mixer: new effects HS Saturator, HS Bass Focus and HS Heat, DSP by Henry Skillz ([hs-mpc-plugins](https://github.com/Holla-Back-Entertainment/hs-mpc-plugins), included with permission); credited in NOTICE.md. Not yet tested on hardware.
+
 
 - MIDI Input B3 cycles Drum map, Channels and Selected pad without losing channel assignments; Selected pad exposes incoming channel and root note, with Shift+B3 reset.
 - Input Config has a B3 MIDI In entry sharing the existing channel and Map/Learn settings.

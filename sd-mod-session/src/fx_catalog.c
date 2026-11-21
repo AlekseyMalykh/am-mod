@@ -115,6 +115,9 @@ static const struct fx_catalog_entry own_entries[FX_OWN_COUNT]={
  {FX_OWN_RING,"Ring Modulator","Modulation",2,{"Frequency","Mix"},{.4f,.5f}},
  {FX_OWN_CRUSH,"Bit Crusher","Drive",3,{"Bits","Rate","Mix"},{.6f,.2f,1.f}},
  {FX_OWN_OPTO,"OptoCat Comp","Dynamics",7,{"Threshold","Ratio","Gain","Attack","Release","Knee","Warm"},{.625f,.2857f,.5f,.5f,.6738f,.5f,0.f}},
+ {FX_OWN_HS_SATURATOR,"HS Saturator","Drive",3,{"Drive","Tone","Mix"},{.25f,.5f,1.f}},
+ {FX_OWN_HS_BASS,"HS Bass Focus","Dynamics",3,{"Crossover","Bass","Mono Bass"},{.5f,.75f,1.f}},
+ {FX_OWN_HS_HEAT,"HS Heat","Drive",18,{"Circuit","Drive","Wet","Filter Type","Filter Freq","Resonance","Dirt","EQ Low","EQ High","Env > Freq","Env Attack","Env Release","LFO > Freq","LFO Speed","LFO Wave","Freq Pan","Mix","Volume"},{.1429f,.25f,.8f,0.f,.75f,0.f,0.f,.5039f,.5039f,.502f,.25f,.5f,.502f,.5f,0.f,.5039f,1.f,.6667f}},
 };
 unsigned fx_mixer_catalog_count(void){return fx_catalog_count()+1+FX_OWN_COUNT;}
 static unsigned category_list(const char**out,unsigned max)

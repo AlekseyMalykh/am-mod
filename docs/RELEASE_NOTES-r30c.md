@@ -26,6 +26,10 @@ For **Akai MPC Sample stock firmware 1.3.0.12**. This release continues r30b. In
 - **16 Levels for the synth** uses the same engine and colours as the project's 16 Levels: Monochrome, Piano, Scale and Degrees, with the project key and scale by default. Transpose moves the notes along the scale (steps in Degrees, semitones elsewhere); the key stays and the pad lights follow the notes. In Sample Record the keyboard starts off and the 16 Levels button turns it on (the button is lit while it is on).
 - Pad Bank + knob resets a synth parameter to its default. Pad Bank letters A–H stay off on the synth page, as for Master and Input.
 
+## Henry Skillz effects
+
+- The Mixer gains three effects by **Henry Skillz**: **HS Saturator**, **HS Bass Focus** and **HS Heat** (8 drive circuits, filter, envelope/LFO). DSP from [hs-mpc-plugins](https://github.com/Holla-Back-Entertainment/hs-mpc-plugins), included with the author's permission. Not yet tested on hardware.
+
 ## Piano Roll, Song and Mixer
 
 - Piano Roll shows the K1–K3 values above the knobs (scroll, zoom, move, length, velocity, grid).
