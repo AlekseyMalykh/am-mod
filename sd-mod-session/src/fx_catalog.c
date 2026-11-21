@@ -130,20 +130,36 @@ static unsigned category_list(const char**out,unsigned max)
     }
     return n;
 }
-unsigned fx_mixer_category_count(void){const char*c[16];return 1+category_list(c,16);}
-const char *fx_mixer_category_name(unsigned filter){const char*c[16];unsigned n=category_list(c,16);return filter==0||filter>n?"All":c[filter-1];}
+/* Author tab: the last filter, "HS" = every Henry Skillz effect (they also stay in their semantic category). */
+static int is_hs(unsigned i){const char*n=fx_mixer_catalog_at(i)->name;return n[0]=='H'&&n[1]=='S'&&n[2]==' ';}
+unsigned fx_mixer_category_count(void){const char*c[16];return 2+category_list(c,15);}
+const char *fx_mixer_category_name(unsigned filter){const char*c[16];unsigned n=category_list(c,15);return filter==0||filter>n+1?"All":filter==n+1?"HS":c[filter-1];}
+static char search_text[32];
+void fx_mixer_search_set(const char*t){size_t n=0;search_text[0]=0;if(!t)return;while(t[n]&&n<sizeof(search_text)-1){search_text[n]=t[n];++n;}search_text[n]=0;}
+const char*fx_mixer_search_get(void){return search_text;}
+static int ci_find(const char*h,const char*n)
+{
+    for(;*h;++h){const char*a=h,*b=n;
+        while(*a&&*b&&((*a|32)==(*b|32)))++a,++b;
+        if(!*b)return 1;}
+    return 0;
+}
+static int in_filter(unsigned filter,unsigned i)
+{
+    if(search_text[0]&&!ci_find(fx_mixer_catalog_at(i)->name,search_text))return 0;
+    if(!filter)return 1;
+    const char*name=fx_mixer_category_name(filter);
+    return name[0]=='H'&&name[1]=='S'&&!name[2]?is_hs(i):!strcmp(fx_mixer_catalog_at(i)->category,name);
+}
 unsigned fx_mixer_filtered_count(unsigned filter)
 {
-    if(!filter)return fx_mixer_catalog_count();
-    const char*name=fx_mixer_category_name(filter);unsigned n=0;
-    for(unsigned i=0;i<fx_mixer_catalog_count();++i)if(!strcmp(fx_mixer_catalog_at(i)->category,name))++n;
+    unsigned n=0;
+    for(unsigned i=0;i<fx_mixer_catalog_count();++i)if(in_filter(filter,i))++n;
     return n;
 }
 unsigned fx_mixer_filtered_index(unsigned filter,unsigned position)
 {
-    if(!filter)return position;
-    const char*name=fx_mixer_category_name(filter);
-    for(unsigned i=0;i<fx_mixer_catalog_count();++i)if(!strcmp(fx_mixer_catalog_at(i)->category,name)&&position--==0)return i;
+    for(unsigned i=0;i<fx_mixer_catalog_count();++i)if(in_filter(filter,i)&&position--==0)return i;
     return 0;
 }
 const struct fx_catalog_entry *fx_mixer_catalog_at(unsigned i)

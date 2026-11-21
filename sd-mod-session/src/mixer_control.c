@@ -426,7 +426,13 @@ int mixer_control_button(struct mixer_control*c,enum mixer_action action,int dow
     }
     if(c->naming){
         if(action==MIXER_B1)c->naming=0;
-        else if(action==MIXER_B3){
+        else if(action==MIXER_B3&&c->naming==2){
+            char text[MIXER_NAME_BYTES]={0};
+            if(c->name.length&&!phone_utf8(&c->name,text,sizeof(text))){c->message="Bad text";return 1;}
+            fx_mixer_search_set("");c->view.catalog_filter=0;
+            if(text[0]&&!fx_mixer_filtered_count(0)){c->message="No effect found";return 1;}
+            fx_mixer_search_set(text);c->view.cursor=0;c->naming=0;
+        }else if(action==MIXER_B3){
             char name[MIXER_NAME_BYTES]={0};
             if(!phone_utf8(&c->name,name,sizeof(name))){c->message="Name required (max 31 bytes)";return 1;}
             if(strcmp(selected(c)->name,name)){memcpy(selected(c)->name,name,sizeof(name));c->name_since=0;changed(c);}
@@ -512,7 +518,12 @@ int mixer_control_button(struct mixer_control*c,enum mixer_action action,int dow
         }
         return 1;
     }
-    if(c->catalog&&(action==MIXER_B2||action==MIXER_B3))return 1;
+    if(c->catalog&&action==MIXER_B2){ /* Add Effect: search by name */
+        phone_init(&c->name,MIXER_NAME_BYTES-1);
+        if(phone_sync(&c->name,fx_mixer_search_get(),0)){c->naming=2;if(name_pads_default)phone_enable(&c->name,1);}
+        return 1;
+    }
+    if(c->catalog&&action==MIXER_B3)return 1;
     if(c->view.page==MIXER_KNOB_FX&&c->fx_editing&&!c->catalog&&comp_pinned(c)&&
        (action==MIXER_SELECT||action==MIXER_B2||action==MIXER_B3)){
         if(action==MIXER_SELECT){
@@ -627,7 +638,7 @@ int mixer_control_button(struct mixer_control*c,enum mixer_action action,int dow
                     if(stage.kind==FX_STAGE_EQ)stage.eq.count=1;
                     put_fx(c,&stage);
                 }
-            }else if(c->view.fx_slot==ch->fx.count){c->catalog=1;c->view.cursor=0;}
+            }else if(c->view.fx_slot==ch->fx.count){c->catalog=1;c->view.cursor=0;fx_mixer_search_set("");c->view.catalog_filter=0;}
             else if(c->view.fx_parameters){
                 struct fx_stage*stage=ch->fx.stage+c->view.fx_slot;
                 if(c->shift&&stage->kind==FX_STAGE_EQ){
@@ -700,7 +711,7 @@ int mixer_control_pad(struct mixer_control*c,unsigned pad,int down,uint64_t tick
         c->view.page=MIXER_KNOB_FX;c->temporary=2;c->view.fx_slot=slot;
         open_fx(c);
         if(slot<used)c->view.fx_parameters=1;
-        else{c->catalog=1;c->view.cursor=0;}
+        else{c->catalog=1;c->view.cursor=0;fx_mixer_search_set("");c->view.catalog_filter=0;}
         c->message="";
         return 1;
     }
@@ -941,7 +952,7 @@ static int fx_cc(struct mixer_control*c,unsigned cc,unsigned value)
         if(cc==0x10)c->view.cursor=value*fx_mixer_filtered_count(c->view.catalog_filter)/128;
         else if(cc==0x12){ /* K3: category filter (All, Filter, Dynamics ...) */
             unsigned f=value*fx_mixer_category_count()/128;
-            if(f!=c->view.catalog_filter){c->view.catalog_filter=f;c->view.cursor=0;}
+            if(f!=c->view.catalog_filter){c->view.catalog_filter=f;c->view.cursor=0;fx_mixer_search_set("");}
         }
         return 1;
     }
@@ -1213,7 +1224,7 @@ void mixer_control_view(struct mixer_control*c,uint64_t now,struct mixer_view_st
         if(c->naming){
             phone_tick(&c->name,name_time());
             phone_view(&c->name,13,c->name_preview,sizeof(c->name_preview));
-            out->name_edit=c->name_preview;out->name_pads=c->name.enabled;
+            out->name_edit=c->name_preview;out->name_title=c->naming==2?"Find effect":"Track name";out->name_pads=c->name.enabled;
         }
         out->shifted=c->shift;out->fx_editing=c->fx_editing;out->rate=c->rate;}
 }

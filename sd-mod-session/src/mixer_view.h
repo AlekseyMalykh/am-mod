@@ -37,7 +37,7 @@ struct mixer_view_state {
     unsigned sequence_muted; /* UI-owner snapshot: local pad mutes in the current sequence. */
     uint64_t present[2];
     const char*message;
-    const char*name_edit;
+    const char*name_edit,*name_title;
     uint64_t name_elapsed;
     unsigned name_pads;
     const struct mixer_fx_monitor*fx_signal;

@@ -320,7 +320,7 @@ static void header(const struct mixer_view_state*s,const struct resample_painter
         names[1]="Bypass";lit[1]=s->comp.bypass!=0;
         names[2]=s->comp.type?"Type: Opto":"Type: Duck";lit[2]=0;off=0;
     }
-    if(s->page==MIXER_KNOB_FX&&s->fx_catalog){names[0]="FX List";names[1]="";names[2]="";lit[2]=0;}
+    if(s->page==MIXER_KNOB_FX&&s->fx_catalog){names[0]="FX List";names[1]="Search";names[2]="";lit[1]=lit[2]=0;}
     if(s->page==MIXER_KNOB_FX&&s->shifted){
         names[1]="Paste";names[2]="Chain Bypass";
         lit[1]=0;lit[2]=mixer_view_selected(s)->fx_bypass!=0;off=0;
@@ -820,7 +820,9 @@ static void track_fx(const struct mixer_view_state*s,const struct resample_paint
     char counter[16];
     snprintf(counter,sizeof(counter),"%u / %u",ch->fx.count,MIXER_FX_SLOTS);
     rect(p,85,37,231,21,PANEL);
-    text(p,s->fx_catalog?"Add Effect":"FX Chain",92,37,143,21,15,WHITE,0);
+    {char title[24]="";const char*q=fx_mixer_search_get();
+    if(s->fx_catalog&&*q)snprintf(title,sizeof(title),"Find: %.14s",q);
+    text(p,s->fx_catalog?(*q?title:"Add Effect"):"FX Chain",92,37,143,21,15,WHITE,0);}
     if(s->fx_catalog)text(p,fx_mixer_category_name(s->catalog_filter),240,38,69,19,10,AMBER,1);
     else text(p,ch->fx_bypass?"CHAIN OFF":counter,240,38,69,19,10,ch->fx_bypass?SEND:GREY,1);
     if(s->fx_catalog){
@@ -1393,7 +1395,7 @@ void mixer_view_paint(const struct mixer_view_state*s,const struct resample_pain
         rect(p,0,36,320,204,BLACK);
         rect(p,12,48,296,125,PANEL);
         rect(p,12,48,296,2,0xff000000u|(s->master?s->project->master.colour:s->project->track[s->primary].colour));
-        text(p,"Track name",22,57,276,25,19,WHITE,0);
+        text(p,s->name_title?s->name_title:"Track name",22,57,276,25,19,WHITE,0);
         rect(p,22,91,276,47,WELL);
         text(p,s->name_edit,30,94,260,39,19,AMBER,0);
         text(p,s->name_pads?"Pads type   DATA moves":"DATA edits   Press to advance",22,145,276,19,13,GREY,0);
