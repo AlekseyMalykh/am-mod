@@ -70,9 +70,9 @@ void am_midi_ui_tick(void*p){
 }
 static unsigned clamp(int n,unsigned hi);
 static const char*const synth_waves[]={"Sine","Saw","Square","Triangle"};
-static const char*const synth_names[]={"Wave","Cutoff","Attack","Decay","Sustain","Release","Level","MIDI channel","Mic","Fader","Tail"};
+static const char*const synth_names[]={"Wave","Cutoff","Attack","Decay","Sustain","Release","Level","MIDI channel","Mic (layer)","Fader","Direct out"};
 static unsigned synth_cursor,synth_test;
-static void synth_value(char*s,size_t n,unsigned i){unsigned v=am_synth_param_get(i);if(i==0)snprintf(s,n,"%s",synth_waves[v%4]);else if(i==7)snprintf(s,n,"%u",v+1);else if(i==8)snprintf(s,n,"%s",v?"On":"Off");else if(i==9)snprintf(s,n,"%s",v==1?"Mod":v==2?"Pitch":"Off");else if(i==10)snprintf(s,n,v?"%u s":"Off",v);else snprintf(s,n,"%u",v);}
+static void synth_value(char*s,size_t n,unsigned i){unsigned v=am_synth_param_get(i);if(i==0)snprintf(s,n,"%s",synth_waves[v%4]);else if(i==7)snprintf(s,n,"%u",v+1);else if(i==8)snprintf(s,n,"%s",v?"On":"Off");else if(i==9)snprintf(s,n,"%s",v==1?"Mod":v==2?"Pitch":"Off");else if(i==10)snprintf(s,n,"%s",v?"On":"Off");else snprintf(s,n,"%u",v);}
 static void synth_paint(void*g){
  heads(g,"Back","",synth_test?"Playing":"Test C4");centre(g,"Synth",4,31,312,22,16,0xffffc247);
  for(unsigned i=0;i<AM_SYNTH_PARAMS;++i){int y=52+(int)i*15;char v[16];synth_value(v,sizeof v,i);
@@ -83,7 +83,7 @@ static void synth_paint(void*g){
  if(music_ui_shift_active()){synth_value(a,sizeof a,2);synth_value(b,sizeof b,3);synth_value(c,sizeof c,5);knob(g,0,"Attack",a);knob(g,1,"Decay",b);knob(g,2,"Release",c);}
  else{synth_value(a,sizeof a,0);synth_value(b,sizeof b,1);synth_value(c,sizeof c,6);knob(g,0,"Wave",a);knob(g,1,"Cutoff",b);knob(g,2,"Level",c);}
 }
-static unsigned synth_scaled(unsigned index,unsigned v){return index==0?v*4/128:index==7?v*16/128:index==10?v*31/128:v;}
+static unsigned synth_scaled(unsigned index,unsigned v){return index==0?v*4/128:index==7?v*16/128:index==10?v*2/128:v;}
 static void synth_control(unsigned code,unsigned v,int delta,unsigned shift){
  static const unsigned plain[3]={0,1,6},fine[3]={2,3,5};
  if(code>=0x10&&code<=0x12){unsigned i=(shift?fine:plain)[code-0x10];am_synth_param_set(i,synth_scaled(i,v));synth_cursor=i;}

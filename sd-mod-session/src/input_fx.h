@@ -13,6 +13,9 @@ struct mixer_fx_monitor;
 int input_fx_monitor(unsigned slot,struct mixer_fx_monitor *out);
 const char *input_fx_status(void);
 void input_fx_flush(void);
+/* Input routing: 0 Clean (source straight to pads), 1 Input track (FX + fader), 2 Input track with the synth as its input. */
+unsigned input_fx_mode(void);
+void input_fx_set_mode(unsigned mode);
 /* Linear peak of the selected input (L/R), for the Mixer Input strip. */
 void input_fx_peak(float*left,float*right);
 /* Tuner: detected pitch in Hz of the selected input; returns 0 when there is none. Polling keeps the detector running. */

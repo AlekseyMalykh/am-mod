@@ -29,7 +29,7 @@ struct Lane {
     int source=-99;
 };
 Lane lanes[3];
-std::atomic<unsigned> seen_rate{0},state{0};
+std::atomic<unsigned> seen_rate{0},state{0},in_mode{1};
 std::atomic<uint64_t> flush{0};
 std::atomic_flag processing=ATOMIC_FLAG_INIT;
 /* Effective route for the audio owner: point 0 Input, 1 Track, 2 Master (wet only). */
@@ -147,6 +147,8 @@ extern "C" int input_fx_monitor(unsigned slot,mixer_fx_monitor*out){
 }
 extern "C" int input_fx_pitch(float*hz){tune_asked_ms.store(steady_ms());float v=tune_hz.load();if(hz)*hz=v;return v>0.f;}
 extern "C" void input_fx_peak(float*l,float*r){if(l)*l=input_peak[0].load(std::memory_order_relaxed);if(r)*r=input_peak[1].load(std::memory_order_relaxed);}
+extern "C" unsigned input_fx_mode(void){return in_mode.load(std::memory_order_acquire);}
+extern "C" void input_fx_set_mode(unsigned m){if(m>2)m=1;in_mode.store(m,std::memory_order_release);}
 extern "C" void input_fx_flush(void){flush.fetch_add(1,std::memory_order_release);}
 extern "C" const char*input_fx_status(void){
  static const char*labels[]={"Input FX off","Input FX waiting for audio","Mic / USB / Rear: Input FX ready","Input FX unavailable: dry input"};
@@ -233,7 +235,7 @@ extern "C" int input_fx_audio(void*buffer,unsigned rate){
  }
  auto*x=lanes[0].x.load(std::memory_order_acquire);
  if(music_fx_mode_active&&!music_fx_mode_active())return 0;
- if(!x||!lanes[0].active.load(std::memory_order_acquire)){
+ if(in_mode.load(std::memory_order_acquire)==0||!x||!lanes[0].active.load(std::memory_order_acquire)){
   if(!processing.test_and_set(std::memory_order_acquire)){consume_idle((unsigned)frames,false,false,false);processing.clear(std::memory_order_release);}
   return 0;
  }

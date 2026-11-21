@@ -2,6 +2,8 @@
 #include <stdint.h>
 #include <time.h>
 #include "synth.h"
+extern unsigned input_fx_mode(void) __attribute__((weak));
+extern void input_fx_set_mode(unsigned) __attribute__((weak));
 #include <math.h>
 #include <stdatomic.h>
 #include <string.h>
@@ -11,9 +13,9 @@ enum { ENV_OFF, ENV_ATTACK, ENV_DECAY, ENV_SUSTAIN, ENV_RELEASE };
 struct voice { unsigned note,env;float phase,inc,level,velocity,lp;unsigned long age; };
 static struct voice voices[VOICES];
 static unsigned long clock_age;
-static _Atomic unsigned mic_on,fader_mode,tail_s=15;static _Atomic int used; /* used: a note was played; the MPC microphone is then muted unless Mic is On */
+static _Atomic unsigned mic_on,fader_mode,direct_out=1;static _Atomic int used; /* used: a note was played; the MPC microphone is then muted unless Mic is On */
 static _Atomic unsigned wave,cutoff=100,attack=2,decay=40,sustain=90,release_cc=40,gain=100,midi_channel=15;
-static _Atomic unsigned *const params[AM_SYNTH_PARAMS]={&wave,&cutoff,&attack,&decay,&sustain,&release_cc,&gain,&midi_channel,&mic_on,&fader_mode,&tail_s};
+static _Atomic unsigned *const params[AM_SYNTH_PARAMS]={&wave,&cutoff,&attack,&decay,&sustain,&release_cc,&gain,&midi_channel,&mic_on,&fader_mode,&direct_out};
 static _Atomic int active_voices;
 static _Atomic float st_peak,st_env_level,st_bend,st_mod;static _Atomic unsigned st_env_stage,st_voices,st_notes[4]; /* for the Mixer illustration */
 static float bend_semitones,mod_depth,lfo_phase; /* audio thread only: pitch wheel +-2 semitones, mod wheel -> vibrato */
@@ -25,7 +27,7 @@ static void push(unsigned value){unsigned h=atomic_load_explicit(&event_head,mem
  atomic_store_explicit(&event_queue[h%QUEUE],value,memory_order_relaxed);atomic_store_explicit(&event_head,h+1,memory_order_release);}
 static unsigned long long now_ms(void){struct timespec t;clock_gettime(CLOCK_MONOTONIC,&t);return (unsigned long long)t.tv_sec*1000ull+(unsigned long long)t.tv_nsec/1000000ull;}
 static _Atomic unsigned long long last_note_ms;
-void am_synth_note(unsigned note,unsigned velocity,int on){if(note>127)return;if(on&&velocity){atomic_store(&used,1);atomic_store(&last_note_ms,now_ms());}push((on&&velocity?1u:0u)<<16|(velocity&127)<<8|note);}
+void am_synth_note(unsigned note,unsigned velocity,int on){if(note>127)return;if(on&&velocity){if(input_fx_set_mode&&input_fx_mode&&input_fx_mode()!=2)input_fx_set_mode(2); /* playing the synth selects it as the Input track input */atomic_store(&used,1);atomic_store(&last_note_ms,now_ms());}push((on&&velocity?1u:0u)<<16|(velocity&127)<<8|note);}
 void am_synth_cc(unsigned cc,unsigned value){push(2u<<16|(value&127)<<8|(cc&127));}
 void am_synth_midi(const unsigned char *d,unsigned n){
  if(!d||n<2||(d[0]&0x0f)!=atomic_load(&midi_channel))return;
@@ -97,17 +99,27 @@ void am_synth_render_add(float *left,float *right,unsigned frames){
  atomic_store_explicit(&active_voices,alive,memory_order_release);
 }
 unsigned am_synth_param_get(unsigned index){return index<AM_SYNTH_PARAMS?atomic_load(params[index]):0;}
-void am_synth_param_set(unsigned index,unsigned value){if(index<AM_SYNTH_PARAMS)atomic_store(params[index],index==0?value%4:index==7?value%16:index==8?value%2:index==9?value%3:index==10?(value>30?30:value):value>127?127:value);}
-unsigned am_synth_tail_ms(void){return atomic_load(&tail_s)*1000u;}
+void am_synth_param_set(unsigned index,unsigned value){if(index<AM_SYNTH_PARAMS)atomic_store(params[index],index==0?value%4:index==7?value%16:index==8?value%2:index==9?value%3:index==10?value%2:value>127?127:value);}
+int am_synth_direct_out(void){return atomic_load(&direct_out)!=0;}
 
 /* The microphone is muted only while the synth is being played (10 s after the last note), so the mic works again by itself. */
 int am_synth_mic_muted(void){return atomic_load_explicit(&used,memory_order_acquire)&&!atomic_load_explicit(&mic_on,memory_order_acquire)&&(am_synth_active()||now_ms()-atomic_load(&last_note_ms)<10000ull);}
 
-static const uint8_t key_scales[7][12]={{0,2,4,5,7,9,11},{0,2,3,5,7,8,10},{0,2,3,5,7,9,10},{0,2,4,5,7,9,10},{0,2,4,7,9},{0,3,5,7,10},{0,3,5,6,7,10}};
-static const uint8_t key_scale_len[7]={7,7,7,7,5,5,6};
+extern void music_get_key(int*,int*) __attribute__((weak));
+/* 0 Major 1 Minor 2 Dorian 3 Phrygian 4 Lydian 5 Mixolydian 6 Locrian 7 Chromatic (same order as the project scales), 8 Pent maj 9 Pent min 10 Blues */
+static const uint8_t key_scales[11][12]={{0,2,4,5,7,9,11},{0,2,3,5,7,8,10},{0,2,3,5,7,9,10},{0,1,3,5,7,8,10},{0,2,4,6,7,9,11},{0,2,4,5,7,9,10},{0,1,3,5,6,8,10},{0,1,2,3,4,5,6,7,8,9,10,11},{0,2,4,7,9},{0,3,5,7,10},{0,3,5,6,7,10}};
+static const uint8_t key_scale_len[11]={7,7,7,7,7,7,7,12,5,5,6};
+void am_synth_key_resolve(unsigned root_raw,unsigned transpose,unsigned scale_raw,int*root,unsigned*scale){
+ int pt=0,ps=0;if(music_get_key)music_get_key(&pt,&ps);
+ if(pt<0||pt>11)pt=0;
+ if(ps<0||ps>7)ps=0;
+ int r=(root_raw?(int)root_raw-1:pt)+(int)(transpose>48?24:transpose)-24;
+ if(root)*root=r;
+ if(scale)*scale=scale_raw?(scale_raw-1)%11:(unsigned)ps;
+}
 unsigned am_synth_key_note(unsigned layout,int root,unsigned scale,unsigned octave,unsigned pad){
  int base=12*(int)(octave+1)+root;int n;
- if(layout>=2){unsigned len=key_scale_len[scale%7];n=base+12*(int)(pad/len)+key_scales[scale%7][pad%len];}
+ if(layout>=2){unsigned len=key_scale_len[scale%11];n=base+12*(int)(pad/len)+key_scales[scale%11][pad%len];}
  else n=base+(int)pad;
  return n<0?0u:n>127?127u:(unsigned)n;
 }
@@ -129,15 +141,16 @@ int am_synth_peek(struct am_synth_state*out){
 }
 
 /* Pad keyboard outside the Mixer (Sample Record screen): 16 Levels layout for the synth. */
-static _Atomic int keys_on;static _Atomic int cfg_root;static _Atomic unsigned cfg_layout,cfg_scale,cfg_octave=3,pad_mask;static unsigned char pad_note[16];
-void am_synth_keys_cfg(unsigned layout,int root,unsigned scale,unsigned octave){atomic_store(&cfg_layout,layout);atomic_store(&cfg_root,root);atomic_store(&cfg_scale,scale);atomic_store(&cfg_octave,octave);}
+static _Atomic int keys_on;static _Atomic unsigned cfg_root,cfg_transpose=24,cfg_layout,cfg_scale,cfg_octave=3,pad_mask;static unsigned char pad_note[16];
+void am_synth_keys_cfg(unsigned layout,unsigned root,unsigned scale,unsigned octave,unsigned transpose){atomic_store(&cfg_transpose,transpose);atomic_store(&cfg_layout,layout);atomic_store(&cfg_root,root);atomic_store(&cfg_scale,scale);atomic_store(&cfg_octave,octave);}
 int am_synth_keys_get(void){return atomic_load(&keys_on);}
 void am_synth_pad(unsigned pad,int down){
  if(pad>=16)return;
  unsigned bit=1u<<pad;
  if(down){
   if(atomic_load(&pad_mask)&bit)am_synth_note(pad_note[pad],0,0);
-  unsigned n=am_synth_key_note(atomic_load(&cfg_layout),atomic_load(&cfg_root),atomic_load(&cfg_scale),atomic_load(&cfg_octave),pad);
+  int rr;unsigned rs;am_synth_key_resolve(atomic_load(&cfg_root),atomic_load(&cfg_transpose),atomic_load(&cfg_scale),&rr,&rs);
+  unsigned n=am_synth_key_note(atomic_load(&cfg_layout),rr,rs,atomic_load(&cfg_octave),pad);
   pad_note[pad]=(unsigned char)n;
   atomic_fetch_or(&pad_mask,bit);
   am_synth_note(n,100,1);
@@ -148,6 +161,7 @@ void am_synth_pad(unsigned pad,int down){
 }
 void am_synth_keys_set(int on){
  atomic_store(&keys_on,on?1:0);
+ if(on&&input_fx_set_mode&&input_fx_mode&&input_fx_mode()!=2)input_fx_set_mode(2); /* pad keyboard = play the synth through the Input track */
  if(!on){
   for(unsigned i=0;i<16;++i){if(atomic_load(&pad_mask)&(1u<<i))am_synth_pad(i,0);}
  }

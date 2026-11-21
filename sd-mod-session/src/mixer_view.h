@@ -61,8 +61,8 @@ static inline int mixer_view_synth_slot(unsigned page,unsigned knob,unsigned shi
 static inline unsigned mixer_view_synth_roles(unsigned layout){static const unsigned char n[4]={1,2,2,4};return n[layout%4];}
 static inline unsigned mixer_view_synth_role_of(unsigned layout,unsigned scale,unsigned note,unsigned pad)
 {
-    static const unsigned char len[7]={7,7,7,7,5,5,6};
-    unsigned l=len[scale%7],d=pad%l,pc=note%12;
+    static const unsigned char len[11]={7,7,7,7,7,7,7,12,5,5,6};
+    unsigned l=len[scale%11],d=pad%l,pc=note%12;
     if(layout==1)return (pc==1||pc==3||pc==6||pc==8||pc==10)?1u:0u;
     if(layout==2)return d==0?0u:1u;
     if(layout==3){if(d==0)return 0u;if(d==(l>=7?3u:2u))return 2u;if(d==(l>=7?4u:3u))return 3u;return 1u;}

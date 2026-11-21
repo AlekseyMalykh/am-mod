@@ -509,6 +509,7 @@ static void mixer_bank_light(void *sender,unsigned value,unsigned code)
 }
 static const uint32_t synth_palette[6]={0xb060ffu,0x4090ffu,0x40d070u,0xffc247u,0xff5050u,0xffffffu};
 extern unsigned am_synth_key_note(unsigned,int,unsigned,unsigned,unsigned) __attribute__((weak));
+extern void am_synth_key_resolve(unsigned,unsigned,unsigned,int*,unsigned*) __attribute__((weak));
 static void mixer_bank_lights_tracks(int tracks)
 {
     if(!native_bank_light)return;
@@ -610,8 +611,9 @@ static void mixer_publish_route(void)
             uint64_t light = 0;
             if (view.synth_page && view.synth_pick) { atomic_store(&mixer_select_lights[i], i<3 ? pad_light(synth_palette[0], view.synth_cursor==i ? .95f : .35f) : (uint64_t)0); continue; } /* Loop: page pads */
             if (view.synth_page && view.synth_keys) {
-                unsigned lay=view.synth_layout%4,note=am_synth_key_note?am_synth_key_note(lay,(int)view.synth_root+(int)view.synth_transpose-24,view.synth_scale,view.synth_octave,(unsigned)i):(unsigned)i;
-                unsigned role=mixer_view_synth_role_of(lay,view.synth_scale,note,(unsigned)i)%4;
+                int krt=0;unsigned ksc=0;if(am_synth_key_resolve)am_synth_key_resolve(view.synth_root,view.synth_transpose,view.synth_scale,&krt,&ksc);
+                unsigned lay=view.synth_layout%4,note=am_synth_key_note?am_synth_key_note(lay,krt,ksc,view.synth_octave,(unsigned)i):(unsigned)i;
+                unsigned role=mixer_view_synth_role_of(lay,ksc,note,(unsigned)i)%4;
                 atomic_store(&mixer_select_lights[i], pad_light(synth_palette[view.synth_cols[lay][role]%6], role==0 ? .90f : .35f)); continue;
             } /* keyboard lights follow the 16 Levels layout and colour roles */
             if (i < 8) {
