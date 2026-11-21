@@ -104,11 +104,11 @@ int am_synth_mic_muted(void){return atomic_load_explicit(&used,memory_order_acqu
 
 static const uint8_t key_scales[7][12]={{0,2,4,5,7,9,11},{0,2,3,5,7,8,10},{0,2,3,5,7,9,10},{0,2,4,5,7,9,10},{0,2,4,7,9},{0,3,5,7,10},{0,3,5,6,7,10}};
 static const uint8_t key_scale_len[7]={7,7,7,7,5,5,6};
-unsigned am_synth_key_note(unsigned layout,unsigned root,unsigned scale,unsigned octave,unsigned pad){
- unsigned base=12u*(octave+1)+root;int n;
- if(layout==1){unsigned len=key_scale_len[scale%7];n=(int)(base+12*(pad/len)+key_scales[scale%7][pad%len]);}
- else n=(int)(base+pad);
- return n>127?127u:(unsigned)n;
+unsigned am_synth_key_note(unsigned layout,int root,unsigned scale,unsigned octave,unsigned pad){
+ int base=12*(int)(octave+1)+root;int n;
+ if(layout==1){unsigned len=key_scale_len[scale%7];n=base+12*(int)(pad/len)+key_scales[scale%7][pad%len];}
+ else n=base+(int)pad;
+ return n<0?0u:n>127?127u:(unsigned)n;
 }
 /* Physical fader on the Mixer synth page: Off / Mod wheel / Pitch wheel (param "Fader"). */
 void am_synth_fader(unsigned value){
@@ -128,8 +128,8 @@ int am_synth_peek(struct am_synth_state*out){
 }
 
 /* Pad keyboard outside the Mixer (Sample Record screen): 16 Levels layout for the synth. */
-static _Atomic int keys_on;static _Atomic unsigned cfg_layout,cfg_root,cfg_scale,cfg_octave=3,pad_mask;static unsigned char pad_note[16];
-void am_synth_keys_cfg(unsigned layout,unsigned root,unsigned scale,unsigned octave){atomic_store(&cfg_layout,layout);atomic_store(&cfg_root,root);atomic_store(&cfg_scale,scale);atomic_store(&cfg_octave,octave);}
+static _Atomic int keys_on;static _Atomic int cfg_root;static _Atomic unsigned cfg_layout,cfg_scale,cfg_octave=3,pad_mask;static unsigned char pad_note[16];
+void am_synth_keys_cfg(unsigned layout,int root,unsigned scale,unsigned octave){atomic_store(&cfg_layout,layout);atomic_store(&cfg_root,root);atomic_store(&cfg_scale,scale);atomic_store(&cfg_octave,octave);}
 int am_synth_keys_get(void){return atomic_load(&keys_on);}
 void am_synth_pad(unsigned pad,int down){
  if(pad>=16)return;

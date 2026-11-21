@@ -8,12 +8,12 @@ void am_synth_note(unsigned note,unsigned velocity,int on);
 void am_synth_cc(unsigned cc,unsigned value);
 void am_synth_midi(const unsigned char *data,unsigned size); /* raw message, channel 16 only */
 int am_synth_active(void);
-unsigned am_synth_key_note(unsigned layout,unsigned root,unsigned scale,unsigned octave,unsigned pad); /* 16 Levels pad -> MIDI note */
+unsigned am_synth_key_note(unsigned layout,int root,unsigned scale,unsigned octave,unsigned pad); /* 16 Levels pad -> MIDI note */
 void am_synth_key(const unsigned char *data,unsigned size); /* note on/off from any channel (MIDI Input mode: Instrument) */
 /* Parameters 0..6: Wave, Cutoff, Attack, Decay, Sustain, Release, Level (0..127; Wave 0..3), MIDI channel (0..15 = channel 1..16). */
 #define AM_SYNTH_PARAMS 10u
 void am_synth_fader(unsigned value);
-void am_synth_keys_cfg(unsigned layout,unsigned root,unsigned scale,unsigned octave); /* 16 Levels layout used by the pads outside the Mixer */
+void am_synth_keys_cfg(unsigned layout,int root,unsigned scale,unsigned octave); /* 16 Levels layout used by the pads outside the Mixer */
 int am_synth_keys_get(void);
 void am_synth_keys_set(int on); /* pads on the Sample Record screen play the synth */
 void am_synth_pad(unsigned pad,int down);

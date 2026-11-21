@@ -310,7 +310,7 @@ extern "C" void *rear_native_process(void *thread, void *position, void *buffer,
         am_synth_render_add(synth_out[0], synth_out[1], (unsigned)frames);
         for (int n = 0; n < frames; ++n) { pcm[0][n] += synth_out[0][n]; if (channels >= 2 && pcm[1]) pcm[1][n] += synth_out[1][n]; }
         FIELD(buffer,0x128,unsigned char) &= (unsigned char)~1u; /* no longer a silent buffer */
-        synth_direct = frames; std::memcpy(synth_keep, synth_out, sizeof synth_keep);
+        synth_direct = frames;
     }
     bool prepared_mix=input_active.load(std::memory_order_acquire)&&rear_setting(0,REAR_MODE)==REAR_MIX&&
         channels>=2&&frames>0&&frames<=8192&&pcm&&pcm[0]&&pcm[1];
@@ -324,6 +324,9 @@ extern "C" void *rear_native_process(void *thread, void *position, void *buffer,
      * native monitoring/recording and custom Rear recording receive its result. */
     input_fx_audio(buffer,44100);
 #endif
+    if (synth_direct > 0 && pcm && channels >= 2 && pcm[0] && pcm[1]) { /* keep the processed (Input level + FX) signal for the direct output */
+        std::memcpy(synth_keep[0], pcm[0], (size_t)synth_direct*sizeof(float)); std::memcpy(synth_keep[1], pcm[1], (size_t)synth_direct*sizeof(float));
+    }
     bool capture = input_active.load(std::memory_order_acquire) && channels >= 2 && frames > 0 && frames <= 8192 && pcm && pcm[0] && pcm[1];
     if (capture) {
         if (FIELD(buffer,0x128,unsigned char)&1) std::memset(raw,0,sizeof(raw));
@@ -334,7 +337,7 @@ extern "C" void *rear_native_process(void *thread, void *position, void *buffer,
         /* Synth is heard even when the input is not monitored: add it to the output buffer like the monitor path does. */
         float **op = FIELD(buffer,0x10,float **);
         if (op && FIELD(buffer,0,int) >= 2 && op[0] && op[1]) {
-            for (int n = 0; n < synth_direct; ++n) { op[0][n] += synth_keep[0][n] * .8f; op[1][n] += synth_keep[1][n] * .8f; }
+            for (int n = 0; n < synth_direct; ++n) { op[0][n] += synth_keep[0][n]; op[1][n] += synth_keep[1][n]; }
             FIELD(buffer,0x128,unsigned char) = 0;
         }
     }

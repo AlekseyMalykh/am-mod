@@ -507,6 +507,7 @@ static void mixer_bank_light(void *sender,unsigned value,unsigned code)
             native_bank_light(sender,((unsigned)bank_light_tracks>>i)&1u,BANK_LED_FIRST+i);
     pthread_mutex_unlock(&bank_light_lock);
 }
+static const uint32_t synth_palette[6]={0xb060ffu,0x4090ffu,0x40d070u,0xffc247u,0xff5050u,0xffffffu};
 static void mixer_bank_lights_tracks(int tracks)
 {
     if(!native_bank_light)return;
@@ -606,8 +607,8 @@ static void mixer_publish_route(void)
     else if ((state & MIXER_OPEN) && view.project && !mixer_view_sound_pads(&view)) {
         for (unsigned i=0;i<16;++i) {
             uint64_t light = 0;
-            if (view.synth_page && view.synth_pick) { atomic_store(&mixer_select_lights[i], i<3 ? pad_light(0xb060ffu, view.synth_cursor==i ? .95f : .35f) : (uint64_t)0); continue; } /* Loop: page pads */
-            if (view.synth_page && view.synth_keys) { atomic_store(&mixer_select_lights[i], pad_light(0xb060ffu, (i%(view.synth_layout?(view.synth_scale>=6?6u:view.synth_scale>=4?5u:7u):12u))==0 ? .90f : .30f)); continue; } /* keyboard: C bright */
+            if (view.synth_page && view.synth_pick) { atomic_store(&mixer_select_lights[i], i<3 ? pad_light(synth_palette[view.synth_colour%6], view.synth_cursor==i ? .95f : .35f) : (uint64_t)0); continue; } /* Loop: page pads */
+            if (view.synth_page && view.synth_keys) { atomic_store(&mixer_select_lights[i], pad_light(synth_palette[view.synth_colour%6], (i%(view.synth_layout?(view.synth_scale>=6?6u:view.synth_scale>=4?5u:7u):12u))==0 ? .90f : .30f)); continue; } /* keyboard: C bright */
             if (i < 8) {
                 int on = !view.master && (view.selected & (1u<<i));
                 const struct mixer_channel *track=view.project->track+i;
@@ -627,7 +628,7 @@ static void mixer_publish_route(void)
                     else if(track->fx.stage[slot].bypass)light=flash?pad_light(MIXER_MUTE_RGB,.60f):pad_light(hue,.12f); /* effect Bypass: red flash */
                     else light=pad_light(hue,.90f);
                 }else light=pad_light(0x808080u,.22f);
-            } else if (i == 12) light = pad_light(0xb060ffu, view.synth_page ? .90f : .40f); /* Synth */
+            } else if (i == 12) light = pad_light(synth_palette[view.synth_colour%6], view.synth_page ? .90f : .40f); /* Synth */
             else if (i == 14) light = pad_light(view.project->input.colour & 0xffffffu, view.master==2 ? .90f : .22f);
             else if (i == 15) light = pad_light(view.project->master.colour & 0xffffffu, view.master==1 ? .90f : .22f);
             atomic_store(&mixer_select_lights[i], light);
@@ -2532,9 +2533,10 @@ static void buttons(void *event)
 #ifdef MPC_MIXER_LIVE
     if(mixer_sample_button(native_code,native_down))return;
 #endif
+    if(native_code==0x28&&native_down){static unsigned n;if(n<30){++n;fprintf(stderr,"SYNTH_KEYS press visible=%d keys=%d\n",rear_mic_screen_visible?rear_mic_screen_visible():-1,am_synth_keys_get?am_synth_keys_get():-1);}}
     /* 16 Levels on the Sample Record screen toggles the synth pad keyboard (no MIDI keyboard needed). */
     if(native_code==0x28&&am_synth_keys_set&&am_synth_keys_get&&rear_mic_screen_visible&&rear_mic_screen_visible()){
-        if(native_down)am_synth_keys_set(!am_synth_keys_get());
+        if(native_down){am_synth_keys_set(!am_synth_keys_get());fprintf(stderr,"SYNTH_KEYS toggle on=%d\n",am_synth_keys_get());}
         return;
     }
     if(tuner_button(native_code,native_down))return;
@@ -3724,7 +3726,7 @@ static int mixer_buttons_active(void)
  * 16 Levels, Chop and Loop stay dark. */
 static unsigned mixer_button_value(unsigned code,unsigned value)
 {
-    if(code==0x28||code==0x4a){unsigned keys=0,pick=0;if(mixer_synth_open(&keys,&pick))return (code==0x28?keys:pick)?127u:1u;} /* lit on the Synth page */
+    if(code==0x28||code==0x4a){unsigned keys=0,pick=0;if(mixer_synth_open(&keys,&pick))return (code==0x28?keys:pick)?2u:1u;} /* lit on the Synth page */
     if(code==0x28||code==0x4b||code==0x4a)return 0; /* 16 Levels, Chop, Loop */
     if(code==0x2b&&!value)return 1;
     return value;

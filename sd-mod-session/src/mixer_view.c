@@ -1240,15 +1240,16 @@ void mixer_view_tuner(const struct resample_painter*p)
 extern unsigned am_synth_param_get(unsigned) __attribute__((weak));
 struct synth_live{float peak,env_level,bend,mod;unsigned env_stage,voices;unsigned notes[4];};
 extern int am_synth_peek(struct synth_live*) __attribute__((weak));
-extern unsigned am_synth_key_note(unsigned,unsigned,unsigned,unsigned,unsigned) __attribute__((weak));
+extern unsigned am_synth_key_note(unsigned,int,unsigned,unsigned,unsigned) __attribute__((weak));
 static void synth_text(const struct mixer_view_state*s,int id,char*name,size_t nn,char*val,size_t vn)
 {
-    static const char*const names[14]={"Wave","Cutoff","Attack","Decay","Sustain","Release","Level","MIDI channel","Mic","Fader","Layout","Root","Scale","Octave"};
+    static const char*const names[16]={"Wave","Cutoff","Attack","Decay","Sustain","Release","Level","MIDI channel","Mic","Fader","Layout","Key","Scale","Octave","Transpose","Colour"};
+    static const char*const cols[6]={"Purple","Blue","Green","Amber","Red","White"};
     static const char*const waves[4]={"Sine","Saw","Square","Triangle"};
     static const char*const lay[2]={"Chromatic","Scale"};
     static const char*const root[12]={"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
     static const char*const scl[7]={"Major","Minor","Dorian","Mixolydian","Pent maj","Pent min","Blues"};
-    if(id<0||id>13){name[0]=val[0]=0;return;}
+    if(id<0||id>15){name[0]=val[0]=0;return;}
     snprintf(name,nn,"%s",names[id]);
     unsigned v=id<10&&am_synth_param_get?am_synth_param_get((unsigned)id):0;
     switch(id){
@@ -1260,6 +1261,8 @@ static void synth_text(const struct mixer_view_state*s,int id,char*name,size_t n
         case 11:snprintf(val,vn,"%s",root[s->synth_root%12]);break;
         case 12:snprintf(val,vn,"%s",scl[s->synth_scale%7]);break;
         case 13:snprintf(val,vn,"%u",s->synth_octave);break;
+        case 14:snprintf(val,vn,"%+d",(int)s->synth_transpose-12);break;
+        case 15:snprintf(val,vn,"%s",cols[s->synth_colour%6]);break;
         default:snprintf(val,vn,"%u",v);
     }
 }
@@ -1267,76 +1270,104 @@ static float synth_wave_at(unsigned w,float ph)
 {
     return w==0?sinf(6.2831853f*ph):w==1?2.0f*ph-1.0f:w==2?(ph<0.5f?1.0f:-1.0f):(ph<0.5f?4.0f*ph-1.0f:3.0f-4.0f*ph);
 }
+static float synth_frac(const struct mixer_view_state*s,int id)
+{
+    unsigned v=id>=0&&id<10&&am_synth_param_get?am_synth_param_get((unsigned)id):0;
+    switch(id){
+        case 0:return (float)(v%4)/3.0f;
+        case 7:return (float)v/15.0f;
+        case 8:return v?1.0f:0.0f;
+        case 9:return (float)(v%3)/2.0f;
+        case 10:return (float)(s->synth_layout%2);
+        case 11:return (float)(s->synth_root%12)/11.0f;
+        case 12:return (float)(s->synth_scale%7)/6.0f;
+        case 13:return (float)(s->synth_octave%8)/7.0f;
+        case 14:return (float)(s->synth_transpose%25)/24.0f;
+        case 15:return (float)(s->synth_colour%6)/5.0f;
+        default:return id<0?0.0f:(float)v/127.0f;
+    }
+}
+static void synth_adsr_mini(const struct resample_painter*p,int x0,int y0,int w,int h,int selected)
+{
+    unsigned a=am_synth_param_get?am_synth_param_get(2):0,d=am_synth_param_get?am_synth_param_get(3):0,su=am_synth_param_get?am_synth_param_get(4):0,r=am_synth_param_get?am_synth_param_get(5):0;
+    float wa=4.0f+(float)a/127.0f*14.0f,wd=4.0f+(float)d/127.0f*14.0f,ws=14.0f,wr=4.0f+(float)r/127.0f*14.0f,tot=wa+wd+ws+wr;
+    float sus=(float)su/127.0f;
+    for(int i=0;i<w;++i){
+        float t=(float)i/(float)w*tot,y;
+        if(t<wa)y=t/wa;else if(t<wa+wd)y=1.0f-(1.0f-sus)*(t-wa)/wd;else if(t<wa+wd+ws)y=sus;else y=sus*(1.0f-(t-wa-wd-ws)/wr);
+        int hh=(int)(y*(float)h);if(hh<1)hh=1;
+        rect(p,x0+i,y0+h-hh,1,hh,selected?AMBER:0xff806018u);
+    }
+}
 void mixer_view_synth(const struct mixer_view_state*s,const struct resample_painter*p)
 {
-    static const char*const tabs[3]={"Tone","Envelope","Keys"};
+    static const char*const mods[3]={"Tone","Envelope","Keys"};
     unsigned page=s->synth_cursor%3;
     rect(p,0,0,320,240,BLACK);
     rect(p,2,2,102,26,0xff242424u);text(p,"Back",2,2,102,25,13,WHITE,1);
-    rect(p,108,2,102,26,s->synth_keys?0xff4a3a10u:0xff242424u);text(p,"16 Levels",108,2,102,25,13,s->synth_keys?AMBER:WHITE,1);
+    rect(p,108,2,102,26,page==2?0xff4a3a10u:0xff242424u);text(p,"16 Levels",108,2,102,25,13,s->synth_keys?AMBER:WHITE,1);
     rect(p,214,2,104,26,0xff242424u);text(p,"Hold note",214,2,104,25,13,AMBER,1);
-    for(unsigned t=0;t<3;++t){int x=4+(int)t*104;
-        text(p,tabs[t],x,31,100,18,14,t==page?AMBER:GREY,1);
-        if(t==page)rect(p,x+10,49,80,2,AMBER);}
-    /* graph area 8..312 x 56..152 */
-    rect(p,8,56,304,96,0xff141414u);
     struct synth_live live;int playing=am_synth_peek&&am_synth_peek(&live);if(!playing)memset(&live,0,sizeof live);
-    if(page==0){
+    /* top left: oscilloscope (Keys page: the 16 Levels pad grid) */
+    rect(p,4,32,152,96,0xff141414u);
+    if(page!=2){
         unsigned w=am_synth_param_get?am_synth_param_get(0):0,cut=am_synth_param_get?am_synth_param_get(1):100;
-        float amp=0.18f+0.82f*(live.peak*5.0f>1.0f?1.0f:live.peak*5.0f);
+        float amp=0.15f+0.85f*(live.peak*5.0f>1.0f?1.0f:live.peak*5.0f);
         float phase=(float)(s->now_ms%1000u)/1000.0f*(1.0f+live.bend*0.5f);
         float wob=live.mod*0.05f*sinf((float)(s->now_ms%1000u)/1000.0f*6.2831853f*5.5f);
-        for(unsigned i=0;i<76;++i){
-            float ph=(float)i/76.0f+phase+wob;ph-=(float)(int)ph;if(ph<0.0f)ph+=1.0f;
+        rect(p,6,80,148,1,0xff303030u);
+        for(unsigned i=0;i<36;++i){
+            float ph=(float)i/18.0f+phase+wob;ph-=(float)(int)ph;if(ph<0.0f)ph+=1.0f;
             float x=synth_wave_at(w,ph);
-            int h=(int)(x*40.0f*amp*(0.35f+0.65f*(float)cut/127.0f));int mid=104;
+            int h=(int)(x*42.0f*amp*(0.35f+0.65f*(float)cut/127.0f));
             uint32_t col=playing?AMBER:0xff806018u;
-            if(h>=0)rect(p,12+(int)i*4,mid-h,3,h+1,col);else rect(p,12+(int)i*4,mid,3,-h+1,col);
+            if(h>=0)rect(p,6+(int)i*4,80-h,3,h+1,col);else rect(p,6+(int)i*4,80,3,-h+1,col);
         }
-        int bh=(int)(live.peak*5.0f*90.0f);if(bh>90)bh=90;rect(p,300,148-bh,8,bh+1,AMBER);
-        char info[40];snprintf(info,sizeof info,"Voices %u",live.voices);text(p,info,12,58,80,12,10,GREY,0);
-    }else if(page==1){
-        unsigned a=am_synth_param_get?am_synth_param_get(2):0,d=am_synth_param_get?am_synth_param_get(3):0,su=am_synth_param_get?am_synth_param_get(4):0,r=am_synth_param_get?am_synth_param_get(5):0;
-        int wa=8+(int)(a*70/127),wd=8+(int)(d*70/127),ws=50,wr=8+(int)(r*70/127);
-        int x=12,base=148,top=60,sus=base-(int)((float)(base-top)*(float)su/127.0f);
-        for(int i=0;i<wa;++i){int h=(int)((float)(base-top)*(float)i/(float)wa);rect(p,x+i,base-h,2,h+1,AMBER);}
-        x+=wa;
-        for(int i=0;i<wd;++i){int y=top+(int)((float)(sus-top)*(float)i/(float)wd);rect(p,x+i,y,2,base-y+1,AMBER);}
-        x+=wd;
-        for(int i=0;i<ws;++i)rect(p,x+i,sus,2,base-sus+1,0xffa07020u);
-        x+=ws;
-        for(int i=0;i<wr;++i){int y=sus+(int)((float)(base-sus)*(float)i/(float)wr);rect(p,x+i,y,2,base-y+1,AMBER);}
-        if(playing&&live.env_stage){
-            int mx=12,lvl=base-(int)((float)(base-top)*live.env_level);
-            if(live.env_stage==1)mx=12+(int)(live.env_level*(float)wa);
-            else if(live.env_stage==2){float susf=(float)su/127.0f;float t=susf<1.0f?(1.0f-live.env_level)/(1.0f-susf):1.0f;mx=12+wa+(int)(t*(float)wd);}
-            else if(live.env_stage==3)mx=12+wa+wd+ws/2;
-            else{float susf=(float)su/127.0f;float t=susf>0.0f?1.0f-live.env_level/susf:1.0f;mx=12+wa+wd+ws+(int)(t*(float)wr);}
-            rect(p,mx-3,lvl-3,7,7,WHITE);
-        }
+        char info[24];snprintf(info,sizeof info,"Voices %u",live.voices);text(p,info,8,33,70,11,10,GREY,0);
     }else{
+        static const char*const nm[12]={"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
+        int rt=((int)s->synth_root+(int)s->synth_transpose-12);
         for(unsigned row=0;row<4;++row)for(unsigned col=0;col<4;++col){
-            unsigned pad=(3-row)*4+col;char n[16];unsigned note=am_synth_key_note?am_synth_key_note(s->synth_layout,s->synth_root,s->synth_scale,s->synth_octave,pad):pad;
-            static const char*const nm[12]={"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
+            unsigned pad=(3-row)*4+col;char n[16];
+            unsigned note=am_synth_key_note?am_synth_key_note(s->synth_layout,rt,s->synth_scale,s->synth_octave,pad):pad;
             snprintf(n,sizeof n,"%s%d",nm[note%12],(int)(note/12)-1);
-            int cx=12+(int)col*74,cy=60+(int)row*23;int root=note%12==s->synth_root%12;
+            int cx=6+(int)col*37,cy=35+(int)row*23;
             int on=playing&&((live.notes[note>>5]>>(note&31))&1u);
-            rect(p,cx,cy,70,21,on?AMBER:root?0xff4a3a10u:0xff242424u);text(p,n,cx,cy,70,20,13,on?BLACK:root?AMBER:WHITE,1);
+            int root=(int)(note%12)==((rt%12)+12)%12;
+            rect(p,cx,cy,35,21,on?AMBER:root?0xff4a3a10u:0xff242424u);text(p,n,cx,cy,35,20,11,on?BLACK:root?AMBER:WHITE,1);
         }
     }
-    char hn[3][24],hv[3][16],dn[3][24],dv[3][16];
-    for(unsigned k=0;k<3;++k){
-        synth_text(s,mixer_view_synth_slot(page,k,0),dn[k],sizeof dn[k],dv[k],sizeof dv[k]);
-        synth_text(s,mixer_view_synth_slot(page,k,1),hn[k],sizeof hn[k],hv[k],sizeof hv[k]);
+    /* top right: module scheme (pages) */
+    char sum[3][96],a[24],b[24],c[24],d[24];
+    synth_text(s,0,a,sizeof a,b,sizeof b);synth_text(s,1,c,sizeof c,d,sizeof d);
+    snprintf(sum[0],sizeof sum[0],"%s  Cut %u",b,am_synth_param_get?am_synth_param_get(1):0);
+    sum[1][0]=0;
+    {char l[24],lv[24],r[24],rv[24];synth_text(s,10,l,sizeof l,lv,sizeof lv);synth_text(s,11,r,sizeof r,rv,sizeof rv);snprintf(sum[2],sizeof sum[2],"%s  %s  Oct %u",lv,rv,s->synth_octave);}
+    for(unsigned m=0;m<3;++m){
+        int y=32+(int)m*33,sel=m==page;
+        rect(p,164,y,152,30,sel?0xff4a3a10u:0xff1c1c1cu);
+        if(sel){rect(p,164,y,3,30,AMBER);}
+        text(p,mods[m],172,y+1,74,13,12,sel?AMBER:WHITE,0);
+        if(m==1)synth_adsr_mini(p,172,y+15,136,13,sel);
+        else text(p,sum[m],172,y+15,140,12,10,GREY,0);
+        if(m<2)rect(p,238,y+30,2,3,0xff606060u);
     }
-    char line[96];snprintf(line,sizeof line,"Shift:  %s  /  %s  /  %s",hn[0][0]?hn[0]:"-",hn[1][0]?hn[1]:"-",hn[2][0]?hn[2]:"-");
-    text(p,line,8,156,304,14,11,GREY,0);
-    text(p,s->synth_pick?"Pads 1-3: Tone / Envelope / Keys":s->synth_keys?"16 Levels on: pads play notes   Loop: pages":"Pads: other entities   16 Levels: keys   Loop: pages",8,172,304,12,10,s->synth_pick?AMBER:GREY,0);
+    text(p,s->synth_pick?"Pads 1-3: Tone / Envelope / Keys":"Loop: pages   B2: 16 Levels setup   DATA: page",8,131,304,11,10,s->synth_pick?AMBER:GREY,0);
+    /* bottom: knobs of the selected page, direct + Shift */
     for(unsigned k=0;k<3;++k){
-        int x=(int)k*106;const char*nn=s->synth_shift?hn[k]:dn[k],*vv=s->synth_shift?hv[k]:dv[k];
-        rect(p,x+2,209,k==2?105:102,31,0xff202020u);
-        text(p,nn,x+3,210,k==2?104:100,11,10,GREY,1);
-        text(p,vv,x+3,222,k==2?104:100,16,13,AMBER,1);
+        int x=(int)k*106,w=k==2?105:102;
+        int idd=mixer_view_synth_slot(page,k,0),ids=mixer_view_synth_slot(page,k,1);
+        int idm=s->synth_shift?ids:idd,ido=s->synth_shift?idd:ids;
+        char nn[24],vv[16],on[24],ov[16];
+        synth_text(s,idm,nn,sizeof nn,vv,sizeof vv);synth_text(s,ido,on,sizeof on,ov,sizeof ov);
+        rect(p,x+2,144,w,94,0xff202020u);
+        text(p,nn[0]?nn:"-",x+4,146,w-4,12,11,GREY,1);
+        text(p,vv,x+4,160,w-4,20,17,AMBER,1);
+        rect(p,x+8,186,w-12,6,0xff383838u);
+        int fw=(int)(synth_frac(s,idm)*(float)(w-12));if(fw>0)rect(p,x+8,186,fw,6,AMBER);
+        char line[96];if(ido>=0)snprintf(line,sizeof line,"%s: %s %s",s->synth_shift?"Direct":"Shift",on,ov);else snprintf(line,sizeof line,"%s: -",s->synth_shift?"Direct":"Shift");
+        text(p,line,x+4,200,w-4,12,10,GREY,1);
+        rect(p,x+8,218,w-12,1,0xff303030u);
     }
 }
 void mixer_view_paint(const struct mixer_view_state*s,const struct resample_painter*p)
