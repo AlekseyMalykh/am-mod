@@ -46,9 +46,16 @@ struct mixer_view_state {
     unsigned input_tab; /* Input page: 1 FX, 2 ROUTE (B1 is Back) */
     unsigned input_edit; /* ROUTE: the selected row is being edited with the encoder */
     unsigned input_tuner; /* Input: the full-screen tuner window is open */
+    unsigned synth_pick; /* Loop held: pads 1-3 jump between synth pages */
     unsigned synth_page,synth_shift,synth_cursor,synth_keys,synth_layout,synth_root,synth_scale,synth_octave; /* synth_keys: 16 Levels keyboard on pads */ /* trial synth window (Mixer pad 13) */
     double rate;
 };
+/* synth param id (0-9) or key setting (10-13) on a K knob, -1 none */
+static inline int mixer_view_synth_slot(unsigned page,unsigned knob,unsigned shift)
+{
+    static const signed char slot[3][3][2]={{{0,6},{1,8},{7,9}},{{2,3},{4,5},{-1,-1}},{{10,13},{11,-1},{12,-1}}};
+    return page<3&&knob<3&&shift<2?slot[page][knob][shift]:-1;
+}
 static inline const struct mixer_channel*mixer_view_selected(const struct mixer_view_state*s)
 {return s->master==2?&s->project->input:s->master?&s->project->master:s->project->track+s->primary;}
 /* Routing Pads addresses sounds; Sends/Sidechain address Mixer tracks. */

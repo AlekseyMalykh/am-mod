@@ -21,6 +21,7 @@ extern "C" {
 
 #define FIELD(p,o,T) (*reinterpret_cast<T *>(reinterpret_cast<char *>(p)+(o)))
 extern "C" int am_synth_active(void) __attribute__((weak));
+extern "C" int am_synth_mic_muted(void) __attribute__((weak));
 extern "C" void am_synth_render_add(float *,float *,unsigned) __attribute__((weak));
 extern "C" void pad_source_layer_sample(void *,int,uintptr_t *,uintptr_t);
 extern "C" void rear_load_sample(void *,const uint64_t *,uintptr_t *,uintptr_t,float);
@@ -300,6 +301,8 @@ extern "C" void *rear_native_process(void *thread, void *position, void *buffer,
         for (int ch = 0; ch < channels && ch < 8; ++ch) if (pcm[ch]) std::memset(pcm[ch],0,(size_t)frames*sizeof(float));
     }
     static float synth_keep[2][8192]; int synth_direct = 0;
+    if (am_synth_mic_muted && am_synth_mic_muted() && pcm && frames > 0 && frames <= 8192)
+        for (int ch = 0; ch < channels && ch < 8; ++ch) if (pcm[ch]) std::memset(pcm[ch],0,(size_t)frames*sizeof(float)); /* synth replaces the microphone */
     if (am_synth_active && am_synth_render_add && am_synth_active() && pcm && frames > 0 && frames <= 8192 && channels >= 1 && pcm[0])
     {
         static float synth_out[2][8192];

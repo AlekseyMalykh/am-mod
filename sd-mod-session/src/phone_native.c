@@ -606,6 +606,7 @@ static void mixer_publish_route(void)
     else if ((state & MIXER_OPEN) && view.project && !mixer_view_sound_pads(&view)) {
         for (unsigned i=0;i<16;++i) {
             uint64_t light = 0;
+            if (view.synth_page && view.synth_pick) { atomic_store(&mixer_select_lights[i], i<3 ? pad_light(0xb060ffu, view.synth_cursor==i ? .95f : .35f) : (uint64_t)0); continue; } /* Loop: page pads */
             if (view.synth_page && view.synth_keys) { atomic_store(&mixer_select_lights[i], pad_light(0xb060ffu, (i%(view.synth_layout?(view.synth_scale>=6?6u:view.synth_scale>=4?5u:7u):12u))==0 ? .90f : .30f)); continue; } /* keyboard: C bright */
             if (i < 8) {
                 int on = !view.master && (view.selected & (1u<<i));

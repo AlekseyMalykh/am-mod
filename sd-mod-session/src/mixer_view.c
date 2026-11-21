@@ -1238,42 +1238,86 @@ void mixer_view_tuner(const struct resample_painter*p)
     mixer_view_tuner_ex(p,"Input",have,hz,"Play or sing a note","");
 }
 extern unsigned am_synth_param_get(unsigned) __attribute__((weak));
+extern unsigned am_synth_key_note(unsigned,unsigned,unsigned,unsigned,unsigned) __attribute__((weak));
+static void synth_text(const struct mixer_view_state*s,int id,char*name,size_t nn,char*val,size_t vn)
+{
+    static const char*const names[14]={"Wave","Cutoff","Attack","Decay","Sustain","Release","Level","MIDI channel","Mic","Fader","Layout","Root","Scale","Octave"};
+    static const char*const waves[4]={"Sine","Saw","Square","Triangle"};
+    static const char*const lay[2]={"Chromatic","Scale"};
+    static const char*const root[12]={"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
+    static const char*const scl[7]={"Major","Minor","Dorian","Mixolydian","Pent maj","Pent min","Blues"};
+    if(id<0||id>13){name[0]=val[0]=0;return;}
+    snprintf(name,nn,"%s",names[id]);
+    unsigned v=id<10&&am_synth_param_get?am_synth_param_get((unsigned)id):0;
+    switch(id){
+        case 0:snprintf(val,vn,"%s",waves[v%4]);break;
+        case 7:snprintf(val,vn,"%u",v+1);break;
+        case 8:snprintf(val,vn,"%s",v?"On":"Off");break;
+        case 9:snprintf(val,vn,"%s",v==1?"Mod":v==2?"Pitch":"Off");break;
+        case 10:snprintf(val,vn,"%s",lay[s->synth_layout%2]);break;
+        case 11:snprintf(val,vn,"%s",root[s->synth_root%12]);break;
+        case 12:snprintf(val,vn,"%s",scl[s->synth_scale%7]);break;
+        case 13:snprintf(val,vn,"%u",s->synth_octave);break;
+        default:snprintf(val,vn,"%u",v);
+    }
+}
+static float synth_wave_at(unsigned w,float ph)
+{
+    return w==0?sinf(6.2831853f*ph):w==1?2.0f*ph-1.0f:w==2?(ph<0.5f?1.0f:-1.0f):(ph<0.5f?4.0f*ph-1.0f:3.0f-4.0f*ph);
+}
 void mixer_view_synth(const struct mixer_view_state*s,const struct resample_painter*p)
 {
-    static const char*const waves[4]={"Sine","Saw","Square","Triangle"};
-    static const char*const names[8]={"Wave","Cutoff","Attack","Decay","Sustain","Release","Level","MIDI channel"};
-    static const unsigned plain[3]={0,1,6},fine[3]={2,3,5};
-    char value[8][16];
-    for(unsigned i=0;i<8;++i){unsigned v=am_synth_param_get?am_synth_param_get(i):0;if(i==0)snprintf(value[i],sizeof value[i],"%s",waves[v%4]);else if(i==7)snprintf(value[i],sizeof value[i],"%u",v+1);else snprintf(value[i],sizeof value[i],"%u",v);}
+    static const char*const tabs[3]={"Tone","Envelope","Keys"};
+    unsigned page=s->synth_cursor%3;
     rect(p,0,0,320,240,BLACK);
     rect(p,2,2,102,26,0xff242424u);text(p,"Back",2,2,102,25,13,WHITE,1);
     rect(p,108,2,102,26,s->synth_keys?0xff4a3a10u:0xff242424u);text(p,"16 Levels",108,2,102,25,13,s->synth_keys?AMBER:WHITE,1);
     rect(p,214,2,104,26,0xff242424u);text(p,"Hold note",214,2,104,25,13,AMBER,1);
-    text(p,"Synth",4,30,312,22,17,AMBER,1);
-    for(unsigned i=0;i<8;++i){
-        int y=52+(int)i*17;
-        if(i==s->synth_cursor)rect(p,4,y,312,16,0xff302412u);
-        text(p,names[i],12,y,140,16,13,i==s->synth_cursor?AMBER:WHITE,0);
-        text(p,value[i],170,y,140,16,13,i==s->synth_cursor?AMBER:WHITE,0);
+    for(unsigned t=0;t<3;++t){int x=4+(int)t*104;
+        text(p,tabs[t],x,31,100,18,14,t==page?AMBER:GREY,1);
+        if(t==page)rect(p,x+10,49,80,2,AMBER);}
+    /* graph area 8..312 x 56..152 */
+    rect(p,8,56,304,96,0xff141414u);
+    if(page==0){
+        unsigned w=am_synth_param_get?am_synth_param_get(0):0,cut=am_synth_param_get?am_synth_param_get(1):100;
+        for(unsigned i=0;i<76;++i){
+            float x=synth_wave_at(w,(float)i/76.0f);
+            int h=(int)(x*38.0f*(0.35f+0.65f*(float)cut/127.0f));int mid=104;
+            if(h>=0)rect(p,12+(int)i*4,mid-h,3,h+1,AMBER);else rect(p,12+(int)i*4,mid,3,-h+1,AMBER);
+        }
+    }else if(page==1){
+        unsigned a=am_synth_param_get?am_synth_param_get(2):0,d=am_synth_param_get?am_synth_param_get(3):0,su=am_synth_param_get?am_synth_param_get(4):0,r=am_synth_param_get?am_synth_param_get(5):0;
+        int wa=8+(int)(a*70/127),wd=8+(int)(d*70/127),ws=50,wr=8+(int)(r*70/127);
+        int x=12,base=148,top=60,sus=base-(int)((float)(base-top)*(float)su/127.0f);
+        for(int i=0;i<wa;++i){int h=(int)((float)(base-top)*(float)i/(float)wa);rect(p,x+i,base-h,2,h+1,AMBER);}
+        x+=wa;
+        for(int i=0;i<wd;++i){int y=top+(int)((float)(sus-top)*(float)i/(float)wd);rect(p,x+i,y,2,base-y+1,AMBER);}
+        x+=wd;
+        for(int i=0;i<ws;++i)rect(p,x+i,sus,2,base-sus+1,0xffa07020u);
+        x+=ws;
+        for(int i=0;i<wr;++i){int y=sus+(int)((float)(base-sus)*(float)i/(float)wr);rect(p,x+i,y,2,base-y+1,AMBER);}
+    }else{
+        for(unsigned row=0;row<4;++row)for(unsigned col=0;col<4;++col){
+            unsigned pad=(3-row)*4+col;char n[16];unsigned note=am_synth_key_note?am_synth_key_note(s->synth_layout,s->synth_root,s->synth_scale,s->synth_octave,pad):pad;
+            static const char*const nm[12]={"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
+            snprintf(n,sizeof n,"%s%d",nm[note%12],(int)(note/12)-1);
+            int cx=12+(int)col*74,cy=60+(int)row*23;int root=note%12==s->synth_root%12;
+            rect(p,cx,cy,70,21,root?0xff4a3a10u:0xff242424u);text(p,n,cx,cy,70,20,13,root?AMBER:WHITE,1);
+        }
     }
-    text(p,s->synth_keys?"16 Levels on: pads play notes":"Pads: other entities   16 Levels: keys",8,196,304,12,10,GREY,0);
-    if(s->synth_keys){
-        static const char*const lay[2]={"Chromatic","Scale"};
-        static const char*const root[12]={"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
-        static const char*const scl[7]={"Major","Minor","Dorian","Mixolydian","Pent maj","Pent min","Blues"};
-        char oct[8];snprintf(oct,sizeof oct,"%u",s->synth_octave);
-        const char*lab[3]={s->synth_shift?"Octave":"Layout",s->synth_shift?"":"Root",s->synth_shift?"":"Scale"};
-        const char*val[3]={s->synth_shift?oct:lay[s->synth_layout%2],s->synth_shift?"":root[s->synth_root%12],s->synth_shift?"":scl[s->synth_scale%7]};
-        for(unsigned k=0;k<3;++k){int x=(int)k*106;rect(p,x+2,209,k==2?105:102,31,0xff202020u);
-            text(p,lab[k],x+3,210,k==2?104:100,11,10,GREY,1);text(p,val[k],x+3,222,k==2?104:100,16,13,AMBER,1);}
-        return;
-    }
-    const unsigned*map=s->synth_shift?fine:plain;
+    char hn[3][24],hv[3][16],dn[3][24],dv[3][16];
     for(unsigned k=0;k<3;++k){
-        int x=(int)k*106;
+        synth_text(s,mixer_view_synth_slot(page,k,0),dn[k],sizeof dn[k],dv[k],sizeof dv[k]);
+        synth_text(s,mixer_view_synth_slot(page,k,1),hn[k],sizeof hn[k],hv[k],sizeof hv[k]);
+    }
+    char line[96];snprintf(line,sizeof line,"Shift:  %s  /  %s  /  %s",hn[0][0]?hn[0]:"-",hn[1][0]?hn[1]:"-",hn[2][0]?hn[2]:"-");
+    text(p,line,8,156,304,14,11,GREY,0);
+    text(p,s->synth_pick?"Pads 1-3: Tone / Envelope / Keys":s->synth_keys?"16 Levels on: pads play notes   Loop: pages":"Pads: other entities   16 Levels: keys   Loop: pages",8,172,304,12,10,s->synth_pick?AMBER:GREY,0);
+    for(unsigned k=0;k<3;++k){
+        int x=(int)k*106;const char*nn=s->synth_shift?hn[k]:dn[k],*vv=s->synth_shift?hv[k]:dv[k];
         rect(p,x+2,209,k==2?105:102,31,0xff202020u);
-        text(p,names[map[k]],x+3,210,k==2?104:100,11,10,GREY,1);
-        text(p,value[map[k]],x+3,222,k==2?104:100,16,13,AMBER,1);
+        text(p,nn,x+3,210,k==2?104:100,11,10,GREY,1);
+        text(p,vv,x+3,222,k==2?104:100,16,13,AMBER,1);
     }
 }
 void mixer_view_paint(const struct mixer_view_state*s,const struct resample_painter*p)

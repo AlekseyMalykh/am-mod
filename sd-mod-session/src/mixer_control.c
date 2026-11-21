@@ -5,6 +5,7 @@
 extern unsigned am_synth_param_get(unsigned) __attribute__((weak));
 extern void am_synth_param_set(unsigned,unsigned) __attribute__((weak));
 extern void am_synth_note(unsigned,unsigned,int) __attribute__((weak));
+extern void am_synth_fader(unsigned) __attribute__((weak));
 extern unsigned rear_setting(unsigned,unsigned) __attribute__((weak));
 extern int rear_set_setting(unsigned,unsigned,unsigned) __attribute__((weak));
 extern int rear_native_source(void) __attribute__((weak));
@@ -111,7 +112,7 @@ int mixer_control_open(struct mixer_control*c,int ready,int blocked)
     clear_fx_page(c);c->name_since=0;
     c->view.route_tab=c->view.route_focus=0;
     if(c->view.master==2)c->view.master=1;
-    c->view.synth_page=0;c->view.synth_keys=0;c->active=1;c->view.page=MIXER_OVERVIEW;c->temporary=0;c->held_tracks=0;
+    c->view.synth_page=0;c->view.synth_keys=0;c->view.synth_pick=0;c->active=1;c->view.page=MIXER_OVERVIEW;c->temporary=0;c->held_tracks=0;
     c->view.cursor=c->view.scroll=c->view.colour_edit=c->view.fx_delete=0;c->message="";++c->ticket;pickup(c);return 1;
 }
 int mixer_control_reject(struct mixer_control*c,uint64_t revision,const char *reason)
@@ -133,25 +134,27 @@ static void synth_release_all(struct mixer_control*c){
     if(am_synth_note){for(unsigned i=0;i<16;++i)if(c->synth_notes&(1u<<i))am_synth_note(c->synth_pad_note[i],0,0);if(c->synth_hold)am_synth_note(60,0,0);}
     c->synth_notes=c->synth_hold=0;
 }
+static void synth_set_slot(struct mixer_control*c,int id,unsigned value){
+    if(id<0)return;
+    if(id<10){
+        if(!am_synth_param_set)return;
+        unsigned v=id==0?value*4/128:id==7?value*16/128:id==8?value*2/128:id==9?value*3/128:value;
+        am_synth_param_set((unsigned)id,v);
+    }else if(id==10)c->view.synth_layout=value*2/128;
+    else if(id==11)c->view.synth_root=value*12/128;
+    else if(id==12)c->view.synth_scale=value*7/128;
+    else if(id==13)c->view.synth_octave=value*8/128;
+}
 static void synth_control(struct mixer_control*c,unsigned cc,unsigned value){
-    static const unsigned plain[3]={0,1,6},fine[3]={2,3,5};
-    if(!am_synth_param_set||!am_synth_param_get)return;
-    if(c->view.synth_keys&&cc>=0x10&&cc<=0x12){
-        if(cc==0x10){if(c->shift)c->view.synth_octave=value*8/128;else c->view.synth_layout=value*2/128;}
-        else if(cc==0x11)c->view.synth_root=value*12/128;
-        else c->view.synth_scale=value*7/128;
-        return;
-    }
-    if(cc>=0x10&&cc<=0x12){unsigned i=(c->shift?fine:plain)[cc-0x10];am_synth_param_set(i,i==0?value*4/128:i==7?value*16/128:value);c->view.synth_cursor=i;}
+    if(cc==0x14){if(am_synth_fader)am_synth_fader(value);return;}
+    if(cc>=0x10&&cc<=0x12)synth_set_slot(c,mixer_view_synth_slot(c->view.synth_cursor,cc-0x10,c->shift?1:0),value);
     else if(cc==0x64){int d=value>64?(int)value-128:value==64?0:(int)value;if(d){
-        int n=(int)am_synth_param_get(c->view.synth_cursor)+d;unsigned i=c->view.synth_cursor;
-        if(c->shift){if(i==0)n=(n%4+4)%4;else if(i==7)n=(n%16+16)%16;am_synth_param_set(i,n<0?0:(unsigned)n);}
-        else{int m=(int)i+d;c->view.synth_cursor=m<0?0:m>7?7:(unsigned)m;}
+        int m=(int)c->view.synth_cursor+(d>0?1:-1);c->view.synth_cursor=m<0?0:m>2?2:(unsigned)m;
     }}
 }
 void mixer_control_close(struct mixer_control*c)
 {
-    if(c){synth_release_all(c);c->view.synth_page=0;c->view.synth_keys=0;c->active=0;c->naming=0;c->temporary=0;c->held_tracks=0;c->shift=c->view.colour_edit=0;++c->ticket;pickup(c);}
+    if(c){synth_release_all(c);c->view.synth_page=0;c->view.synth_keys=0;c->view.synth_pick=0;c->active=0;c->naming=0;c->temporary=0;c->held_tracks=0;c->shift=c->view.colour_edit=0;++c->ticket;pickup(c);}
 }
 int mixer_control_active(const struct mixer_control*c){return c&&c->active;}
 uint64_t mixer_control_name_light(const struct mixer_control*c,unsigned pad)
@@ -358,9 +361,10 @@ int mixer_control_focus_sound_fx(struct mixer_control*c,unsigned sound)
 }
 int mixer_control_button(struct mixer_control*c,enum mixer_action action,int down,uint64_t ticket)
 {
-    if(!c||(unsigned)action>MIXER_LEVELS)return 0;
+    if(!c||(unsigned)action>MIXER_LOOP)return 0;
     unsigned bit=1u<<action;
-    if(action==MIXER_LEVELS&&!(c->active&&c->view.synth_page&&!c->naming))return 0; /* stock 16 Levels elsewhere */
+    if((action==MIXER_LEVELS||action==MIXER_LOOP)&&!(c->active&&c->view.synth_page&&!c->naming)){if(action==MIXER_LOOP)c->view.synth_pick=0;return 0;} /* stock 16 Levels / Loop elsewhere */
+    if(action==MIXER_LOOP){c->view.synth_pick=down!=0;return 1;}
     if(action==MIXER_SHIFT){
         if(c->shift!=(down!=0))pickup(c);
         c->shift=down!=0;
@@ -624,6 +628,7 @@ int mixer_control_pad(struct mixer_control*c,unsigned pad,int down,uint64_t tick
     if(ticket!=c->ticket)return 1;
     if(!down)return 1;
     c->owned_pads|=bit;
+    if(c->view.synth_page&&!c->naming&&c->view.synth_pick){if(pad<3)c->view.synth_cursor=pad;return 1;}
     if(c->view.synth_page&&!c->naming&&pad!=12&&!c->view.synth_keys){synth_release_all(c);c->view.synth_page=0;} /* pads navigate to other entities */
     if(c->view.synth_page&&!c->naming){if(c->view.synth_keys&&am_synth_note){unsigned n=synth_key_note(c,pad);c->synth_pad_note[pad]=(uint8_t)n;am_synth_note(n,100,1);c->synth_notes|=bit;}return 1;}
     if(pad==12&&!c->naming&&!c->view.fx_delete&&(c->view.page==MIXER_OVERVIEW||c->view.page==MIXER_KNOB_FX)&&am_synth_note){c->view.synth_page=1;c->view.synth_cursor=0;c->owned_pads&=~bit;return 1;}
@@ -950,7 +955,7 @@ static int raw_cc(struct mixer_control*c,unsigned cc,unsigned value,uint64_t tic
     if(!c||!c->active)return 0;
     if(cc!=0x10&&cc!=0x11&&cc!=0x12&&cc!=0x14&&cc!=0x64)return 0;
     if(ticket!=c->ticket||value>127)return 1;
-    if(c->view.synth_page){if(cc!=0x14)synth_control(c,cc,value);return 1;}
+    if(c->view.synth_page){synth_control(c,cc,value);return 1;}
     if(INPUT_PAGE(c)&&c->view.input_tuner)return 1;
     if(c->naming){
         if(cc==0x10&&c->name.enabled!=(value>=64))phone_enable(&c->name,value>=64);
@@ -1054,7 +1059,7 @@ static float takeover_target(struct mixer_control*c,unsigned cc){
  return -1;
 }
 int mixer_control_cc(struct mixer_control*c,unsigned cc,unsigned value,uint64_t ticket){
- if(c&&c->active&&ticket==c->ticket&&c->view.synth_page&&value<=127&&(cc==0x10||cc==0x11||cc==0x12||cc==0x64)){synth_control(c,cc,value);return 1;}
+ if(c&&c->active&&ticket==c->ticket&&c->view.synth_page&&value<=127&&(cc==0x10||cc==0x11||cc==0x12||cc==0x14||cc==0x64)){synth_control(c,cc,value);return 1;}
  if(!c||!c->active||ticket!=c->ticket||value>127||!(cc==0x14||(cc>=0x10&&cc<=0x12)))return raw_cc(c,cc,value,ticket);
  unsigned slot=cc==0x14?3:cc-0x10;
  unsigned mode=c->takeover_mode[slot==3?2:c->view.page==MIXER_KNOB_FX?1:0];

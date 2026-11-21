@@ -6,6 +6,7 @@
 #include <string.h>
 #include <time.h>
 extern void am_synth_midi(const unsigned char*,unsigned) __attribute__((weak));
+extern void am_synth_key(const unsigned char*,unsigned) __attribute__((weak));
 _Static_assert(sizeof(struct am_midi_map)==8,"Explicit map wire fields");
 static _Atomic uint64_t maps[128];
 static _Atomic int native_notes[128];
@@ -88,7 +89,7 @@ int am_midi_mode_get(struct am_midi_mode*m){
 }
 int am_midi_mode_active(void){for(unsigned i=0;i<16;++i)if(atomic_load(mode_pad+i))return 1;return atomic_load(&mode_word)&255;}
 static int mode_valid(const struct am_midi_mode*m){
- if(!m||m->mode>AM_MIDI_MODE_CHANNELS||m->channel>16||m->root>127)return 0;
+ if(!m||m->mode>AM_MIDI_MODE_INSTRUMENT||m->channel>16||m->root>127)return 0;
  for(unsigned i=0;i<16;++i)if(m->pad[i]>128||m->kind[i]>AM_MIDI_KEY_CHOP)return 0;
  return 1;
 }
@@ -169,6 +170,10 @@ static int translate_impl(struct am_midi_router*r,unsigned direction,unsigned po
     if(status>=0xf0||num>=128||in->size!=3)return 1;
     int on=kind==0x90&&in->data[2],off=kind==0x80||(kind==0x90&&!in->data[2]);
     int cc_source=direction==AM_MIDI_IN&&kind==0xb0;
+    if(direction==AM_MIDI_IN&&(kind==0x90||kind==0x80||kind==0xe0||(kind==0xb0&&num==1))&&am_synth_key){
+        uint32_t w=atomic_load(&mode_word);unsigned mch=(w>>8)&255;
+        if((w&255)==AM_MIDI_MODE_INSTRUMENT&&(!mch||mch==ch+1)){am_synth_key(in->data,in->size);return 0;} /* Instrument: keys play the synth only */
+    }
     if(direction==AM_MIDI_IN&&(kind==0x90||kind==0x80||kind==0xb0)){
         unsigned mvalue=kind==0x80?0:in->data[2];
         for(unsigned i=0;i<AM_MIDI_BUTTON_SLOTS;++i){ /* modifier source: track held state, swallow */
@@ -346,7 +351,7 @@ void am_midi_observe(unsigned dir,unsigned port,const struct am_midi_message*m){
     if(dir==AM_MIDI_IN&&port>0&&port<3&&(atomic_load(&learn_pad)||atomic_load(&learn_btn))&&m->size==3&&((m->data[0]&0xf0)==0x90||(m->data[0]&0xf0)==0xb0)&&m->data[2]){uint64_t empty=0,value=((uint64_t)port<<32)|((uint64_t)m->data[0]<<16)|((uint64_t)m->data[1]<<8)|1;atomic_compare_exchange_strong(&learn_message,&empty,value);}
     if(dir==AM_MIDI_IN&&port>0&&port<3&&atomic_load(&learn_btn)&&m->size==3){uint64_t f=atomic_load(&learn_first);unsigned k=m->data[0]&0xf0;
         if(f&&(k==0x80||((k==0x90||k==0xb0)&&!m->data[2]))&&m->data[1]==(uint8_t)(f>>8)&&(uint8_t)port==(uint8_t)(f>>32)&&((f>>16)&15)==(m->data[0]&15u))atomic_store(&learn_rel,1);}
-    if(dir==AM_MIDI_IN&&am_synth_midi)am_synth_midi(m->data,m->size);
+    if(dir==AM_MIDI_IN&&am_synth_midi&&(atomic_load(&mode_word)&255)!=AM_MIDI_MODE_INSTRUMENT)am_synth_midi(m->data,m->size);
     if(atomic_load(&paused))return;
     if(pthread_mutex_trylock(&log_lock)){atomic_fetch_add(&dropped,1);return;}
     unsigned at=(log_head+log_used)%AM_MIDI_LOG;if(log_used==AM_MIDI_LOG){at=log_head;log_head=(log_head+1)%AM_MIDI_LOG;}else ++log_used;

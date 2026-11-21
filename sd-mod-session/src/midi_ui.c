@@ -70,12 +70,12 @@ void am_midi_ui_tick(void*p){
 }
 static unsigned clamp(int n,unsigned hi);
 static const char*const synth_waves[]={"Sine","Saw","Square","Triangle"};
-static const char*const synth_names[]={"Wave","Cutoff","Attack","Decay","Sustain","Release","Level","MIDI channel"};
+static const char*const synth_names[]={"Wave","Cutoff","Attack","Decay","Sustain","Release","Level","MIDI channel","Mic","Fader"};
 static unsigned synth_cursor,synth_test;
-static void synth_value(char*s,size_t n,unsigned i){unsigned v=am_synth_param_get(i);if(i==0)snprintf(s,n,"%s",synth_waves[v%4]);else if(i==7)snprintf(s,n,"%u",v+1);else snprintf(s,n,"%u",v);}
+static void synth_value(char*s,size_t n,unsigned i){unsigned v=am_synth_param_get(i);if(i==0)snprintf(s,n,"%s",synth_waves[v%4]);else if(i==7)snprintf(s,n,"%u",v+1);else if(i==8)snprintf(s,n,"%s",v?"On":"Off");else if(i==9)snprintf(s,n,"%s",v==1?"Mod":v==2?"Pitch":"Off");else snprintf(s,n,"%u",v);}
 static void synth_paint(void*g){
  heads(g,"Back","",synth_test?"Playing":"Test C4");centre(g,"Synth",4,31,312,22,16,0xffffc247);
- for(unsigned i=0;i<AM_SYNTH_PARAMS;++i){int y=54+(int)i*16;char v[16];synth_value(v,sizeof v,i);
+ for(unsigned i=0;i<AM_SYNTH_PARAMS;++i){int y=52+(int)i*15;char v[16];synth_value(v,sizeof v,i);
   if(i==synth_cursor)rect(g,4,y,312,16,0xff302412);
   label(g,synth_names[i],12,y,140,16,13,i==synth_cursor?0xffffc247:0xffffffff);label(g,v,170,y,140,16,13,i==synth_cursor?0xffffc247:0xffffffff);}
  label(g,"DATA: row / change   B3: hold to play",8,186,304,12,10,0xff999999);
@@ -126,7 +126,15 @@ static void pad_name(char*s,size_t n,unsigned v){if(!v)snprintf(s,n,"-");else sn
 static void mode_paint(void*g){
  struct am_midi_mode m;am_midi_mode_get(&m);unsigned sel=mode_channel-1;
  heads(g,"Back","Map / Learn",music_ui_shift_active()?"Clear":"Mode");
- char title[48];snprintf(title,sizeof title,"MIDI Input: %s",m.mode==AM_MIDI_MODE_SELECTED?"Selected pad":m.mode==AM_MIDI_MODE_CHANNELS?"Channels":"Drum map");centre(g,title,4,31,312,20,15,0xffffc247);
+ char title[48];snprintf(title,sizeof title,"MIDI Input: %s",m.mode==AM_MIDI_MODE_SELECTED?"Selected pad":m.mode==AM_MIDI_MODE_CHANNELS?"Channels":m.mode==AM_MIDI_MODE_INSTRUMENT?"Instrument":"Drum map");centre(g,title,4,31,312,20,15,0xffffc247);
+ if(m.mode==AM_MIDI_MODE_INSTRUMENT){
+  centre(g,"Play the Synth instrument",8,72,304,24,17,0xffffffff);
+  centre(g,"Keys do not trigger pads",8,102,304,20,13,0xffaaaaaa);
+  centre(g,"Channel All or 1-16. Sound: Mixer pad 13.",8,139,304,30,11,0xff999999);
+  label(g,"B3: mode   Shift+B3: clear input settings",8,184,304,12,10,0xff999999);
+  char ch[12];if(m.channel)snprintf(ch,sizeof ch,"%u",m.channel);else snprintf(ch,sizeof ch,"All");
+  knob(g,0,"Channel",ch);knob(g,1,"Role","Synth");knob(g,2,"","");return;
+ }
  if(m.mode==AM_MIDI_MODE_SELECTED){
   centre(g,"Play the selected MPC pad",8,72,304,24,17,0xffffffff);
   centre(g,"Tune / 16 Levels from your keyboard",8,102,304,20,13,0xffaaaaaa);
@@ -153,12 +161,12 @@ static void mode_paint(void*g){
 }
 static void mode_assign_pad(unsigned p){
  struct am_midi_mode m;am_midi_mode_get(&m);unsigned i=mode_channel-1;
- if(m.mode==AM_MIDI_MODE_SELECTED)return;
+ if(m.mode==AM_MIDI_MODE_SELECTED||m.mode==AM_MIDI_MODE_INSTRUMENT)return;
  m.pad[i]=(uint8_t)(p+1);m.mode=AM_MIDI_MODE_CHANNELS;am_midi_mode_set(&m);
 }
 static void mode_control(unsigned code,unsigned v,int delta,unsigned shift){
  struct am_midi_mode m;am_midi_mode_get(&m);unsigned i=mode_channel-1;
- if(m.mode==AM_MIDI_MODE_SELECTED){
+ if(m.mode==AM_MIDI_MODE_SELECTED||m.mode==AM_MIDI_MODE_INSTRUMENT){
   if(code==0x10)m.channel=(uint8_t)(v*17/128);
   else if(code==0x12)m.root=(uint8_t)v;
   else if(code==0x64){int n=(int)m.channel+delta;m.channel=(uint8_t)(n<0?0:n>16?16:n);}
@@ -273,7 +281,7 @@ int am_midi_ui_button(void*e){
  else if(which==2){if(code==0x0d)am_midi_log_pause(!am_midi_log_paused());else if(code==0x0e){am_midi_log_clear();scroll_anchor=0;}else if(code==0x36)scroll_by(-7);else if(code==0x37)scroll_by(7);}
  else if(which==7){if(code==0x0e){synth_test=1;am_synth_note(60,100,1);}else if(code==0x6f)edit=!edit;}
  else if(which==6){if(code==0x0e)am_midi_button_clear();else if(code!=0x0c)am_midi_button_learn(code,1);}
- else if(which==5){if(code==0x0d){atomic_store(&page,3);edit=0;}else if(code==0x0e){struct am_midi_mode m;am_midi_mode_get(&m);if(music_ui_shift_active()){memset(&m,0,sizeof m);m.root=60;}else m.mode=m.mode==AM_MIDI_MODE_DRUM?AM_MIDI_MODE_CHANNELS:m.mode==AM_MIDI_MODE_CHANNELS?AM_MIDI_MODE_SELECTED:AM_MIDI_MODE_DRUM;am_midi_mode_set(&m);}}
+ else if(which==5){if(code==0x0d){atomic_store(&page,3);edit=0;}else if(code==0x0e){struct am_midi_mode m;am_midi_mode_get(&m);if(music_ui_shift_active()){memset(&m,0,sizeof m);m.root=60;}else m.mode=m.mode==AM_MIDI_MODE_DRUM?AM_MIDI_MODE_CHANNELS:m.mode==AM_MIDI_MODE_CHANNELS?AM_MIDI_MODE_SELECTED:m.mode==AM_MIDI_MODE_SELECTED?AM_MIDI_MODE_INSTRUMENT:AM_MIDI_MODE_DRUM;am_midi_mode_set(&m);}}
  else if(which>=3&&which!=7){if(code==0x0e||code==0x6f)edit=!edit;else if(code==0x0d){if(which==3)am_midi_learn(pad,!am_midi_learn_active());else if(map_layer){struct am_midi_map m;am_midi_layer_get(pad,&m,NULL);am_midi_layer_set(pad,&m,0);}else{struct am_midi_map m;am_midi_map_get(pad,&m);m.out_kind=m.out_port=m.out_channel=m.out_number=0;am_midi_map_set(pad,&m);}}else if(code==0x36||code==0x37)pad=clamp((int)pad+(code==0x36?1:-1),127);}
  repaint();return 1;
 }
