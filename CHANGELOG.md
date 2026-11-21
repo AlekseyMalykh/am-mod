@@ -1,5 +1,11 @@
 # Changelog
 
+## r30c — in development
+
+- Piano Roll shows the K2 grid value directly above the knob, independently of zoom.
+- Press Mute on the selected Piano Roll row to toggle that pad's local mute in the current sequence; red M marks muted rows, including the source pad's Tune/Chop layers.
+- Red SM now also appears in Piano Roll and ordinary Mixer/FX headers, with space reserved for the B3 caption.
+- D.S.B shared-mount SD Card Access and return to AM are confirmed on MPC. The new Piano Roll/Mixer UI changes still need final device verification.
 
 ## r30b — USB audio, SD access and updated effects
 

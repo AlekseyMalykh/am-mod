@@ -44,6 +44,7 @@ int step_native_control(void *event,uint64_t ticket);
 int step_native_button(void *event,uint64_t ticket); /* 0=unclaimed, 1=consumed, 2=observed; forward native */
 int step_native_button_at(void *event,uint64_t ticket,uint64_t when_ms);
 void step_native_pad(unsigned pad,uint64_t ticket);
+void step_native_pad_velocity(unsigned pad,uint64_t ticket,unsigned velocity);
 void step_native_pad_release(unsigned pad,uint64_t ticket);
 void step_native_audition_created(void *native_audition);
 void step_native_audition_bind(void *queues,void *current_things,void *sequencer_receiver);

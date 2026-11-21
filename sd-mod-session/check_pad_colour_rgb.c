@@ -7,7 +7,9 @@
 #include "src/values_bipolar.h"
 #include "src/phone_native.c"
 #include <assert.h>
+int workflow_blocks_sample_controls(void){return 0;}
 static int settings_visible;
+int music_ui_transfer_light(unsigned pad,uint64_t*out){(void)pad;(void)out;return 0;}
 int music_ui_pad_settings_visible(void){return settings_visible;}
 int music_ui_palette_light(unsigned pad,uint64_t *out){(void)pad;(void)out;return 0;}
 static int sample_visible=1,seq_visible,bank,levels_on,steps_on,events_visible,inside_rgb,compressor_visible;
@@ -119,6 +121,7 @@ static void __attribute__((unused)) pulse_checks(void){
  puts("PASS Seq pulse timing: stopped bar, playing beat, queued half-beat, visible background, all assigned hues, unchanged other-pad brightness, empty queue, tempo20..300, 3/4 and6/8, native clock interpolation/loop/stop and live tempo");
 }
 int main(void){
+ assert(music_set_led_vivid(0));
  void*p=mmap(NULL,0x7500000,7,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);assert(p!=MAP_FAILED);base=(uintptr_t)p;
  stub(phone_hooks[H_RGB].trampoline,capture);stub(0x23b00c0,convert);stub(phone_hooks[H_BUTTON_LIGHT].trampoline,indexed_capture);
  __builtin___clear_cache(p,(char*)p+0x7500000);music_reset();
@@ -166,6 +169,17 @@ int main(void){
  atomic_store(&pad_colour_cursor_white,1);atomic_store(&pad_colour_chop_phase,0);native_rgb(0,0xff7700);assert(sent[0]==PAD_SELECT);
  atomic_store(&pad_colour_cursor_white,0);atomic_store(&pad_colour_chop_phase,650);native_rgb(0,0xff7700);assert(sent[0]==music_identity_rgb(13));
  native_rgb(2,0x000080);assert(sent[2]==music_identity_rgb(13));native_rgb(3,0);assert(sent[3]==0);
+ assert(music_set_hide_play_cursor(1));transport=3;send_step_lights();
+ native_rgb(0,0xff7700);assert(sent[0]==music_identity_rgb(13));
+ native_rgb(2,0x000080);assert(sent[2]==music_identity_rgb(13));native_rgb(3,0);assert(!sent[3]);
+ transport=2;send_step_lights();atomic_store(&pad_colour_chop_phase,0);native_rgb(0,0xff7700);assert(sent[0]==PAD_SELECT);
+ /* Levels: cached base is used only for native selection; presses pass through. */
+ levels_type=1;struct music_sample layout;music_get_sample("Cursor levels",&layout);layout.root=0;layout.mode=MUSIC_SCALE;music_publish(&layout,0);
+ transport=3;send_step_lights();int replaced=0;uint64_t base_light=music_pad_light(music_published(),4,(int)levels_origin,&replaced);assert(replaced);
+ native_rgb(4,0xff7700);assert(sent[4]==(uint32_t)base_light);
+ native_rgb(4,0xff00cc);assert(sent[4]==0xff00cc);
+ transport=2;send_step_lights();native_rgb(4,0xff7700);assert(sent[4]==0xff7700);
+ assert(music_set_hide_play_cursor(0));
  levels_on=0;levels_type=0;levels_origin=0;
  sample_visible=0;seq_visible=1;seq_selected=-1;transport=0;seq_present=3;
  for(unsigned raw=0;raw<MUSIC_SEQUENCE_COLOURS;++raw){assert(music_set_sequence_colour(0,raw));send_step_lights();assert(sent[0]==scale(music_identity_rgb(raw),192));}

@@ -8,7 +8,7 @@ before={n:sha(R/n) for n in sources};stock=R.parent/'extracted_v1.3.0/partitions
 assert sha(stock)=='b6584cba76e416e432ad202509099d34373dc2c3d6a8fb625f5678bf0193b508'
 for name,flags in [('normal',[]),('ubsan',['-fsanitize=undefined','-static-libubsan','-fno-sanitize-recover=all'])]:
  target=O/name
- subprocess.run(['aarch64-linux-gnu-gcc','-O1','-g','-std=c11','-Wall','-Wextra','-Werror','-DMPC_PROJECT_RECOVERY=1','-DMPC_COMPRESSOR=1','-mbranch-protection=standard',*flags,'check_project_recovery.c','src/music_archive.c','src/music_settings.c','src/compressor_native.c','src/compressor_dsp.c','-pthread','-ldl','-lm','-Wl,--no-as-needed','-lstdc++','-o',str(target)],cwd=R,check=True)
+ subprocess.run(['aarch64-linux-gnu-gcc','-O1','-g','-std=c11','-Wall','-Wextra','-Werror','-ffunction-sections','-fdata-sections','-Wl,--gc-sections','-DMPC_PROJECT_RECOVERY=1','-DMPC_COMPRESSOR=1','-mbranch-protection=standard',*flags,'check_project_recovery.c','src/music_archive.c','src/music_settings.c','src/compressor_native.c','src/compressor_dsp.c','-pthread','-ldl','-lm','-Wl,--no-as-needed','-lstdc++','-o',str(target)],cwd=R,check=True)
  p=subprocess.run(['qemu-aarch64','-L','/home/user/mpc-rootfs-user-20260808',str(target),str(stock)],cwd=R,capture_output=True,text=True,timeout=30)
  (O/(name+'.log')).write_text(p.stdout+p.stderr);print(p.stdout+p.stderr,end='',flush=True);p.check_returncode()
 assert before=={n:sha(R/n) for n in sources}

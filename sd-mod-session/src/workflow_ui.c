@@ -11,7 +11,13 @@
 #include "project_recovery.h"
 #endif
 #include "browser_tree.h"
+#ifdef MPC_PROGRAM_IMPORT
+#include "program_import.h"
+#include "midi_file_native.h"
+#include <stdlib.h>
+#endif
 #include "preview_gain.h"
+#include "seq_audition.h"
 #include "ui_caption.h"
 #include <stdatomic.h>
 #include <stdio.h>
@@ -30,6 +36,18 @@
 #include "sample_mute.h"
 /* Weak default for host tests without music_ui.c; the real one is in music_ui.c. */
 __attribute__((weak)) unsigned music_ui_sequence_presence(unsigned bank){(void)bank;return 0;}
+/* Sample Swap Audition lives in seq_audition.c; harnesses without it still link. */
+__attribute__((weak)) void seq_audition_init(uintptr_t);
+__attribute__((weak)) int seq_audition_toggle(void*,unsigned,void*,char*,size_t);
+__attribute__((weak)) void seq_audition_tick(void*,void*,int);
+__attribute__((weak)) void seq_audition_off(const char*);
+__attribute__((weak)) int seq_audition_active(void);
+__attribute__((weak)) int seq_audition_state(void);
+__attribute__((weak)) int seq_audition_knob(unsigned);
+__attribute__((weak)) void seq_audition_info(char*,size_t);
+__attribute__((weak)) int seq_audition_view(struct seq_audition_view*);
+__attribute__((weak)) void seq_audition_preview(int);
+__attribute__((weak)) unsigned step_native_transport_state(void);
 #define FN(o,t) ((t)(base+(o)))
 #define FIELD(p,o,t) (*(t*)((char*)(p)+(o)))
 #define FILE_VPTR 0x6e1cfb8
@@ -139,6 +157,8 @@ static struct {void *parameter,*control;} master_bindings[8];
 static unsigned master_binding_count;
 static int volume_ready,volume_shown;static uint64_t volume_shown_at;
 static _Atomic unsigned volume_owned;
+static _Atomic unsigned audition_owned;
+static unsigned audition_button_pair;
 static void locate_tick(void);
 static char query_text[PHONE_MAX_CHARS*4+1];
 static char scan_query[PHONE_MAX_CHARS*4+1];
@@ -235,6 +255,8 @@ static void volume_refresh(void){
 int workflow_preview_worker(void*payload){
  void*p=FIELD(payload,8,void*);
  if(!atomic_load_explicit(&preview_allowed,memory_order_acquire))return 0;
+ /* Loading must always run: the native worker installs the candidate in
+  * the private instrument. Only its voice is muted after loading below. */
  /* The queued native payload is80 bytes: ref,owner,flags/padding,56-byte
   * SliceData. Modify only this owned copy, never the source SliceProperties.
   * Bit2 means OneShot, bit0 enables looping; keep the private audition
@@ -256,6 +278,12 @@ int workflow_preview_worker(void*payload){
  return 1;
 }
 void workflow_preview_played(void*payload){
+ if(atomic_load(&preview_allowed)&&seq_audition_preview)seq_audition_preview(1);
+ if(seq_audition_active&&seq_audition_active()&&step_native_transport_state&&(step_native_transport_state()&1u)){
+  void*owner=FIELD(payload,8,void*);void*program=owner?FIELD(owner,0x358,void*):NULL;
+  if(program)FN(0x286d8a0,void(*)(void*,unsigned,unsigned,unsigned,float))(program,0,FIELD(program,0x12f8,unsigned),1,0.f);
+ }
+
  if(atomic_load(&preview_allowed)&&atomic_load(&preview_range)
     &&FIELD(payload,8,uintptr_t)==atomic_load(&preview_owner))atomic_store(&preview_started,1);
 }
@@ -474,7 +502,7 @@ static void choose_result(void){
  void*service=FIELD(files,0x120,void*);int context=FIELD(files,0x1388,int);
  /* Exactly the stock primary action. Its callback retains its own File if
   * it starts an asynchronous load. No custom deserializer or path rewrite. */
- if(context==FILE_SAMPLES){void*t=note_native_context();if(!t||!result_pad_ready){FN(0xf0a290,void(*)(uint64_t*))(&chosen.file);browser_say("Choose a destination pad");return;}FN(0x28f9d60,void(*)(void*,int))(t,(int)result_pad);FN(0x14fc5a0,void(*)(void*,const void*))(service,&chosen);browser_say("Sample load requested; keep browsing");}
+ if(context==FILE_SAMPLES){if(seq_audition_off)seq_audition_off("load");void*t=note_native_context();if(!t||!result_pad_ready){FN(0xf0a290,void(*)(uint64_t*))(&chosen.file);browser_say("Choose a destination pad");return;}FN(0x28f9d60,void(*)(void*,int))(t,(int)result_pad);FN(0x14fc5a0,void(*)(void*,const void*))(service,&chosen);browser_say("Sample load requested; keep browsing");}
  else if(context==FILE_PROJECTS){clear_project_confirm();FN(0xf187a0,void(*)(void*,const void*))(&project_candidate,&chosen);project_confirm=1;}
  FN(0xf0a290,void(*)(uint64_t*))(&chosen.file);
 }
@@ -501,7 +529,7 @@ static void search_preview_update(void){
 static void preview_result(void){
  if(!sample_browser())return;
  search_preview_on=!search_preview_on;
- if(!search_preview_on)search_preview_stop();else search_preview_update();
+ if(!search_preview_on){search_preview_stop();if(seq_audition_preview)seq_audition_preview(0);}else search_preview_update();
  fprintf(stderr,"SEARCH PREVIEW_MODE on=%d\n",search_preview_on);
 }
 static void confirm_project(void){
@@ -543,7 +571,7 @@ static void locate_tick(void){
  }
  if(locate_row>=count)locate_row=0; /* Native listing arrives asynchronously. */
 }
-void workflow_init(uintptr_t b){base=b;}
+void workflow_init(uintptr_t b){base=b;if(seq_audition_init)seq_audition_init(b);}
 int workflow_install(void(*fp)(void*,void*),void(*cp)(void*,void*)){
  uintptr_t*slots[2]={(uintptr_t*)(base+FILE_VPTR+0xd8),(uintptr_t*)(base+COPY_VPTR+0xd8)};
  void(*callbacks[2])(void*,void*)={fp,cp};
@@ -640,8 +668,17 @@ static void startup_repaint_tick(void){
  startup_repaint_done=1;
  note_native_repaint_sample();
 }
+static void*audition_program(void){return volume_service?FIELD(volume_service,0x358,void*):NULL;}
+#ifdef MPC_PROGRAM_IMPORT
+#include "program_import_ui.inc"
+#endif
 int workflow_tick(void){
+#ifdef MPC_PROGRAM_IMPORT
+ program_tick();
+#endif
  project_cleanup_tick();
+ if(seq_audition_tick)seq_audition_tick(current_program(),audition_program(),files&&visible(files)&&sample_browser());
+ atomic_store(&audition_owned,files&&visible(files)&&sample_browser()&&seq_audition_active&&seq_audition_active());
  autoload_tick();
  startup_repaint_tick();
 #ifdef MPC_PROJECT_RECOVERY
@@ -660,7 +697,11 @@ int workflow_tick(void){
  if(atomic_exchange(&dead_chop,0)){chop_root=NULL;if(chop_host)batch_close();}
  atomic_store(&chop_available,MPC_EXPERIMENTAL_CHOP_EXPORT&&chop_actions_visible());
  if(atomic_load(&chop_available)&&!batch){void*c=FIELD(chop_root,0x108,void*);if(c)shift=FIELD(c,0x22a0,unsigned char)!=0;}
- if(atomic_exchange(&dead_files,0)){clear_locate();files=NULL;close_search();}
+ if(atomic_exchange(&dead_files,0)){
+#ifdef MPC_PROGRAM_IMPORT
+ if(program_page)program_close();
+#endif
+ clear_locate();files=NULL;close_search();}
  if(atomic_exchange(&dead_copy,0)){copy_root=NULL;batch_close();}
  if(batch_job)batch_job_tick();
  if(batch_leaving)batch_exit_tick();
@@ -716,13 +757,14 @@ int workflow_tick(void){
 int workflow_owns(unsigned kind,unsigned code){
  if(kind==2&&(code==0x51||code==0x52))return 0; /* Global Stop / Play. */
  if(kind==1&&code==0x13)return 0;
- if(kind==2&&code==0x31)return (atomic_load(&button_routes)&1u)!=0;
+ if(kind==2&&code==0x31)return (atomic_load(&button_routes)&3u)!=0;
  if(kind==2&&code==0x23&&atomic_load(&copy_bank_held))return 1;
  if(kind==2&&code==0x00&&(atomic_load(&button_routes)&2u))return 1; /* Knob FX over the browser */
  if(kind==2&&code==0x0e&&atomic_load(&split_forwarded))return 1;
  if(!atomic_load(&active))return 0;
  if(atomic_load(&custom))return 1;
  if(kind==1&&code==0x12&&atomic_load(&volume_owned))return 1;
+ if(kind==1&&code==0x11&&atomic_load(&audition_owned))return 1;
  if(kind!=2)return 0;
  /* The Sample root remains visible in Tune/Play/Lights too. Only claim
   * B2/B3 for the exact Chop+Shift action or the visible Copy modal. */
@@ -732,7 +774,7 @@ int workflow_owns(unsigned kind,unsigned code){
   * Claim both edges even if Shift is still waiting in the UI FIFO. */
  unsigned routes=atomic_load(&button_routes);
  if((routes&1u)&&(code==0x0d||code==0x23))return 1;
- return (routes&2u)&&(code==0x0e||code==0x0d||code==0x09);
+ return (routes&2u)&&(code==0x0c||code==0x0e||code==0x0d||code==0x09||code==0x6f);
 }
 /* Encoder input: press confirms the letter and opens the next position. In
  * the middle of the query the new letter is a copy of the current one. */
@@ -770,8 +812,13 @@ int workflow_control(void*e,uint64_t ticket){
  if(mono){if(!mono_job&&FIELD(e,8,unsigned char)==0x10){mono_bank=FIELD(e,9,unsigned char)*8/128;step_native_browser_bank((int)mono_bank);mono_confirm=-1;mono_palette();repaint(mono_root);}return 1;}
  if(batch)return batch_control(e);
  if(!visible(files))return 0;
- unsigned cc=FIELD(e,8,unsigned char),v=FIELD(e,9,unsigned char);int d=v>64?(int)v-128:(int)v;
+ unsigned cc=FIELD(e,8,unsigned char),v=FIELD(e,9,unsigned char);
+#ifdef MPC_PROGRAM_IMPORT
+ if(program_page)return program_control(cc,v);
+#endif
+ int d=v>64?(int)v-128:(int)v;
  if(project_confirm||delete_confirm)return 1;
+ if(cc==0x11&&(!search||results)&&sample_browser()&&seq_audition_active&&seq_audition_active()&&seq_audition_knob){seq_audition_knob(v);repaint(files);return 1;} /* K2: audition file Orig Note */
  if(cc==0x12&&selected_audio&&(!search||results)&&(!shift||(search&&results))){volume_set(v);return 1;}
  if(!search)return 0;
  if(results){if(cc==0x64||cc==0x11)selected=clamp(cc==0x64?selected+d:(int)(v*match_count/128),0,match_count?(int)match_count-1:0);}
@@ -780,6 +827,14 @@ int workflow_control(void*e,uint64_t ticket){
  else if(cc==0x11){int where=(int)(v*WHERE_COUNT/128);if(where!=search_where){search_where=where;apply_where();selected=0;scan_start();}}
  else if(cc==0x12&&!results&&sample_browser()){volume_set(v);return 1;}
  filter();search_preview_update();publish_palette();repaint(files);return 1;
+}
+static void audition_toggle(void){
+ char msg[48]="";int pad=load_pad_index();
+ if(!seq_audition_toggle){browser_say("Audition unavailable");return;}
+ if(pad<0){browser_say("Tap a pad first");return;}
+ int r=seq_audition_toggle(current_program(),(unsigned)pad,audition_program(),msg,sizeof(msg));
+ browser_say(r<0?msg:r?"Seq Audition ON":"Seq Audition OFF");
+ repaint(files);
 }
 int workflow_button(void*e,uint64_t ticket){
  if(FIELD(e,8,unsigned char)==0x51||FIELD(e,8,unsigned char)==0x52){if(FIELD(e,9,unsigned char)&&(FIELD(e,8,unsigned char)==0x51||tail_preview))preview_stop();return 0;}
@@ -827,15 +882,23 @@ int workflow_button(void*e,uint64_t ticket){
  }
  if(!visible(files))return 0;
  unsigned code=FIELD(e,8,unsigned char),down=FIELD(e,9,unsigned char);if(code==0x31){shift=!!down;repaint(files);return 0;}
+ #ifdef MPC_PROGRAM_IMPORT
+ if(program_page)return program_button(code,down);
+ if(!search&&shift&&code==0x0d&&sample_browser()){if(down)program_open();return 1;}
+#endif
  if(code==0x00)return 1; /* Knob FX (also Shift+Pad16) never opens over the browser (device request). */
  if(delete_confirm){if(down){if(code==0x0c)close_delete_confirm();else if(code==0x0e)delete_project_folder();}return 1;}
  if(code==0x09&&(!search||results)){if(down)request_delete();return 1;}
+ if(code==0x0c&&!down&&audition_button_pair){audition_button_pair=0;return 1;}
+ if(!search&&shift&&code==0x0c&&sample_browser()){if(down){audition_button_pair=1;audition_toggle();}return 1;} /* Shift+B1: Seq Audition. */
+ if(search&&results&&shift&&code==0x0c&&sample_browser()){if(down){audition_button_pair=1;audition_toggle();}return 1;} /* Same gesture in search results; B1 alone still cancels. */
  if(!search&&shift&&code==0x0d)return 1; /* Eject is reserved for stock after Mod Off. */
+ if(!search&&code==0x6f&&down&&!shift&&sample_browser()&&selected_audio&&seq_audition_off)seq_audition_off("load selected file");
  if(!search){if(code==0x0e&&shift){if(down)start_search();return 1;}
   /* Stock toggles auto-preview but may leave the current one-shot voice
    * ringing. Stop that voice as well; if toggled On, native selection calls
    * workflow_preview_prepare again and explicitly re-arms playback. */
-  if(code==0x0e&&down)search_preview_stop();
+  if(code==0x0e&&down){search_preview_stop();if(seq_audition_preview)seq_audition_preview(0);}
   return 0;}
  if(!down)return 1;
  if(project_confirm){if(code==0x0c){clear_project_confirm();repaint(files);}else if(code==0x0e)confirm_project();return 1;}
@@ -895,7 +958,17 @@ const char*workflow_storage_tab(void*p){
  const char*tab=!strncmp((const char*)(uintptr_t)directory,"/media/",7)?"External":"Internal";
  FN(0xf0a290,void(*)(uint64_t*))(&directory);return tab;
 }
+static void browser_path_layout(void*p){
+ void*list=(char*)p+0xff0,*path=(char*)p+0x11d0;
+ if(FIELD(list,0x18,void*)!=p||FIELD(path,0x18,void*)!=p)return;
+ int y=FIELD(list,0x24,int),h=FIELD(list,0x2c,int);
+ if(!((y==38&&h==160)||(y==58&&h==140)))return;
+ if(y!=58)FN(0x1160fc0,void(*)(void*,uint64_t,uint64_t))(list,UINT64_C(58)<<32,(UINT64_C(140)<<32)|320);
+ if(FIELD(path,0x24,int)!=38||FIELD(path,0x2c,int)!=20)
+  FN(0x1160fc0,void(*)(void*,uint64_t,uint64_t))(path,UINT64_C(38)<<32,(UINT64_C(20)<<32)|320);
+}
 static void storage_paint(void*p,void*g){
+ browser_path_layout(p);
  void*m=FIELD(p,0xff0+0x188,void*),*b=m?FIELD(m,0x30,void*):NULL;uint64_t directory=0;
  if(b)workflow_directory(base+0x1db08c0,b,&directory);
  if(!directory)return;
@@ -922,6 +995,18 @@ static void search_panel(void*g,int i,const char*label,const char*value,unsigned
   unsigned left=position*span/count,width=span/count<6?6:span/count;if(left+width>span)left=span-width;
   colour(g,WHITE);rect(g,x+7+(int)left,235,(int)width,2);}
 }
+static void audition_panels(void*g){
+ struct seq_audition_view v={0};if(!seq_audition_view||!seq_audition_view(&v))return;
+ static const char*notes[]={"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
+ char status[32],note[8],pitch[32];
+ snprintf(status,sizeof status,"%s %c%02u",v.state==2?"SWAPPED":v.state==4?"PAUSED":v.state==3?"SAVING":"WAIT",'A'+v.pad/16,v.pad%16+1);
+ snprintf(note,sizeof note,"%s",v.file_root>=0&&v.file_root<12?notes[v.file_root]:"--");
+ snprintf(pitch,sizeof pitch,"Pad %s  %+.0f st",v.pad_root>=0&&v.pad_root<12?notes[v.pad_root]:"--",(double)v.transpose);
+ search_panel(g,0,"Sample Swap",status,0,0);
+ colour(g,0xff000000);rect(g,106,198,107,42);colour(g,AMBER);text(g,"Orig Note",107,200,105,12,11);
+ text(g,note,107,212,105,26,25);
+ colour(g,0xff000000);rect(g,0,181,320,15);colour(g,GREY);text(g,pitch,0,181,320,15,11);
+}
 static void search_status(char*out,size_t size){
  if(fault)snprintf(out,size,"Cannot read this storage");
  else if(scanning)snprintf(out,size,"Searching... %u files",entry_count);
@@ -933,7 +1018,8 @@ static void search_paint(void*g){
  static const char*const wheres[WHERE_COUNT]={"Folder","Library","Internal","SD Card","All"};
  const char*scope=search_where==WHERE_FOLDER?"This folder":search_where==WHERE_SD?"SD card library":search_where==WHERE_INTERNAL?"Internal library":search_where==WHERE_ALL?"Internal + SD card":library_root_found?"Whole library of this folder":"This folder + subfolders";
  colour(g,0xff000000);rect(g,0,5,320,235);colour(g,WHITE);
- text(g,"Cancel",0,6,106,23,14);if(results)text(g,"Query",107,6,106,23,14);
+ if(results&&shift&&sample_browser())text(g,seq_audition_active&&seq_audition_active()?"Audition: On":"Audition",0,6,106,23,13);else text(g,"Cancel",0,6,106,23,14);
+ if(results)text(g,"Query",107,6,106,23,14);
  text(g,results?(sample_browser()?(search_preview_on?"Preview On":"Preview Off"):"Open"):"Find",214,6,106,23,14);
  search_status(status,sizeof(status));
  if(!results){
@@ -977,16 +1063,30 @@ static void query_view(char*out,size_t size){
  phone_view(&query,20,out,size);
 }
 void workflow_files_paint(void*p,void*g){
- if(atomic_exchange(&dead_files,0)){clear_locate();files=NULL;close_search();}
+ if(atomic_exchange(&dead_files,0)){
+#ifdef MPC_PROGRAM_IMPORT
+ if(program_page)program_close();
+#endif
+ clear_locate();files=NULL;close_search();}
  if(files!=p){clear_locate();if(files)close_search();files=p;atomic_store(&files_id,(uintptr_t)p);atomic_store(&dead_files,0);atomic_fetch_add(&epoch,1);}workflow_tick();if(!visible(p))return;
+#ifdef MPC_PROGRAM_IMPORT
+ if(program_page){program_paint(g);return;}
+#endif
  if(delete_confirm){const char*leaf=strrchr(delete_dir,'/');
   colour(g,0xff000000);rect(g,0,5,320,235);colour(g,WHITE);text(g,"Cancel",0,6,106,23,14);colour(g,RED);text(g,"Delete",214,6,106,23,14);
   colour(g,AMBER);text(g,"Delete project folder?",8,60,304,24,19);colour(g,WHITE);text(g,leaf?leaf+1:delete_dir,8,94,304,30,15);
   text(g,"The folder and its samples are removed.",8,140,304,20,13);text(g,"This cannot be undone.",8,162,304,20,13);
   text(g,"B3: delete  |  B1: cancel",8,196,304,20,12);return;}
- if(!search){storage_paint(p,g);if(shift){colour(g,0xff000000);rect(g,107,6,213,25);colour(g,WHITE);text(g,"Search",214,6,106,23,14);}else if(selected_audio)volume_paint(g);if(browser_message[0]&&now_ms()<browser_message_until){colour(g,0xff000000);rect(g,0,181,320,15);colour(g,AMBER);text(g,browser_message,0,181,320,15,10);}return;}
+ if(!search){storage_paint(p,g);if(shift){colour(g,0xff000000);rect(g,107,6,213,25);colour(g,WHITE);text(g,"Search",214,6,106,23,14);
+#ifdef MPC_PROGRAM_IMPORT
+ if(sample_browser())text(g,"Programs",107,6,106,23,13);
+#endif
+ if(sample_browser()){colour(g,0xff000000);rect(g,0,6,106,25);colour(g,WHITE);text(g,seq_audition_active&&seq_audition_active()?"Audition: On":"Audition",0,6,106,23,13);}}else if(selected_audio)volume_paint(g);if(browser_message[0]&&now_ms()<browser_message_until){colour(g,0xff000000);rect(g,0,181,320,15);colour(g,AMBER);text(g,browser_message,0,181,320,15,10);}
+
+ audition_panels(g);return;}
  if(project_confirm){colour(g,0xff000000);rect(g,0,5,320,235);colour(g,WHITE);text(g,"Cancel",0,6,106,23,14);text(g,"Open",214,6,106,23,14);colour(g,AMBER);text(g,"Open project?",8,64,304,24,19);struct file_result candidate={project_candidate,1,{0}};text(g,filename(&candidate),8,98,304,38,15);colour(g,WHITE);text(g,"Unsaved changes may be lost.",8,150,304,20,13);text(g,"B3: confirm  |  B1: cancel",8,180,304,20,12);return;}
- search_paint(g);
+ search_paint(g);if(results&&sample_browser())audition_panels(g);
+ if(results&&browser_message[0]&&now_ms()<browser_message_until){colour(g,0xff000000);rect(g,0,181,320,15);colour(g,AMBER);text(g,browser_message,0,181,320,15,10);}
 }
 
 /* Copy workflow is deliberately separate from file loading. */
@@ -1095,6 +1195,13 @@ int workflow_event_preview(void*program,const void*event,unsigned key,unsigned m
 }
 void workflow_event_preview_stop(int cancel){batch_event_preview_stop(base,(void*)atomic_load(&copy_context),cancel);}
 unsigned workflow_event_preview_pending(void){return batch_event_preview_pending();}
+int workflow_piano_input(void*program,const void*event,unsigned key){
+ void*c=(void*)atomic_load(&copy_context);
+ if(!c||(event&&current_program()!=program))return 0;
+ return batch_piano_input(base,c,program,event,key);
+}
+void workflow_piano_input_stop(void){batch_piano_input_stop(base,(void*)atomic_load(&copy_context));}
+
 extern void step_layer_sample(void*,int,uintptr_t*,uintptr_t);
 static int source_slices(void){
  void*c=(void*)atomic_load(&copy_context);void*t=chop_host?FIELD(chop_root,0x148,void*):c?FIELD(c,0x78,void*):NULL;
@@ -1381,3 +1488,24 @@ static void batch_job_paint(void*g){
  text(g,terminal?"B1 / B3: close":"Please wait",8,202,304,19,12);
  batch_job_presented=1;
 }
+
+#ifdef MPC_PROGRAM_IMPORT
+static void program_paint(void*g){
+ colour(g,0xff000000);rect(g,0,5,320,235);colour(g,WHITE);text(g,"Back",0,6,106,23,14);
+ colour(g,AMBER);text(g,program_page==2?"Import":"Review",214,6,106,23,14);
+ colour(g,WHITE);text(g,"Import PGM / XPM",8,38,304,24,19);char line[128];
+ if(program_page==1){unsigned first=program_selected<5?0:program_selected-4;
+  for(unsigned i=first;i<program_count&&i<first+6;++i){const char*n=strrchr(program_paths[i],'/');int y=67+(int)(i-first)*20;
+   colour(g,i==program_selected?AMBER:WHITE);text_align(g,n?n+1:program_paths[i],8,y,304,20,12,0x21);}
+  colour(g,GREY);text(g,program_scanning?"Finding programs on this card":program_count?"DATA: file   B3: review":"No PGM / XPM files on this card",4,194,312,18,11);
+ }else{
+  unsigned pads=0,layers=0;char plan_error[96];int valid=program_import_plan(program_bank,&pads,&layers,plan_error);
+  const char*n=strrchr(program_paths[program_selected],'/');text(g,n?n+1:program_paths[program_selected],8,72,304,24,14);
+  snprintf(line,sizeof line,"Start bank %c | %u pads | %u layers",'A'+program_bank,pads,layers);text(g,line,4,112,312,22,14);
+  colour(g,valid?AMBER:RED);text(g,valid?"B3: import as one Undo operation":plan_error,4,146,312,30,12);
+  colour(g,GREY);text(g,"Existing pads and MIDI map are preserved",4,181,312,18,11);
+ }
+ if(program_error[0]){colour(g,RED);text(g,program_error,4,204,312,18,11);}
+ snprintf(line,sizeof line,"K1 / Pad Bank: destination bank %c",'A'+program_bank);colour(g,AMBER);text(g,line,4,223,312,16,12);
+}
+#endif

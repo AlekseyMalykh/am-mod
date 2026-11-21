@@ -79,6 +79,7 @@ class Drive(unittest.TestCase):
   (r/'proc/self/mountinfo').write_text(row);(r/'proc/123/mountinfo').write_text(row);(r/'proc/mounts').write_text(f'/dev/mmcblk1p1 {sd} exfat rw,nosuid,nodev,noexec 0 0\n')
   s=(ROOT/'src/usb_drive.sh').read_text().replace('R=/run/mpc-clone-trial-v1',f'R={r}/runtime').replace('G=/sys/kernel/config/usb_gadget/ac50',f'G={r}/gadget').replace('SYS=/sys/class/block',f'SYS={r}/sys').replace('PROC=/proc',f'PROC={r}/proc').replace('GADGET=/usr/bin/az0x-usb-gadget',f'GADGET={r}/bin/gadget').replace('/sys/class/udc/',f'{r}/udc/').replace('/media/',f'{r}/media/')
   self.script=r/'script';self.script.write_text(s)
+  (r/'runtime/usb-drive-boot.sh').write_text((ROOT/'src/usb_drive_boot.sh').read_text())
  def tearDown(self):self.temp.cleanup()
  def run_script(self,*args):return subprocess.run(['sh',str(self.script),*map(str,args)],env={**os.environ,'PATH':str(self.root/'bin')+':'+os.environ['PATH'],'USB_DRIVE_TEST_ROOT':str(self.root)},capture_output=True,text=True,timeout=15)
  def prepare(self):return self.run_script('prepare',self.root/'media/MPC/MPC-Sample')

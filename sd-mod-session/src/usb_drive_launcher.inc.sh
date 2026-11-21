@@ -52,12 +52,21 @@ usb_drive_audio_prepare() {
 usb_drive_cycle() {
     touch "$R/usb-drive-active" || return 1
     rm -f "$R/app/usb-drive.request" "$R/app/usb-files.on" "$R/app/screen-mirror.on" || return 1
+    # Capture MIDI subscriptions while the app still owns its ALSA ports.
+    {
+        date -u +%Y-%m-%dT%H:%M:%SZ
+        for midi_proc in /proc/asound/cards /proc/asound/seq/clients /proc/asound/seq/ports /proc/asound/card*/midi*; do
+            [ -f "$midi_proc" ] || continue
+            echo "--- $midi_proc ---"; cat "$midi_proc" || true
+        done
+    } > "$R/app/midi-transport.txt" 2>&1 || true
     # Every SD namespace owned by Am MOD must go away before an unmount.
     for service in "$U-usb-files" "$U-screen-mirror" "$U-clone" "$U-bus-proxy"; do
         systemctl stop "$service.service" || { [ "$(prop "$service.service" LoadState 2>/dev/null || true)" = not-found ] || return 1; }
         [ "$(prop "$service.service" MainPID 2>/dev/null || echo 0)" = 0 ] || return 1
     done
     "$R/stage-data" --flush-sd >> "$R/events.txt" 2>&1 || return 1
+    export_report || true
     "$R/usb-mode.sh" restore || return 1
     transfer_ok=0
     screen_pid=
@@ -85,7 +94,7 @@ usb_drive_cycle() {
     usb_drive_proxy_start || return 1
     usb_drive_audio_prepare || return 1
     if [ "$transfer_ok" != 1 ]; then
-        if [ -s "$R/usb-drive/error" ]; then head -c 64 "$R/usb-drive/error" > "$R/app/usb-drive-error";
+        if [ -s "$R/usb-drive/error" ]; then dd if="$R/usb-drive/error" bs=64 count=1 2>/dev/null > "$R/app/usb-drive-error";
         else printf 'SCREEN_NOT_READY\n' > "$R/app/usb-drive-error";fi
         printf '1\n' > "$R/app/usb-drive.failed"
     fi

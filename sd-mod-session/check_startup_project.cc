@@ -20,6 +20,8 @@ static unsigned named_saved;static std::string named_target;
 #define STARTUP_TEMP_ROOT temp_root
 #define STARTUP_USB_RESUME_PATH usb_resume_path
 #include "src/startup_project.cc"
+static bool fixture_internal_allowed;
+extern "C" int internal_storage_project_path(const char*path){return fixture_internal_allowed&&!std::strcmp(path,"/data/UserContent/Projects/Internal-Proof.xpj");}
 extern "C" void project_recovery_saved(const char*path){++named_saved;named_target=path;}
 static void elf(const char*path,uintptr_t base){
  FILE*f=fopen(path,"rb");assert(f);Elf64_Ehdr h;assert(fread(&h,1,sizeof(h),f)==sizeof(h));
@@ -135,6 +137,11 @@ int main(int argc,char**argv){
  *reinterpret_cast<const char**>(things+0x9b0)="/media/External/Original.xpj";timer(saver);assert(save_calls==2&&auto_calls==3);
  *reinterpret_cast<const char**>(things+0x9b0)=autosave_path;*reinterpret_cast<const char**>(prefs+0xa8)="/media/External/Original.xpj";timer(saver);assert(save_calls==2&&auto_calls==4);
  puts("PASS missing internal Temp XPJ is initialized through native SaveProject with current data; existing/external paths and failed writes retain native handling, autosave preferences unchanged");
+ assert(!project_save_destination("/data/UserContent/Projects/Internal-Proof.xpj"));
+ fixture_internal_allowed=true;assert(project_save_destination("/data/UserContent/Projects/Internal-Proof.xpj"));
+ assert(!project_save_destination("/data/UserContent/Projects/Not-Pinned.xpj")&&!project_save_destination("/data/Settings/evil.xpj"));
+ fixture_internal_allowed=false;
+ puts("PASS native save guard admits pinned Internal project destinations and keeps arbitrary internal/system paths rejected");
  unlink(meta.c_str());assert(!rmdir(workspace.c_str())&&!rmdir(temp_root)&&!rmdir(projects.c_str())&&!rmdir(root.c_str())&&!rmdir(dir));
  puts("PASS deterministic newest-XPJ selection skips links and unfinished exit copies; empty SD preserves native recovery without extra autoload");
  return 0;

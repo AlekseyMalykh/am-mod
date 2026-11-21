@@ -16,9 +16,9 @@ static void native_render(void*p,void*b,unsigned frames){assert(p==renderer&&b==
 static double rms(void){double e=0;for(unsigned i=1024;i<2048;++i)e+=left[i]*left[i];return sqrt(e/1024);}
 static FILE*trace;
 static unsigned layout,first_curve,segments,has_freq,has_type,has_value;
-static void rect(void*u,int x,int y,int w,int h,uint32_t colour){assert(!u&&x>=0&&y>=0&&w>0&&h>0&&x+w<=320&&y+h<=240);if(layout&&y<198){assert(x>=14&&x+w<=306);}
+static void rect(void*u,int x,int y,int w,int h,uint32_t colour){assert(!u&&x>=0&&y>=0&&w>0&&h>0&&x+w<=320&&y+h<=240);if(layout&&y<198){assert(y>=81&&x>=14&&x+w<=306);}
 if(layout&&x==42&&w==1&&colour==0xffffc247){assert(h==1);++first_curve;}if(layout&&x>=217&&y==235&&h==2)++segments;if(trace)fprintf(trace,"R %d %d %d %d %08x\n",x,y,w,h,colour);}
-static void text(void*u,const char*s,int x,int y,int w,int h,unsigned z,uint32_t c,int centre){assert(!u&&s&&x>=0&&y>=0&&x+w<=320&&y+h<=240&&z>=10);if(layout&&y<198){assert(x>=14&&x+w<=306);}
+static void text(void*u,const char*s,int x,int y,int w,int h,unsigned z,uint32_t c,int centre){assert(!u&&s&&x>=0&&y>=0&&x+w<=320&&y+h<=240&&z>=10);if(layout&&y<198){assert(y>=81&&x>=14&&x+w<=306);}
 if(layout){if(!strcmp(s,"Freq"))has_freq=1;if(!strcmp(s,"Type"))has_type=1;if(x>=217&&y==214&&*s)has_value=1;}if(trace)fprintf(trace,"T %d %d %d %d %u %08x %d %s\n",x,y,w,h,z,c,centre,s);}
 static unsigned char layout_screen[0xa000];static unsigned native_side_mask;
 static void capture_native_bounds(void*p,uint64_t xy,uint64_t wh){

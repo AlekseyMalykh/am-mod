@@ -1,5 +1,7 @@
 /* End-to-end knob/label/reset coverage plus every illustration's bypass. */
 #include "src/mixer_view.c"
+static unsigned visual_transport;
+unsigned step_native_transport_state(void){return visual_transport;}
 #include "src/mixer_control.h"
 #include "src/mixer_input.h"
 #include <assert.h>
@@ -86,10 +88,13 @@ static void bypass(void){
         memset(pixels,0,sizeof pixels);assert(fx_visual_paint(&p,e,&stage,&m,48000,e->id,1000));
         assert(fx_visual_paint(&p,e,&stage,&m,48000,e->id,1100));stage.bypass=1;
         memset(pixels,0,sizeof pixels);assert(fx_visual_paint(&p,e,&stage,&m,48000,e->id,1200));
+        /* Dev6 deliberately fades retained history in Bypass; compare only
+         * once that tail has settled, while meters already receive silence. */
+        memset(pixels,0,sizeof pixels);assert(fx_visual_paint(&p,e,&stage,&m,48000,e->id,10000));
         memcpy(still,pixels,sizeof still);
         m.input_peak=.1f;m.output_peak=1;m.gain_reduction_db=20;
         for(unsigned i=0;i<MIXER_FX_MONITOR_FRAMES;++i)m.pcm[i]=m.input_pcm[i]=(float)sin(i*.2);
-        memset(pixels,0,sizeof pixels);assert(fx_visual_paint(&p,e,&stage,&m,48000,e->id,4000));
+        memset(pixels,0,sizeof pixels);assert(fx_visual_paint(&p,e,&stage,&m,48000,e->id,14000));
         if(memcmp(still,pixels,sizeof still)){fprintf(stderr,"BYPASS STILL MOVES: %s\n",e->name);assert(0);}
         if(e->id==0x54456678)assert(fxv_tape_state.needle==0);
     }
@@ -204,11 +209,18 @@ static void tape_geometry(void){
         for(unsigned ms=10;ms<120000;ms+=10)assert(fxv_tape_phase(ms,time,wow)<fxv_tape_phase(ms-10,time,wow));
     struct resample_painter p={NULL,draw_rect,draw_text};struct fx_stage stage;struct mixer_fx_monitor m={0};m.output_peak=.8f;
     assert(fx_mixer_catalog_stage(3,48000,&stage));fxv_idle=0;fxv_now=2500;
-    memset(pixels,0,sizeof pixels);fxv_tape_delay(&p,&stage,&m);
+    memset(pixels,0,sizeof pixels);fxv_tape_delay(&p,&stage,&m,17,2500);
     for(unsigned side=0;side<2;++side){int cx=side?243:77,cy=109;
         for(int y=-29;y<=29;++y)for(int x=-29;x<=29;++x)
             if(x*x+y*y<=29*29)assert(pixels[(cy+y)*320+cx+x]!=0xff5a3923u);
     }
+    double held=fxv_delay_transport.angle;visual_transport=0;m.input_peak=0;
+    fxv_tape_delay(&p,&stage,&m,17,2600);assert(fxv_delay_transport.angle==held);
+    visual_transport=3;fxv_tape_delay(&p,&stage,&m,17,2700);assert(fxv_delay_transport.angle<held);
+    held=fxv_delay_transport.angle;visual_transport=0;fxv_tape_delay(&p,&stage,&m,17,2800);assert(fxv_delay_transport.angle==held);
+    m.input_peak=.2f;fxv_tape_delay(&p,&stage,&m,17,2900);assert(fxv_delay_transport.angle<held);
+    held=fxv_delay_transport.angle;fxv_idle=1;fxv_tape_delay(&p,&stage,&m,17,3000);assert(fxv_delay_transport.angle==held);fxv_idle=0;
+    puts("PASS Tape Delay transport: stopped reels hold position despite tails; Play/manual input resume counterclockwise; Bypass holds");
     assert(fx_mixer_catalog_stage(25,48000,&stage));fxv_now=2500;fxv_tape_emu(&p,&stage,&m);
     double before=fxv_tape_state.ang;fxv_now=2600;fxv_tape_emu(&p,&stage,&m);assert(fxv_tape_state.ang<before);
     puts("PASS tangent tape/rollers, tape below flanges, counterclockwise transport even with Wow");

@@ -8,6 +8,7 @@ sources=['src/usb_drive.sh','src/usb_drive_screen.c','src/usb_drive_launcher.inc
          'check_project.c','build_pad_lighting_menu.py','verify_pad_lighting.py','verify_usb_drive.py','package_usb_candidate.py',
          'src/early_drm_splash.c','src/splash_branding.h','src/branding_font_aa.h','src/mod_build.h',
          'src/usb_drive_input.h','check_usb_drive_screen.c']
+sources+=['src/usb_drive_lights.h']
 sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest();before={s:sha(R/s) for s in sources}
 def run(*a,**kw):return subprocess.run(list(map(str,a)),cwd=R,check=True,**kw)
 run('sh','-n','src/usb_drive.sh');run('sh','-n','src/usb_drive_launcher.inc.sh');run('python3','check_usb_drive.py')
@@ -61,4 +62,4 @@ run('qemu-aarch64','-L',sysroot,O/'screen-preview',O/'screen.ppm')
 run('qemu-aarch64','-L',sysroot,O/'screen-preview',O/'screen-confirm.ppm','confirm')
 assert before=={s:sha(R/s) for s in sources}
 (O/'verification.json').write_text(json.dumps(dict(passed=True,sources_sha256=before,simulated_ownership_transactions=True,
- exact_resume_arm=True,ubsan=True,display_compiled_and_rendered=True,hardware_tested=False,card_written=False),indent=2)+'\n')
+ exact_resume_arm=True,ubsan=True,display_compiled_and_rendered=True,screen_sha256=sha(O/'usb-drive-screen'),hardware_tested=False,card_written=False),indent=2)+'\n')

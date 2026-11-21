@@ -110,6 +110,7 @@ static void monitor_header(void *g,unsigned mode){
 static void pad_name(char *s,unsigned pad){snprintf(s,8,"%c%02u",'A'+pad/16,pad%16+1);}
 static unsigned mask(void){unsigned mode=rear_setting(0,REAR_MODE);return mode==REAR_DUAL?3:(mode==REAR_LEFT||mode==REAR_MIX)?1:mode==REAR_RIGHT?2:0;}
 
+static _Atomic unsigned record_stop_owned;
 static void cancel_choice(void){waiting_right=confirm=overwrite=0;atomic_store(&selected_mask,0);repaint();}
 static void close_panel(void){atomic_store(&open_panel,0);knob_focus=-1;cancel_choice();}
 static void start_recording(void){
@@ -250,6 +251,7 @@ int rear_ui_tick(void){
 int rear_ui_owns(unsigned kind,unsigned code){
     if(kind==1)return atomic_load(&open_panel)&&atomic_load(&visible_roots)&&code!=0x13&&!music_ui_repeat_active()&&!music_ui_knob_fx_active();
     if(kind!=2)return 0;
+    if(code==0x51&&record_stop_owned)return 1;
     if(code<112&&held[code])return 1;
     if(music_ui_repeat_active()||music_ui_knob_fx_active())return 0;
     if(!atomic_load(&visible_roots))return 0;
@@ -263,11 +265,17 @@ int rear_ui_owns(unsigned kind,unsigned code){
 int rear_ui_button(void *event){
     unsigned code=FIELD(event,8,unsigned char),down=FIELD(event,9,unsigned char)!=0;
     if(code>=112||!rear_ui_owns(2,code))return 0;
+    if(code==0x51){
+        if(!down&&record_stop_owned){held[code]=0;record_stop_owned=0;return 1;}
+        if(down&&(record_stop_owned||rear_native_busy())){
+            record_stop_owned=1;held[code]=1;rear_native_stop();return 1;
+        }
+    }
     if(!down){held[code]=0;return code!=0x51;}if(held[code])return code!=0x51;held[code]=1;
     if(atomic_load(&tuner_open)){atomic_store(&tuner_open,0);repaint();return 1;}
     if(!atomic_load(&open_panel)&&(code==0x0e||code==0x6d)){atomic_store(&tuner_open,1);repaint();return 1;}
-    /* Stop also reaches the stock transport: its second press kills voices.
-     * Local recording cancellation and the paired release are retained. */
+    /* An idle Stop still reaches the transport. Active Rear captures own
+     * both Stop edges so stock cannot close Record and cancel the WAV. */
     if(code==0x51||code==0x49){if(rear_native_busy())rear_native_stop();else cancel_choice();return code!=0x51;}
     if(rear_native_busy()&&code!=0x0d&&code!=0x0e&&code!=0x6c&&code!=0x6d)return 1;
     if(!atomic_load(&open_panel)){

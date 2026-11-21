@@ -118,6 +118,14 @@ static void sample_playing_checks(void){
  FIELD(things,0x5f8,unsigned)=0;sample_focus_index=-1;active_voices[0]=1;
  sample_palette_publish(things,sample_program,0,1,0,40000);uint64_t out;assert(step_native_light(0,&out)&&(uint32_t)out==PAD_SELECT);
  sample_palette_publish(things,sample_program,0,1,0,40400);assert(step_native_light(0,&out)&&out==pad_light(music_identity_rgb(music_pad_colour(0)),.95f));
+ /* Hide only selection during Play, including sounding/empty/solo-excluded pads. */
+ assert(music_set_hide_play_cursor(1));atomic_store(&clock_running,1);
+ sample_palette_publish(things,sample_program,0,1,0,40000);
+ assert(step_native_light(0,&out)&&out==pad_light(music_pad_rgb(0),.95f));
+ sample_palette_publish(things,sample_program,0,1,0,40400);assert(step_native_light(0,&out)&&out==pad_light(0,0));
+ atomic_store(&clock_running,0);sample_palette_publish(things,sample_program,0,1,0,40000);
+ assert(step_native_light(0,&out)&&(uint32_t)out==PAD_SELECT);
+ assert(music_set_hide_play_cursor(0));
  /* Moving the cursor away exposes the playing pad's real off phase. */
  FIELD(things,0x5f8,unsigned)=1;sample_palette_publish(things,sample_program,0,1,0,40440);
  assert(step_native_light(0,&out)&&out==pad_light(0,0));assert(step_native_light(1,&out)&&(uint32_t)out==PAD_SELECT);
@@ -259,7 +267,7 @@ static void mixer_sample_feedback_checks(void)
  sample_palette_publish(NULL,NULL,0,0,0,62000);
  puts("PASS Sample Mixer Mute and Solo alternate with pad hue, preserve empty-pad events and gate Master Direct");
 }
-int main(void){
+int main(void){assert(music_set_led_vivid(0));
  void*p=mmap(NULL,0x7500000,7,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);assert(p!=MAP_FAILED);base=(uintptr_t)p;
  stub(0x3b774b0,cell_text,1);stub(0x3b72210,native_row,0);stub(0xf0a290,release_text,0);__builtin___clear_cache(p,(char*)p+0x7500000);
  stub(0xf535c0,text_make,0);stub(0x1082810,font_make,0);stub(0x102dca0,font_use,0);stub(0x1070d60,font_end,0);

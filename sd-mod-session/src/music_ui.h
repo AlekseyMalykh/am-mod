@@ -25,6 +25,7 @@ void music_ui_project(void *root,void *graphics);
 void music_ui_destroyed(void *root);
 void music_ui_request_project(void *root);
 int music_ui_tick(void);
+void music_ui_filter_spectrum_paint(void *view,void *graphics);
 int music_ui_active(void);
 int music_ui_pad_settings_visible(void);
 int music_ui_owns(unsigned cc);
@@ -36,5 +37,6 @@ int music_ui_reset_knob(unsigned column,unsigned shifted);
 int music_ui_button(void *event);
 uint64_t music_ui_palette_ticket(void);
 int music_ui_palette_light(unsigned pad,uint64_t *out);
+int music_ui_transfer_light(unsigned pad,uint64_t *out);
 void music_ui_palette_pad(unsigned pad,int down,int shift,uint64_t when,uint64_t ticket);
 #endif

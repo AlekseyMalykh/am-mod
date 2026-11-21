@@ -1,0 +1,4 @@
+#include "src/piano_roll.h"
+#include <stdio.h>
+#define FIELD(name) printf("\"" #name "\":%zu,",offsetof(struct piano_roll,name))
+int main(void){printf("{");FIELD(notes);FIELD(count);FIELD(clip_count);FIELD(pending_commit);FIELD(revision);FIELD(layer);FIELD(sound);FIELD(cursor_tick);FIELD(length);FIELD(left);FIELD(span);FIELD(top);FIELD(row_height);FIELD(cursor_row);FIELD(grid);FIELD(range);FIELD(anchor_tick);FIELD(anchor_row);FIELD(follow);FIELD(note_focus);FIELD(focused);FIELD(row_count);FIELD(rows);FIELD(layout_low);FIELD(layout_high);FIELD(preview_valid);FIELD(preview_low);FIELD(preview_high);FIELD(preview_anchor_row);FIELD(preview_start);FIELD(preview_end);printf("\"preview_added_count\":%zu,",offsetof(struct piano_roll,plan)+offsetof(struct pr_plan,added_count));printf("\"size\":%zu,\"note_size\":%zu}\n",sizeof(struct piano_roll),sizeof(struct pr_note));return 0;}

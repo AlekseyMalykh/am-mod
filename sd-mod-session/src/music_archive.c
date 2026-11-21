@@ -1,6 +1,10 @@
 #define _GNU_SOURCE
 #include "music_archive.h"
 #include "music_settings.h"
+#ifdef MPC_MIDI_TOOLS
+#include "midi_tools.h"
+static _Thread_local char *loading_midi;
+#endif
 #ifdef MPC_REAR_ROUTING
 #include "rear_audio.h"
 static _Thread_local uint64_t *loading_rear;
@@ -103,6 +107,10 @@ void music_archive_load(void *data,void *archive,void (*original)(void*,void*))
     const char *key=FIELD(data,0x28,const char*);
     if (key && strnlen(key,80)<80) music_key_from_text(key,&loading->tonic,&loading->scale);
     const char *payload=optional_named_payload(archive,extension,MUSIC_PAYLOAD_BYTES);
+#ifdef MPC_MIDI_TOOLS
+    if(loading_midi){const char *midi=optional_named_payload(archive,"amModMidiMapV1",AM_MIDI_PAYLOAD);
+        if(midi)memcpy(loading_midi,midi,strlen(midi)+1);}
+#endif
     if(loading_settings){
         const char*settings=optional_named_payload(archive,settings_extension,128);
         if(settings&&!settings_decode(settings,loading_settings))report("INVALID_SETTINGS_IGNORED");
@@ -127,6 +135,10 @@ void music_archive_load(void *data,void *archive,void (*original)(void*,void*))
             report("INVALID_EXTENSION_IGNORED native_project_preserved");
         } else report("EXTENSION_DECODED");
     } else report("NATIVE_PROJECT_WITHOUT_EXTENSION defaults");
+    {   /* Sequence Pad Mutes: own optional field; a missing or invalid one means "no mutes". */
+        const char *mutes=optional_named_payload(archive,"mpcSampleModSeqMutesV1",SEQ_MUTES_PAYLOAD_BYTES);
+        if(mutes&&!music_seqmutes_decode(mutes,strnlen(mutes,SEQ_MUTES_PAYLOAD_BYTES),loading))report("INVALID_SEQ_MUTES_IGNORED");
+    }
     loading_seen=1;
 }
 
@@ -136,6 +148,9 @@ int music_archive_read(void *data,void *json,int (*original)(void*,void*))
     uint64_t rear=0,*previous_rear=loading_rear;
     int rear_valid=0,*previous_rear_valid=loading_rear_valid;
     loading_rear=&rear;loading_rear_valid=&rear_valid;
+#endif
+#ifdef MPC_MIDI_TOOLS
+    char pending_midi[AM_MIDI_PAYLOAD]={0};char *previous_midi=loading_midi;loading_midi=pending_midi;
 #endif
     struct music_project *previous=loading;
     int previous_seen=loading_seen;
@@ -153,6 +168,9 @@ int music_archive_read(void *data,void *json,int (*original)(void*,void*))
 #endif
         if (pending && loading_seen) music_replace(pending);
         else music_reset();
+#ifdef MPC_MIDI_TOOLS
+        if(!am_midi_restore(*pending_midi?pending_midi:NULL)){am_midi_reset();report("INVALID_MIDI_MAP_RESET");}
+#endif
         if(pending_settings.valid)music_mod_settings_restore(pending_settings.display);
 #ifdef MPC_COMPRESSOR
         if(pending_settings.valid)compressor_project_restore(pending_settings.compressor);
@@ -164,6 +182,9 @@ int music_archive_read(void *data,void *json,int (*original)(void*,void*))
 #endif
     }
     loading=previous; loading_seen=previous_seen; free(pending);
+#ifdef MPC_MIDI_TOOLS
+    loading_midi=previous_midi;
+#endif
 #ifdef MPC_REAR_ROUTING
     loading_rear=previous_rear;loading_rear_valid=previous_rear_valid;
 #endif
@@ -191,8 +212,15 @@ void music_archive_key(void *data,void *archive,const void *pair,void (*original
     } else original(data,archive,pair);
 }
 
-void music_archive_save(void *data,void *archive,void (*original)(void*,void*))
+/* Sample Swap Audition must not leak into a saved project: the original
+ * sample is put back while the native archive is being written. */
+__attribute__((weak)) void seq_audition_save_begin(void);
+__attribute__((weak)) void seq_audition_save_end(void);
+static void music_archive_save_inner(void *data,void *archive,void (*original)(void*,void*))
 {
+#ifdef MPC_MIDI_TOOLS
+    char midi_payload[AM_MIDI_PAYLOAD];int midi_size=am_midi_encode(midi_payload,sizeof midi_payload);
+#endif
     struct music_project *snapshot=malloc(sizeof(*snapshot));
     char *payload=malloc(MUSIC_PAYLOAD_BYTES);
     if (!snapshot || !payload) {
@@ -222,6 +250,10 @@ void music_archive_save(void *data,void *archive,void (*original)(void*,void*))
      * 0x1d27d90 only reads data/size; it neither owns nor modifies this view. */
     struct { const char *data; size_t size,capacity,unused; } text={payload,(size_t)length,(size_t)length,0};
     FN(0x1d27d90,void(*)(void*,const char*,const void*))(archive,extension,&text);
+#ifdef MPC_MIDI_TOOLS
+    if(midi_size){struct {const char*data;size_t size,capacity,unused;} value={midi_payload,(size_t)midi_size,(size_t)midi_size,0};
+        FN(0x1d27d90,void(*)(void*,const char*,const void*))(archive,"amModMidiMapV1",&value);}
+#endif
     char settings[38];
     int settings_size=snprintf(settings,sizeof(settings),"AMS%c %016llx %013llx\n",display_settings>>61?'3':'2',(unsigned long long)display_settings,(unsigned long long)compressor_settings);
     if(settings_size==36){
@@ -242,9 +274,24 @@ void music_archive_save(void *data,void *archive,void (*original)(void*,void*))
         FN(0x1d27d90,void(*)(void*,const char*,const void*))(archive,"mpcSampleModRecoveryV1",&value);
     }
 #endif
+    {   /* Sequence Pad Mutes: written only when some sequence has a mute (old projects stay byte-identical). */
+        char *mutes=malloc(SEQ_MUTES_PAYLOAD_BYTES);int mutes_size=mutes?music_seqmutes_encode(snapshot,mutes,SEQ_MUTES_PAYLOAD_BYTES):0;
+        if(mutes_size>0){
+            struct {const char*data;size_t size,capacity,unused;} value={mutes,(size_t)mutes_size,(size_t)mutes_size,0};
+            FN(0x1d27d90,void(*)(void*,const char*,const void*))(archive,"mpcSampleModSeqMutesV1",&value);
+        }
+        free(mutes);
+    }
     FN(0xf0a290,void(*)(uint64_t*))(&saving_key);
     saving_data=previous_data; saving_key=previous_key; saving_override=previous_override;
     free(snapshot); free(payload);
     atomic_fetch_add(&saved_count,1);
     atomic_store(&status,1); report("EXTENSION_WRITTEN native_archive");
+}
+
+void music_archive_save(void *data,void *archive,void (*original)(void*,void*))
+{
+    if(seq_audition_save_begin)seq_audition_save_begin();
+    music_archive_save_inner(data,archive,original);
+    if(seq_audition_save_end)seq_audition_save_end();
 }

@@ -3,6 +3,7 @@
 #define PHONE_RGB_TEST 1
 #include "src/phone_native.c"
 #include <assert.h>
+int workflow_blocks_sample_controls(void){return 0;}
 #include "check_palette_receiver.h"
 void*note_native_context(void){return NULL;}
 static int custom_palette;

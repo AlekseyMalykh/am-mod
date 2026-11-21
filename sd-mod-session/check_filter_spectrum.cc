@@ -9,6 +9,8 @@ static void*expected_graphics=reinterpret_cast<void*>(1);static int tint_enabled
 static uint32_t ink=0xffc247,saved_ink;static unsigned saves,restores,fills;
 static uintptr_t context_table[19];static uintptr_t*context=context_table;
 static uintptr_t graphics[3];static void*raster_adapter=reinterpret_cast<void*>(1);
+static unsigned spectral,before_curves;
+static void spectrum(void*v,void*g){assert(v==view&&g==expected_graphics&&curves==before_curves);++spectral;ink=0xff5a4419;}
 static int tint(uint32_t*out){if(!tint_enabled)return 0;*out=0x8830ff;return 1;}
 static void save(void*g){assert(g==&context);saved_ink=ink;++saves;}
 static void restore(void*g){assert(g==&context);ink=saved_ink;++restores;}
@@ -62,5 +64,12 @@ int main(){
     assert(saves==3&&restores==3&&ink==0xffc247&&!sample_scope&&!filtered);
     tint_enabled=0;paint(view,expected_graphics);assert(saves==3&&restores==3);
     std::puts("PASS optional pad waveform tint scopes the pinned native FillType and save/restore to sample rasterization; off/filter/unrelated views retain original colours, exceptions restore native graphics state");
+    filter_spectrum_painter(spectrum);tab=0;before_curves=curves;
+    unsigned old_saves=saves,old_restores=restores;paint(view,expected_graphics);
+    assert(spectral==1&&curves==before_curves+2&&saves==old_saves+1&&restores==old_restores+1&&ink==0xffc247);
+    tab=1;before_curves=curves;paint(view,expected_graphics);assert(spectral==2&&curves==before_curves+2);
+    tab=2;paint(view,expected_graphics);assert(spectral==2);
+    assert(!sample_view&&!spectrum_drawn&&!filtered);
+    std::puts("PASS spectrum is drawn once in the native waveform stage before both filter/envelope curve stages; native graphics state and inactive tabs are preserved");
     munmap(mem,0x7500000);return 0;
 }

@@ -25,7 +25,7 @@ static thread_local void *snapshot,*snapshot_program;
 static thread_local int snapshot_source=-1;
 extern "C" void *batch_copy_source(void*p,int source){if(snapshot&&p==snapshot_program&&source==snapshot_source)return snapshot;return FN(0x286bbe0,void*(*)(void*,int))(p,source);}
 struct Pair{uintptr_t a,b;};
-struct Row{void*command=nullptr;void*source=nullptr;void*extract=nullptr;void*slice=nullptr;unsigned from=0,to=0;int map=0;bool extraction_started=false;
+struct Row{void*command=nullptr;void*source=nullptr;void*extract=nullptr;void*slice=nullptr;unsigned from=0,to=0,command_from=0;int map=0;bool extraction_started=false;
  int mono=-1;void*functions=nullptr,*project=nullptr,*service=nullptr,*pool=nullptr,*assignment=nullptr;
  uintptr_t converted[2]{};uint64_t mono_name=0;bool assignment_started=false,copy_started=false;
 #ifdef MPC_PAD_EQ
@@ -100,6 +100,7 @@ struct Batch{
  alignas(8) unsigned char header[0x50];
  std::vector<Row> rows;
  void *event_commands=nullptr,*project=nullptr,*things=nullptr;
+ void *import_program=nullptr;
  bool copy_events=false;
  bool ready=false;
  explicit Batch(bool chops,bool mono=false):header{} {
@@ -116,6 +117,11 @@ struct Batch{
  int perform(){
   void*p=program();if(!p)return 1;
   if(!ready){
+   if(import_program){
+    if(!things||F(things,0xb8,void*)!=p)return 1;
+    for(const auto&r:rows){void*t=FN(0x286bbe0,void*(*)(void*,int))(p,r.to);
+     if(!t||FN(0x2804760,int(*)(void*))(t))return 1;}
+   }
    /* All potentially allocating source snapshots precede the first write. */
    if(copy_events){
     /* Row is not a packed array: pass owned source/target arrays explicitly. */
@@ -126,13 +132,15 @@ struct Batch{
    }
    unsigned n=0;for(auto&r:rows){
     progress(BATCH_JOB_PREPARE,n,(unsigned)rows.size());
-    void*s=FN(0x286bbe0,void*(*)(void*,int))(p,r.from);if(!s)return 1;
+    void*s=FN(0x286bbe0,void*(*)(void*,int))(import_program?import_program:p,r.from);if(!s)return 1;
     auto v=F(s,0,uintptr_t*);Pair info=((Pair(*)(void*,int))v[7])(s,0);
     r.source=((void*(*)(void*,int,const Pair*))v[14])(s,0,&info);if(!r.source)return 1;
-    r.map=F(p,0x16a8+(r.from+0x84)*4,int);
+    /* Imported PGM MIDI mapping is a separate opt-in Router operation.
+     * Preserve the destination's existing native pad note here. */
+    r.map=F(p,0x16a8+((import_program?r.to:r.from)+0x84)*4,int);
 #ifdef MPC_PAD_EQ
-    r.source_eq=music_get_pad_eq(r.from);r.target_eq=music_get_pad_eq(r.to);
-    r.source_colour=music_pad_colour(r.from);r.target_colour=music_pad_colour(r.to);
+    r.source_eq=music_get_pad_eq(import_program?r.to:r.from);r.target_eq=music_get_pad_eq(r.to);
+    r.source_colour=music_pad_colour(import_program?r.to:r.from);r.target_colour=music_pad_colour(r.to);
 #endif
     ++n;
    }
@@ -142,14 +150,14 @@ struct Batch{
   try{
    for(auto&r:rows){
     progress(BATCH_JOB_COPY,(unsigned)done,(unsigned)rows.size());
-    snapshot=r.source;snapshot_program=p;snapshot_source=(int)r.from;
+    snapshot=r.source;snapshot_program=p;snapshot_source=(int)r.command_from;
     /* Native source key is read from its original pad. Temporarily supply the
      * captured key under the command executor lock, then restore that pad's
      * current key. This also preserves earlier overlapping destinations. */
-    int previous=F(p,0x16a8+(r.from+0x84)*4,int);F(p,0x16a8+(r.from+0x84)*4,int)=r.map;
+    int previous=F(p,0x16a8+(r.command_from+0x84)*4,int);F(p,0x16a8+(r.command_from+0x84)*4,int)=r.map;
     int result=0;
-    try{if(r.mono<0||r.from!=r.to){result=FN(0x1987530,int(*)(void*))(r.command);r.copy_started=result==0;}}catch(...){F(p,0x16a8+(r.from+0x84)*4,int)=previous;throw;}
-    F(p,0x16a8+(r.from+0x84)*4,int)=previous;snapshot=nullptr;snapshot_program=nullptr;snapshot_source=-1;
+    try{if(r.mono<0||r.from!=r.to){result=FN(0x1987530,int(*)(void*))(r.command);r.copy_started=result==0;}}catch(...){F(p,0x16a8+(r.command_from+0x84)*4,int)=previous;throw;}
+    F(p,0x16a8+(r.command_from+0x84)*4,int)=previous;snapshot=nullptr;snapshot_program=nullptr;snapshot_source=-1;
     if(result)throw std::runtime_error("Native copy failed");
 #ifdef MPC_PAD_EQ
     music_set_pad_eq(r.to,r.source_eq);r.eq_written=true;
@@ -185,20 +193,31 @@ static void destroy(Batch*p){p->~Batch();}
 static void delete_batch(Batch*p){delete p;}
 static int perform_batch(Batch*p)noexcept{try{return p->perform();}catch(...){snapshot=nullptr;snapshot_program=nullptr;snapshot_source=-1;return 1;}}
 static int undo_batch(Batch*p)noexcept{try{return p->undo();}catch(...){return 1;}}
-static std::shared_ptr<Batch> prepare(void*context,const unsigned*src,const unsigned*dst,unsigned count,bool chops=false,bool events=false,bool mono=false){
- if(!context||!count||count>BATCH_MAX_ITEMS)return {};
- for(unsigned i=0;i<count;++i){if(src[i]>=128||dst[i]>=128||(!mono&&src[i]==dst[i]))return {};for(unsigned j=0;j<i;++j)if(dst[i]==dst[j])return {};}
+static std::shared_ptr<Batch> prepare(void*context,const unsigned*src,const unsigned*dst,unsigned count,bool chops=false,bool events=false,bool mono=false,void*external=nullptr){
+ if(!context||!count||count>(external?128:BATCH_MAX_ITEMS))return {};
+ if(external&&(chops||events||mono))return {};
+ for(unsigned i=0;i<count;++i){if(src[i]>=128||dst[i]>=128||(!external&&!mono&&src[i]==dst[i]))return {};for(unsigned j=0;j<i;++j)if(dst[i]==dst[j])return {};}
  void*things=F(context,0x78,void*);void*program=things?F(things,0xb8,void*):nullptr;void*properties=F(context,0xc8,void*);
  if(!program||!properties)return {};
+ if(external){
+  if(external==program)return {};
+  for(unsigned i=0;i<count;++i){void*t=FN(0x286bbe0,void*(*)(void*,int))(program,dst[i]);
+   if(!t||FN(0x2804760,int(*)(void*))(t))return {};}
+ }
  void*registry=F(properties,0x1288,void*);void*manager=F(context,0x68,void*);if(!registry||!manager||F(manager,0,uintptr_t)!=base+0x6d97818)return {};
  if(!vtable[2]){std::memcpy(vtable,(void*)(base+0x6e439a0),sizeof(vtable));vtable[0]=(uintptr_t)destroy;vtable[1]=(uintptr_t)delete_batch;vtable[8]=(uintptr_t)perform_batch;vtable[9]=(uintptr_t)undo_batch;}
  auto batch=std::make_shared<Batch>(chops,mono);batch->rows.reserve(count);
+ batch->import_program=external;
  batch->copy_events=events;batch->project=properties;batch->things=things;
  for(unsigned i=0;i<count;++i){
   if(!FN(0x286bbe0,void*(*)(void*,int))(program,src[i]))return {};
-  Row r;r.from=src[i];r.to=dst[i];r.command=FN(0xb51418,void*(*)(size_t))(0x4b8);
+  Row r;r.from=src[i];r.to=dst[i];
+  /* Native CopyPadCommand omits its own source ordinal from its mask. An
+   * external A01 -> A01 import must use a different lookup ordinal while
+   * our scoped getter supplies the already captured external instrument. */
+  r.command_from=external&&src[i]==dst[i]?(src[i]+1)%128:src[i];r.command=FN(0xb51418,void*(*)(size_t))(0x4b8);
   uint64_t low=dst[i]<64?UINT64_C(1)<<dst[i]:0,high=dst[i]>=64?UINT64_C(1)<<(dst[i]-64):0;
-  try{FN(0x1986f90,void(*)(void*,void*,void*,void*,int,uint64_t,uint64_t))(r.command,properties,registry,program,(int)src[i],low,high);}catch(...){FN(0xb51408,void(*)(void*,size_t))(r.command,0x4b8);throw;}
+  try{FN(0x1986f90,void(*)(void*,void*,void*,void*,int,uint64_t,uint64_t))(r.command,properties,registry,program,(int)r.command_from,low,high);}catch(...){FN(0xb51408,void(*)(void*,size_t))(r.command,0x4b8);throw;}
   batch->rows.push_back(r);
  }
  return batch;
@@ -216,6 +235,16 @@ extern "C" int batch_copy_submit(uintptr_t b,void*context,const unsigned*src,con
 extern "C" int batch_copy_submit_events(uintptr_t b,void*context,const unsigned*src,const unsigned*dst,unsigned count,int events){
  base=b;if(!src||!dst||!count||count>BATCH_MAX_ITEMS)return 0;try{for(unsigned i=0;i<count;++i)for(unsigned j=0;j<i;++j)if(src[i]==src[j])return 0;auto batch=prepare(context,src,dst,count,false,events!=0);return dispatch(context,batch);}catch(...){return 0;}
 }
+#if defined(MPC_PGM_NATIVE_PROBE) || defined(MPC_PROGRAM_IMPORT)
+/* Caller retains the external program until synchronous preparation completes.
+ * Caller retains the source program through synchronous command execution. */
+extern "C" int batch_copy_import_program_submit(uintptr_t b,void*context,void*program,
+    const unsigned*src,const unsigned*dst,unsigned count){
+ base=b;if(!program||!src||!dst||!count||count>128)return 0;
+ try{auto batch=prepare(context,src,dst,count,false,false,false,program);return dispatch(context,batch);}
+ catch(...){return 0;}
+}
+#endif
 struct Operation{
  std::shared_ptr<Batch> command;
  void*context;
@@ -491,6 +520,7 @@ extern "C" int batch_event_preview_stop(uintptr_t b,void*c,int cancel){
  if(!c||!F(c,0x48,void*))return 0;
  return queue_event_preview(c,nullptr,nullptr,nullptr,0,0,epoch);
 }
+#include "piano_input.inc"
 static std::shared_ptr<Batch> prepare_chops(void*context,void*services,unsigned source,const unsigned*slices,const unsigned*dst,unsigned count){
  std::fprintf(stderr,"CHOP PREPARE source=%u count=%u\n",source,count);
  if(!context||!services||!slices||!dst||source>=128||!count||count>BATCH_MAX_ITEMS)return {};

@@ -1,11 +1,15 @@
 #define _GNU_SOURCE
 #include "shift_badge.h"
 #include "music_ui.h"
+#ifdef MPC_MIDI_TOOLS
+#include "midi_ui.h"
+#endif
 #include "sample_mute.h"
 #ifdef MPC_MIXER_LIVE
 #include "mixer_sample_feedback.h"
 #endif
 #include "music_settings.h"
+#include "usb_drive_lights.h"
 #include "screen_mirror_frame.h"
 #include "phone_input.h"
 #include "pad_palette.h"
@@ -64,8 +68,13 @@ static _Atomic unsigned repeat_held,repeat_visible,dead_repeat;
 static void *repeat_root;
 static _Atomic unsigned seq_active,global_shift;
 static _Atomic unsigned exit_blocked,usb_stop_pending;
+static _Atomic unsigned usb_transfer_confirmed;
 static int exit_usb;
 int music_ui_take_stop(void){return atomic_exchange(&usb_stop_pending,0)!=0;}
+int music_ui_transfer_light(unsigned pad,uint64_t*out){
+ if(pad>=16||!atomic_load(&usb_transfer_confirmed)||!atomic_load(&exit_blocked))return 0;
+ *out=usb_drive_amber_light();return 1;
+}
 static int exit_presented,exit_started,lighting_save_error;
 static unsigned mod_tab,mod_row,mod_edit,mod_reset_confirm,palette_edit,palette_index;
 static struct music_palette_edit palette_drafts[MUSIC_PALETTE_SLOTS];
@@ -76,6 +85,7 @@ static _Atomic int pad_settings_visible;
 static void *midi_config_root;
 int music_ui_pad_settings_visible(void){return atomic_load(&pad_settings_visible);}
 static _Atomic uint64_t palette_pad_ticket,palette_lights[16];
+static _Atomic unsigned palette_bank_owned;
 static uint64_t palette_ticket;
 enum { MOD_ABOUT_TAB=4, MOD_TAB_COUNT=5 };
 static char exit_error[160];
@@ -103,25 +113,52 @@ static void repeat_delete(void*p){if(repeat_root==p){repeat_root=NULL;atomic_sto
 static void config_paint(void*p,void*g){
     (void)g;
     midi_config_root=p;
+#ifdef MPC_MIDI_TOOLS
+    am_midi_ui_paint(p,g);
+#endif
 }
-static void midi_config_destroy(void*p){if(midi_config_root==p)midi_config_root=NULL;FN(0x1637230,void(*)(void*))(p);}
-static void midi_config_delete(void*p){if(midi_config_root==p)midi_config_root=NULL;FN(0x1637710,void(*)(void*))(p);}
+static void midi_config_destroy(void*p){if(midi_config_root==p)midi_config_root=NULL;
+#ifdef MPC_MIDI_TOOLS
+    am_midi_ui_destroyed(p);
+#endif
+    FN(0x1637230,void(*)(void*))(p);}
+static void midi_config_delete(void*p){if(midi_config_root==p)midi_config_root=NULL;
+#ifdef MPC_MIDI_TOOLS
+    am_midi_ui_destroyed(p);
+#endif
+    FN(0x1637710,void(*)(void*))(p);}
 #define SAMPLE_VPTR 0x6e212a0
 #define PROJECT_VPTR 0x6e1f788
 static void report(const char *message)
 { if (log_count++<48) fprintf(stderr,"MUSIC_UI %s\n",message); }
 
-void music_ui_init(uintptr_t b) { base=b; }
+void music_ui_init(uintptr_t b) { base=b;
+#ifdef MPC_MIDI_TOOLS
+    am_midi_ui_init(b);
+#endif
+}
 void music_ui_requested(unsigned code,unsigned down)
 { if(code==0x0b)atomic_store(&repeat_held,!!down);if(code==0x31)atomic_store(&global_shift,!!down); }
 int music_ui_repeat_active(void){return atomic_load(&repeat_held)!=0||atomic_load(&repeat_visible)!=0;}
 int music_ui_sequence_visible(void){return atomic_load(&seq_active);}
-int music_ui_active(void) { return atomic_load(&active) || atomic_load(&held_count) || atomic_load(&seq_active); }
+int music_ui_active(void) { return atomic_load(&active) || atomic_load(&held_count) || atomic_load(&seq_active)
+#ifdef MPC_MIDI_TOOLS
+    || am_midi_ui_active()
+#endif
+    ; }
 int music_ui_owns(unsigned cc)
-{ return !music_ui_repeat_active() && ((music_pad_lighting_mode()&&atomic_load(&seq_active)&&atomic_load(&global_shift)&&cc==0x10) || (atomic_load(&custom) && (cc==0x10 || cc==0x11 || cc==0x12 || cc==0x64))); }
+{
+#ifdef MPC_MIDI_TOOLS
+    if(am_midi_ui_owns(cc,0))return 1;
+#endif
+ return !music_ui_repeat_active() && ((music_pad_lighting_mode()&&atomic_load(&seq_active)&&atomic_load(&global_shift)&&cc==0x10) || (atomic_load(&custom) && (cc==0x10 || cc==0x11 || cc==0x12 || cc==0x64))); }
 int music_ui_button_owns(unsigned code)
 {
+#ifdef MPC_MIDI_TOOLS
+    if(am_midi_ui_owns(code,1))return 1;
+#endif
     if(atomic_load(&exit_blocked)&&code!=0x31)return 1;
+    if(code==0x23&&atomic_load(&palette_bank_owned))return 1;
     /* Native 0x159f330: note 0x6f -> InputController+0x2d50.
      * Binding 0x1659848 -> 0x16541a0 advances the native knob focus. */
     return !music_ui_repeat_active() && atomic_load(&custom) && code==0x6f;
@@ -239,6 +276,7 @@ void music_ui_destroyed(void *p)
     if ((uintptr_t)p==atomic_load(&project_id)) {
         atomic_store(&project_id,0); atomic_store(&dead_project,1);
         atomic_store(&palette_pad_ticket,0);
+        atomic_store(&palette_bank_owned,0);
         atomic_store(&pad_settings_visible,0);
         atomic_store(&active,0); atomic_store(&custom,0);
     }
@@ -255,10 +293,12 @@ static int palette_cell_visible(unsigned index){
  return !palette_drafts[index].reset||index<MUSIC_PALETTE_SIZE;
 }
 static void palette_publish(void){
- if(key_page!=5||!palette_edit){atomic_store(&palette_pad_ticket,0);return;}
- for(unsigned i=0;i<MUSIC_PALETTE_SLOTS;++i){
+ if(key_page!=5||!palette_edit){atomic_store(&palette_pad_ticket,0);atomic_store(&palette_bank_owned,0);return;}
+ atomic_store(&palette_bank_owned,!palette_naming);
+ for(unsigned pad=0;pad<16;++pad){
+  unsigned i=(palette_index/16)*16+pad;
   uint64_t light=0;
-  if(palette_naming)light=palette_input.enabled?phone_light(&palette_input,i+1):0;
+  if(palette_naming)light=palette_input.enabled?phone_light(&palette_input,pad+1):0;
   else if(palette_cell_visible(i)){
    /* Every slot at full strength so colours look as they are; the chosen
     * slot flashes white briefly. */
@@ -266,14 +306,20 @@ static void palette_publish(void){
    uint64_t ms=(uint64_t)ts.tv_sec*1000+(uint64_t)ts.tv_nsec/1000000;
    light=i==palette_index&&ms%900>=650?pad_light(0xffffff,.9f):pad_light(palette_drafts[i].rgb,1.f);
   }
-  atomic_store(&palette_lights[i],light);
+  atomic_store(&palette_lights[pad],light);
  }
  atomic_store(&palette_pad_ticket,palette_ticket);
+}
+static void palette_bank_step(int direction){
+ unsigned banks=(MUSIC_PALETTE_SLOTS+15)/16,bank=palette_index/16;
+ palette_index=((bank+banks+(direction<0?banks-1:1))%banks)*16+palette_index%16;
+ palette_publish();
 }
 static void knob_fx_research(void*);
 extern int compressor_ui_active(void) __attribute__((weak));
 int music_ui_tick(void)
 {
+    if(!atomic_load(&exit_blocked))atomic_store(&usb_transfer_confirmed,0);
     atomic_store(&knob_fx_visible,visible(knob_fx_root));
     if(knob_fx_root)knob_fx_research(knob_fx_root); /* r29g: poll while the stock screen exists, not only on paint */
 #ifdef MPC_PROJECT_RECOVERY
@@ -323,6 +369,9 @@ int music_ui_tick(void)
 #endif
     if (!pv&&(key_page<3||key_page==5||key_page==6)) key_page=0;
     atomic_store(&pad_settings_visible,pv||visible(midi_config_root));
+#ifdef MPC_MIDI_TOOLS
+    am_midi_ui_tick(visible(midi_config_root)?midi_config_root:NULL);
+#endif
     palette_publish();
     if(key_page==3&&exit_presented){
         if(!exit_started&&(!exit_usb||!atomic_load(&usb_stop_pending))){
@@ -608,6 +657,18 @@ static void eq_rect(void*g,int x,int y,int w,int h,uint32_t ink){colour(g,ink);r
 static void eq_text(void*g,const char*s,int x,int y,int w,int h,unsigned size,uint32_t ink,int centre){
     (void)centre;colour(g,ink);text(g,s,x,y,w,h,(float)size);
 }
+void music_ui_filter_spectrum_paint(void*view,void*g){
+ void*root=view;int x=0,y=0;
+ for(unsigned depth=0;depth<32&&root;++depth){
+  if(FIELD(root,0,uintptr_t)==base+SAMPLE_VPTR)break;
+  x+=FIELD(root,0x20,int);y+=FIELD(root,0x24,int);root=FIELD(root,0x18,void*);
+ }
+ if(!music_ui_filter_spectrum_visible(root))return;
+ unsigned pad;if(note_native_pad_index(&pad)){
+  struct resample_painter painter={g,eq_rect,eq_text};
+  pad_eq_spectrum_paint(pad,sample_pad_muted(pad),15-x,94-y,289,94,0xe05a4419u,&painter);
+ }
+}
 static void eq_paint(void*g,unsigned pad){struct resample_painter p={g,eq_rect,eq_text};pad_eq_paint(music_get_pad_eq(pad),pad,sample_pad_muted(pad),shifted(sample,0),focus,&p);}
 static int eq_control(unsigned cc,unsigned value){
     unsigned pad;if(!note_native_pad_index(&pad))return 1;
@@ -631,6 +692,13 @@ static int eq_control(unsigned cc,unsigned value){
 /* Weak no-op defaults: host tests link music_ui.c without workflow_ui.c. */
 __attribute__((weak)) const char*workflow_storage_tab(void*files_root){(void)files_root;return NULL;}
 __attribute__((weak)) void workflow_storage_tab_painted(void){}
+extern const char *phone_seqmute_header(unsigned,int*) __attribute__((weak));
+extern int seq_mutes_current(void) __attribute__((weak));
+static int seqmute_badge_active(void){
+ int index=seq_mutes_current?seq_mutes_current():-1;
+ uint64_t muted[2]={0,0};
+ return index>=0&&index<128&&music_sequence_mutes_get((unsigned)index,muted);
+}
 void music_ui_tab(void *p,void *g)
 {
     if (FIELD(p,0,uintptr_t)!=base+0x706e940) return;
@@ -655,7 +723,11 @@ void music_ui_tab(void *p,void *g)
      * Button+b8 can still be the identity Answer1/Answer2 here. Do not paint
      * over the native answer labels, including Erase+pad confirmation. */
     if (FIELD(root,0,uintptr_t)==base+0x6e1fe48) return;
-    const char *title=FIELD(p,0xb8,const char*);
+    unsigned column=(unsigned)((x+w/2)*3/320);
+    int mute_selected=0;
+    const char *mute_label=phone_seqmute_header&&FIELD(root,0,uintptr_t)!=base+0x6e1f060?
+        phone_seqmute_header(column,&mute_selected):NULL;
+    const char *title=mute_label?mute_label:FIELD(p,0xb8,const char*);
     if (!title || !*title || strnlen(title,96)>=96) return;
     if(FIELD(root,0,uintptr_t)==base+SAMPLE_VPTR&&(uintptr_t)p-(uintptr_t)root==0xe50&&shifted(root,0)&&!music_ui_repeat_active()){
         title="Stereo > Mono";count=0;index=-1;
@@ -675,13 +747,13 @@ void music_ui_tab(void *p,void *g)
         const char*tab=workflow_storage_tab(root);
         if(tab){title=tab;if(mode==2&&count==2)index=tab[0]=='E';workflow_storage_tab_painted();}
     }
-    unsigned column=(unsigned)((x+w/2)*3/320);
     if (column<3 && !(painted_headers[screen_index]&(1u<<column))) {
         painted_headers[screen_index]|=1u<<column;
         fprintf(stderr,"HEADER_TABS screen=%u column=%u mode=%d count=%d\n",screen_index,column,mode,count);
     }
     int enabled=FN(0x10f98d0,int(*)(void*))(p);
     int selected=index>=0 || (mode==1 && header_toggled(p));
+    if(mute_label){title=mute_label;selected=mute_selected;count=0;mode=0;enabled=1;}
     uint32_t ink=0xffffffff;
     if (mode==0) {
         /* TextButton's own textColourOffId: keep native action colours such
@@ -693,7 +765,9 @@ void music_ui_tab(void *p,void *g)
     else if (selected) ink=0xffffc247;
     int content=h<29 ? h : 29;
     colour(g,0xff000000); rect(g,0,0,w,h);
-    colour(g,ink); text(g,title,4,1,w-8,content-7,14);
+    int sm=column==2&&seqmute_badge_active();
+    colour(g,ink); text(g,title,4,1,w-8-(sm?25:0),content-7,14);
+    if(sm){colour(g,0xffff4747u);text(g,"SM",w-25,1,24,15,12);}
     if (count<2) {
         if (selected || (mode==0 && FIELD(p,0x160,int)==2)) { colour(g,ink); rect(g,8,content-4,w-16,1); }
         return;
@@ -730,12 +804,8 @@ void music_ui_sample(void *p,void *g)
      * and envelope curves as well. Device request: the same colour as EQ
      * (hue x 3/5); alpha e0 instead of EQ's ff leaves the native curves just
      * visible where a bar crosses them. */
-    if(music_ui_filter_spectrum_visible(p)){
-        unsigned pad;if(note_native_pad_index(&pad)){
-            struct resample_painter painter={g,eq_rect,eq_text};
-            pad_eq_spectrum_paint(pad,sample_pad_muted(pad),15,94,289,94,0xe05a4419u,&painter);
-        }
-    }
+    /* Spectrum is drawn inside the native waveform stage now. Drawing here,
+     * after children, would cover the filter response and envelope paths. */
 #endif
     void *group=(char*)p+0x7f0;
 #ifdef MPC_PROJECT_RECOVERY
@@ -760,7 +830,7 @@ void music_ui_sample(void *p,void *g)
         cell(g,0,"Transpose16",value,1,1,ok,s.transpose+24,49);
         int c=role_value(&s,role_field(&s,shown_role));
         if(s.mode!=MUSIC_PIANO)cell(g,1,"Role",roles[shown_role],1,1,ok && s.mode!=MUSIC_MONO,shown_role,(int)role_count(&s));
-        cell(g,2,s.mode==MUSIC_PIANO?"Original Colour":"Colour",music_colour_names[c],1,1,ok && s.mode!=MUSIC_MONO,c,12);
+        cell(g,2,s.mode==MUSIC_PIANO?"Original Colour":"Colour",music_light_colour_name((unsigned)c),1,1,ok && s.mode!=MUSIC_MONO,(int)music_light_colour_index((unsigned)c),(int)music_light_colour_count());
     } else {
         int project_tonic,project_scale;char tonic_text[32],scale_text[64];
         music_get_key(&project_tonic,&project_scale);
@@ -795,6 +865,8 @@ static int usbfiles_set(unsigned on){
  return fd>=0&&close(fd)==0;
 }
 static int rec_row(unsigned row){(void)row;return 0;} /* Record routing now lives in Mixer > Input > ROUTE */
+static int hidecursor_row(unsigned row){return mod_tab==3&&row==1;}
+static int rollcol_row(unsigned row){return mod_tab==1&&row==4;}
 static int trackcol_row(unsigned row){return mod_tab==1&&row==3;}
 static const char *const rec_point_names[]={"Input","Track","Master"};
 static const char *const rec_track_names[]={"A","B","C","D","E","F","G","H"};
@@ -819,6 +891,7 @@ static int mirror_set(int enabled){
 static int relation_row(unsigned row){return mod_tab==2&&row>MUSIC_SERVICE_COUNT&&row<=MUSIC_SERVICE_COUNT+MUSIC_RELATION_COUNT;}
 static unsigned relation_role(unsigned row){return row-MUSIC_SERVICE_COUNT-1;}
 static int vivid_row(unsigned row){return mod_tab==2&&row==MUSIC_SERVICE_COUNT+MUSIC_RELATION_COUNT+1;}
+static int reserved_row(unsigned row){return mod_tab==2&&row==MUSIC_SERVICE_COUNT+MUSIC_RELATION_COUNT+2;}
 static const char *const vivid_names[]={"Standard","Strong","Max"};
 static unsigned colour_row_slot(unsigned row){return relation_row(row)?music_relation_colour(relation_role(row)):row&&row<=MUSIC_SERVICE_COUNT?music_service_colour(row-1):0;}
 static uint32_t colour_row_rgb(unsigned row){return relation_row(row)?music_palette_rgb(music_relation_colour(relation_role(row))):music_service_rgb(row-1);}
@@ -830,14 +903,25 @@ static int row_disabled(unsigned row){
  if(rec_row(row)&&music_fx_mode_active()!=1)return 1; /* Record routing works only in Am MOD */
  if(trackcol_row(row)&&music_fx_mode_active()!=1)return 1; /* Track colours exist only in Am MOD */
  if(music_pad_lighting_mode())return 0;
- return trackcol_row(row)||link_row(row)||group_row(row)||(mod_tab==2&&row<mod_rows());
+ return hidecursor_row(row)||trackcol_row(row)||link_row(row)||group_row(row)||(mod_tab==2&&row<mod_rows());
 }
-static unsigned mod_rows(void){return mod_tab==MOD_ABOUT_TAB?0:mod_tab==2?MUSIC_SERVICE_COUNT+MUSIC_RELATION_COUNT+2:mod_tab==1?4:mod_tab==0?7+(unsigned)quick_fxview_visible():1;}
+static unsigned mod_rows(void){return mod_tab==MOD_ABOUT_TAB?0:mod_tab==2?MUSIC_SERVICE_COUNT+MUSIC_RELATION_COUNT+3:mod_tab==1?5:mod_tab==0?7+(unsigned)quick_fxview_visible():2;}
 static unsigned mod_field(unsigned row){return mod_tab==1?(row==2?MUSIC_SETTING_TAIL:MUSIC_SETTING_WAVE+row):mod_tab==3?MUSIC_SETTING_BLINK:MUSIC_SETTING_LIGHTING;}
 static int palette_row(unsigned row){return mod_tab==2&&row==0;}
-static unsigned mod_value(void){return usbaudio_row(mod_row)?usb_audio_choice():usbfiles_row(mod_row)?(unsigned)usbfiles_enabled():trackcol_row(mod_row)?music_pad_colour_source():rec_row(mod_row)?music_rec_get(mod_row-6):fxmode_row(mod_row)?music_fx_mode():textin_row(mod_row)?music_text_input():fxview_row(mod_row)?music_fx_view():vivid_row(mod_row)?music_led_vivid():relation_row(mod_row)?music_relation_colour(relation_role(mod_row)):link_row(mod_row)?(unsigned)music_pad_link_lighting():group_row(mod_row)?(unsigned)music_mute_group_lighting():mod_tab==2?music_service_colour(mod_row-1):(unsigned)music_mod_setting(mod_field(mod_row));}
+static unsigned mod_value(void){if(hidecursor_row(mod_row))return music_hide_play_cursor();if(rollcol_row(mod_row))return music_piano_roll_colour();if(reserved_row(mod_row))return music_palette_reserved();return usbaudio_row(mod_row)?usb_audio_choice():usbfiles_row(mod_row)?(unsigned)usbfiles_enabled():trackcol_row(mod_row)?music_pad_colour_source():rec_row(mod_row)?music_rec_get(mod_row-6):fxmode_row(mod_row)?music_fx_mode():textin_row(mod_row)?music_text_input():fxview_row(mod_row)?music_fx_view():vivid_row(mod_row)?music_led_vivid():relation_row(mod_row)?music_relation_colour(relation_role(mod_row)):link_row(mod_row)?(unsigned)music_pad_link_lighting():group_row(mod_row)?(unsigned)music_mute_group_lighting():mod_tab==2?music_service_colour(mod_row-1):(unsigned)music_mod_setting(mod_field(mod_row));}
+static unsigned palette_select(unsigned value,unsigned current,int relative,int system){
+ unsigned slots[MUSIC_PALETTE_SLOTS],count=0,index=0;
+ for(unsigned s=0;s<MUSIC_PALETTE_SLOTS;++s)if(system?music_palette_present(s):music_palette_available(s)){
+  if(s==current)index=count;
+  slots[count++]=s;
+ }
+ return count?slots[choice(value,(int)index,0,(int)count-1,relative)]:0;
+}
 static void mod_change(unsigned value,int relative){
  if(mod_tab==MOD_ABOUT_TAB||palette_row(mod_row)||mod_row==mod_rows()||row_disabled(mod_row))return;
+ if(hidecursor_row(mod_row)){lighting_save_error=!music_set_hide_play_cursor((unsigned)choice(value,(int)music_hide_play_cursor(),0,1,relative));repaint(project);return;}
+ if(rollcol_row(mod_row)){lighting_save_error=!music_set_piano_roll_colour((unsigned)choice(value,(int)music_piano_roll_colour(),0,1,relative));repaint(project);return;}
+ if(reserved_row(mod_row)){lighting_save_error=!music_set_palette_reserved((unsigned)choice(value,(int)music_palette_reserved(),0,1,relative));repaint(project);return;}
  if(trackcol_row(mod_row)){
   lighting_save_error=!music_set_pad_colour_source((unsigned)choice(value,(int)music_pad_colour_source(),0,1,relative));
   repaint(project);return;
@@ -869,8 +953,7 @@ static void mod_change(unsigned value,int relative){
   repaint(project);return;
  }
  if(relation_row(mod_row)){
-  unsigned next=(unsigned)choice(value,(int)mod_value(),0,MUSIC_PALETTE_SLOTS-1,relative);
-  for(unsigned guard=0;guard<MUSIC_PALETTE_SLOTS&&!music_palette_present(next);++guard)next=(next+1)%MUSIC_PALETTE_SLOTS;
+  unsigned next=palette_select(value,mod_value(),relative,0);
   lighting_save_error=!music_set_relation_colour(relation_role(mod_row),next);
   repaint(project);return;
  }
@@ -880,8 +963,8 @@ static void mod_change(unsigned value,int relative){
   repaint(project);return;
  }
  unsigned field=mod_field(mod_row);
- unsigned hi=mod_tab==2?MUSIC_PALETTE_SIZE-1:field==MUSIC_SETTING_TAIL?MUSIC_TAIL_CHOICES-1:mod_tab==3?3:1;
- unsigned next=(unsigned)choice(value,(int)mod_value(),0,(int)hi,relative);
+ unsigned hi=mod_tab==2?MUSIC_PALETTE_SLOTS-1:field==MUSIC_SETTING_TAIL?MUSIC_TAIL_CHOICES-1:mod_tab==3?3:1;
+ unsigned next=mod_tab==2?palette_select(value,mod_value(),relative,1):(unsigned)choice(value,(int)mod_value(),0,(int)hi,relative);
  lighting_save_error=!(mod_tab==2?music_set_service_colour(mod_row-1,next):music_set_mod_setting(field,next));
  repaint(project);
 }
@@ -913,7 +996,7 @@ void music_ui_palette_pad(unsigned pad,int down,int shift,uint64_t when,uint64_t
  if(palette_naming){
   palette_input.shift=shift;
   phone_pad(&palette_input,pad+1,down,when);
- }else if(down)palette_index=pad;
+ }else if(down)palette_index=(palette_index/16)*16+pad;
  palette_publish();repaint(project);
 }
 static void ui_header_key(void*g,unsigned i,const char *label,uint32_t ink){
@@ -935,10 +1018,12 @@ static void palette_paint(void*g){
   cell(g,0,"Input",palette_input.enabled?"Pads":"Encoder",0,0,1,0,0);
   return;
  }
- colour(g,0xffffffffu);text_aligned(g,"RGB Palette",12,34,126,22,17,0x21);
+ char bank_title[32];snprintf(bank_title,sizeof(bank_title),"Palette %c / B",'A'+palette_index/16);
+ colour(g,0xffffffffu);text_aligned(g,bank_title,12,34,126,22,17,0x21);
  text_aligned(g,palette_drafts[palette_index].name,143,34,165,22,14,0x22);
- for(unsigned i=0;i<MUSIC_PALETTE_SLOTS;++i){
-  int x=12+(int)(i%4)*75,y=62+(3-(int)(i/4))*26;
+ for(unsigned pad=0;pad<16;++pad){
+  unsigned i=(palette_index/16)*16+pad;
+  int x=12+(int)(pad%4)*75,y=62+(3-(int)(pad/4))*26;
   int present=palette_cell_visible(i);
   colour(g,i==palette_index?0xffffc247u:0xff303030u);rect(g,x,y,71,22);
   colour(g,present?0xff000000u|(palette_drafts[i].rgb):0xff111111u);
@@ -947,7 +1032,7 @@ static void palette_paint(void*g){
  char hex[8];snprintf(hex,sizeof(hex),"#%06X",(unsigned)(palette_drafts[palette_index].rgb&0xffffffu));
  colour(g,0xffffffffu);text_aligned(g,hex,12,171,78,21,15,0x21);
  colour(g,lighting_save_error?0xffff4040u:0xffaaaaaau);
- text_aligned(g,lighting_save_error?"SD unavailable: changes pending":palette_changes?"B3: save all changes":"Turn DATA / press pad: select",91,171,217,21,11,0x22);
+ text_aligned(g,lighting_save_error?"SD unavailable: changes pending":palette_changes?"B3: save all changes":"DATA: select / Pad Bank: bank",91,171,217,21,11,0x22);
  static const char*const labels[]={"Red","Green","Blue"};
  for(unsigned k=0;k<3;++k){
   unsigned channel=(palette_drafts[palette_index].rgb>>(16-8*k))&255u;
@@ -959,7 +1044,7 @@ static void mod_settings_paint(void*g){
  if(palette_edit){palette_paint(g);return;}
  static const char*const tabs[]={"Quick","Sample","Colours","Cursor","About"};
  static const char*const titles[]={"Quick settings","Sample","System colours","Selected pad","About"};
- static const char*const sample_labels[]={"Waveform tint","Spectrum tint","Preview from end","Pad colour from"};
+ static const char*const sample_labels[]={"Waveform tint","Spectrum tint","Preview from end","Pad colour from","Roll event colour"};
  static const char*const services[]={"Cursor / selection","Free target","Occupied target","Original value","Play position","Muted","Pad Link","Mute Group"};
  static const char*const speeds[]={"Steady","Slow","Normal","Fast"};
  colour(g,0xff000000);rect(g,0,0,320,240);colour(g,0xffffffff);
@@ -1003,15 +1088,15 @@ static void mod_settings_paint(void*g){
    if(current){k1_label="Restore";k1_value="Press";}
    continue;
   }
-  const char*label=usbaudio_row(i)?"USB audio":usbfiles_row(i)?"SD files via USB":mod_tab==0?(rec_row(i)?rec_label(i):link_row(i)?"Pad Link":group_row(i)?"Mute Group":fxview_row(i)?"FX view":fxmode_row(i)?"FX mode":textin_row(i)?"Text input":"Pad lighting"):mod_tab==1?sample_labels[i]:mod_tab==2?(vivid_row(i)?"LED strength":services[i-1]):"Cursor pulse";
+  const char*label=hidecursor_row(i)?"Hide cursor on Play":reserved_row(i)?"Reserve system colours":usbaudio_row(i)?"USB audio":usbfiles_row(i)?"SD files via USB":mod_tab==0?(rec_row(i)?rec_label(i):link_row(i)?"Pad Link":group_row(i)?"Mute Group":fxview_row(i)?"FX view":fxmode_row(i)?"FX mode":textin_row(i)?"Text input":"Pad lighting"):mod_tab==1?sample_labels[i]:mod_tab==2?(vivid_row(i)?"LED strength":services[i-1]):"Cursor pulse";
   unsigned field=mod_field(i);
-  unsigned value=usbaudio_row(i)?usb_audio_choice():usbfiles_row(i)?(unsigned)usbfiles_enabled():trackcol_row(i)?music_pad_colour_source():rec_row(i)?music_rec_get(i-6):fxmode_row(i)?music_fx_mode():textin_row(i)?music_text_input():fxview_row(i)?music_fx_view():vivid_row(i)?music_led_vivid():relation_row(i)?music_relation_colour(relation_role(i)):link_row(i)?(unsigned)music_pad_link_lighting():group_row(i)?(unsigned)music_mute_group_lighting():mod_tab==2?music_service_colour(i-1):(unsigned)music_mod_setting(field);
+  unsigned value=hidecursor_row(i)?music_hide_play_cursor():rollcol_row(i)?music_piano_roll_colour():reserved_row(i)?music_palette_reserved():usbaudio_row(i)?usb_audio_choice():usbfiles_row(i)?(unsigned)usbfiles_enabled():trackcol_row(i)?music_pad_colour_source():rec_row(i)?music_rec_get(i-6):fxmode_row(i)?music_fx_mode():textin_row(i)?music_text_input():fxview_row(i)?music_fx_view():vivid_row(i)?music_led_vivid():relation_row(i)?music_relation_colour(relation_role(i)):link_row(i)?(unsigned)music_pad_link_lighting():group_row(i)?(unsigned)music_mute_group_lighting():mod_tab==2?music_service_colour(i-1):(unsigned)music_mod_setting(field);
   char duration[16];
   if(field==MUSIC_SETTING_TAIL){if(music_tail_ms(value))snprintf(duration,sizeof(duration),"%u ms",music_tail_ms(value));else snprintf(duration,sizeof(duration),"Off");}
-  const char*name=usbaudio_row(i)?(value?"Master + A-H":"Stereo"):usbfiles_row(i)?(value?"On":"Off"):trackcol_row(i)?(value?"Track":"Pad"):mod_tab==0?(rec_row(i)?rec_name(i,value):link_row(i)?link_modes[value]:group_row(i)?link_modes[value]:fxview_row(i)?fxview_names[value]:fxmode_row(i)?fxmode_names[value]:textin_row(i)?textin_names[value]:(value?"Am MOD":"Standard")):field==MUSIC_SETTING_TAIL?duration:mod_tab==1?(value?"Pad colour":"Original"):mod_tab==2?(vivid_row(i)?vivid_names[value]:music_palette_name(value)):speeds[value];
+  const char*name=hidecursor_row(i)?(value?"On":"Off"):rollcol_row(i)?(value?"Pad":"Amber"):reserved_row(i)?(value?"On":"Off"):usbaudio_row(i)?(value?"Master + A-H":"Stereo"):usbfiles_row(i)?(value?"On":"Off"):trackcol_row(i)?(value?"Track":"Pad"):mod_tab==0?(rec_row(i)?rec_name(i,value):link_row(i)?link_modes[value]:group_row(i)?link_modes[value]:fxview_row(i)?fxview_names[value]:fxmode_row(i)?fxmode_names[value]:textin_row(i)?textin_names[value]:(value?"Am MOD":"Standard")):field==MUSIC_SETTING_TAIL?duration:mod_tab==1?(value?"Pad colour":"Original"):mod_tab==2?(vivid_row(i)?vivid_names[value]:music_palette_name(value)):speeds[value];
   colour(g,off?0xff606060:0xffffffff);text_aligned(g,label,14,y,190,21,13,0x21);
   int value_width=110;
-  if(mod_tab==2&&!vivid_row(i)){
+  if(mod_tab==2&&!vivid_row(i)&&!reserved_row(i)){
    colour(g,off?0xff303030:0xff000000u|colour_row_rgb(i));rect(g,294,y+5,11,11);
    value_width=92;
   }
@@ -1019,9 +1104,9 @@ static void mod_settings_paint(void*g){
   if(current){k1_label=label;snprintf(value_text,sizeof(value_text),"%s",name);k1_value=value_text;}
  }
  colour(g,((usbaudio_row(mod_row)&&music_fx_mode_active()==1)||fxmode_row(mod_row))?0xffff6060:0xffa0a0a0);
- text_aligned(g,usbaudio_row(mod_row)?(music_fx_mode_active()==1?"Restart to apply. Stereo is recommended for phones":"Stock: stereo Master L/R for phones and computers"):usbfiles_row(mod_row)?"Browser: http://192.168.155.1:8082":trackcol_row(mod_row)&&row_disabled(mod_row)?"Needs Am MOD and Pad lighting: Am MOD":trackcol_row(mod_row)?"Sample window: Pad = own colour, Track = its Mixer track colour":rec_row(mod_row)&&row_disabled(mod_row)?"Am MOD only: Stock records through its own effects":rec_row(mod_row)?(mod_row==6?"Input: Input FX. Track: + Track FX, fader, pan. Master: + Master FX":mod_row==7?"Track used by Record via Track or Master":"Dry: record and monitor without effects"):fxmode_row(mod_row)?"Am MOD: Knob FX opens the Mixer. Restart to apply":textin_row(mod_row)?"Naming, search and export windows open in Pads or Encoder":fxview_row(mod_row)?"Mixer effects: Illustrated pictures or Classic traces":row_disabled(mod_row)?"Off: set Pad lighting to Am MOD (Quick tab)":mod_tab==2?(relation_row(mod_row)||vivid_row(mod_row)?(music_pad_lighting_mode()?(vivid_row(mod_row)?"Washed-out colours: Strong or Max":"Blinks with the pad's own colour"):"Used only with Pad lighting: Am MOD"):music_service_colours_fallback()?"System colours overlap: using defaults":"Shift + B2: edit RGB palette"):mod_tab==1?"Hold STOP and tap a pad to hear its end":mod_tab==3?"Sequence pulses still follow tempo":link_row(mod_row)?"Sample: selected links / playing double pulse":group_row(mod_row)?"Sample: group blinks when selected / flashes when playing":"Standard keeps Piano, Scale and Degrees",12,172,300,13,11,0x21);
+ text_aligned(g,hidecursor_row(mod_row)?"Sample / Chop / 16 Levels: selection returns on Stop":reserved_row(mod_row)?"On: system colours are hidden from other selectors":usbaudio_row(mod_row)?(music_fx_mode_active()==1?"Restart to apply. Stereo is recommended for phones":"Stock: stereo Master L/R for phones and computers"):usbfiles_row(mod_row)?"Browser: http://192.168.155.1:8082":trackcol_row(mod_row)&&row_disabled(mod_row)?"Needs Am MOD and Pad lighting: Am MOD":trackcol_row(mod_row)?"Sample window: Pad = own colour, Track = its Mixer track colour":rec_row(mod_row)&&row_disabled(mod_row)?"Am MOD only: Stock records through its own effects":rec_row(mod_row)?(mod_row==6?"Input: Input FX. Track: + Track FX, fader, pan. Master: + Master FX":mod_row==7?"Track used by Record via Track or Master":"Dry: record and monitor without effects"):fxmode_row(mod_row)?"Am MOD: Knob FX opens the Mixer. Restart to apply":textin_row(mod_row)?"Naming, search and export windows open in Pads or Encoder":fxview_row(mod_row)?"Mixer effects: Illustrated pictures or Classic traces":row_disabled(mod_row)?"Off: set Pad lighting to Am MOD (Quick tab)":mod_tab==2?(relation_row(mod_row)||vivid_row(mod_row)?(music_pad_lighting_mode()?(vivid_row(mod_row)?"Washed-out colours: Strong or Max":"Blinks with the pad's own colour"):"Used only with Pad lighting: Am MOD"):music_service_colours_fallback()?"Missing system colour: using default":"Shift + B2: edit RGB palette"):mod_tab==1?"Hold STOP and tap a pad to hear its end":mod_tab==3?"Sequence pulses still follow tempo":link_row(mod_row)?"Sample: selected links / playing double pulse":group_row(mod_row)?"Sample: group blinks when selected / flashes when playing":"Standard keeps Piano, Scale and Degrees",12,172,300,13,11,0x21);
  colour(g,lighting_save_error?0xffff4040:0xffa0a0a0);
- text_aligned(g,lighting_save_error?"Could not change setting":usbfiles_row(mod_row)?"Off after restart; new WAV files go to USB Inbox":usbaudio_row(mod_row)?(music_fx_mode_active()==1?"Master 1-2; stereo tracks A-H 3-18":"Track outputs are available in Am MOD mode"):trackcol_row(mod_row)||rec_row(mod_row)||link_row(mod_row)||group_row(mod_row)||fxview_row(mod_row)||fxmode_row(mod_row)||textin_row(mod_row)?"Saved on this card; applies to all projects":"Saved in the project and as card default",12,185,300,13,11,0x21);
+ text_aligned(g,lighting_save_error?"Could not change setting":usbfiles_row(mod_row)?"Off after restart; new WAV files go to USB Inbox":usbaudio_row(mod_row)?(music_fx_mode_active()==1?"Master 1-2; stereo tracks A-H 3-18":"Track outputs are available in Am MOD mode"):hidecursor_row(mod_row)||trackcol_row(mod_row)||rec_row(mod_row)||link_row(mod_row)||group_row(mod_row)||fxview_row(mod_row)||fxmode_row(mod_row)||textin_row(mod_row)?"Saved on this card; applies to all projects":"Saved in the project and as card default",12,185,300,13,11,0x21);
  /* K1 changes the selected row directly; the encoder selects and edits. */
  colour(g,0xff000000);rect(g,0,198,320,42);
  colour(g,mod_edit?0xffffc247:0xffffffff);text(g,k1_label,4,200,98,12,12);text(g,k1_value,4,214,98,19,16);
@@ -1145,6 +1230,9 @@ int music_ui_control(void *event)
 int music_ui_control_at(void *event,unsigned event_shift)
 {
     music_ui_tick();
+#ifdef MPC_MIDI_TOOLS
+    if(am_midi_ui_control(event,event_shift))return 1;
+#endif
     if(music_pad_lighting_mode()&&atomic_load(&seq_active)&&event_shift&&FIELD(event,8,unsigned char)==0x10){
         int index=sequence_index();if(index>=0)music_set_sequence_colour((unsigned)index,music_identity_choice(FIELD(event,9,unsigned char)*music_identity_count()/128u));
         repaint(seq_screen);return 1;
@@ -1218,7 +1306,7 @@ int music_ui_control_at(void *event,unsigned event_shift)
             if (s.mode==MUSIC_MONO) return 1;
             int last=(int)role_count(&s)-1;if(role>last)role=last;
             if (focus==1) { if(!last)return 1;role=choice(v,role,0,last,rel); repaint(sample); return 1; }
-            field=role_field(&s,role); current=role_value(&s,field); hi=11;
+            field=role_field(&s,role); current=(int)music_light_colour_index((unsigned)role_value(&s,field)); hi=(int)music_light_colour_count()-1;
         }
     } else {
         if (focus==0) { field=MUSIC_MODE; current=music_mode_ui_index(s.mode); hi=MUSIC_LAYOUT_CHOICES-1; }
@@ -1226,6 +1314,7 @@ int music_ui_control_at(void *event,unsigned event_shift)
         else { field=MUSIC_LOCAL_SCALE; current=s.scale; lo=-1; hi=7; }
     }
     int next=choice(v,current,lo,hi,rel);
+    if(shifted(sample,0)&&focus==2)next=(int)music_light_colour_choice((unsigned)next);
     if(field==MUSIC_MODE)next=music_mode_from_ui_index(next);
     if (!music_set_sample(name,field,next)) report("SAMPLE_SETTING_REJECTED");
     note_native_tick(); repaint(sample); return 1;
@@ -1273,6 +1362,9 @@ int music_ui_reset_knob(unsigned column,unsigned shift){
 }
 int music_ui_button(void *event)
 {
+#ifdef MPC_MIDI_TOOLS
+    if(am_midi_ui_button(event))return 1;
+#endif
     unsigned code=FIELD(event,8,unsigned char),down=FIELD(event,9,unsigned char)!=0;
     if (code>=112) return 0;
     if (owned_buttons[code]) {
@@ -1286,7 +1378,8 @@ int music_ui_button(void *event)
      * button (Sample, Seq, Main...) leaves the page and keeps its stock
      * action. Page keys, encoder, Shift, transport, Tap, Knob FX stay. */
     if((key_page==1||key_page==2||key_page==4||key_page==5||key_page==6)&&visible(project)&&
-       code!=0x0c&&code!=0x0d&&code!=0x0e&&code!=0x6f&&code!=0x31&&code!=0x51&&code!=0x52&&code!=0x50&&code!=0x35&&code!=0x00){
+       code!=0x0c&&code!=0x0d&&code!=0x0e&&code!=0x6f&&code!=0x31&&code!=0x51&&code!=0x52&&code!=0x50&&code!=0x35&&code!=0x00&&
+       !(key_page==5&&palette_edit&&!palette_naming&&(code==0x23||code==0x36||code==0x37))){
         /* +/- have no action on Project subpages. Keep both edges away from
          * the native menu beneath the subpage. */
         if(code==0x36||code==0x37){
@@ -1302,6 +1395,10 @@ int music_ui_button(void *event)
     }
     /* Note Repeat's B buttons must never open underlying Sample pages. */
     if(music_ui_repeat_active())return 0;
+    if(key_page==5&&palette_edit&&!palette_naming&&(code==0x23||code==0x36||code==0x37)){
+        if(down){palette_bank_step(code==0x37||(code==0x23&&atomic_load(&global_shift))?-1:1);owned_buttons[code]=1;atomic_fetch_add(&held_count,1);}
+        palette_publish();repaint(project);return 1;
+    }
     if(code==0x51||code==0x52)return 0;
     if(code==0x0e&&visible(sample)&&shifted(sample,0)&&!key_page){
         if(workflow_mono_open(sample)){
@@ -1372,7 +1469,7 @@ int music_ui_button(void *event)
         if(code==0x0c){key_page=0;exit_usb=0;repaint(project);music_ui_tick();}
         else if(code==0x0e){
             key_page=3;exit_presented=exit_started=0;exit_error[0]=0;
-            atomic_store(&usb_stop_pending,1);atomic_store(&exit_blocked,1);repaint(project);
+            atomic_store(&usb_stop_pending,1);atomic_store(&exit_blocked,1);atomic_store(&usb_transfer_confirmed,1);repaint(project);
         }
         owned_buttons[code]=1;atomic_fetch_add(&held_count,1);return 1;
     }

@@ -14,7 +14,7 @@ void rear_native_stop(void){stops++;busy=0;}
 void rear_native_clear(void){}
 void rear_native_monitor_on(void){monitor_on++;}
 int rear_native_source(void){return 1;}
-static void button(unsigned c){unsigned char e[16]={0};e[8]=c;e[9]=1;assert(rear_ui_button(e)==(c!=0x51));e[9]=0;assert(rear_ui_button(e)==(c!=0x51));}
+static void button(unsigned c){unsigned expected=c!=0x51||busy;unsigned char e[16]={0};e[8]=c;e[9]=1;assert(rear_ui_button(e)==(int)expected);e[9]=0;assert(rear_ui_button(e)==(int)expected);}
 static void cc(unsigned c,unsigned v){unsigned char e[16]={0};e[8]=c;e[9]=v;assert(rear_ui_control(e));}
 int main(void){
  atomic_store(&open_panel,1);atomic_store(&visible_roots,2);panel_on_record=1;
@@ -46,5 +46,9 @@ int main(void){
  e[8]=0x11;e[9]=64;
  assert(rear_ui_control_at(e,1)&&settings[0][REAR_LEVEL]==50&&!settings[0][REAR_ENABLED]);
  assert(rear_ui_reset_knob(1,1)&&settings[0][REAR_LEVEL]==100&&!settings[0][REAR_ENABLED]);
- puts("PASS direct pad mono/dual record, cancellation B1/STOP/repeated pad, cross-bank choice, occupied-pad confirmation, monitor controls, FX/Repeat priority");return 0;
+ /* Stock must not see an orphan release if completion hides the panel. */
+ busy=1;e[8]=0x51;e[9]=1;assert(rear_ui_button(e));
+ atomic_store(&open_panel,0);atomic_store(&visible_roots,0);e[9]=0;
+ assert(rear_ui_button(e)&&!record_stop_owned&&!held[0x51]);
+ puts("PASS Rear recording Stop owns down/up through completion; idle Stop passes; mono/dual selection, occupied confirmation, monitor and FX/Repeat priority");return 0;
 }

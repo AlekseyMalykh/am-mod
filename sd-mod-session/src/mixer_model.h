@@ -17,6 +17,7 @@ extern "C" {
 #define MIXER_LEVEL_MAX_DB 6.f
 #define MIXER_MODEL_VERSION 1u
 #define MIXER_COLOURS 12u
+unsigned mixer_colour_count(void);
 #define MIXER_DEFAULT_TRACK_COLOUR 6u /* Yellow */
 /* UI choice lists omit source tracks while preserving stored 0=Off, 1..8=A..H. */
 static inline unsigned mixer_routing_choice_count(unsigned excluded){

@@ -3,6 +3,8 @@
 #include <stdint.h>
 int poly_record_install(uintptr_t image);
 void poly_record_context(void *current_things);
+/* Native worker only: finish captured (enabled<<12 | kind<<8 | encoded value), then last-key audio. */
+void poly_record_release_event(void *engine,void *track,unsigned source,unsigned choice,int last);
 /* Chords arpeggiator (MPC_CHORDS). Held chord notes in press order, filled
  * on the pad input thread; the UI timer reads them and plays one step at a
  * time through the same native Engine/recorder route as a chord. */

@@ -2,6 +2,8 @@
  * loader still owns sample staging, events, effects, errors and Temp-Project
  * autosave. No project bytes or persistent preferences are rewritten here. */
 #include "startup_project.h"
+#include "internal_storage.h"
+extern "C" int internal_storage_project_path(const char*) __attribute__((weak));
 #ifdef MPC_PROJECT_RECOVERY
 #include "project_recovery.h"
 #endif
@@ -87,6 +89,7 @@ bool card_root(char (&root)[PATH_MAX]){
 bool project_save_destination(const char *target){
  if(!target||!*target)return false;
  if(!std::strcmp(target,STARTUP_AUTOSAVE_PATH))return true;
+ if(internal_storage_project_path&&internal_storage_project_path(target))return true;
  char root[PATH_MAX],parent[PATH_MAX],canonical[PATH_MAX];
  if(!card_root(root))return false;
  const size_t root_length=std::strlen(root);
@@ -107,7 +110,7 @@ int save(void*saver,const uint64_t*file,bool a,bool b,bool c){
  const char*incoming=file?reinterpret_cast<const char*>(*file):nullptr;
  if(incoming&&strnlen(incoming,sizeof(target))<sizeof(target))std::snprintf(target,sizeof(target),"%s",incoming);
  if(!project_save_destination(target)){
-  std::fprintf(stderr,"STARTUP_PROJECT SAVE_REQUIRES_SD_CARD\n");
+  std::fprintf(stderr,"STARTUP_PROJECT SAVE_REQUIRES_PERSISTENT_STORAGE\n");
   return 0;
  }
  int result=original_save(saver,file,a,b,c);
@@ -165,7 +168,8 @@ void scan(const char*folder,unsigned depth,time_t&best){
  }
  closedir(d);
 }
-void choose(){
+bool resume_picked;
+void choose_sd(){
  char root[PATH_MAX],canonical[PATH_MAX];
  if(!card_root(root))return;
  /* USB Drive restarts the app after the card returns. Load the exact copy
@@ -178,12 +182,31 @@ void choose(){
   size_t root_size=std::strlen(root);
   if(n>(ssize_t)(root_size+10)&&std::strlen(path)==(size_t)n&&!std::strncmp(path,root,root_size)&&!std::strncmp(path+root_size,"/Projects/",10)&&
      !std::strstr(path,"/../")&&realpath(path,canonical)&&!std::strcmp(path,canonical)&&!lstat(path,&st)&&regular(path,st)){
-   std::snprintf(selected,sizeof(selected),"%s",path);std::fprintf(stderr,"STARTUP_PROJECT USB_RESUME_SELECTED\n");return;
+   std::snprintf(selected,sizeof(selected),"%s",path);std::fprintf(stderr,"STARTUP_PROJECT USB_RESUME_SELECTED\n");resume_picked=true;return;
   }
  }
  char projects[PATH_MAX];if(std::snprintf(projects,sizeof(projects),"%s/Projects",root)>=(int)sizeof(projects))return;
  if(!realpath(projects,canonical)||std::strcmp(projects,canonical))return;
  time_t best=0;scan(projects,1,best);
+}
+void choose(){
+ selected[0]=0;choose_sd();
+ if(resume_picked)return;
+ /* The newest project wins regardless of which firmware saved it. Stock and
+  * SampQOL keep projects on the real flash (visible read-only below our
+  * overlay): Temp-Project.xpj and named Internal projects. Candidates: newest
+  * SD project, newest Internal project, Temp-Project. Empty selection means the
+  * native boot load opens Temp-Project. */
+ time_t sd_time=0;char sd_path[PATH_MAX];sd_path[0]=0;
+ if(selected[0]){struct stat st;if(!lstat(selected,&st))sd_time=st.st_mtime;std::snprintf(sd_path,sizeof(sd_path),"%s",selected);}
+ selected[0]=0;time_t flash_time=0;scan("/data/UserContent/Projects",1,flash_time);
+ char flash_path[PATH_MAX];std::snprintf(flash_path,sizeof(flash_path),"%s",selected);
+ struct stat ts;time_t temp_time=regular(STARTUP_AUTOSAVE_PATH,ts)?ts.st_mtime:0;
+ std::fprintf(stderr,"STARTUP_PROJECT CANDIDATES sd=%lld(%s) internal=%lld(%s) temp=%lld\n",(long long)sd_time,sd_path,(long long)flash_time,flash_path,(long long)temp_time);
+ selected[0]=0;
+ if(sd_path[0]&&sd_time>=flash_time&&sd_time>temp_time){std::snprintf(selected,sizeof(selected),"%s",sd_path);std::fprintf(stderr,"STARTUP_PROJECT PICK sd\n");}
+ else if(flash_path[0]&&flash_time>=temp_time){std::snprintf(selected,sizeof(selected),"%s",flash_path);std::fprintf(stderr,"STARTUP_PROJECT PICK internal\n");}
+ else std::fprintf(stderr,"STARTUP_PROJECT PICK temp\n");
 }
 Errors load(void*saver,const uint64_t*file){
  unsigned waiting=1;
@@ -202,6 +225,9 @@ Errors load(void*saver,const uint64_t*file){
  std::fprintf(stderr,"STARTUP_PROJECT SINGLE_LOAD path=%s\n",selected);
  Errors result=native_load(saver,&chosen.value);phase.store(3);
  std::fprintf(stderr,"STARTUP_PROJECT NATIVE_LOAD_FINISHED sd=1 errors=%u\n",result.begin!=result.end);
+#ifdef MPC_PROJECT_RECOVERY
+ if(result.begin==result.end)project_recovery_adopt_name(image,saver,selected);
+#endif
  return result;
 }
 }

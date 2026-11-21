@@ -8,6 +8,19 @@
 #include <limits.h>
 #include <sound/asound.h>
 #include "usb_drive_input.h"
+#include "usb_drive_lights.h"
+struct amber_writer {unsigned offset,failed;uint64_t next_ms;};
+static void amber_tick(int fd,uint64_t now,struct amber_writer*w){
+ if(fd<0||w->failed||now<w->next_ms)return;
+ unsigned char bytes[192];usb_drive_amber_frame(bytes);
+ while(w->offset<sizeof(bytes)){
+  ssize_t n=write(fd,bytes+w->offset,sizeof(bytes)-w->offset);
+  if(n<0&&(errno==EAGAIN||errno==EINTR))return;
+  if(n<=0){w->failed=1;fprintf(stderr,"USB_DRIVE_PAD_LIGHTS_FAILED errno=%d\n",errno);return;}
+  w->offset+=(unsigned)n;
+ }
+ w->offset=0;w->next_ms=now+1000;
+}
 static void line(struct screen*s,const char*text,unsigned y,uint32_t colour){
  am_splash_text_aa(s->map,s->pitch,text,y,(const uint8_t(*)[1])am_font_url,
                   AM_FONT_URL_W,AM_FONT_URL_H,AM_FONT_URL_W*AM_FONT_URL_H,colour);
@@ -84,7 +97,9 @@ static int open_controls(void){
  glob_t paths={0};int selected=-1;
  if(glob("/dev/snd/midiC*D*",0,NULL,&paths))return -1;
  for(size_t i=0;i<paths.gl_pathc;++i){
-  int fd=open(paths.gl_pathv[i],O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_NOFOLLOW);if(fd<0)continue;
+  int fd=open(paths.gl_pathv[i],O_RDWR|O_NONBLOCK|O_CLOEXEC|O_NOFOLLOW);
+  if(fd<0)fd=open(paths.gl_pathv[i],O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_NOFOLLOW);
+  if(fd<0)continue;
   struct snd_rawmidi_info info={.stream=SNDRV_RAWMIDI_STREAM_INPUT};
   int valid=!ioctl(fd,SNDRV_RAWMIDI_IOCTL_INFO,&info);
   char sys[128],device[PATH_MAX];snprintf(sys,sizeof(sys),"/sys/class/sound/card%d/device",info.card);
@@ -116,11 +131,13 @@ int main(int argc,char**argv){
  if(!show(&s)){cleanup(&s);return 1;}
  int fd=open(argv[2],O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);if(fd<0){cleanup(&s);return 1;}close(fd);
  int controls=open_controls();struct usb_drive_input input={0};
+ struct amber_writer amber={0};int output=controls>=0&&(fcntl(controls,F_GETFL)&O_ACCMODE)==O_RDWR?controls:-1;
  uint64_t input_after=now_ms()+700;
  char previous[32]="";int requested=0;unsigned logged_input=0;
  while(!stopping){
   char state[32]="preparing";FILE*f=fopen(argv[1],"r");if(f){if(!fgets(state,sizeof(state),f))state[0]=0;fclose(f);state[strcspn(state,"\r\n")]=0;}
   if(!strcmp(state,"done"))break;
+  amber_tick(output,now_ms(),&amber);
   int interactive=!strcmp(state,"sharing")||!strcmp(state,"waiting");
   if(controls>=0){
    unsigned char bytes[256];ssize_t count;

@@ -8,7 +8,8 @@ from pathlib import Path
 import hashlib, json, os, subprocess
 
 R = Path(__file__).resolve().parent
-O = R / 'build/mixer-r27r'
+O = R / 'build' / os.environ.get('AM_MOD_BUILD_NAME', 'mixer-r27r')
+assert O.parent == R / 'build' and O.name not in ('', '.', '..')
 O.mkdir(parents=True, exist_ok=True)
 subprocess.run(['python3', 'build_pad_lighting_menu.py'], cwd=R, check=True)
 frozen = json.loads((R / 'build/r23a/build-info.json').read_text())
@@ -27,18 +28,31 @@ mixer = ['src/mixer_model.c', 'src/mixer_meters.c', 'src/fx_chain.c', 'src/fx_ow
          'src/mixer_live.c', 'src/mixer_live_native.c', 'src/mixer_view.c',
          'src/mixer_control.c', 'src/mixer_session.cc', 'src/mixer_input.c',
          'src/mixer_runtime.cc', 'src/mixer_sources.cc', 'src/mixer_leds.c',
-         'src/mixer_fx.cc', 'src/input_fx.cc', 'src/fx_native.cc', 'src/song_ui.c', 'src/mixer_stems.c', 'src/screen_mirror_drm.c', 'src/usb_audio.c', 'src/usb_audio_alsa.c']
-sources = list(dict.fromkeys(sources + mixer))
+         'src/mixer_fx.cc', 'src/input_fx.cc', 'src/fx_native.cc', 'src/song_ui.c', 'src/mixer_stems.c', 'src/seq_mutes.c', 'src/seq_audition.c', 'src/screen_mirror_drm.c', 'src/usb_audio.c', 'src/usb_audio_alsa.c',
+         'src/midi_tools.c', 'src/midi_alsa.c', 'src/midi_ui.c',
+         'src/midi_event.c', 'src/midi_context.c', 'src/midi_native.c', 'src/sample_live_tuner.cc','src/internal_storage.c']
+sources = list(dict.fromkeys(sources + mixer + ['src/piano_roll.c','src/midi_route.c','src/midi_voice.c','src/midi_wire.c','src/midi_file.c','src/midi_file_native.c','src/program_pgm.c','src/program_import.cc','src/program_manifest.cc']))
+pgm_probe = os.environ.get('AM_MOD_PGM_NATIVE_PROBE') == '1'
+if pgm_probe:sources += ['src/program_native_probe.cc']
 sha = lambda b: hashlib.sha256(b).hexdigest()
-hashes = {s: sha((R / s).read_bytes()) for s in sources + ['build_mixer_r27r.py', 'build/phone_hooks.h', 'src/shift_badge.h', 'src/mod_build.h', 'src/spectrum_plot.h', 'src/screen_mirror_frame.h', 'src/usb_audio.h', 'src/fx_layout.inc', 'src/fx_visual.inc', 'src/fx_catalog.h', 'src/fx_amp_models.inc']}
+hashes = {s: sha((R / s).read_bytes()) for s in sources + ['build_mixer_r27r.py', 'build/phone_hooks.h', 'src/shift_badge.h', 'src/mod_build.h', 'src/spectrum_plot.h', 'src/screen_mirror_frame.h', 'src/usb_audio.h', 'src/fx_layout.inc', 'src/fx_visual.inc', 'src/fx_catalog.h', 'src/fx_amp_models.inc', 'src/piano_roll.h', 'src/piano_input.inc', 'src/poly_record.h', 'src/batch_copy.h', 'src/piano_roll_native.inc', 'src/midi_event.h', 'src/midi_context.h', 'src/midi_native.h', 'src/sample_live_tuner.h']}
+for name in ('src/midi_file.h','src/midi_file_native.h','src/piano_roll_midi.inc'):hashes[name]=sha((R/name).read_bytes())
+hashes['src/usb_drive_lights.h']=sha((R/'src/usb_drive_lights.h').read_bytes())
+hashes['src/internal_storage.h']=sha((R/'src/internal_storage.h').read_bytes())
+for name in ('src/seq_mutes.h','src/seq_audition.h','src/midi_wire.h','src/midi_voice.h','src/midi_route.h','src/midi_live.inc'):hashes[name]=sha((R/name).read_bytes())
+for name in ('src/program_pgm.h','src/program_import.h','src/program_manifest.h','src/program_import_ui.inc'):hashes[name]=sha((R/name).read_bytes())
 common = ['-O2', '-g', '-fPIC', '-Wall', '-Wextra', '-Werror', '-Ibuild',
           '-DMPC_RESAMPLE_TRIAL=1', '-DMPC_STOCK_RESAMPLE=1', '-DMPC_EXPERIMENTAL_CHOP_EXPORT=1',
           '-DMPC_PAD_EQ=1', '-DMPC_FAST_RESAMPLE=1', '-DMPC_SEQUENCE_COLOURS=1',
-          '-DMPC_POLY_RECORD=1', '-DMPC_POWER_BUTTON=1', '-DMPC_CHORDS=1', '-DMPC_COMPRESSOR=1',
+          '-DMPC_PROGRAM_IMPORT=1', '-DMPC_POLY_RECORD=1', '-DMPC_POWER_BUTTON=1', '-DMPC_CHORDS=1', '-DMPC_COMPRESSOR=1',
           '-DMPC_PROJECT_RECOVERY=1', '-DMPC_STARTUP_SPLASH=1', '-DMPC_EARLY_STARTUP=1',
           '-DMPC_KNOB_RESET=1', '-DMPC_LOOP_FEEDBACK=1', '-DMPC_REAR_ROUTING=1',
-          '-DMPC_USB_AUDIO=1', '-DMPC_MIXER_ARCHIVE=1', '-DMPC_MIXER_LIVE=1', '-DMPC_MIXER_AUTOBIND=1', '-DMPC_SONG_UI=1',
+          '-DMPC_SAMPLE_LIVE_TUNER=1', '-DMPC_MIDI_TOOLS=1', '-DMPC_USB_AUDIO=1', '-DMPC_MIXER_ARCHIVE=1', '-DMPC_MIXER_LIVE=1', '-DMPC_MIXER_AUTOBIND=1', '-DMPC_SONG_UI=1',
           '-mbranch-protection=standard']
+if os.environ.get('AM_MOD_MIDI_EVENT_CONTEXT','1')!='0':common.append('-DMPC_MIDI_EVENTS=1')
+if pgm_probe:
+    common.append('-DMPC_PGM_NATIVE_PROBE=1')
+    hashes['src/program_pgm.h'] = sha((R / 'src/program_pgm.h').read_bytes())
 objects = []
 for source in sources:
     cpp = source.endswith('.cc')
@@ -70,6 +84,7 @@ assert 'TAKEOVER SCALED_ENDPOINTS_INSTALLED' not in p.stderr
 assert 'SONG_UI INSTALLED' in p.stderr  # SongScreen slots matched the pinned ELF
 assert 'MIXER BANK_LED_INSTALLED' in p.stderr
 assert 'MIXER_STEMS INSTALLED' in p.stderr  # native writer close prologue matched
+assert ('AM_MIDI_NATIVE SOURCE_CONTEXT_INSTALLED' in p.stderr)==('-DMPC_MIDI_EVENTS=1' in common)
 mixer_lines = [l for l in p.stderr.splitlines() if 'MIXER' in l]
 
 route = O / 'check-phone-routes'
@@ -77,13 +92,14 @@ subprocess.run(['aarch64-linux-gnu-gcc', '-std=c11', '-O1', '-g', '-Wall', '-Wex
                 '-mbranch-protection=standard', '-ffunction-sections', '-fdata-sections',
                 '-Wl,--gc-sections', '-Ibuild', 'check_mixer_phone_routes.c', 'src/phone_events.c',
                 'src/mixer_input.c', 'src/mixer_control.c', 'src/phone_input.c', 'src/mixer_model.c', 'src/fx_catalog.c',
-                'src/fx_chain.c', 'src/fx_own.c', 'src/compressor_dsp.c', 'src/fx_eq.c', 'src/mixer_leds.c', '-lm', '-pthread',
+                'src/fx_chain.c', 'src/fx_own.c', 'src/compressor_dsp.c', 'src/fx_eq.c', 'src/mixer_leds.c', 'src/piano_roll.c', '-lm', '-pthread',
                 '-o', str(route)], cwd=R, check=True)
 routes = subprocess.run(['qemu-aarch64', '-L', sysroot, str(route)], cwd=R,
                         capture_output=True, text=True, timeout=30)
 (O / 'phone-routes.log').write_text(routes.stdout + routes.stderr)
 routes.check_returncode()
 assert 'PASS Mixer through production input hooks' in routes.stdout
+assert 'PASS cold MIDI Tools entry through production producer' in routes.stdout
 assert hashes == {s: sha((R / s).read_bytes()) for s in hashes}
 report = dict(passed=True, base='r27r', library_sha256=sha(library.read_bytes()),
               sources_sha256=hashes, linked_sources=sources, compiler_flags=common,

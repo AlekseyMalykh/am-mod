@@ -37,7 +37,7 @@ void stock_save(void*,void*archive){native_field(archive,"stockSentinel","Keep n
 void legacy_save(void*p,void*a){music_archive_save(p,a,stock_save);}
 std::string save(){Output out;output=&out;native_calls=0;mixer_archive_save(nullptr,out.wrapper,legacy_save);out.stream<<"}";output=nullptr;return out.stream.str();}
 struct Input {
-    alignas(8) char wrapper[4][0x160]{},archive[0x160]{},frame[0x38]{},members[96]{};
+    alignas(8) char wrapper[4][0x160]{},archive[0x160]{},frame[0x38]{},members[384]{};
     std::string mixer,music;unsigned n=0;
     Input(const std::string&mix,const std::string&mus):mixer(mix),music(mus){
         for(unsigned i=0;i<4;++i)set<void*>(wrapper[i],8,i==3?archive:wrapper[i+1]);

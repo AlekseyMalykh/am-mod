@@ -12,6 +12,11 @@
 #endif
 #include "phone_events.h"
 #include "music_settings.h"
+#ifdef MPC_MIDI_TOOLS
+#include "midi_file_native.h"
+#include "note_native.h"
+#include "step_native.h"
+#endif
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdio.h>
@@ -86,12 +91,22 @@ static _Alignas(8) unsigned char export_route_template[16];
 /* 0 none, 1 Mixdown naming, 2 Dry Stems naming, 3 Wet Stems naming. Both share the existing
  * TextEditor + pad keyboard; Sequence has no stock name dialog. */
 /* Stock firmware has no stem export: its menu offers Mixdown and Sequence only. */
-static unsigned export_items(void){
+static unsigned audio_export_items(void){
 #ifdef MPC_MIXER_LIVE
     return mixer_stems_available&&mixer_stems_available()?4u:2u;
 #else
     return 2u;
 #endif
+}
+static unsigned export_items(void){
+#ifdef MPC_MIDI_TOOLS
+    return audio_export_items()+2;
+#else
+    return audio_export_items();
+#endif
+}
+static unsigned export_kind(unsigned index){
+    unsigned audio=audio_export_items();return index<audio?index:4+index-audio;
 }
 static int song_export_ready(unsigned choice){
 #ifdef MPC_EARLY_STARTUP
@@ -444,9 +459,20 @@ int song_ui_button(void *e,int shift)
         if(code==B2||code==PLUS||code==MINUS)return 1;
         if(code==B3){
             struct song_ref song;
-            if(!song_ref(&song)||!song.count)return 1;
-            unsigned selected=atomic_load(&export_choice);
+            unsigned selected=export_kind(atomic_load(&export_choice));
+            if(!song_ref(&song)||(!song.count&&selected!=5))return 1;
             if(!song_export_ready(selected)){repaint(screen);return 1;}
+#ifdef MPC_MIDI_TOOLS
+            if(selected>=4){
+                if(step_native_transport_state()&4){say("Stop recording before MIDI export");return 1;}
+                void *sequence=NULL;char path[512],error[96];
+                if(selected==5){int index=FIELD(song.controller,0x1dc,int);if(index<0||index>=128){say("Select a sequence pad first");return 1;}sequence=FN(0x2909be0,void*(*)(void*,int))(song.sequencer,index);}
+                if(am_midi_file_export(base,song.sequencer,note_native_context(),sequence,selected==4?song.song:NULL,path,error)){
+                    atomic_store(&export_menu_active,0u);const char*name=strrchr(path,'/');char message[80];snprintf(message,sizeof(message),"Saved %.60s",name?name+1:path);say(message);
+                }else say(error);
+                repaint(screen);return 1;
+            }
+#endif
 #ifdef MPC_MIXER_LIVE
             if(selected>=2u && (!mixer_stems_available || !mixer_stems_available() || !mixer_stems_arm)){
                 fprintf(stderr,"SONG_EXPORT STEMS_UNAVAILABLE\n");return 1;
@@ -623,25 +649,27 @@ static void paint(void *p,void *g)
         /* Paint after SongScreen children. Cover all of the song list/buttons;
          * the old native Cancel/Mixdown/Sequence modal was never entered. */
         const unsigned selected=atomic_load(&export_choice)%export_items();
-        int has_song=song_ref(&r)&&r.count>0;
-        int can_export=has_song&&song_export_ready(selected);
-        const char *items[]={"Mixdown","Sequence","Stems without FX","Stems with FX"};
+        int has_ref=song_ref(&r),has_song=has_ref&&r.count>0;
+        int has_source=has_song||(has_ref&&export_kind(selected)==5&&FIELD(r.controller,0x1dc,int)>=0&&FIELD(r.controller,0x1dc,int)<128);
+        int can_export=has_source&&song_export_ready(export_kind(selected));
+        const char *items[]={"Mixdown","Sequence","Stems without FX","Stems with FX","MIDI song","MIDI sequence"};
         const char *detail[]={"One stereo WAV","Combine into a sequence",
-                              "Separate WAVs without mixer FX","Separate WAVs with mixer FX"};
+                              "Separate WAVs without mixer FX","Separate WAVs with mixer FX","Song steps and repeats as .mid","Pad-selected sequence as .mid"};
         colour(g,0xff000000u);rect(g,0,0,320,240);
         colour(g,0xff202020u);rect(g,1,6,105,26);rect(g,215,6,105,26);
         colour(g,0xffffffffu);text(g,"Back",1,7,105,24,14.0f);
         colour(g,can_export?0xffffc247u:0xff777777u);text(g,"Export",215,7,105,24,14.0f);
         colour(g,0xffffffffu);text_at(g,"Song Export",14,31,292,28,20.0f,0x21);
-        for(unsigned i=0;i<export_items();++i){
-            int y=67+(int)i*31;
+        unsigned first=selected>3?selected-3:0;
+        for(unsigned i=first;i<export_items()&&i<first+4;++i){
+            int y=67+(int)(i-first)*31;unsigned kind=export_kind(i);
             int current=i==selected;
             colour(g,current?0xff302412u:0xff161616u);rect(g,12,y,296,28);
             if(current){colour(g,0xffffc247u);rect(g,12,y,3,28);}
             colour(g,current?0xffffc247u:0xffeeeeeeu);
-            text_at(g,items[i],23,y+1,283,16,14.0f,0x21);
+            text_at(g,items[kind],23,y+1,283,16,14.0f,0x21);
             colour(g,0xffb5b5b5u);
-            text_at(g,detail[i],23,y+16,283,11,10.0f,0x21);
+            text_at(g,detail[kind],23,y+16,283,11,10.0f,0x21);
         }
         colour(g,0xff252525u);rect(g,12,198,296,1);
         colour(g,0xffbbbbbbu);text(g,can_export?"Turn DATA: select   /   B3: export":has_song?"Insert SD card to export":"Insert a sequence before exporting",12,204,296,22,12.0f);

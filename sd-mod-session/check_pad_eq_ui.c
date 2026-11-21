@@ -23,6 +23,14 @@ static unsigned char fx_screen[0x300],fx_header[0x240];
 static uintptr_t value_source[7][2],value_vtable[3],var_vtable[24],var_type;
 static unsigned values_read,values_destroyed,header_bars;static int header_testing,header_disabled;
 static uint32_t draw_ink,header_caption_ink;
+static unsigned fixture_seq_header;
+static int fixture_badge_sequence=-1;
+int seq_mutes_current(void){return fixture_badge_sequence;}
+const char *phone_seqmute_header(unsigned column,int *selected){
+ if(!fixture_seq_header||column<1||column>2)return NULL;
+ *selected=column==2&&fixture_seq_header==2;
+ return column==1?"Clear Seq":*selected?"Seq: On":"Seq: Off";
+}
 static unsigned spectrum_bars,muted_bars,graph_clears;static int graph_cleared;
 extern void check_header_value_get(void);
 void check_header_value_fill(void*out,void*source){++values_read;F(out,0,uintptr_t)=(uintptr_t)&var_type;F(out,8,uint64_t)=F(source,8,uint64_t);}
@@ -53,7 +61,7 @@ static void font_delete(void*f){assert(f);}
 static void draw_text(void*g,const uint64_t*s,int x,int y,int w,int h,int flags,int lines,float scale){(void)x;(void)y;(void)w;(void)h;(void)flags;(void)lines;(void)scale;assert(g==screen&&s);const char*str=*(const char*const*)s;if(header_testing&&!strcmp(str,"Bypass"))header_caption_ink=draw_ink;assert(strlen(captions)+strlen(str)+2<sizeof(captions));strcat(captions,str);strcat(captions,"\n");}
 static int key(unsigned code,int down){unsigned char e[16]={0};e[8]=code;e[9]=down;return music_ui_button(e);}
 static void knob(unsigned cc,unsigned v){unsigned char e[16]={0};e[8]=cc;e[9]=v;assert(music_ui_control(e));}
-static void paint_ui(void){captions[0]=0;graph_cleared=0;music_ui_sample(screen,screen);}
+static void paint_ui(void){captions[0]=0;graph_cleared=0;music_ui_filter_spectrum_paint(screen,screen);music_ui_sample(screen,screen);}
 static void noop_paint(void*p,void*g){(void)p;(void)g;}
 int workflow_mono_open(void*p){(void)p;return 0;}
 int main(int argc,char**argv){
@@ -92,6 +100,14 @@ int main(int argc,char**argv){
  void*header=screen+0xe50;F(header,0,uintptr_t)=base+0x706e940;F(header,0x18,void*)=screen;F(header,0x20,int)=214;F(header,0x24,int)=6;F(header,0x28,int)=106;F(header,0x2c,int)=29;F(header,0x21c,int)=2;F(header,0x214,int)=2;
  FN(0xf535c0,void(*)(void*,const char*))((char*)header+0xb8,"Filter Env");patch(0x10f98d0,enabled);captions[0]=0;unsigned old_draws=draws;music_ui_tab(header,screen);assert(strstr(captions,"EQ")&&draws==old_draws+4);
  F(controller,0x22a0,unsigned char)=1;captions[0]=0;music_ui_tab(header,screen);assert(strstr(captions,"Stereo > Mono")&&!strstr(captions,"EQ"));F(controller,0x22a0,unsigned char)=0;
+ fixture_seq_header=1;captions[0]=0;music_ui_tab(header,screen);assert(strstr(captions,"Seq: Off")&&!strstr(captions,"EQ"));
+ fixture_seq_header=2;captions[0]=0;music_ui_tab(header,screen);assert(strstr(captions,"Seq: On")&&!strstr(captions,"EQ"));
+ fixture_seq_header=0;captions[0]=0;music_ui_tab(header,screen);assert(strstr(captions,"EQ")&&!strstr(captions,"Seq:"));
+ assert(music_sequence_pad_toggle(5,127)==1);fixture_badge_sequence=5;
+ captions[0]=0;music_ui_tab(header,screen);assert(strstr(captions,"SM")&&strstr(captions,"EQ"));
+ fixture_badge_sequence=6;captions[0]=0;music_ui_tab(header,screen);assert(!strstr(captions,"SM"));
+ assert(music_sequence_mutes_clear(5));fixture_badge_sequence=5;
+ captions[0]=0;music_ui_tab(header,screen);assert(!strstr(captions,"SM"));fixture_badge_sequence=-1;
  knob(0x12,20);knob(0x10,72);knob(0x11,22);uint64_t saved=music_get_pad_eq(18);assert(saved&&pad_eq_published(18)==saved&&!music_get_pad_eq(19));
  F(controller,0x22a0,unsigned char)=1;knob(0x11,90);uint64_t q=music_get_pad_eq(18);assert((q&~(UINT64_C(127)<<14))==(saved&~(UINT64_C(127)<<14)));knob(0x12,127);assert(music_get_pad_eq(18)==q);paint_ui();assert(strstr(captions,"Q"));
  F(controller,0x22a0,unsigned char)=0;knob(0x12,1);paint_ui();assert(strstr(captions,"BYPASS"));
@@ -182,13 +198,14 @@ int main(int argc,char**argv){
  F(empty_clip,0x710,uint64_t)=1;assert(music_ui_sequence_presence(0)==((1u<<11)|(1u<<12)));
  F(empty_clip,0x710,uint64_t)=0;assert(music_ui_sequence_presence(0)==(1u<<11));
  F(sequence_model,0x6f8,uint64_t)=0;assert(!music_ui_sequence_presence(0));F(sequence_model,0x6f8,uint64_t)=1;
- sequence_only=1;paint_sequence(sequence_screen,screen);assert(music_ui_sequence_visible()&&music_ui_active());music_ui_requested(0x31,1);knob(0x10,127);assert(music_sequence_colour(11)==7&&music_sequence_colour(12)==0);
+ unsigned last_colour=music_identity_choice(music_identity_count()-1);
+ sequence_only=1;paint_sequence(sequence_screen,screen);assert(music_ui_sequence_visible()&&music_ui_active());music_ui_requested(0x31,1);knob(0x10,127);assert(music_sequence_colour(11)==(int)last_colour&&music_sequence_colour(12)==0);
  music_ui_requested(0x31,0); /* Shift released while its K1 edit waits in FIFO. */
  unsigned char queued_colour[16]={[8]=0x10,[9]=0};
  assert(music_ui_control_at(queued_colour,1));assert(music_sequence_colour(11)==0);
  queued_colour[9]=127;assert(!music_ui_control_at(queued_colour,0));assert(music_sequence_colour(11)==0);
- music_ui_requested(0x31,1);knob(0x10,127);assert(music_sequence_colour(11)==7);
- F(sequence_model,0x480,int)=12;knob(0x10,11);assert(music_sequence_colour(12)==0&&music_sequence_colour(11)==7);
+ music_ui_requested(0x31,1);knob(0x10,127);assert(music_sequence_colour(11)==(int)last_colour);
+ F(sequence_model,0x480,int)=12;knob(0x10,0);assert(music_sequence_colour(12)==0&&music_sequence_colour(11)==(int)last_colour);
  captions[0]=0;paint_sequence(sequence_screen,screen);assert(strstr(captions,"Seq Colour")&&strstr(captions,"Default"));
  music_ui_requested(0x31,0);assert(!music_ui_owns(0x10));current_context=NULL;
 #ifdef SEQ_COLOUR_ONLY

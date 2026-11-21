@@ -1,6 +1,12 @@
 #define _GNU_SOURCE
 #include "phone_input.h"
 #include "phone_events.h"
+#ifdef MPC_SAMPLE_LIVE_TUNER
+#include "sample_live_tuner.h"
+#endif
+#ifdef MPC_MIDI_EVENTS
+#include "midi_native.h"
+#endif
 #ifdef MPC_KNOB_RESET
 #include "knob_reset.h"
 #endif
@@ -78,6 +84,8 @@ static _Atomic unsigned consumed_rear;
 #endif
 #include "step_native.h"
 #pragma weak step_native_bank_or_last
+extern void am_midi_ui_pad_hit(unsigned pad);
+#pragma weak am_midi_ui_pad_hit
 #include "workflow_ui.h"
 #include "batch_copy.h"
 #ifdef MPC_RESAMPLE_TRIAL
@@ -159,6 +167,7 @@ static void start_timer(void);
 static void queue_failed(void);
 static void send_step_lights(void);
 static void send_record_light(void);
+static void mixer_button_sync(void);
 static _Atomic(uintptr_t) button_sender;
 static _Atomic unsigned native_button_lights[128];
 /* Native LED state of a button (Knob FX lit = its knob overlay is active). */
@@ -250,6 +259,21 @@ static _Atomic unsigned startup_pads;
  * and define these themselves, others link without them (address NULL). */
 extern int music_set_sequence_colour(unsigned sequence,unsigned colour) __attribute__((weak));
 extern int music_sequence_colour(unsigned sequence) __attribute__((weak));
+/* Sequence Pad Mutes (seq_mutes.c / music_settings.c): weak so harnesses without them still link. */
+extern int seq_mutes_variant(void) __attribute__((weak));
+extern void seq_mutes_set_variant(int on) __attribute__((weak));
+extern int seq_mutes_toggle(unsigned bank,unsigned pad) __attribute__((weak));
+extern int seq_mutes_pad_state(unsigned bank,unsigned pad) __attribute__((weak));
+extern int seq_mutes_clear(void) __attribute__((weak));
+extern int seq_mutes_current(void) __attribute__((weak));
+extern int music_sequence_mutes_get(unsigned,uint64_t[2]) __attribute__((weak));
+static int seqmute_badge_active(void){
+    int sequence=seq_mutes_current?seq_mutes_current():-1;uint64_t muted[2]={0,0};
+    return sequence>=0&&sequence<128&&music_sequence_mutes_get&&music_sequence_mutes_get((unsigned)sequence,muted);
+}
+extern int music_sequence_mutes_clear(unsigned sequence) __attribute__((weak));
+extern int workflow_active(void) __attribute__((weak));
+static void seqmute_tick(void);
 extern unsigned music_ui_sequence_presence(unsigned bank) __attribute__((weak));
 /* Physical STOP press, replayed as a second press so Stop+pad cuts the pad's
  * sounding voice (stock double-Stop all-sounds-off) before its tail plays. */
@@ -1194,7 +1218,6 @@ extern void sample_tuner_request(void) __attribute__((weak));
 extern void sample_tuner_poll(void) __attribute__((weak));
 extern unsigned sample_tuner_info(float*,unsigned*,char*,unsigned) __attribute__((weak));
 static _Atomic unsigned tuner_win,tuner_pad_hits,tuner_apply_req;
-static _Atomic uint64_t tuner_stop_ms;
 static uint64_t tuner_msg_until;static int tuner_msg_note=-1;
 static _Atomic unsigned char tuner_eat[112];
 static int tuner_button(unsigned code,unsigned down)
@@ -1202,7 +1225,6 @@ static int tuner_button(unsigned code,unsigned down)
     if(code>=112)return 0;
     if(!down&&atomic_exchange(&tuner_eat[code],0))return 1;
     if(!down)return 0;
-    if(code==0x51)atomic_store(&tuner_stop_ms,now_ms());
     if(atomic_load(&tuner_win)){
         if(code==0x31||code==0x51)return 0;
         if(code==0x0e||code==0x6d){atomic_store(&tuner_apply_req,1);atomic_store(&tuner_eat[code],1);return 1;} /* B3: Original note */
@@ -1211,8 +1233,9 @@ static int tuner_button(unsigned code,unsigned down)
         return 0;
     }
     if(code==0x4b){
-        uint64_t stop_at=atomic_load(&tuner_stop_ms),now=now_ms();
-        int held=atomic_load(&stop_requested)!=0||(stop_at&&now-stop_at<700);
+        /* Producer-side physical state includes the Stop release already.
+         * A recently released Stop is not a chord with a later Chop. */
+        int held=atomic_load(&stop_requested)!=0;
         int visible=note_native_sample_visible(),naming=(int)atomic_load(&naming_active),rs=resample_running(),seq=music_ui_sequence_visible();
         if(held&&sample_tuner_request&&visible&&!naming&&!rs&&!seq){
             atomic_store(&tuner_win,1);atomic_store(&tuner_eat[code],1);return 1;
@@ -1225,6 +1248,12 @@ static int tuner_tick(void)
     static uint64_t last_request,last_paint,again_at;static unsigned last_hits,was_open;
     unsigned open=atomic_load(&tuner_win);
     if(open&&!note_native_sample_visible()){atomic_store(&tuner_win,0);open=0;}
+#ifdef MPC_SAMPLE_LIVE_TUNER
+    void *tuner_things=open?note_native_context():NULL;
+    void *tuner_program=tuner_things?FIELD(tuner_things,0xb8,void*):NULL;
+    unsigned tuner_pad=tuner_things?FIELD(tuner_things,0x5f8,unsigned):128;
+    sample_live_tuner_target((uintptr_t)tuner_program,tuner_pad);
+#endif
     if(atomic_exchange(&tuner_apply_req,0)&&open&&sample_tuner_info){
         /* B3: the detected pitch class becomes the sample's Original note (project setting, pitch untouched). */
         float hz=0;unsigned pad=0;char probe_name[MUSIC_NAME_BYTES];
@@ -1251,6 +1280,10 @@ static void tick(void *unused)
 {
     (void)unused;
     if (!on_ui()) { atomic_store(&requested_pads,0); atomic_store(&input_fault,1); return; }
+#ifdef MPC_PGM_NATIVE_PROBE
+    extern void program_native_probe_tick(uintptr_t);
+    program_native_probe_tick(base);
+#endif
     if (atomic_exchange(&editor_destroyed,0)) stop();
     /* Publish the page/ownership resulting from a queued action before
      * allowing native input to bypass this batch. Nested ticks count too. */
@@ -1317,6 +1350,7 @@ static void tick(void *unused)
     {static uint64_t spectrum_ms;uint64_t t=now_ms();if(t-spectrum_ms>=66&&pad_eq_spectrum_dirty()){spectrum_ms=t;note_native_repaint_sample();}}
 #endif
     step_native_relation_context(sample_relations_visible());
+    seqmute_tick();
     step_native_native_mute(atomic_load(&native_mute_mode));
     step_native_playback_context(note_native_context(),music_transposition(),
         (note_native_sample_visible()
@@ -1331,7 +1365,7 @@ static void tick(void *unused)
 #endif
     unsigned tail=tail_mode();
     atomic_store(&tail_layout,tail);workflow_tail_tick(tail!=0);
-    send_step_lights();send_record_light();
+    send_step_lights();send_record_light();mixer_button_sync();
     music_lighting_tick();
     if(action_batch)atomic_fetch_sub(&ui_dispatching,1);
     if (editor && !visible()) stop();
@@ -1528,20 +1562,30 @@ static void music_sample_paint(void *p,void *g)
         const struct resample_painter painter = {g,mixer_paint_rect,mixer_paint_text};
         mixer_control_view(control,now_ms(),&view);
         view.fx_illustrated=music_fx_view();
+        view.sequence_muted=(unsigned)!!seqmute_badge_active();
         mixer_view_paint(&view,&painter);
     }
     if (atomic_load(&tuner_win) && note_native_sample_visible()) {
         const struct resample_painter tuner_painter = {g,mixer_paint_rect,mixer_paint_text};
-        float hz=0;unsigned pad=0;char sample_name[8]="",tag[24]="Sample";
+        float hz=0;unsigned pad=128;char tag[MUSIC_NAME_BYTES+16]="Sample";
+#ifdef MPC_SAMPLE_LIVE_TUNER
+        unsigned st=sample_live_tuner_info(&hz,&pad)?2u:0u;
+        if(pad<128)snprintf(tag,sizeof tag,"Sample %c%02u",'A'+(int)(pad/16),pad%16+1);
+#else
+        char sample_name[8]="";
         unsigned st=sample_tuner_info?sample_tuner_info(&hz,&pad,sample_name,sizeof sample_name):3u;
         if(st>=2&&pad<128)snprintf(tag,sizeof tag,"Sample %c%02u",'A'+(int)(pad/16),pad%16+1);
+#endif
+        unsigned selected_pad=128;char selected_name[MUSIC_NAME_BYTES]="";
+        if(note_native_pad_index(&selected_pad)&&selected_pad<128&&note_native_current(selected_name,sizeof selected_name))
+            snprintf(tag,sizeof tag,"%c%02u  %s",'A'+selected_pad/16,selected_pad%16+1,selected_name);
         static const char*const pc_name[12]={"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
         char hint[40];
         if(tuner_msg_note>=0&&now_ms()<tuner_msg_until)snprintf(hint,sizeof hint,"Orig: %s",pc_name[tuner_msg_note]);
         else if(tuner_msg_note==-2&&now_ms()<tuner_msg_until)snprintf(hint,sizeof hint,"Cannot set");
         else if(tuner_msg_note==-3&&now_ms()<tuner_msg_until)snprintf(hint,sizeof hint,"No pitch");
         else snprintf(hint,sizeof hint,"Orig note");
-        mixer_view_tuner_ex(&tuner_painter,tag,st==2,hz,st==3?"No pitch found":"Hit a pad",hint);
+        mixer_view_tuner_ex(&tuner_painter,tag,st==2,hz,st==3?"No pitch found":"Play selected pad",hint);
     }
 #endif
 #ifdef MPC_STARTUP_SPLASH
@@ -2177,10 +2221,25 @@ static int forward_main_volume(void*event)
 static int forward_knob_fx(void *event){
  unsigned cc=FIELD(event,8,unsigned char);
  if(cc<0x10||cc>0x12||!music_ui_knob_fx_active())return 0;
+ /* A stock FX page can remain enabled behind Step Edit or MIDI Tools.
+  * Its fast path must not steal controls from the visible custom owner. */
+ if(step_native_owns(cc)||music_ui_owns(cc))return 0;
  forward_controller(event);return 1;
 }
+static void close_background_knob_fx(void *event,unsigned owned){
+ unsigned code=FIELD(event,8,unsigned char);
+ if(!FIELD(event,9,unsigned char)||!music_ui_knob_fx_active()||
+    !(((owned&4u)&&code==0)||((owned&2u)&&code==0x0d)))return;
+ /* Match the existing Mixer handoff: the native overlay paints after the
+  * parent, so merely taking its knobs would still obscure our footer. */
+ _Alignas(8) unsigned char native[16];memcpy(native,event,16);
+ native[8]=0;native[9]=1;forward_buttons(native);native[9]=0;forward_buttons(native);
+}
+static unsigned char controller_template[16];static _Atomic int controller_template_ready;
 static void controller(void *event)
 {
+    {unsigned cc0=FIELD(event,8,unsigned char);
+     if(!atomic_load(&controller_template_ready)&&(cc0==0x10||cc0==0x11||cc0==0x12||cc0==0x64)){memcpy(controller_template,event,16);atomic_store(&controller_template_ready,1);}}
 #ifdef MPC_CHORDS
     { static _Atomic unsigned raw_reports;
       unsigned cc=FIELD(event,8,unsigned char),v=FIELD(event,9,unsigned char);
@@ -2252,6 +2311,14 @@ static void controller(void *event)
         if (queue_native(event,PHONE_CONTROLLER)) return;
     }
     forward_controller(event);
+}
+/* MIDI controller -> native knob / data encoder: same replay as buttons, value in byte 9. */
+void phone_native_inject_controller(unsigned code,unsigned value){
+    unsigned char event[16]={0};
+    if(code!=0x10&&code!=0x11&&code!=0x12&&code!=0x64)return;
+    if(atomic_load(&controller_template_ready))memcpy(event,controller_template,16);
+    event[8]=(unsigned char)code;event[9]=(unsigned char)(value&127);
+    controller(event);
 }
 
 #ifdef MPC_MIXER_LIVE
@@ -2351,9 +2418,97 @@ static void mixer_fx_combo_tick(void)
 }
 #endif
 extern void input_fx_flush(void) __attribute__((weak));
+/* ---- Sequence Pad Mutes -------------------------------------------------
+ * Inside a Mute session (Mute held or its LED on), MUTE+B3 switches the pads from the native
+ * (global) mute to the mute list of the CURRENT sequence; MUTE+B2 clears that list. Not in the
+ * Mixer, Sample browser, resample, naming. The variant ends with the Mute session. */
+static _Atomic unsigned seqmute_eat,seqmute_pads;
+static int seqmute_mute_active(void){return atomic_load(&native_mute_mode)||atomic_load(&native_buttons_down[0x2b]);}
+static int seqmute_context_ok(void){
+    if(!seq_mutes_variant||atomic_load(&naming_active))return 0;
+#ifdef MPC_MIXER_LIVE
+    if(atomic_load(&mixer_route)&MIXER_OPEN)return 0;
+#endif
+#ifdef MPC_RESAMPLE_TRIAL
+    if(resample_running()||resample_ui_active())return 0;
+#endif
+    /* The hidden Sample/Chop root also makes workflow_active() true.
+     * Only actual browser, Copy and custom workflow owners block this. */
+    return !workflow_blocks_sample_controls();
+}
+extern void music_ui_sequence_repaint(void) __attribute__((weak));
+static void seqmute_tick(void){
+    if(seq_mutes_variant&&seq_mutes_set_variant&&seq_mutes_variant()&&!seqmute_mute_active()){
+        seq_mutes_set_variant(0);fprintf(stderr,"SEQ_MUTES VARIANT off (Mute released)\n");}
+    /* B2/B3 are consumed by this mode, so native button paint cannot be
+     * relied on to refresh the labels after a toggle or a Mute release. */
+    static unsigned previous;
+    unsigned state=seqmute_context_ok()&&seqmute_mute_active()?
+        1u+(unsigned)!!seq_mutes_variant()+4u*!!atomic_load(&native_shift_requested):0;
+    if(seqmute_badge_active())state|=16u;
+    if(state!=previous){previous=state;note_native_repaint_sample();
+        if(music_ui_sequence_repaint)music_ui_sequence_repaint();}
+}
+const char *phone_seqmute_header(unsigned column,int *selected){
+    if(column<1||column>2||!selected||!seqmute_context_ok()||!seqmute_mute_active()
+       ||atomic_load(&native_shift_requested)||atomic_load(&native_buttons_down[0x31]))return NULL;
+    *selected=column==2&&seq_mutes_variant();
+    return column==1?"Clear Seq":*selected?"Seq: On":"Seq: Off";
+}
+static int seqmute_active(void){return seqmute_context_ok()&&seq_mutes_variant()&&seqmute_mute_active();}
+static int seqmute_button(unsigned code,unsigned down){
+    if(!seq_mutes_variant||(code!=0x0d&&code!=0x0e))return 0;
+    unsigned bit=code==0x0e?1u:2u;
+    if(!down)return (atomic_fetch_and(&seqmute_eat,~bit)&bit)!=0;
+    if(!seqmute_mute_active()||atomic_load(&native_shift_requested)||atomic_load(&native_buttons_down[0x31])||!seqmute_context_ok())return 0;
+    atomic_fetch_or(&seqmute_eat,bit);
+    if(code==0x0e){
+        int on=!seq_mutes_variant();seq_mutes_set_variant(on);
+        fprintf(stderr,"SEQ_MUTES VARIANT %s seq=%d\n",on?"on":"off",seq_mutes_current?seq_mutes_current():-1);
+    }else if(seq_mutes_clear){
+        fprintf(stderr,"SEQ_MUTES UNMUTE_ALL seq=%d ok=%d\n",seq_mutes_current?seq_mutes_current():-1,seq_mutes_clear());
+    }
+    return 1;
+}
+static int seqmute_pad(unsigned pad,int down,int up){
+    if(!seq_mutes_variant||pad>=16)return 0;
+    unsigned bit=1u<<pad;
+    if(atomic_load(&seqmute_pads)&bit){if(up)atomic_fetch_and(&seqmute_pads,~bit);return 1;}
+    if(!down||!seqmute_active())return 0;
+    int bank=step_native_browser_bank(-1);
+    if(bank>=0&&bank<8&&seq_mutes_toggle)
+        fprintf(stderr,"SEQ_MUTES PAD bank=%d pad=%u seq=%d state=%d\n",bank,pad,seq_mutes_current?seq_mutes_current():-1,seq_mutes_toggle((unsigned)bank,pad));
+    if(!up)atomic_fetch_or(&seqmute_pads,bit);
+    return 1;
+}
+/* Lights in the variant: loaded pads in their own colour, muted-in-sequence red, native (global) mute grey. */
+static int seqmute_light(unsigned pad,uint64_t *out){
+    if(pad>=16||!seq_mutes_variant||!seq_mutes_pad_state||!seqmute_active())return 0;
+    int bank=step_native_browser_bank(-1);if(bank<0||bank>=8)return 0;
+    unsigned raw=(unsigned)atomic_load(&original_lights[pad])&0xffffffu;
+    if(!raw){*out=0;return 1;}
+    if(seq_mutes_pad_state((unsigned)bank,pad)){*out=pad_light(PAD_DANGER,.85f);return 1;}
+    if(raw==0xff0000u){*out=pad_light(PAD_MUTED,.32f);return 1;}
+    *out=pad_light(music_pad_rgb((unsigned)bank*16+pad),.70f);return 1;
+}
+#ifdef MPC_MIXER_LIVE
+static int mixer_sample_button(unsigned code,unsigned down){
+    /* Loop (Shift: Reverse), Chop (Shift: Note On), 16 Levels. */
+    unsigned bit=code==0x4a?1u:code==0x4b?2u:code==0x28?4u:0;
+    static _Atomic unsigned swallowed;
+    if(!bit)return 0;
+    if(!down&&(atomic_fetch_and(&swallowed,~bit)&bit))return 1;
+    if(down&&(atomic_load(&mixer_route)&MIXER_OPEN)&&!atomic_load(&native_buttons_down[code])){
+        atomic_fetch_or(&swallowed,bit);return 1;
+    }
+    return 0;
+}
+#endif
+static unsigned char button_template[16];static _Atomic int button_template_ready;
 static void buttons(void *event)
 {
     unsigned native_code=FIELD(event,8,unsigned char),native_down=FIELD(event,9,unsigned char)!=0;
+    if(!atomic_load(&button_template_ready)&&native_code<112){memcpy(button_template,event,16);atomic_store(&button_template_ready,1);}
     /* r27q-fix6 diagnostic: physical button codes (Sample/Seq/... are not
      * mapped in the repo yet), with the 16 Levels/Chop state, 300 presses. */
     {static unsigned logged;if(native_down&&logged<300){++logged;unsigned on=0,mode=0,origin=0;music_lighting_levels_state(&on,&mode,&origin);
@@ -2363,7 +2518,11 @@ static void buttons(void *event)
         atomic_store(&step_confirm_forwarded,0);
     }
     if(native_code==0x51)atomic_store(&stop_requested,native_down);
+#ifdef MPC_MIXER_LIVE
+    if(mixer_sample_button(native_code,native_down))return;
+#endif
     if(tuner_button(native_code,native_down))return;
+    if(seqmute_button(native_code,native_down))return;
 #ifdef MPC_MIXER_LIVE
     /* Stock double Stop = all sounds off: also restart the Mixer's FX (feedback loops, tails). */
     if(native_code==0x51&&native_down){static uint64_t last_stop_ms;uint64_t now=now_ms();
@@ -2402,7 +2561,7 @@ static void buttons(void *event)
 #endif
     }
 #ifdef MPC_MIXER_LIVE
-    if (native_code <= 1 && ((music_fx_mode_active&&music_fx_mode_active()) ? mixer_knob_entry(event,native_code,native_down)
+    if (native_code <= 1 && !(native_code==0x00&&step_native_button_owns(native_code)) && ((music_fx_mode_active&&music_fx_mode_active()) ? mixer_knob_entry(event,native_code,native_down)
                                                      : mixer_fx_combo(event,native_code,native_down))) return;
     if (native_code < 112 && native_code != 0x31) {
         uint64_t *held = &mixer_button_pairs[native_code];
@@ -2443,7 +2602,7 @@ static void buttons(void *event)
     }
 #endif
     if(native_code<112&&!native_down&&atomic_exchange(&gesture_released[native_code],0))return;
-    if ((atomic_load(&naming_active) || note_native_active() || music_ui_active() || step_native_active() || workflow_active() || resample_running() || phone_events_pending()
+    if ((atomic_load(&naming_active) || note_native_active() || music_ui_active() || music_ui_button_owns(native_code) || step_native_active() || workflow_active() || resample_running() || phone_events_pending()
 #ifdef MPC_MIXER_LIVE
         || (native_code == 0x31 && mixer_capture_route())
 #endif
@@ -2472,6 +2631,15 @@ static void buttons(void *event)
     if(native_code==0x31&&!native_down)song_ui_stems_shift_up_forwarded();
 #endif
 }
+/* MIDI controller -> native button: replays a captured stock button event
+ * (only code and edge replaced) through the same hook a physical press uses. */
+void phone_native_inject_button(unsigned code,unsigned down){
+    unsigned char event[16]={0};
+    if(code>=112)return;
+    if(atomic_load(&button_template_ready))memcpy(event,button_template,16);
+    event[8]=(unsigned char)code;event[9]=(unsigned char)(down?1:0);
+    buttons(event);
+}
 
 static void pad_event(void *event)
 {
@@ -2485,7 +2653,10 @@ static void pad_event(void *event)
     }
     unsigned bit = 1u << pad;
     int down = FN(0xddfed0,int(*)(void*,int))(msg,0);
-    if (down) {atomic_store(&last_pad_pressed,pad);atomic_fetch_add(&tuner_pad_hits,1);}
+    if (down) {atomic_store(&last_pad_pressed,pad);atomic_fetch_add(&tuner_pad_hits,1);
+        if(am_midi_ui_pad_hit){int mb=step_native_browser_bank(-1);
+            if(mb<0&&step_native_bank_or_last)mb=step_native_bank_or_last();
+            if(mb>=0&&mb<8)am_midi_ui_pad_hit((unsigned)mb*16+pad);}}
     int up = FN(0xddff20,int(*)(void*,int))(msg,1);
 #ifdef MPC_MIXER_LIVE
     if (mixer_pad_pairs[pad] && mixer_queue_pad(event,pad,down,up)) return;
@@ -2493,6 +2664,7 @@ static void pad_event(void *event)
 #ifdef MPC_POWER_BUTTON
     if (power_control_busy()) return;
 #endif
+    if(seqmute_pad(pad,down,up))return;
     if(atomic_load(&tail_pads)&bit){if(up)atomic_fetch_and(&tail_pads,~bit);return;}
     /* Shift+Pad16 is the stock Knob FX shortcut; it must not open Knob FX
      * over the browser (device request). Swallow that pad's press/release. */
@@ -2609,6 +2781,9 @@ static void pad_event(void *event)
         if ((down||up) && (atomic_load(&consumed_step)&bit) && step) {
             struct phone_event e={0};e.kind=PHONE_STEP_PAD;e.pad=pad;e.down=(unsigned)down;
             e.when_ms=now_ms();e.step_ticket=route;
+            /* Native ddffb0/de0020: messages <=8 bytes store MIDI inline. */
+            int midi_size=FIELD(msg,0x10,int);
+            e.midi[0]=midi_size>=3&&midi_size<=8?(FIELD(msg,2,unsigned char)&127u):100;
             if (!phone_events_push(&e)) queue_failed();
         } else if ((down || up) && !(atomic_load(&consumed_step)&bit) && atomic_load(&naming_active)) {
             struct phone_event e = {0};
@@ -2772,6 +2947,7 @@ static unsigned process_events(void)
                        ) controller_ui(e.native,e.step_ticket);
             else forward_controller(e.native);
         } else if (e.kind == PHONE_BUTTON) {
+            close_background_knob_fx(e.native,e.pad);
             if(step_confirm_to_native(e.native,e.pad))continue;
             if (current && !(seen&2)) { seen|=2; note("FIFO_BUTTON_ON_UI"); }
 #ifdef MPC_SONG_UI
@@ -2829,7 +3005,7 @@ static unsigned process_events(void)
 #endif
         else if(e.kind==PHONE_WORKFLOW_PAD){workflow_pad(e.pad,(int)e.down,e.when_ms,e.workflow_ticket);
         } else if (e.kind==PHONE_STEP_PAD) {
-            if(e.down)step_native_pad(e.pad,e.step_ticket);else step_native_pad_release(e.pad,e.step_ticket);
+            if(e.down)step_native_pad_velocity(e.pad,e.step_ticket,e.midi[0]);else step_native_pad_release(e.pad,e.step_ticket);
         } else if (e.kind==PHONE_STEP_SHORTCUT_PAD && e.pad<16) {
             unsigned bit=1u<<e.pad;
             if(e.down&&!(shortcut_forwarded&bit)&&step_native_shortcut(e.step_ticket)){
@@ -3018,6 +3194,24 @@ static _Atomic int pad_colour_bank;
  * native brightness of each pad (dim loaded, bright playing) and replaces
  * only its hue. Stock (0) passes the native colour through. */
 static _Atomic unsigned compressor_pad_layout;
+static _Atomic unsigned pad_colour_hide_levels_cursor;
+static _Atomic uint64_t pad_colour_levels_background[16];
+/* UI publishes the native SixteenLevelLighting1545930 base underneath the
+ * selection layer. RGB producer consumes values only, never native objects. */
+static void pad_colour_cursor_tick(unsigned on,unsigned mode,unsigned origin){
+ int hide=on&&mode!=8&&!music_pad_cursor_visible(step_native_transport_state())&&
+     !step_native_active()&&!atomic_load(&pad_colour_native_workflow)&&
+     atomic_load(&pad_colour_sample_layout)&&!atomic_load(&compressor_pad_layout);
+ if(hide)for(unsigned i=0;i<16;++i){
+  int replace=0;uint64_t light=mode==1?music_pad_light(music_published(),i,(int)origin,&replace):0;
+  if(!replace){uint32_t hue=mode==0?0xffff00u:mode==1?0xa000ffu:mode==2?FIELD(base,0x71ebba8,uint32_t):0;
+   uint32_t rgb=FN(0x1a4c9d0,uint32_t(*)(uint32_t,float))(hue,(float)i/16.f);
+   light=pad_light(rgb,1.f);
+  }
+  atomic_store(&pad_colour_levels_background[i],light);
+ }
+ atomic_store(&pad_colour_hide_levels_cursor,(unsigned)hide);
+}
 static _Atomic unsigned settings_pad_mask;
 static _Atomic int settings_pad_bank=-1;
 static int settings_pad_visible(void){
@@ -3137,13 +3331,17 @@ static int pad_colour_light(unsigned pad,uint64_t *out){
     if(atomic_load(&native_mute_mode)||atomic_load(&pad_bank_held_long))return 0;
     int erase_held=atomic_load(&native_buttons_down[0x09]);
     unsigned enabled=0,mode=0,origin=0;music_lighting_levels_state(&enabled,&mode,&origin);
+    if(enabled&&mode!=8&&atomic_load(&pad_colour_hide_levels_cursor)&&
+       (unsigned)atomic_load(&original_lights[pad])==0xff7700u){
+        *out=atomic_load(&pad_colour_levels_background[pad]);return 1;
+    }
     if(enabled&&mode==8){
         unsigned raw=(unsigned)atomic_load(&original_lights[pad]);
         unsigned top=(raw>>16)&255;if(((raw>>8)&255)>top)top=(raw>>8)&255;if((raw&255)>top)top=raw&255;
         int source=atomic_load(&pad_colour_chop_source);
         if(source<0||source>=128)return 0;
         uint32_t hue=music_pad_rgb((unsigned)source);
-        *out=raw==0xff7700?pad_focus_light(hue,PAD_BRIGHT_CONTENT,atomic_load(&pad_colour_chop_phase)):pad_light(top?hue:0,top?PAD_BRIGHT_CONTENT:0);
+        *out=raw==0xff7700&&music_pad_cursor_visible(step_native_transport_state())?pad_focus_light(hue,PAD_BRIGHT_CONTENT,atomic_load(&pad_colour_chop_phase)):pad_light(top?hue:0,top?PAD_BRIGHT_CONTENT:0);
         return 1;
     }
     if(enabled||(step_native_active()&&!step_native_sound_layout())
@@ -3189,13 +3387,14 @@ static void rgb(void *s,uint32_t colour,unsigned pad)
 #endif
         if(atomic_load(&startup_pads))return; /* startup row animation owns the pads */
         uint64_t palette_colour;
-        if(music_ui_palette_light(pad,&palette_colour)||settings_pad_light(pad,&palette_colour)){
+        if(music_ui_transfer_light(pad,&palette_colour)||music_ui_palette_light(pad,&palette_colour)||settings_pad_light(pad,&palette_colour)){
             uint32_t packed=FN(0x23b00c0,uint32_t(*)(const uint64_t*))(&palette_colour);
             send_pad_rgb(s,packed,pad);return;
         }
 #ifdef MPC_KNOB_RESET
         if((knob_reset_ticket()&2)&&atomic_load(&pad_bank_held_long)){ORIG(H_RGB,void(*)(void*,uint32_t,unsigned))(s,colour,pad);return;}
 #endif
+        {uint64_t seq_colour;if(seqmute_light(pad,&seq_colour)){send_pad_rgb(s,FN(0x23b00c0,uint32_t(*)(const uint64_t*))(&seq_colour),pad);return;}}
         uint64_t workflow_colour;
 #ifdef MPC_REAR_ROUTING
         if(rear_ui_light(pad,&workflow_colour)){
@@ -3332,7 +3531,7 @@ static void send_step_lights(void)
      else if(was_seq_copy){was_seq_copy=0;int source=atomic_load(&pad_colour_copy_source);
         if(source>=0&&source<128&&music_sequence_colour&&music_set_sequence_colour&&music_ui_sequence_presence){int colour=music_sequence_colour((unsigned)source);
             for(unsigned n=0;n<128;++n)if((targets[n/64]>>(n%64))&1&&(int)n!=source&&(music_ui_sequence_presence(n/16)>>(n%16)&1)){
-                music_set_sequence_colour(n,(unsigned)colour);fprintf(stderr,"COPY_SEQUENCE_COLOUR %d->%u colour=%d\n",source,n,colour);}}
+                music_set_sequence_colour(n,(unsigned)colour);if(music_sequence_mutes_clear)music_sequence_mutes_clear(n);fprintf(stderr,"COPY_SEQUENCE_COLOUR %d->%u colour=%d seq_mutes=cleared\n",source,n,colour);}}
         targets[0]=targets[1]=0;}}
     if(native_workflow!=2&&native_workflow!=3)atomic_store(&pad_colour_copy_source,-1);
     atomic_store(&pad_colour_native_workflow,native_workflow);
@@ -3370,6 +3569,7 @@ static void send_step_lights(void)
 #ifdef MPC_SEQUENCE_COLOURS
     sequence_palette_tick();
 #endif
+    pad_colour_cursor_tick(on,mode,origin);
     static unsigned owned;
     static uint64_t previous[16];
     static uint64_t workflow_generation;
@@ -3439,7 +3639,7 @@ static void send_step_lights(void)
     }
     for(unsigned i=0;i<16;++i) {
         uint64_t light;unsigned bit=1u<<i;
-        if (music_ui_palette_light(i,&light) || settings_pad_light(i,&light) ||
+        if (music_ui_transfer_light(i,&light) || music_ui_palette_light(i,&light) || settings_pad_light(i,&light) ||
 
 #ifdef MPC_REAR_ROUTING
             rear_ui_light(i,&light) ||
@@ -3447,6 +3647,7 @@ static void send_step_lights(void)
 #ifdef MPC_STOCK_RESAMPLE
             resample_ui_light(i,&light) ||
 #endif
+            seqmute_light(i,&light) ||
 #if defined(MPC_SONG_UI)&&defined(MPC_SEQUENCE_COLOURS)
             /* Song / Song Export: sequence colours win over the browser-style
              * occupancy layers (device report: Export lit them stock green). */
@@ -3492,6 +3693,49 @@ static void send_step_lights(void)
     if(resync)--resync;
     lights_diagnostic();
 }
+static int mixer_buttons_active(void)
+{
+    struct mixer_control *c=mixer_session_control(mixer_ui_session);
+    return c&&mixer_control_active(c);
+}
+/* Mixer uses only Mute among the blue buttons: Mute glows dimly until pressed,
+ * 16 Levels, Chop and Loop stay dark. */
+static unsigned mixer_button_value(unsigned code,unsigned value)
+{
+    if(code==0x28||code==0x4b||code==0x4a)return 0; /* 16 Levels, Chop, Loop */
+    if(code==0x2b&&!value)return 1;
+    return value;
+}
+static void mixer_button_sync(void)
+{
+    static int last;
+    int now=mixer_buttons_active();
+    uintptr_t s=atomic_load(&button_sender);
+    if(!s||now==last)return;
+    last=now;
+    {
+        char list[600];size_t used=0;list[0]=0;
+        for(unsigned c=0;c<128&&used+16<sizeof list;++c){
+            unsigned v=atomic_load(&native_button_lights[c]);
+            if(v)used+=(size_t)snprintf(list+used,sizeof list-used," %02x=%u",c,v);
+        }
+        fprintf(stderr,"MIXER_BUTTON_LIGHTS %s lit:%s\n",now?"enter":"leave",list);
+    }
+    static const unsigned codes[4]={0x28,0x4b,0x4a,0x2b};
+    for(unsigned i=0;i<4;++i){
+        unsigned value=atomic_load(&native_button_lights[codes[i]]);
+        if(now)value=mixer_button_value(codes[i],value);
+        else{
+            unsigned replacement;
+            if(
+#ifdef MPC_CHORDS
+                chords_ui_button_light(codes[i],&replacement)||
+#endif
+                step_native_button_light(codes[i],&replacement))value=replacement;
+        }
+        ORIG(H_BUTTON_LIGHT,void(*)(void*,unsigned,unsigned))((void*)s,value,codes[i]);
+    }
+}
 static void button_light(void *s,unsigned value,unsigned code)
 {
     /* B0 CC0..15 are button LEDs (Knob FX, Sample, Seq, Erase...), not pads. */
@@ -3503,6 +3747,12 @@ static void button_light(void *s,unsigned value,unsigned code)
             chords_ui_button_light(code,&replacement)||
 #endif
             step_native_button_light(code,&replacement)) value=replacement;
+        if(mixer_buttons_active()){
+            unsigned before=value;
+            value=mixer_button_value(code,value);
+            static unsigned logged;
+            if(code!=TAP_TEMPO_BUTTON&&logged<200){++logged;fprintf(stderr,"MIXER_BUTTON_LIGHT code=%02x native=%u sent=%u\n",code,before,value);}
+        }
     }
     ORIG(H_BUTTON_LIGHT,void(*)(void*,unsigned,unsigned))(s,value,code);
 }
@@ -3614,6 +3864,9 @@ static void load(void)
     }
     if (mprotect(table,4096,PROT_READ|PROT_WRITE)) { note("BRIDGE_NOT_WRITABLE"); return; }
     if (!music_ui_install(music_sample_paint,music_project_paint,music_tab_paint)) _exit(121);
+#ifdef MPC_MIDI_EVENTS
+    if(!am_midi_native_install(base))_exit(121);
+#endif
 #ifdef MPC_REAR_ROUTING
     if(!rear_native_install(base)||!rear_ui_install(base))_exit(121);
 #endif
@@ -3651,6 +3904,7 @@ static void load(void)
 #ifdef MPC_PAD_EQ
     if (!filter_spectrum_install(base,music_ui_filter_spectrum_visible)) _exit(121);
     filter_spectrum_tint_provider(music_ui_waveform_tint);
+    filter_spectrum_painter(music_ui_filter_spectrum_paint);
     if (!pad_eq_native_install(base)) _exit(121);
     if (!pad_eq_history_install(base)) _exit(121);
 #endif

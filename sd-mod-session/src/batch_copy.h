@@ -35,6 +35,8 @@ int batch_event_preview_stop(uintptr_t base,void *context,int cancel_pending);
 int batch_event_preview_override(void *properties,void *generated_event);
 unsigned batch_event_preview_status(void);
 unsigned batch_event_preview_pending(void);
+int batch_piano_input(uintptr_t base,void *context,void *program,const void *event,unsigned key);
+int batch_piano_input_stop(uintptr_t base,void *context);
 /* Chops are independent native Extract results, not pad Trim aliases.
  * slices[i] is a zero-based source slice index, copied before dispatch. */
 int batch_chop_begin(uintptr_t base,void *context,void *services,unsigned source,

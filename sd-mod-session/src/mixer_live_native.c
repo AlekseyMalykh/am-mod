@@ -1,5 +1,8 @@
 #define _GNU_SOURCE
 #include "mixer_live.h"
+#ifdef MPC_SAMPLE_LIVE_TUNER
+#include "sample_live_tuner.h"
+#endif
 #ifdef MPC_USB_AUDIO
 #include "usb_audio.h"
 #endif
@@ -125,6 +128,9 @@ static void engine(void*p,void*c,unsigned n)
     clock_scope=caller==image+0x18dc010?++clock_serial:0;
     clock_epoch=atomic_load(&binding_epoch);
     clock_rate=clock_scope?observe(p,n).rate:0;
+#ifdef MPC_SAMPLE_LIVE_TUNER
+    if(clock_scope)sample_live_tuner_clock(n,(unsigned)clock_rate);
+#endif
     void *previous_kit=block_kit;unsigned previous_kits=block_kits;
     block_kit=NULL;block_kits=0;
     if(s&&expected){
@@ -184,6 +190,20 @@ static void program(void*p,void*c,unsigned n){
 extern unsigned music_fx_mode_active(void) __attribute__((weak));
 static int sum(void*i,void*s,void*d,const void*r,unsigned n){
  uintptr_t caller=(uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0));
+#ifdef MPC_SAMPLE_LIVE_TUNER
+ /* Read only the proven live Pad sum ABI. Capture the selected Sound before
+  * routing; offline rendering and other native Instruments never feed it. */
+ if(clock_scope&&caller==image+0x286bf48&&i&&s&&n&&n<=8192&&clock_rate>=8000&&clock_rate<=192000){
+  void *program=ptr(i,0x2310);unsigned pad,channels,capacity;
+  memcpy(&pad,(char*)i+0x2168,4);memcpy(&channels,s,4);memcpy(&capacity,(char*)s+4,4);
+  if(pad<128&&(channels==1||channels==2)&&capacity>=n){
+   unsigned silent=*((unsigned char*)s+0x128);float **pcm=ptr(s,16);
+   if(silent==1)sample_live_tuner_push((uintptr_t)program,pad,NULL,NULL,n,(unsigned)clock_rate);
+   else if(!silent&&pcm&&pcm[0]&&(channels==1||pcm[1]))
+    sample_live_tuner_push((uintptr_t)program,pad,pcm[0],channels==1?pcm[0]:pcm[1],n,(unsigned)clock_rate);
+  }
+ }
+#endif
  /* Only the pinned DrumProgram Pad callsite owns this Instrument ABI. This
   * runs before Mixer capture and also on startup, detach and recovery. Stock
   * and every other native sum retain their original destinations. */

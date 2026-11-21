@@ -17,8 +17,26 @@ static _Atomic uint64_t context;
 /* Lab debugger reads counters without logging or allocating in the audio thread. */
 static _Atomic unsigned input_stats[4];
 #define CHOICE_MARK 0x4d000000u
+#define MODIFIER_MARK 0x4e000000u
 static _Thread_local unsigned releasing,release_choice;
-static _Thread_local struct {void *mode;uint64_t context;unsigned held;unsigned char choice[16];} keys;
+static _Thread_local struct {void *mode;uint64_t context;unsigned held;unsigned short choice[16];} keys;
+extern void am_midi_native_release_choice(void*,unsigned,unsigned) __attribute__((weak));
+extern void am_midi_native_key_begin(void*,unsigned,unsigned) __attribute__((weak));
+extern void am_midi_native_key_end(void) __attribute__((weak));
+extern void am_midi_native_key_release(void*,unsigned,void*) __attribute__((weak));
+void poly_record_release_event(void *engine,void *track,unsigned source,unsigned choice,int last){
+    if(am_midi_native_release_choice)am_midi_native_release_choice(track,source,choice);
+    if(((int(*)(void*))(image+0x2133800))(F(engine,0x768,void*))&1){
+        void *recorder=((void*(*)(void*,void*))(image+0x20f8da0))(F(engine,0x778,void*),track);
+        int destination=recorder?((int(*)(void*))(image+0x20e2290))(recorder):-1;
+        int midi=((int(*)(void*,int,int,void*))(image+0x2114fc0))(engine,(int)source,0x7ffffffa,track);
+        if(destination>=0&&midi>=0&&midi<128)
+            ((void(*)(void*,int,int,unsigned))(image+0x20e4da0))(recorder,1,destination,MODIFIER_MARK|((choice&0x1000u)<<8)|((choice&0xf00u)<<8)|((choice&255u)<<8)|(unsigned)midi);
+    }
+    if(last){++releasing;
+        ((void(*)(void*,int,int,int,int))(image+0x2118930))(engine,1,source,0x7ffffffa,0);
+        --releasing;}
+}
 #ifdef MPC_CHORDS
 static _Thread_local struct {void *mode;uint64_t context;struct chord_voices voices;} chord_keys;
 /* Arpeggiator handoff. Guarded by arp_mutex; native pointers are only used
@@ -70,6 +88,7 @@ int poly_record_arp_emit(int pitch,int on,float velocity){
     pthread_mutex_unlock(&arp_mutex);return ok;
 }
 static void chord_record_off(void *engine,void *track,unsigned note,unsigned choice){
+    if(am_midi_native_release_choice)am_midi_native_release_choice(track,note,0x1000u|choice);
     if(((int(*)(void*))(image+0x2133800))(F(engine,0x768,void*))&1){
         void *recorder=((void*(*)(void*,void*))(image+0x20f8da0))(F(engine,0x778,void*),track);
         int destination=recorder?((int(*)(void*))(image+0x20e2290))(recorder):-1;
@@ -133,7 +152,7 @@ void poly_record_context(void *things){
         atomic_store_explicit(&context,((uint64_t)generation<<16)|((uint64_t)(note&255)<<8)|poly,memory_order_release);
     }
 }
-static void input_pad(void *mode,int pad,float velocity){
+static void input_pad_impl(void *mode,int pad,float velocity){
     atomic_fetch_add_explicit(&input_stats[0],1,memory_order_relaxed);
     void *properties=F(mode,0x50,void*);
     uint64_t snapshot=atomic_load_explicit(&context,memory_order_acquire);
@@ -145,7 +164,7 @@ static void input_pad(void *mode,int pad,float velocity){
     if(old_key&&chords_active()&&velocity>0)return;
     if(!old_key&&chord_pad(mode,pad,velocity,snapshot))return;
 #endif
-    if(!(snapshot&1)||pad<0||pad>=16||!properties||F(properties,0x88,int)!=1||
+    if(!(snapshot&1)||pad<0||pad>=16||!properties||(F(properties,0x88,int)!=1&&F(properties,0x88,int)!=8)||
         F(properties,0x158,unsigned)!=((snapshot>>8)&255)||
         (F(F(mode,0x48,void*),0x50,unsigned char)&1)){
         atomic_fetch_add_explicit(&input_stats[1],1,memory_order_relaxed);
@@ -160,32 +179,30 @@ static void input_pad(void *mode,int pad,float velocity){
         atomic_fetch_add_explicit(&input_stats[2],1,memory_order_relaxed);
         struct step_event event=((struct step_event(*)(unsigned,int64_t,int64_t,unsigned,unsigned,float))(image+0x27e54d0))(note,0,0,100,0,velocity);
         ((void(*)(void*,int,void*))(image+0x21472f0))(properties,pad,&event);
-        keys.choice[pad]=F(&event,0x16,unsigned char);keys.held|=1u<<pad;
+        unsigned mask=F(&event,0x14,uint16_t),kind=mask&0x8000u?15u:0u;
+        keys.choice[pad]=(unsigned short)(F(&event,0x16+kind,unsigned char)|(kind<<8)|(mask?0x1000u:0));keys.held|=1u<<pad;
         ((void(*)(void*,int,void*,int))(image+0x211b090))(engine,0,&event,0x7ffffffa);
     }else if(keys.held&(1u<<pad)){
         atomic_fetch_add_explicit(&input_stats[3],1,memory_order_relaxed);
-        keys.held&=~(1u<<pad);release_choice=keys.choice[pad];
-        /* Engine's held-note map has one entry per source sound, so its first
-         * NoteOff removes the route needed by later chord releases. Resolve
-         * the current native clip recorder for every physical release. */
-        if(((int(*)(void*))(image+0x2133800))(F(engine,0x768,void*))&1){
-            void *recorder=((void*(*)(void*,void*))(image+0x20f8da0))(F(engine,0x778,void*),track);
-            int destination=recorder?((int(*)(void*))(image+0x20e2290))(recorder):-1;
-            int midi=((int(*)(void*,int,int,void*))(image+0x2114fc0))(engine,(int)note,0x7ffffffa,track);
-            if(destination>=0&&midi>=0&&midi<128)
-                ((void(*)(void*,int,int,unsigned))(image+0x20e4da0))(recorder,1,destination,CHOICE_MARK|(release_choice<<8)|(unsigned)midi);
-        }
-        if(!keys.held){
-            ++releasing;
-            ((void(*)(void*,int,int,int,int))(image+0x2118930))(engine,1,note,0x7ffffffa,0);
-            --releasing;
-        }
+        keys.held&=~(1u<<pad);release_choice=keys.choice[pad]&255u;
+        poly_record_release_event(engine,track,note,keys.choice[pad],!keys.held);
     }
+}
+static void input_pad(void *mode,int pad,float velocity){
+    if(am_midi_native_key_begin)am_midi_native_key_begin(mode,(unsigned)pad,1);
+    if(am_midi_native_key_release){
+        void *things=F(mode,0x58,void*),*track=things?F(things,0x140,void*):NULL;
+        /* A repeated physical down closes the previous occurrence too. */
+        am_midi_native_key_release(mode,(unsigned)pad,track);
+    }
+    input_pad_impl(mode,pad,velocity);
+    if(am_midi_native_key_end)am_midi_native_key_end();
 }
 /* PadControls dispatches physical releases through vtable+20, not through
  * the +18 velocity callback with zero. Stock SixteenLevels leaves +20 empty.
  * Only keys actually owned by our Poly/Chords path need a matching NoteOff. */
 static void input_release(void *mode,int pad){
+    if(am_midi_native_key_release){void *things=F(mode,0x58,void*);am_midi_native_key_release(mode,(unsigned)pad,things?F(things,0x140,void*):NULL);}
     int held=pad>=0&&pad<16&&keys.mode==mode&&(keys.held&(1u<<pad));
 #ifdef MPC_CHORDS
     held|=pad>=0&&pad<8&&chord_keys.mode==mode&&(chord_keys.voices.held&(1u<<pad));
@@ -200,16 +217,26 @@ static void enqueue_off(void *recorder,int source,int destination,unsigned note)
 }
 static void finish_note(void *recorder,void *program,int destination,unsigned note,
                         uintptr_t a,uintptr_t b,uintptr_t c,unsigned d,int flags){
-    if((note&0xffff0000u)==CHOICE_MARK){
+    unsigned typed=(note&0xffe00000u)==MODIFIER_MARK;
+    if((note&0xffff0000u)==CHOICE_MARK||typed){
+        unsigned kind=typed?(note>>16)&15u:0;
+        unsigned expected_mask=note&0x100000u?1u<<kind:0;
         unsigned choice=(note>>8)&255;note&=255;
         void *header=(char*)recorder+0x1a0,*found=NULL;
         unsigned limit=4096;
         for(void *node=F(header,0,void*);node!=header&&limit--;node=F(node,0,void*)){
             if(F(node,0x48,void*)==program&&F(node,0x50,int)==destination&&
                F(node,0x18,unsigned char)==3&&F(node,0x40,unsigned char)==note&&
-               F(node,0x41,unsigned char)==0&&F(node,0x26,unsigned char)==choice){found=node;break;}
+               F(node,0x41,unsigned char)==0&&F(node,0x26+kind,unsigned char)==choice&&
+               (typed?F(node,0x24,uint16_t)==expected_mask:!!(F(node,0x24,uint16_t)&1u))){found=node;break;}
         }
         if(!found)return; /* Never release a different pitch on a stale key-up. */
+        /* Native finish skips future onsets and then scans other pitches of
+         * this sound. A matched physical key-up belongs to this node only:
+         * preserve the native minimum gate when its onset was quantized
+         * beyond the current Off timestamp. */
+        int64_t start=F(found,0x58,int64_t);
+        if((int64_t)b<start)b=(uintptr_t)start;
         if(found!=F(header,0,void*)){
             void *previous=F(found,8,void*),*next=F(found,0,void*),*first=F(header,0,void*);
             F(previous,0,void*)=next;F(next,8,void*)=previous;

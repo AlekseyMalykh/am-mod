@@ -4,11 +4,11 @@
 #include "src/step_native.h"
 #include "src/poly_record.c"
 struct tree {uint64_t pad,colour;void *parent,*left,*right;uint64_t size;};
-static struct step_event committed[4];
+static struct step_event committed[8];
 static unsigned commit_count;
 static struct step_event played[4];static unsigned play_count,release_count,fallback_count;
 static unsigned released_choice[4];
-static unsigned char fake_engine[0x800];static unsigned queued[4],queued_count;
+static unsigned char fake_engine[0x800];static unsigned queued[8],queued_count;
 static void capture_play(void *engine,int source,void *event,int flags){
     assert(engine==fake_engine&&source==0&&flags==0x7ffffffa&&play_count<4);
     played[play_count++]=*(struct step_event*)event;
@@ -23,7 +23,7 @@ static void *clip_recorder(void *service,void *track){assert(service==(void*)0x7
 static int recording_destination(void *p){assert(p==(void*)0x2340);return 7;}
 static int midi_note(void *engine,int pad,int flags,void *track){assert(engine==fake_engine&&!pad&&flags==0x7ffffffa&&track==(void*)0x4560);return 36;}
 static void capture_off_queue(void *recorder,int source,int destination,unsigned note){
-    assert(recorder==(void*)0x2340&&source==1&&destination==7&&queued_count<4);
+    assert(recorder==(void*)0x2340&&source==1&&destination==7&&queued_count<8);
     queued[queued_count++]=note;
 }
 static void capture_fallback(void *mode,int pad,float velocity){(void)mode;(void)pad;(void)velocity;++fallback_count;}
@@ -36,7 +36,7 @@ static void redirect(uintptr_t offset,void *function){
 static void capture_commit(void *recorder,void *program,int destination,void *event,
                            unsigned flag,uintptr_t a,uintptr_t b,uintptr_t c,unsigned d,int flags){
     (void)recorder;(void)program;(void)a;(void)b;(void)c;(void)d;(void)flags;
-    assert(destination==7&&flag==1&&commit_count<4);
+    assert(destination==7&&flag==1&&commit_count<8);
     committed[commit_count++]=*(struct step_event*)event;
 }
 static void pending(void *recorder,void *program,const struct step_event *event){
@@ -110,6 +110,32 @@ int MPC_POLY_TEST_MAIN(int argc,char **argv){
     finish_note(recorder,program,7,CHOICE_MARK|(low<<8)|36,0,800,0,0,0);
     assert(commit_count==2&&same_choice(&committed[1],&a)&&F(&committed[1],0x28,int64_t)==700);
     assert(F(header,0,void*)==header&&F(header,8,void*)==header&&!F(recorder,0x1b0,uint64_t));
+    /* Slice-only notes use the same native modifier slot; reverse releases
+     * must finalize the matching chop and retain each native duration. */
+    struct step_event ca=FN(0x27e54d0,struct step_event(*)(unsigned,int64_t,int64_t,unsigned,unsigned,float))(36,480,0,100,0,.8f),cb=ca;
+    FN(0x27e4400,void(*)(void*,int,int,int))((char*)&ca+0x14,15,0,1);
+    FN(0x27e4400,void(*)(void*,int,int,int))((char*)&cb+0x14,15,0,5);
+    pending(recorder,program,&ca);pending(recorder,program,&cb);
+    finish_note(recorder,program,7,MODIFIER_MARK|0x100000u|(15u<<16)|((unsigned)cb.data[21]<<8)|36,0,550,0,0,0);
+    finish_note(recorder,program,7,MODIFIER_MARK|0x100000u|(15u<<16)|((unsigned)ca.data[21]<<8)|36,0,800,0,0,0);
+    assert(commit_count==4&&same_choice(&committed[2],&cb)&&same_choice(&committed[3],&ca));
+    assert(F(&committed[2],0x28,int64_t)==450&&F(&committed[3],0x28,int64_t)==700);
+    struct step_event plain=FN(0x27e54d0,struct step_event(*)(unsigned,int64_t,int64_t,unsigned,unsigned,float))(36,480,0,100,0,.8f),first_chop=plain;
+    FN(0x27e4400,void(*)(void*,int,int,int))((char*)&first_chop+0x14,15,0,1);
+    assert(plain.data[21]==first_chop.data[21]); /* Value zero does not mean the same modifier. */
+    pending(recorder,program,&plain);pending(recorder,program,&first_chop);
+    finish_note(recorder,program,7,MODIFIER_MARK|0x100000u|(15u<<16)|((unsigned)first_chop.data[21]<<8)|36,0,550,0,0,0);
+    finish_note(recorder,program,7,MODIFIER_MARK|((unsigned)plain.data[6]<<8)|36,0,800,0,0,0);
+    assert(commit_count==6&&same_choice(&committed[4],&first_chop)&&same_choice(&committed[5],&plain));
+    assert(F(&committed[4],0x28,int64_t)==450&&F(&committed[5],0x28,int64_t)==700);
+    /* A quantized pending onset can be ahead of this Off timestamp. Native
+     * finish scans past that node and would consume an unrelated older key. */
+    pending(recorder,program,&ca);pending(recorder,program,&cb);
+    void *future=F(header,8,void*);F(future,0x58,int64_t)=F(future,0x60,int64_t)=600;
+    finish_note(recorder,program,7,MODIFIER_MARK|0x100000u|(15u<<16)|((unsigned)cb.data[21]<<8)|36,0,500,0,0,0);
+    assert(commit_count==7&&same_choice(&committed[6],&cb)&&F(&committed[6],0x28,int64_t)==60);
+    finish_note(recorder,program,7,MODIFIER_MARK|0x100000u|(15u<<16)|((unsigned)ca.data[21]<<8)|36,0,800,0,0,0);
+    assert(commit_count==8&&same_choice(&committed[7],&ca)&&!F(recorder,0x1b0,uint64_t));
     /* Exercise the actual replacement pad callback and native 16-Levels
      * modifier builder. Capture only the final Engine calls. */
     redirect(0x211b090,capture_play);redirect(0x2118930,capture_release);redirect(0x29c3f80,track_available);
@@ -124,11 +150,20 @@ int MPC_POLY_TEST_MAIN(int argc,char **argv){
     assert(play_count==2&&same_choice(&played[0],&a)&&same_choice(&played[1],&b));
     assert(F(&played[0],0x10,float)==.8f&&F(&played[1],0x10,float)==.6f);
     input_pad(mode,7,0);input_pad(mode,0,0);input_pad(mode,0,0);
-    assert(queued_count==2&&queued[0]==(CHOICE_MARK|(high<<8)|36)&&queued[1]==(CHOICE_MARK|(low<<8)|36));
+    assert(queued_count==2&&queued[0]==(MODIFIER_MARK|0x100000u|(high<<8)|36)&&queued[1]==(MODIFIER_MARK|0x100000u|(low<<8)|36));
     assert(release_count==1&&released_choice[0]==low); /* Shared source closes once, on last physical release. */
+    poly_record_release_event(fake_engine,(void*)0x4560,0,0x1000u|high,0);
+    poly_record_release_event(fake_engine,(void*)0x4560,0,0x1000u|low,1);
+    assert(queued_count==4&&queued[2]==(MODIFIER_MARK|0x100000u|(high<<8)|36)&&queued[3]==(MODIFIER_MARK|0x100000u|(low<<8)|36)&&release_count==2);
+    F(props,0x88,int)=8;input_pad(mode,0,.8f);input_pad(mode,7,.6f);
+    assert(play_count==4&&F(&played[2],0x14,uint16_t)==0x8000u&&F(&played[3],0x14,uint16_t)==0x8000u);
+    unsigned chop_low=F(&played[2],0x25,unsigned char),chop_high=F(&played[3],0x25,unsigned char);
+    assert(chop_low!=chop_high);input_release(mode,0);assert(keys.held==(1u<<7)&&release_count==2);
+    input_release(mode,7);assert(!keys.held&&release_count==3&&queued_count==6);
+    assert(queued[4]==(MODIFIER_MARK|0x100000u|(15u<<16)|(chop_low<<8)|36)&&queued[5]==(MODIFIER_MARK|0x100000u|(15u<<16)|(chop_high<<8)|36));
     uintptr_t saved_original=input_original;input_original=(uintptr_t)capture_fallback;
     atomic_store(&context,0x20000);input_pad(mode,3,.7f);input_original=saved_original;
-    assert(fallback_count==1&&play_count==2); /* Mono retains its native route. */
+    assert(fallback_count==1&&play_count==4); /* Mono retains its native route. */
     puts("PASS native pitch overwrite and independent reverse-order NoteOff durations; duplicate release ignored; native pending list unlink/free executed. Live recording requires VM test.");
     return 0;
 }

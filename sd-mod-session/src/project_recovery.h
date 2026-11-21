@@ -11,6 +11,7 @@ void project_recovery_capture(uintptr_t base,void *saver);
 /* Native Save returned success. Record the explicit target, including Internal,
  * without changing the current sample directory or autosave destination. */
 void project_recovery_saved(const char *path);
+void project_recovery_adopt_name(uintptr_t base,void *saver,const char *path);
 void project_recovery_begin_copy(void);
 void project_recovery_end_copy(void);
 const char *project_recovery_copy_payload(void);

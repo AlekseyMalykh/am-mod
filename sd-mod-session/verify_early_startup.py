@@ -1,5 +1,6 @@
 """First-load ABI, selection, splash packing, loader ordering and early rollback."""
 from pathlib import Path
+import sys
 import subprocess,hashlib,json,zipfile,tempfile,os
 from early_startup import transform_launcher
 R=Path(__file__).resolve().parent;O=R/'build/early-startup';O.mkdir(exist_ok=True)
@@ -8,9 +9,15 @@ sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest();before={s:sha(R/s) for s
 stock=R.parent/'extracted_v1.3.0/partitions/part3/usr/bin/MPC Sample';assert sha(stock)=='b6584cba76e416e432ad202509099d34373dc2c3d6a8fb625f5678bf0193b508'
 for mode,flags in [('normal',[]),('ubsan',['-fsanitize=undefined','-static-libubsan','-fno-sanitize-recover=all'])]:
  for case,cc in [('project','check_startup_project.cc'),('splash','check_early_splash.c')]:
+  if '--project-only' in sys.argv and case!='project':continue
   exe=O/(mode+'-'+case);cpp=cc.endswith('.cc')
   subprocess.run(['aarch64-linux-gnu-g++' if cpp else 'aarch64-linux-gnu-gcc','-O1','-g','-Wall','-Wextra','-Werror',*flags,cc,'-o',str(exe),*(['-ldl'] if cpp else [])],cwd=R,check=True)
   p=subprocess.run(['qemu-aarch64','-L','/home/user/mpc-rootfs-user-20260808',str(exe),*([str(stock)] if cpp else [])],cwd=R,text=True,capture_output=True,timeout=45);(O/(mode+'-'+case+'.log')).write_text(p.stdout+p.stderr);print(p.stdout+p.stderr,end='',flush=True);p.check_returncode()
+if '--project-only' in sys.argv:
+ assert before=={s:sha(R/s) for s in sources}
+ (O/'internal-save-verification.json').write_text(json.dumps(dict(passed=True,project_only=True,native_project_abi=True,pinned_internal_save_guard=True,ubsan=True,sources_sha256=before,hardware_tested=False),indent=2)+'\n')
+ print('PASS focused native startup/save guard: pinned Internal paths, SD destinations, Temp autosave and load boundaries; normal/UBSan')
+ sys.exit(0)
 helper=O/'boot-splash';subprocess.run(['aarch64-linux-gnu-gcc','-O2','-static','-Wall','-Wextra','-Werror','src/early_splash.c','-o',str(helper)],cwd=R,check=True)
 with zipfile.ZipFile(R.parent/'am-mod-r26x.zip') as z:launcher=transform_launcher(z.read('autorun/mod-launcher.sh').decode(),sha(helper))
 (O/'mod-launcher.sh').write_text(launcher);subprocess.run(['sh','-n',str(O/'mod-launcher.sh')],check=True)

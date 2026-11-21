@@ -25,6 +25,8 @@ int browser_tree_accepts(const char*name,int projects){
  const char*p=strrchr(name,'.');if(!p)return 0;
  char ext[12];size_t n=strlen(p);if(n>=sizeof(ext))return 0;
  for(size_t i=0;i<=n;++i)ext[i]=p[i]>='A'&&p[i]<='Z'?p[i]+32:p[i];
+ if(projects==3)return !strcmp(ext,".pgm")||!strcmp(ext,".xpm");
+ if(projects==2)return !strcmp(ext,".mid")||!strcmp(ext,".midi");
  if(projects)return !strcmp(ext,".xpj");
  return !strcmp(ext,".wav")||!strcmp(ext,".aif")||!strcmp(ext,".aiff")||!strcmp(ext,".mp3")||!strcmp(ext,".flac")||!strcmp(ext,".ogg");
 }

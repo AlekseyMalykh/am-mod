@@ -16,7 +16,7 @@
 #endif
 
 static unsigned char surface[0x2200],control[0x400],things[0x700],program[0x2900];
-static unsigned char seq[0x400],list_storage[0x200],ui_model[0x600],factory[0x80];
+static unsigned char seq[0x500],list_storage[0x200],ui_model[0x600],factory[0x80];
 static unsigned char undo_manager;
 static unsigned char time_list[0x60],sig_node[0x20],clock_object[0x268];
 static unsigned char engine[0x800],native_position[0x140],instrument[0x2300],layer[0x1660],sample_data[0x200],sample_refs[0x20],second_refs[0x20],slice_data[0x90];
@@ -42,6 +42,9 @@ static void audition_off(void*p){assert(p==(void*)atomic_load(&native_audition))
 int workflow_event_preview(void*p,const void*e,unsigned key,unsigned mode){assert(p==program&&key<16&&mode<10);audition_event=*(const struct step_event*)e;++audition_starts;return 1;}
 void workflow_event_preview_stop(int cancel){assert(cancel==0||cancel==1);++audition_stops;}
 unsigned workflow_event_preview_pending(void){return 0;}
+int workflow_piano_input(void*p,const void*e,unsigned key){assert(key<16);if(e){assert(p==program);audition_event=*(const struct step_event*)e;++audition_starts;}else ++audition_stops;return 1;}
+void workflow_piano_input_stop(void){++audition_stops;}
+
 static int execution_kind;
 static void *last_control_block;
 static const char *phase="load";

@@ -80,11 +80,12 @@ static void button_map(void)
 {
     _Alignas(8) unsigned char block[0x3400]={0},driver[0x18]={0},event[16]={0};controls=block;
     F(driver,0x10,void*)=block;F(event,0,void*)=driver;jump(0x13904f0,button);
-    const unsigned codes[]={0x00,0x01,0x06,0x07,0x0c,0x0d,0x0e,0x31,0x6f};
-    const unsigned offsets[]={0x21a0,0x20f0,0x1f90,0x2040,0x1bc8,0x1c20,0x1c78,0x2250,0x2d50};
+    const unsigned codes[]={0x00,0x01,0x06,0x07,0x0c,0x0d,0x0e,0x31,0x6f,0x4a,0x4b,0x28};
+    const unsigned offsets[]={0x21a0,0x20f0,0x1f90,0x2040,0x1bc8,0x1c20,0x1c78,0x2250,0x2d50,0x2670,0x2510,0x2720};
     for(unsigned i=0;i<sizeof(codes)/sizeof(*codes);++i)for(unsigned down=0;down<2;++down){
         unsigned before=captures;event[8]=(unsigned char)codes[i];event[9]=(unsigned char)down;
         FN(0x159f2f0,void(*)(void*))(event);
+        if(captures!=before+1||captured_code!=offsets[i]||captured_down!=down)fprintf(stderr,"Button mapping code=%02x expected=%x actual=%x captures=%u down=%u\n",codes[i],offsets[i],captured_code,captures-before,captured_down);
         assert(captures==before+1&&captured_code==offsets[i]&&captured_down==down);
     }
     _Alignas(8) unsigned char owner[0x400]={0},router[0xe0]={0},properties[0xa00]={0};

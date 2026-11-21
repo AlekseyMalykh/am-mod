@@ -77,19 +77,27 @@ static void fxv_filter(const struct resample_painter*p,const struct fx_stage*sta
 
 /* ---- Dynamics: rolling level history, kept only while the screen is painted. ---- */
 #define FXV_HIST 148u
-static struct {uint32_t identity;uint64_t last_ms;unsigned head,count;
+static unsigned fxv_history_bypass;
+static struct {uint32_t identity;uint64_t last_ms,fade_ms;unsigned head,count;
     float in[FXV_HIST],out[FXV_HIST],key[FXV_HIST],gr[FXV_HIST];} fxv_hist;
 static void fxv_history_push(uint32_t identity,uint64_t now_ms,const struct mixer_fx_monitor*m)
 {
     if(fxv_hist.identity!=identity||now_ms<fxv_hist.last_ms){
-        memset(&fxv_hist,0,sizeof(fxv_hist));fxv_hist.identity=identity;fxv_hist.last_ms=now_ms;
+        memset(&fxv_hist,0,sizeof(fxv_hist));fxv_hist.identity=identity;fxv_hist.last_ms=fxv_hist.fade_ms=now_ms;
     }
-    if(!m||now_ms-fxv_hist.last_ms<40)return;
-    fxv_hist.last_ms=now_ms;
-    unsigned i=fxv_hist.head;
-    fxv_hist.in[i]=m->input_peak;fxv_hist.out[i]=m->output_peak;
-    fxv_hist.key[i]=m->key_peak;fxv_hist.gr[i]=m->gain_reduction_db;
-    fxv_hist.head=(i+1)%FXV_HIST;if(fxv_hist.count<FXV_HIST)++fxv_hist.count;
+    if(fxv_history_bypass&&now_ms>fxv_hist.fade_ms){
+        uint64_t dt=now_ms-fxv_hist.fade_ms;float decay=expf(-(float)(dt>2000?2000:dt)/250.f);
+        for(unsigned i=0;i<FXV_HIST;++i){fxv_hist.in[i]*=decay;fxv_hist.out[i]*=decay;fxv_hist.key[i]*=decay;fxv_hist.gr[i]*=decay;}
+    }
+    fxv_hist.fade_ms=now_ms;
+    uint64_t elapsed=(now_ms-fxv_hist.last_ms)/40;if(!elapsed)return;
+    fxv_hist.last_ms+=elapsed*40;
+    unsigned steps=elapsed>FXV_HIST?FXV_HIST:(unsigned)elapsed;
+    for(unsigned step=0;step<steps;++step){unsigned i=fxv_hist.head;int current=step+1==steps&&m&&!fxv_history_bypass;
+        fxv_hist.in[i]=current?m->input_peak:0;fxv_hist.out[i]=current?m->output_peak:0;
+        fxv_hist.key[i]=current?m->key_peak:0;fxv_hist.gr[i]=current?m->gain_reduction_db:0;
+        fxv_hist.head=(i+1)%FXV_HIST;if(fxv_hist.count<FXV_HIST)++fxv_hist.count;
+    }
 }
 static int fxv_level_h(float peak,int height)
 {
@@ -396,7 +404,9 @@ static double fxv_tape_phase(uint64_t ms,double time,double wow)
     /* Bounded wobble cannot reverse transport as elapsed time grows. */
     return -(ms*(.0022+.0045*time)+.03*wow*sin(ms*.01));
 }
-static void fxv_tape_delay(const struct resample_painter*p,const struct fx_stage*stage,const struct mixer_fx_monitor*m)
+extern unsigned step_native_transport_state(void) __attribute__((weak));
+static struct {uint32_t identity;uint64_t last_ms,phase_ms;double angle;int initialized,running;} fxv_delay_transport;
+static void fxv_tape_delay(const struct resample_painter*p,const struct fx_stage*stage,const struct mixer_fx_monitor*m,uint32_t identity,uint64_t now_ms)
 {
     const uint32_t TAPE=0xff5a3923u,STEEL=0xffa9b2bcu;
     rect(p,FXV_X,FXV_Y,FXV_W,FXV_H,0xff5d3a24u);
@@ -408,7 +418,17 @@ static void fxv_tape_delay(const struct resample_painter*p,const struct fx_stage
     for(int row=0;row<5;++row)rect(p,FXV_X+116,FXV_Y+15+row*2,64,1,0xff171e24u);
     text(p,"AM MOD",FXV_X+109,FXV_Y+3,78,9,8,0xffd9d3b8u,1);
     int lx=FXV_X+65,rx=FXV_X+231,cy=FXV_Y+35;
-    double angle=fxv_idle?0:fxv_tape_phase(fxv_now,fxv_p(stage,8),fxv_p(stage,6));
+    if(!fxv_delay_transport.initialized||fxv_delay_transport.identity!=identity||now_ms<fxv_delay_transport.last_ms){
+        memset(&fxv_delay_transport,0,sizeof fxv_delay_transport);fxv_delay_transport.initialized=1;fxv_delay_transport.identity=identity;fxv_delay_transport.last_ms=now_ms;
+    }
+    uint64_t elapsed=now_ms-fxv_delay_transport.last_ms;fxv_delay_transport.last_ms=now_ms;if(elapsed>100)elapsed=0;
+    unsigned transport=step_native_transport_state?step_native_transport_state():0;
+    fxv_delay_transport.running=!fxv_idle&&(((transport&3u)==3u)||(m&&m->input_peak>.0001f));
+    if(fxv_delay_transport.running){uint64_t phase=fxv_delay_transport.phase_ms;
+        fxv_delay_transport.angle+=fxv_tape_phase(phase+elapsed,fxv_p(stage,8),fxv_p(stage,6))-fxv_tape_phase(phase,fxv_p(stage,8),fxv_p(stage,6));
+        fxv_delay_transport.phase_ms+=elapsed;
+    }
+    double angle=fxv_delay_transport.angle;
     fxv_vu(p,FXV_X+108,FXV_Y+28,38,29,fxv_vu_value(m?m->input_peak:0),"IN");
     fxv_vu(p,FXV_X+150,FXV_Y+28,38,29,fxv_vu_value(m?m->output_peak:0),"OUT");
     double ax,ay,bx,by;int py=FXV_Y+73,pl=FXV_X+99,pr=FXV_X+197;
@@ -465,8 +485,19 @@ static void fxv_shelf(const struct resample_painter*p,int x,int w,unsigned seed)
         rect(p,x+3,y+h,w-6,2,WOOD);
     }
 }
-static void fxv_vinyl(const struct resample_painter*p,const struct fx_stage*stage)
+extern unsigned step_native_transport_state(void) __attribute__((weak));
+static struct {uint32_t identity;uint64_t last_ms;double angle;int initialized,running;} fxv_vinyl_state;
+static void fxv_vinyl(const struct resample_painter*p,const struct fx_stage*stage,uint32_t identity,uint64_t now_ms)
 {
+    if(!fxv_vinyl_state.initialized||fxv_vinyl_state.identity!=identity||now_ms<fxv_vinyl_state.last_ms){
+        memset(&fxv_vinyl_state,0,sizeof(fxv_vinyl_state));fxv_vinyl_state.initialized=1;
+        fxv_vinyl_state.identity=identity;fxv_vinyl_state.last_ms=now_ms;
+    }
+    uint64_t elapsed=now_ms-fxv_vinyl_state.last_ms;fxv_vinyl_state.last_ms=now_ms;
+    if(elapsed>100)elapsed=100;
+    unsigned transport=step_native_transport_state?step_native_transport_state():0;
+    fxv_vinyl_state.running=!fxv_idle&&(transport&3u)==3u;
+    if(fxv_vinyl_state.running)fxv_vinyl_state.angle=fmod(fxv_vinyl_state.angle+elapsed*.0035*(1+(fxv_p(stage,2)-.5)*.3),6.283185307);
     const int TW=188,x0=FXV_X+(FXV_W-TW)/2;
     fxv_shelf(p,FXV_X,x0-FXV_X-2,7u);fxv_shelf(p,x0+TW+2,FXV_X+FXV_W-(x0+TW+2),19u);
     rect(p,x0,FXV_Y,TW,FXV_H,0xffc3c7cdu);
@@ -480,7 +511,7 @@ static void fxv_vinyl(const struct resample_painter*p,const struct fx_stage*stag
         rect(p,cx+(int)lround(cos(a)*43),cy+(int)lround(sin(a)*43),1,1,0xffd3d9dfu);}
     for(int r=23;r<41;r+=4)for(int k=0;k<14;++k){double a=-1.15+k*.055;
         rect(p,cx+(int)lround(cos(a)*r),cy+(int)lround(sin(a)*r),1,1,0xff444a52u);}
-    double ang=fxv_idle?0:fxv_now*.0035*(1+(fxv_p(stage,2)-.5)*.3);
+    double ang=fxv_vinyl_state.angle;
     for(int k=0;k<2;++k){double t=ang+k*3.1416;
         for(int r=20;r<=38;r+=2)rect(p,cx+(int)lround(cos(t)*r),cy+(int)lround(sin(t)*r),1,1,0xff5a5f68u);}
     fxv_disc(p,cx,cy,14,0xffc23a2eu);
@@ -491,7 +522,7 @@ static void fxv_vinyl(const struct resample_painter*p,const struct fx_stage*stag
     int px=cx+51,py=cy-34;
     rect(p,px-8,py-13,16,26,0xff2a2d33u);rect(p,px-5,py-10,10,20,0xff3f444cu);
     fxv_disc(p,px,py,5,0xffd9dce2u);
-    double wob=fxv_idle?0:sin(fxv_now*.004)*.02;
+    double wob=sin(ang*(.004/.0035))*.02;
     double hx=cx+26,hy=cy+16+wob*20;
     fxv_line(p,px+1,py+2,hx+1,hy+2,3,0xff737b85u);
     fxv_line(p,px,py,hx,hy,2,0xffe4e7ecu);
@@ -512,7 +543,7 @@ static void fxv_vinyl(const struct resample_painter*p,const struct fx_stage*stag
     text(p,"33 / 45",x0+107,FXV_Y+FXV_H-11,46,8,6,0xff3a434cu,1);
     for(int k=0;k<4;++k)fxv_screw(p,x0+(k&1?TW-5:5),FXV_Y+(k&2?FXV_H-5:5),0xffe2e6eau);
     fxv_disc(p,x0+12,FXV_Y+FXV_H-14,7,0xff5a5f68u);fxv_disc(p,x0+12,FXV_Y+FXV_H-14,2,0xffd9dce2u);
-    unsigned seed=(unsigned)(fxv_now/90);int sparks=fxv_idle?0:(int)lround(6*fxv_p(stage,1));
+    unsigned seed=(unsigned)(ang*200);int sparks=fxv_vinyl_state.running?(int)lround(6*fxv_p(stage,1)):0;
     for(int k=0;k<sparks;++k){seed=seed*1664525u+1013904223u;rect(p,hx-6+(int)(seed>>9&15),hy+6+(int)(seed>>13&7),2,2,AMBER);}
 }
 static struct {double ang,needle;uint64_t last_ms,hold_ms;} fxv_tape_state;
@@ -1089,7 +1120,7 @@ static int fx_visual_dispatch_inner(const struct resample_painter*p,const struct
     case 0x61464e47:fxv_history_push(identity,now_ms,m);fxv_gate(p,stage,m);return 1;      /* Noise Gate */
     case 0x6146446c:fxv_delay(p,stage);return 1;        /* Delay */
     case 0x61464444:fxv_diff_delay(p,stage);return 1;   /* Diff Delay */
-    case 0x41435658:fxv_tape_delay(p,stage,m);return 1;   /* Tape Delay */
+    case 0x41435658:fxv_tape_delay(p,stage,m,identity,now_ms);return 1;   /* Tape Delay */
     case 0x534d444c:fxv_sample_delay(p,stage);return 1; /* Sample Delay */
     case 0x61465276:fxv_reverb(p,stage,4,3,8);return 1; /* Reverb */
     case 0x61465370:fxv_spring(p,stage);return 1;       /* Spring Reverb */
@@ -1102,7 +1133,7 @@ static int fx_visual_dispatch_inner(const struct resample_painter*p,const struct
     case 0x6146466c:fxv_flanger(p,stage);return 1;      /* Flanger */
     case 0x41435679:fxv_auto_wah(p,stage,m);return 1;   /* Auto Wah */
     case 0x41435671:fxv_auto_pan(p,stage);return 1;     /* Auto Pan */
-    case 0x56456678:fxv_vinyl(p,stage);return 1;        /* Vinyl */
+    case 0x56456678:fxv_vinyl(p,stage,identity,now_ms);return 1; /* Vinyl */
     case 0x54456678:fxv_tape_emu(p,stage,m);return 1;     /* Tape */
     case FX_OWN_OPTO:fxv_history_push(identity,now_ms,m);fxv_opto(p,stage,m);return 1;
     case FX_OWN_SHIMMER:fxv_shimmer(p,stage,m);return 1;
@@ -1143,30 +1174,27 @@ static int fx_visual_dispatch(const struct resample_painter*p,const struct fx_ca
     return ok;
 }
 
-/* With no signal (or a bypassed effect) the picture stops moving and is dimmed; it still follows the parameters. */
+/* Only Bypass disables animation. Silence advances the real UI timeline. */
 static uint32_t fxv_dimmed(uint32_t c)
 {
     unsigned r=c>>16&255,g=c>>8&255,b=c&255,mx=r>g?(r>b?r:b):(g>b?g:b);
-    if(mx<0x50)return c;
-    return (c&0xff000000u)|((r*45/100)<<16)|((g*45/100)<<8)|(b*45/100);
+    unsigned grey=(54*r+183*g+19*b)/256;if(mx>=0x50)grey=grey*45/100;
+    return (c&0xff000000u)|grey*0x010101u;
 }
 static void fxv_dim_rect(void*user,int x,int y,int w,int h,uint32_t c)
 {const struct resample_painter*b=user;b->rect(b->user,x,y,w,h,fxv_dimmed(c));}
 static void fxv_dim_text(void*user,const char*s,int x,int y,int w,int h,unsigned size,uint32_t c,int centre)
-{const struct resample_painter*b=user;b->text(b->user,s,x,y,w,h,size,c,centre);}
+{const struct resample_painter*b=user;b->text(b->user,s,x,y,w,h,size,fxv_dimmed(c),centre);}
 static int fx_visual_paint(const struct resample_painter*p,const struct fx_catalog_entry*e,
                            const struct fx_stage*stage,const struct mixer_fx_monitor*m,double rate,
                            uint32_t identity,uint64_t now_ms)
 {
-    static uint32_t last_identity;static uint64_t last_active;
     if(!e||!stage)return 0;
-    if(identity!=last_identity){last_identity=identity;last_active=0;}
-    if(m&&!stage->bypass&&(m->input_peak>.0005f||m->output_peak>.0005f))last_active=now_ms+1;
-    fxv_idle=stage->bypass||!last_active||now_ms<last_active-1||now_ms-(last_active-1)>600;
-    if(!fxv_idle){fxv_now=now_ms;return fx_visual_dispatch(p,e,stage,m,rate,identity,now_ms);}
+    fxv_idle=stage->bypass;fxv_history_bypass=stage->bypass;
+    if(!fxv_idle){fxv_now=now_ms;int result=fx_visual_dispatch(p,e,stage,m,rate,identity,now_ms);fxv_history_bypass=0;return result;}
     struct resample_painter dim={(void*)p,fxv_dim_rect,fxv_dim_text};
     fxv_now=0;
     struct mixer_fx_monitor silent;memset(&silent,0,sizeof silent);
-    int r=fx_visual_dispatch(&dim,e,stage,&silent,rate,identity,0);
-    fxv_idle=0;return r;
+    int r=fx_visual_dispatch(&dim,e,stage,&silent,rate,identity,now_ms);
+    fxv_idle=0;fxv_history_bypass=0;return r;
 }

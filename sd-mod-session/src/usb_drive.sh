@@ -82,10 +82,12 @@ restore() {
     fi
     [ "$(readlink -f "$sd")" = "$sd" ] || return 1
     awk -v p="$sd" -v d="$devno" '$5==p && $3==d && $6 ~ /(^|,)rw(,|$)/ {ok=1} END {exit !ok}' "$PROC/self/mountinfo" || return 1
+    bootloader_binds_restore || return 1
     restore_disks || return 1
     rm -f "$D/unmounted"
     phase done
 }
+. "$R/usb-drive-boot.sh"
 case "${1:-}" in
  prepare)
     [ "$#" = 2 ] || exit 2
@@ -125,6 +127,7 @@ EOF
     fi
     systemctl stop "$DISKS" || die DISKS_STOP_FAILED
     sync
+    bootloader_binds_prepare || die BOOTLOADER_BIND_BUSY
     umount "$sd" || die SD_BUSY
     touch "$D/unmounted"
     mounted && die SD_STILL_MOUNTED

@@ -28,6 +28,12 @@ static int cc(struct usb_drive_input*p,unsigned code,unsigned value,int enabled)
 }
 static int click(struct usb_drive_input*p,unsigned code){assert(!cc(p,code,127,1));return cc(p,code,0,1);}
 int main(void){
+ unsigned char amber[192],received[192];usb_drive_amber_frame(amber);
+ for(unsigned pad=0;pad<16;++pad){unsigned char*p=amber+pad*12;assert(p[0]==0xf0&&p[3]==0x5c&&p[7]==pad&&p[8]==127&&p[9]==97&&p[10]==35&&p[11]==0xf7);}
+ int pipes[2];assert(!pipe(pipes));struct amber_writer writer={0};amber_tick(pipes[1],1000,&writer);
+ assert(read(pipes[0],received,sizeof(received))==192&&!memcmp(received,amber,192));assert(writer.next_ms==2000&&!writer.failed);
+ amber_tick(pipes[1],1500,&writer);assert(writer.next_ms==2000);
+ amber_tick(pipes[1],2000,&writer);assert(read(pipes[0],received,sizeof(received))==192&&!memcmp(received,amber,192));close(pipes[0]);close(pipes[1]);
  int stream=SNDRV_RAWMIDI_STREAM_INPUT;
  assert(fake_ioctl(42,SNDRV_RAWMIDI_IOCTL_DROP,&stream)==-1&&errno==EINVAL);
  assert(controls_standard_mode(42));assert(input_drops==1&&input_params==1);

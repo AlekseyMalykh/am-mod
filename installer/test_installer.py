@@ -63,7 +63,46 @@ class InstallerTest(unittest.TestCase):
         package = m.Package(make_package({"README.md": b"English notes",
                                          "README.ru.md": "Русские заметки".encode()}), "release.zip")
         self.assertEqual(package.notes, "Русские заметки")
+        self.assertEqual(package.notes_for("en"), "English notes")
+        self.assertEqual(package.notes_for("ru"), "Русские заметки")
         self.assertNotIn("README.ru.md", package.files)
+
+    def test_release_body_is_split_by_language(self):
+        body = "Shared\n<!-- lang:en -->\nEnglish text\n<!-- lang:ru -->\nРусский текст"
+        parts = m.split_release_body(body)
+        self.assertEqual(parts["en"], "Shared\n\nEnglish text")
+        self.assertEqual(parts["ru"], "Shared\n\nРусский текст")
+        plain = m.split_release_body("Only one text")
+        self.assertEqual(plain["en"], plain["ru"])
+        only_en = m.split_release_body("<!-- lang:en -->\nEN only")
+        self.assertEqual(only_en["ru"], "EN only")
+
+    def test_language_notice_and_per_language_docs(self):
+        self.assertTrue(m.language_notice("English only", "ru").startswith("[Русская версия"))
+        self.assertEqual(m.language_notice("Только русский текст", "ru"), "Только русский текст")
+        self.assertTrue(m.language_notice("Только русский текст", "en").startswith("[English"))
+        def fake(url):
+            if url.endswith("RELEASE_NOTES-r1.ru.md"): return "Русские заметки релиза"
+            if url.endswith("RELEASE_NOTES-r1.md"): return "English release notes"
+            raise OSError("404")
+        notes = m.release_notes_by_language({"tag_name": "r1", "body": "body"}, fake)
+        self.assertEqual((notes["en"], notes["ru"]), ("English release notes", "Русские заметки релиза"))
+        offline = m.release_notes_by_language({"tag_name": "r1", "body": "body"}, lambda u: (_ for _ in ()).throw(OSError()))
+        self.assertEqual(offline["ru"], "body")
+
+    def test_latest_skips_installer_only_releases(self):
+        mod = {"tag_name": "r1", "assets": [{"name": "am-mod-r1.zip", "size": 1, "browser_download_url": "x"}]}
+        installer = {"tag_name": "installer-1.2.0", "assets": [{"name": "MPC-Sample-Mod-Installer.exe"}]}
+        draft = dict(mod, tag_name="d", draft=True)
+        pre = dict(mod, tag_name="p", prerelease=True)
+        self.assertIs(m.pick_mod_release([installer, draft, pre, mod]), mod)
+        self.assertIsNone(m.pick_mod_release([installer]))
+
+    def test_every_gui_translation_key_is_used_and_nonempty(self):
+        self.assertEqual(m.tr("Install", "ru"), "Установить")
+        self.assertEqual(m.tr("Install", "en"), "Install")
+        self.assertEqual(m.tr("Unknown text", "ru"), "Unknown text")
+        self.assertTrue(all(v.strip() for v in m.RU.values()))
 
     def test_diagnostics_only_collect_known_logs_and_preserve_card(self):
         autorun = self.card / "autorun"
@@ -133,6 +172,41 @@ class InstallerTest(unittest.TestCase):
         self.assertFalse((self.card / m.VERSION_FILE).exists())
         self.assertEqual((self.card / "MPC-Sample" / "Projects" / "song.xpj").read_text(), "mine")
 
+    def test_boot_thingy_card_gets_app_install_and_boot_menu_is_untouched(self):
+        a = self.card / "autorun"
+        (a / "system").mkdir(parents=True)
+        (a / "apps" / "other").mkdir(parents=True)
+        files = {"system/mpc-boot-thingy.mark": b"mpc-boot-thingy", "autorun.sh": b"boot thingy sh",
+                 "autorun.json": b"{}", "autorun.check": b"abc", "splash-screen.png": b"png",
+                 "apps/other/boot.entry": b"title=x\nrun=y\n"}
+        for n, b in files.items():
+            (a / n).write_bytes(b)
+        pkg = m.Package(make_package(), "am-mod-r99.zip")
+        info = m.install(pkg, self.card_obj(), self.log.append)
+        self.assertEqual(info["mode"], "boot-thingy-app")
+        for n, b in files.items():
+            self.assertEqual((a / n).read_bytes(), b)
+        app = a / "apps" / "am-mod"
+        self.assertEqual((app / "boot.entry").read_text(), "title=AM Mod\nrun=autorun/autorun.sh\ntakeover=1\n")
+        self.assertEqual(sorted(p.name for p in (app / "autorun").iterdir()), sorted(pkg.files))
+        self.assertTrue(m.has_boot_thingy(self.card))
+        m.status(self.card_obj(), self.log.append)
+        self.assertIn("boot-menu app", self.log[-1])
+        self.assertIn("all files intact", self.log[-1])
+        m.install(pkg, self.card_obj(), self.log.append)  # reinstall in place
+        m.remove(self.card_obj(), self.log.append)
+        self.assertFalse(app.exists())
+        self.assertFalse((self.card / m.VERSION_FILE).exists())
+        for n, b in files.items():
+            self.assertEqual((a / n).read_bytes(), b)
+
+    def test_card_without_boot_thingy_installs_directly(self):
+        pkg = m.Package(make_package(), "am-mod-r99.zip")
+        info = m.install(pkg, self.card_obj(), self.log.append)
+        self.assertNotIn("mode", info)
+        self.assertTrue((self.card / "autorun" / "autorun.sh").is_file())
+        self.assertFalse((self.card / "autorun" / "apps").exists())
+
     def test_reinstall_and_dry_run(self):
         pkg = m.Package(make_package(), "mpc-sample-r99.zip")
         m.install(pkg, self.card_obj(), self.log.append)
@@ -141,6 +215,71 @@ class InstallerTest(unittest.TestCase):
         m.remove(self.card_obj(), self.log.append)
         m.install(pkg, self.card_obj(), self.log.append, dry_run=True)
         self.assertFalse((self.card / "autorun").exists())
+
+    def dsb_card(self):
+        a = self.card / "autorun"
+        (a / "boot").mkdir(parents=True, exist_ok=True)
+        (a / "dsb-boot.conf").write_text("THEME=records\n")
+        (a / "boot/boot.sh").write_text("HSBOOT_DIR=card\n")
+        (a / "boot/hsboot").write_bytes(b"boot binary sentinel")
+        (a / "autorun.sh").write_bytes(b"HS boot root entry sentinel")
+        (a / "os/SampQOL").mkdir(parents=True)
+        (a / "os/SampQOL/autorun.sh").write_bytes(b"SampQOL sentinel")
+        return {p.relative_to(self.card): p.read_bytes() for p in a.rglob("*") if p.is_file()}
+
+    def dsb_package(self):
+        return m.Package(make_package({"autorun/sampleboot.inplace": b""}, sh=b"#!/bin/sh\n# revision=r99-test\n# sd-filesystems=exfat,vfat\n# BOOTLOADER_START_CLEAN_STOCK\n"), "am-mod-r99.zip")
+
+    def test_dsb_install_update_status_remove_preserves_boot_and_other_systems(self):
+        boot = self.dsb_card()
+        pkg = self.dsb_package()
+        info = m.install(pkg, self.card_obj(), self.log.append)
+        self.assertEqual(info["mode"], "dsb-boot")
+        target = self.card / m.DSB_DIR
+        self.assertEqual((target / "payload.bin").read_bytes(), pkg.files["payload.bin"])
+        self.assertIn(b"r99-test", (target / "dsb-record.txt").read_bytes())
+        self.assertEqual(m.installed_revision(self.card), "r99-test")
+        m.status(self.card_obj(), self.log.append)
+        self.assertIn("all files intact", self.log[-1])
+        m.install(pkg, self.card_obj(), self.log.append)
+        m.remove(self.card_obj(), self.log.append)
+        self.assertFalse(target.exists())
+        for name, data in boot.items():
+            self.assertEqual((self.card / name).read_bytes(), data)
+        self.assertEqual((self.card / "MPC-Sample/Projects/song.xpj").read_text(), "mine")
+
+    def test_dsb_dry_run_and_unsupported_package_do_not_write(self):
+        boot = self.dsb_card()
+        with patch.object(m, "backup_card") as backup:
+            m.install(self.dsb_package(), self.card_obj(), self.log.append, dry_run=True)
+            backup.assert_not_called()
+            with self.assertRaises(m.InstallError):
+                m.install(m.Package(make_package(), "old.zip"), self.card_obj(), self.log.append)
+            backup.assert_not_called()
+        self.assertFalse((self.card / m.DSB_DIR).exists())
+        for name, data in boot.items():
+            self.assertEqual((self.card / name).read_bytes(), data)
+
+    def test_partial_dsb_markers_do_not_fall_back_to_root_install(self):
+        boot = self.dsb_card()
+        (self.card / "autorun/boot/hsboot").unlink()
+        with patch.object(m, "backup_card") as backup, self.assertRaises(m.InstallError):
+            m.install(self.dsb_package(), self.card_obj(), self.log.append)
+        backup.assert_not_called()
+        self.assertEqual((self.card / "autorun/autorun.sh").read_bytes(), boot[Path("autorun/autorun.sh")])
+
+    def test_dsb_refuses_redirected_destination(self):
+        self.dsb_card()
+        outside = Path(self.tmp.name) / "outside"
+        outside.mkdir()
+        try:
+            (self.card / m.DSB_DIR).symlink_to(outside, target_is_directory=True)
+        except OSError:
+            self.skipTest("directory symlinks unavailable")
+        with patch.object(m, "backup_card") as backup, self.assertRaises(m.InstallError):
+            m.install(self.dsb_package(), self.card_obj(), self.log.append)
+        backup.assert_not_called()
+        self.assertFalse(list(outside.iterdir()))
 
     def test_rejects_system_disk(self):
         with self.assertRaises(m.InstallError):

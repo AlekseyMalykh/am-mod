@@ -516,6 +516,23 @@ case "${1:-main}" in
         log POWER_OFF_FAILED_RETURNING_STOCK
         rm -f "$R/poweroff-confirmed" "$R/recovered"
     fi
+    # Deliberate Mod Off with D.S.B installed: mark this start healthy (no
+    # crash counted, no auto-start of the mod) and reboot into its menu.
+    dsb_sd=$(cat "$R/storage-meta/save-path" 2>/dev/null || true)
+    dsb_sd=${dsb_sd%/MPC-Sample}
+    if [ -n "$dsb_sd" ] && [ -f "$R/app/mod-off.request" ] && [ ! -L "$R/app/mod-off.request" ] && [ -f "$dsb_sd/autorun/boot/boot.sh" ] && [ ! -L "$dsb_sd/autorun/boot/boot.sh" ]; then
+        dsb_state="$dsb_sd/autorun/hs-boot.state"
+        if [ ! -L "$dsb_state" ] && printf 'last=\npending=\ncrashes=0\n' > "$dsb_state" 2>/dev/null; then
+            sync
+            systemctl stop "$U-bus-proxy.service" || true
+            touch "$R/recovered"
+            log MOD_OFF_TO_DSB
+            export_report || true
+            if /usr/bin/systemctl --no-block reboot; then exit 0; fi
+            log MOD_OFF_DSB_REBOOT_FAILED_RETURNING_STOCK
+            rm -f "$R/recovered"
+        fi
+    fi
     if [ -f "$R/switch-intent" ]; then
         [ -f "$DROP" ] || fail MISSING_STOCK_RETURN_OVERRIDE
         systemctl daemon-reload

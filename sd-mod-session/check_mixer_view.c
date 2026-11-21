@@ -26,7 +26,10 @@ static void r(void*u,int x,int y,int w,int h,uint32_t c){(void)u;
     if(c==0xffffffffu&&w==1&&y==92&&h==12)++threshold_line;
     if(trace)fprintf(trace,"R %d %d %d %d %08x\n",x,y,w,h,c);}
 static unsigned comp_status;
+static unsigned seq_badges,seq_badge_probe;
 static void t(void*u,const char*s,int x,int y,int w,int h,unsigned size,uint32_t c,int centre){(void)u;
+    if(!strcmp(s,"SM")){assert(x==294&&y==1&&w==24&&c==0xffff4747u);++seq_badges;}
+    else if(seq_badge_probe&&y==1&&x>=213)assert(x+w<=294);
     if(!strcmp(s,"Sample Comp")&&y>=60)++comp_status;
     assert(s&&x>=0&&y>=0&&w>0&&h>0&&x+w<=320&&y+h<=240&&size>=8);++draws;
     if(delete_probe&&y==1){
@@ -222,5 +225,15 @@ int main(int argc,char**argv)
     s.now_ms=1000;s.epoch=8;na=0;mixer_view_paint(&s,&painter);assert(na==9);
     assert(mixer_view_gain_y(0)==114&&mixer_view_gain_y(6)==102&&mixer_view_gain_y(-60)==174&&mixer_view_gain_y(-INFINITY)==177);
     assert(mixer_view_gain_db(114)==0&&mixer_view_gain_db(102)==6&&isinf(mixer_view_gain_db(177)));
-    mixer_buses_destroy(b);mixer_meters_destroy(m);puts("PASS Mixer page 2x4 Track cells with A-H, MSTR header meter, no tab labels, PAD FX/KNOB FX left area, bounds, stale/epoch invalidation and meter-only repaint");return 0;
+    /* Reserve B3 caption space on every ordinary page and both Input tabs. */
+    s=(struct mixer_view_state){.selected=5,.primary=2,.project=&project,.sequence_muted=1};seq_badge_probe=1;
+    paint_trace(argv[1],"seq-mute-overview",&s,&painter);
+    for(unsigned page=0;page<=MIXER_INSPECT;++page){s.page=(enum mixer_page)page;seq_badges=0;mixer_view_paint(&s,&painter);assert(seq_badges==1);}
+    s.page=MIXER_KNOB_FX;s.master=2;
+    for(unsigned tab=1;tab<=2;++tab){s.input_tab=tab;seq_badges=0;mixer_view_paint(&s,&painter);assert(seq_badges==1);}
+    s.shifted=1;seq_badges=0;mixer_view_paint(&s,&painter);assert(seq_badges==1);
+    s.master=0;s.fx_editing=s.fx_parameters=1;s.fx_slot=0;
+    paint_trace(argv[1],"seq-mute-fx",&s,&painter);
+    s.sequence_muted=seq_badge_probe=0;seq_badges=0;mixer_view_paint(&s,&painter);assert(!seq_badges);
+    mixer_buses_destroy(b);mixer_meters_destroy(m);puts("PASS Mixer page 2x4 Track cells with A-H, MSTR header meter, no tab labels, PAD FX/KNOB FX left area, bounds, stale/epoch invalidation and meter-only repaint; red SM reserves B3 caption space across Mixer/FX/Input pages");return 0;
 }

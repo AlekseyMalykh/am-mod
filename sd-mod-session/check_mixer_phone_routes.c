@@ -18,8 +18,12 @@ void note_native_repaint_sample_region(unsigned x,unsigned y,unsigned w,unsigned
 { assert(!x && !y && w==320 && h==198); }
 int note_native_sample_visible(void) { return 1; }
 int note_native_sample_shown(void) { return 1; }
-int workflow_blocks_sample_controls(void) { return 0; }
+int music_ui_sequence_visible(void) { return 0; }
+void sample_tuner_request(void) {}
+static unsigned fixture_workflow_blocks;
+int workflow_blocks_sample_controls(void) { return fixture_workflow_blocks; }
 int note_native_active(void) { return 0; }
+unsigned music_hide_play_cursor(void){return 0;}
 int music_pad_lighting_mode(void) { return 1; }
 int music_pad_colour(unsigned pad) { return (int)(pad%16); }
 uint32_t music_user_rgb(unsigned raw) { return 0x102030u+raw; }
@@ -29,21 +33,40 @@ uint32_t music_relation_rgb(unsigned role) { (void)role; return 0xffffffu; }
 int music_ui_active(void) { return 0; }
 static uint64_t fixture_palette_ticket;
 uint64_t music_ui_palette_ticket(void) { return fixture_palette_ticket; }
-int music_ui_knob_fx_active(void) { return 0; }
+static unsigned fixture_knob_fx;
+int music_ui_knob_fx_active(void) { return fixture_knob_fx; }
 static unsigned fixture_levels,fixture_levels_mode;
 int music_lighting_levels_state(unsigned *e,unsigned *m,unsigned *o)
 { *e=fixture_levels;*m=fixture_levels_mode;*o=3;return 1; }
-int step_native_active(void) { return 0; }
+static unsigned fixture_step_active,fixture_step_owned=~0u;
+int step_native_active(void) { return fixture_step_active!=0; }
 int step_native_browser_bank(int bank) { static int current=5;if(bank>=0)current=bank;return current; }
 int mixer_live_native_binding(struct mixer_native_binding *binding)
 { memset(binding,0,sizeof(*binding));binding->epoch=1;binding->program=(void*)0x2000;return 1; }
-int workflow_active(void) { return 0; }
+static unsigned fixture_workflow_visible;
+int workflow_active(void) { return fixture_workflow_visible; }
+static unsigned fixture_seq_variant,fixture_seq_toggles;
+int seq_mutes_variant(void){return fixture_seq_variant;}
+void seq_mutes_set_variant(int on){fixture_seq_variant=!!on;}
+static int fixture_sequence_index;
+static uint64_t fixture_sequence_mutes[2];
+int seq_mutes_current(void){return fixture_sequence_index;}
+int music_sequence_mutes_get(unsigned sequence,uint64_t out[2]){
+    out[0]=sequence==0?fixture_sequence_mutes[0]:0;out[1]=sequence==0?fixture_sequence_mutes[1]:0;
+    return (out[0]|out[1])!=0;
+}
+int seq_mutes_clear(void){return 1;}
+int seq_mutes_toggle(unsigned bank,unsigned pad){assert(bank==5&&pad==3);++fixture_seq_toggles;return 1;}
+int seq_mutes_pad_state(unsigned bank,unsigned pad){(void)bank;(void)pad;return 0;}
 int music_ui_exit_saving(void) { return 0; }
+int music_ui_transfer_light(unsigned p,uint64_t*l) { (void)p;(void)l;return 0; }
 int note_native_owns(unsigned c) { (void)c; return 0; }
-int music_ui_owns(unsigned c) { (void)c; return 0; }
-int step_native_owns(unsigned c) { (void)c; return 0; }
-int music_ui_button_owns(unsigned c) { (void)c; return 0; }
-int step_native_button_owns(unsigned c) { (void)c; return 0; }
+static unsigned fixture_music_cc=~0u,fixture_step_cc=~0u;
+int music_ui_owns(unsigned c) { return c==fixture_music_cc; }
+int step_native_owns(unsigned c) { return c==fixture_step_cc; }
+static unsigned fixture_music_owned=~0u;
+int music_ui_button_owns(unsigned c) { return c==fixture_music_owned; }
+int step_native_button_owns(unsigned c) { return c==fixture_step_owned; }
 int workflow_owns(unsigned k,unsigned c) { (void)k; (void)c; return 0; }
 int workflow_button(void *e,uint64_t t) { (void)e; (void)t; return 0; }
 uint64_t step_native_ticket(void) { return 1; }
@@ -125,6 +148,21 @@ int main(void)
     stub(0xddff20,midi_up);
     __builtin___clear_cache(image,(char*)image+0x7500000);
 
+    /* Exercise the real button producer, including an undrained UI FIFO:
+     * Stop release must immediately end the tuner chord. */
+    button(0x51,1);button(0x51,0);button(0x4b,1);
+    assert(!atomic_load(&tuner_win));button(0x4b,0);drain();
+    assert(stock_down[0x4b]==1&&stock_up[0x4b]==1);
+    button(0x51,1);button(0x4b,1);
+    assert(atomic_load(&tuner_win));button(0x4b,0);
+    assert(!atomic_load(&tuner_eat[0x4b]));
+    button(0x51,0);drain();assert(!atomic_load(&stop_requested));
+    button(0x4b,1);button(0x4b,0);assert(!atomic_load(&tuner_win));
+    button(0x4b,1);button(0x4b,0);drain();
+    assert(stock_down[0x4b]==2&&stock_up[0x4b]==2);
+    memset(stock_down,0,sizeof stock_down);memset(stock_up,0,sizeof stock_up);
+    puts("PASS Stop release immediately ends Stop+Chop tuner gesture; sequential Chop stays native, held chord opens and paired releases/close work with queued input");
+
     _Alignas(8) unsigned char confirm[16]={0};confirm[8]=0x0e;confirm[9]=1;
     assert(!step_confirm_to_native(confirm,4));
     modal_open=1;assert(step_confirm_to_native(confirm,4)&&stock_down[0x0e]==1);
@@ -166,6 +204,22 @@ int main(void)
     /* PAD FX + KNOB FX opens the Mixer; neither press nor release is native. */
     button(1,1);button(0,1);button(1,0);button(0,0);drain();
     assert(mixer_control_active(session.control)&&stock_down[1]==1&&stock_up[1]==1&&stock_down[0]==1&&stock_up[0]==1);
+    for(unsigned shifted=0;shifted<2;++shifted){
+        button(0x31,(int)shifted);
+        const unsigned blocked[]={0x4a,0x4b,0x28};
+        for(unsigned i=0;i<3;++i){unsigned code=blocked[i];
+            unsigned before_down=stock_down[code],before_up=stock_up[code];
+            button(code,1);button(code,0);drain();
+            assert(stock_down[code]==before_down&&stock_up[code]==before_up&&!atomic_load(&tuner_win));
+        }
+    }
+    button(0x31,0);drain();
+    uint64_t before_route=atomic_load(&mixer_route);
+    button(0x4a,1);atomic_store(&mixer_route,0);button(0x4a,0);
+    unsigned before_loop=stock_down[0x4a];button(0x4a,1);button(0x4a,0);drain();assert(stock_down[0x4a]==before_loop+1);
+    atomic_store(&mixer_route,before_route);
+    puts("PASS Mixer blocks Loop/Reverse, Chop/Note On and 16 Levels in both Shift layers; swallowed releases survive exit and normal Loop works outside");
+
     assert(bank_led[BANK_LED_FIRST]==1&&!bank_led[BANK_LED_FIRST+5]);
     mixer_bank_light((void*)0x4000,0,BANK_LED_FIRST+5);
     mixer_bank_light((void*)0x4000,1,BANK_LED_FIRST+6);
@@ -242,6 +296,14 @@ int main(void)
     button(0x23,1);button(0x23,0);drain();
     mixer_control_view(session.control,0,&view);
     assert(view.page==MIXER_ASSIGN&&view.bank==6&&view.primary==4);
+    button(0x36,1);button(0x36,0);drain();
+    mixer_control_view(session.control,0,&view);
+    assert(view.page==MIXER_ASSIGN&&view.primary==5&&view.bank==6);
+    button(0x37,1);button(0x37,0);drain();
+    mixer_control_view(session.control,0,&view);
+    assert(view.primary==4&&view.bank==6);
+    /* Keep the later ownership assertion relative to this verified pair. */
+    stock_down[0x36]=stock_up[0x36]=0;
     assert(bank_led[BANK_LED_FIRST+6]==1);
     assert(step_native_browser_bank(-1)==6);
     project.output[97]=2;
@@ -380,12 +442,67 @@ int main(void)
     assert(stock_down[0]==native_knob_down&&stock_up[0]==native_knob_up);
     puts("PASS Am MOD Knob FX entry/Shift FX page; held Pad FX, unavailable Mixer, input fault and full FIFO never forward native Knob FX edges");
 
+    /* MIDI Config can own the first B2 while no custom page is active.
+     * Numeric ownership must queue BOTH edges instead of hitting stock. */
+    atomic_store(&mixer_route,0);fixture_music_owned=0x0d;
+    unsigned old_down=stock_down[0x0d],old_up=stock_up[0x0d];
+    button(0x0d,1);struct phone_event midi_entry;assert(phone_events_pop(&midi_entry));
+    assert(midi_entry.kind==PHONE_BUTTON&&(midi_entry.pad&2u)&&midi_entry.native[8]==0x0d&&midi_entry.native[9]);
+    button(0x0d,0);assert(phone_events_pop(&midi_entry));assert(midi_entry.kind==PHONE_BUTTON&&(midi_entry.pad&2u)&&!midi_entry.native[9]);
+    assert(stock_down[0x0d]==old_down&&stock_up[0x0d]==old_up);fixture_music_owned=~0u;
+    puts("PASS cold MIDI Tools entry through production producer: owned B2 down/up queue while custom UI is inactive");
+
+    /* Step Edit Knob FX must bypass both the Stock FX gesture recognizer
+     * and Am MOD Mixer entry, retaining both edges for the editor. */
+    fixture_step_active=1;fixture_step_owned=0;
+    for(unsigned mode=0;mode<2;++mode){
+        fixture_fx_mode=mode;unsigned before_down=stock_down[0],before_up=stock_up[0];
+        struct phone_event piano;
+        button(0,1);assert(phone_events_pop(&piano));assert(piano.kind==PHONE_BUTTON&&(piano.pad&4u)&&piano.native[9]);
+        button(0,0);assert(phone_events_pop(&piano));assert(piano.kind==PHONE_BUTTON&&(piano.pad&4u)&&!piano.native[9]);
+        assert(stock_down[0]==before_down&&stock_up[0]==before_up);
+    }
+    fixture_step_active=0;fixture_step_owned=~0u;
+    puts("PASS Step Edit Piano Roll Knob FX down/up through production producer in both Stock and Am MOD FX modes");
+    fixture_knob_fx=1;unsigned char custom_cc[16]={0};custom_cc[8]=0x12;custom_cc[9]=127;
+    unsigned before_cc=stock_cc;fixture_step_cc=0x12;controller(custom_cc);
+    struct phone_event owned_cc;assert(phone_events_pop(&owned_cc));assert(owned_cc.kind==PHONE_CONTROLLER&&(owned_cc.pad&4u)&&stock_cc==before_cc);
+    fixture_step_cc=~0u;fixture_music_cc=0x12;controller(custom_cc);
+    assert(phone_events_pop(&owned_cc));assert(owned_cc.kind==PHONE_CONTROLLER&&(owned_cc.pad&2u)&&stock_cc==before_cc);
+    fixture_music_cc=~0u;assert(forward_knob_fx(custom_cc)&&stock_cc==before_cc+1);fixture_knob_fx=0;
+    fixture_knob_fx=1;unsigned char handoff[16]={0};handoff[9]=1;
+    unsigned fx_down=stock_down[0],fx_up=stock_up[0];close_background_knob_fx(handoff,4);
+    assert(stock_down[0]==fx_down+1&&stock_up[0]==fx_up+1);
+    handoff[8]=0x0d;close_background_knob_fx(handoff,2);assert(stock_down[0]==fx_down+2&&stock_up[0]==fx_up+2);
+    handoff[9]=0;close_background_knob_fx(handoff,2);assert(stock_down[0]==fx_down+2);fixture_knob_fx=0;
+    puts("PASS Piano Roll and MIDI Tools retain their knobs over a background stock Knob FX page; ordinary FX controls remain native");
+
     /* Project change revokes the route. */
     mixer_project_changing();
     drain();
     assert(!mixer_native_pads && !mixer_pad_pairs[8]);
     assert(!atomic_load(&mixer_route) && !mixer_control_active(session.control));
     mixer_control_destroy(session.control);
+    /* A visible hidden Chop root is not a browser or custom workflow.
+     * Sequence mute controls must work there, while Mixer/browser retain theirs. */
+    fixture_workflow_visible=1;fixture_workflow_blocks=0;step_native_browser_bank(5);atomic_store(&native_mute_mode,1);
+    assert(!seqmute_badge_active());fixture_sequence_mutes[1]=1ull<<63;assert(seqmute_badge_active());
+    fixture_sequence_index=1;assert(!seqmute_badge_active());fixture_sequence_index=128;assert(!seqmute_badge_active());
+    fixture_sequence_index=-1;assert(!seqmute_badge_active());fixture_sequence_index=0;fixture_sequence_mutes[1]=0;
+    atomic_store(&native_shift_requested,0);atomic_store(&native_buttons_down[0x31],0);atomic_store(&naming_active,0);
+    assert(seqmute_button(0x0e,1)&&fixture_seq_variant);assert(seqmute_button(0x0e,0));
+    int seq_selected=-1;
+    assert(!strcmp(phone_seqmute_header(1,&seq_selected),"Clear Seq")&&!seq_selected);
+    assert(!strcmp(phone_seqmute_header(2,&seq_selected),"Seq: On")&&seq_selected);
+    atomic_store(&native_shift_requested,1);assert(!phone_seqmute_header(2,&seq_selected));atomic_store(&native_shift_requested,0);
+    assert(seqmute_pad(3,1,0)&&fixture_seq_toggles==1);assert(seqmute_pad(3,0,1));
+    fixture_workflow_blocks=1;assert(!seqmute_button(0x0e,1));fixture_workflow_blocks=0;
+    atomic_store(&mixer_route,MIXER_OPEN);assert(!seqmute_button(0x0e,1));atomic_store(&mixer_route,0);
+    assert(seqmute_button(0x0d,1)&&seqmute_button(0x0d,0));
+    atomic_store(&native_mute_mode,0);seqmute_tick();assert(!fixture_seq_variant);
+    assert(!phone_seqmute_header(2,&seq_selected));
+    fixture_workflow_visible=0;
+    puts("PASS Sequence Pad Mutes work over hidden Chop root and respect browser/Mixer ownership and paired releases");
     munmap(image,0x7500000);
     puts("PASS Mixer through production input hooks and shared FIFO: PAD FX+KNOB FX entry, lone FX presses native, track select, Assign bank, K1, Seq exit, B1 exit to Sample, stock Shift+Pad9 and project change");
 }

@@ -1,5 +1,8 @@
 #define _GNU_SOURCE
 #include "project_recovery.h"
+#include "internal_storage.h"
+extern int internal_storage_enabled(void) __attribute__((weak));
+static int internal_ready(void){return internal_storage_enabled&&internal_storage_enabled();}
 #ifdef MPC_EARLY_STARTUP
 #include "startup_project.h"
 #endif
@@ -93,6 +96,21 @@ static int saved_identity(const char*path,char*payload,size_t size){
   snprintf(relative,sizeof(relative),"%s",path+strlen(root)+1);
  else if(!internal)return 0;
  return project_recovery_encode(name,relative,payload,size);
+}
+/* After the startup load selected a real project, make the Save editor default to that
+ * project's own name instead of whatever the previous session left in the name property. */
+void project_recovery_adopt_name(uintptr_t image,void*saver,const char*path){
+ if(!saver||!path)return;
+ void*things=current_things(image,saver);if(!things)return;
+ const char*leaf=strrchr(path,'/');leaf=leaf?leaf+1:path;size_t n=strlen(leaf);
+ char name[129];
+ if(n<=4||n-4>=sizeof(name)||strcmp(leaf+n-4,".xpj"))return;
+ memcpy(name,leaf,n-4);name[n-4]=0;
+ if(!valid_name(name)||!strncmp(name,"Mod-Exit-",9)||!strcmp(name,"Temp-Project"))return;
+ uint64_t value=0;FN(0xf535c0,void(*)(uint64_t*,const char*))(&value,name);
+ FN(0x13bf450,void(*)(void*,const uint64_t*))((char*)things+0x908,&value);
+ FN(0xf0a290,void(*)(uint64_t*))(&value);
+ fprintf(stderr,"PROJECT_RECOVERY NAME_ADOPTED name=%s\n",name);
 }
 void project_recovery_saved(const char*path){
  char payload[PROJECT_RECOVERY_BYTES];if(!saved_identity(path,payload,sizeof(payload)))return;
@@ -233,6 +251,7 @@ static unsigned storage_offset(uintptr_t image,void *p){
 }
 int project_recovery_save_external(uintptr_t image,void *p){
  if(!save_screen_visible(image,p))return 0;
+ if(internal_ready())return 1; /* Both native storage choices are persistent. */
  unsigned storage=storage_offset(image,p);
  /* The native setter separates the requested position from the effective
   * destination and clears External when the card is unavailable. */
@@ -243,9 +262,10 @@ int project_recovery_save_external(uintptr_t image,void *p){
  return F(p,storage+1,unsigned char)!=0;
 }
 int project_recovery_save_k3_external(uintptr_t image,void *p){
- return save_screen_visible(image,p)&&!FN(0x112f6b0,int(*)(void*))(p);
+ return !internal_ready()&&save_screen_visible(image,p)&&!FN(0x112f6b0,int(*)(void*))(p);
 }
 int project_recovery_save_control(uintptr_t image,void *p,unsigned cc){
+ if(internal_ready())return 0; /* K3 reaches the actual native Internal/External selector. */
  if(cc!=0x12||!save_screen_visible(image,p))return 0;
  {int busy=FN(0x112f6b0,int(*)(void*))(p);static unsigned lines;
   if(lines<40){++lines;fprintf(stderr,"SAVE_K3 busy=%d external_before=%u\n",busy,(unsigned)F(p,storage_offset(image,p)+1,unsigned char));}
@@ -272,7 +292,7 @@ void project_recovery_save_paint(uintptr_t image,void*p,void*g){
   /* Keep enforcing External for as long as the window is open: the native code can reset the
    * flag later (name edits, repaint, storage refresh), which showed Internal again in r29a. */
   int again=seeded_frames>=3&&unseeded&&now-last_reseed>120&&!FN(0x112f6b0,int(*)(void*))(p);
-  if(seeded_frames<3||again){
+  if(!internal_ready()&&(seeded_frames<3||again)){
    if(seeded_frames<3)++seeded_frames;
    else{last_reseed=now;fprintf(stderr,"SAVE_RESEED kind=%u storage=0x%x\n",(unsigned)save_kind(image,p),storage);}
    if(unseeded||seeded_frames==1){
@@ -287,7 +307,7 @@ void project_recovery_save_paint(uintptr_t image,void*p,void*g){
   FN(0x15bdb10,void(*)(void*))((char*)p+0x9f8);
   FN(0xf0a290,void(*)(uint64_t*))(&value);
  }
- if(!external){
+ if(!external&&!internal_ready()){
   FN(0x102d5e0,void(*)(void*,uint32_t))(g,0xff000000);
   FN(0x102e000,void(*)(void*,int,int,int,int))(g,0,170,320,27);
   FN(0x102e000,void(*)(void*,int,int,int,int))(g,214,0,106,30);

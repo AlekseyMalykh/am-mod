@@ -18,6 +18,8 @@ static int recovery_clock(clockid_t id,struct timespec*t){(void)id;t->tv_sec=fak
 #define clock_gettime recovery_clock
 #include "src/project_recovery.c"
 #undef clock_gettime
+static int fixture_internal_storage;
+int internal_storage_enabled(void){return fixture_internal_storage;}
 #include "src/music_archive.h"
 #include "src/music_settings.h"
 #include "src/compressor.h"
@@ -145,10 +147,11 @@ int main(int argc,char**argv){
  project_recovery_save_paint(base,save_screen,NULL);assert(name_seeds==1&&storage_seeds==1); /* Subsequent edits survive paints. */
  assert(!button(0x0c,1)&&!button(0x0c,0)&&!save_seeded&&first_save); /* Native Cancel. */
  project_recovery_save_paint(base,save_screen,NULL);assert(name_seeds==2&&storage_seeds==1&&save_seeded);
+ unsigned confirmation_invalidations=invalidations;
  assert(button(0x0e,1)&&button(0x0e,1)&&button(0x0e,0));assert(first_save&&save_prompt);
  captions[0]=0;project_recovery_save_paint(base,save_screen,NULL);assert(strstr(captions,"Review")&&strstr(captions,"Existing project may be replaced."));
  assert(button(0x0c,1)&&button(0x0c,0)&&first_save&&!save_prompt);assert(button(0x0e,1)&&button(0x0e,0));assert(!button(0x0e,1)&&!button(0x0e,0)&&!first_save&&!save_prompt);
- assert(invalidations==3);puts("PASS first recovered Save requires separate real press/release confirmation, duplicate down cannot approve; Review cancels, final native button pair and subsequent ordinary Save pass through");
+ assert(invalidations==confirmation_invalidations+3);puts("PASS first recovered Save requires separate real press/release confirmation, duplicate down cannot approve; Review cancels, final native button pair and subsequent ordinary Save pass through");
  F(save_screen,0x10a1,unsigned char)=0;card_available=0;
  captions[0]=0;project_recovery_save_paint(base,save_screen,NULL);
  assert(strstr(captions,"Insert SD card to save")&&button(0x0e,1)&&button(0x0e,0));
@@ -161,6 +164,17 @@ int main(int argc,char**argv){
  assert(project_recovery_save_button(base,sample_save_screen,sample_save));
  sample_save[9]=0;assert(project_recovery_save_button(base,sample_save_screen,sample_save));
  card_available=1;assert(project_recovery_save_external(base,sample_save_screen));
+ fixture_internal_storage=1;
+ F(save_screen,0x10a1,unsigned char)=0;F(sample_save_screen,0x10b9,unsigned char)=0;
+ unsigned before_storage_seeds=storage_seeds;
+ captions[0]=0;project_recovery_save_paint(base,save_screen,NULL);
+ assert(!F(save_screen,0x10a1,unsigned char)&&storage_seeds==before_storage_seeds&&!strstr(captions,"Insert SD card"));
+ assert(!project_recovery_save_k3_external(base,save_screen)&&!project_recovery_save_control(base,save_screen,0x12));
+ assert(project_recovery_save_external(base,save_screen)&&!button(0x0e,1)&&!button(0x0e,0));
+ project_recovery_save_paint(base,sample_save_screen,NULL);assert(!F(sample_save_screen,0x10b9,unsigned char));
+ assert(project_recovery_save_external(base,sample_save_screen)&&!project_recovery_save_k3_external(base,sample_save_screen));
+ fixture_internal_storage=0;
+ puts("PASS pinned Internal capability preserves native Internal/External choice, K3 and Save for projects and samples; legacy unpinned sessions remain SD-only");
 
  project_recovery_capture(base,saver);project_recovery_begin_copy();assert(!strcmp(project_recovery_copy_payload(),encoded));project_recovery_end_copy();
  load_metadata(NULL,0);assert(pending[0]);load_metadata(NULL,1);project_recovery_tick(base,services);assert(!pending[0]&&!first_save&&!project_recovery_notice());

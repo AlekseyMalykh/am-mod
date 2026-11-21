@@ -4,6 +4,21 @@
 #include "check_workflow.c"
 #undef main
 #include <pthread.h>
+static int swap_on;static unsigned transport_bits,preview_notifications,knob_calls;
+int seq_audition_active(void){return swap_on;}
+unsigned step_native_transport_state(void){return transport_bits;}
+void seq_audition_preview(int on){if(on)++preview_notifications;}
+int seq_audition_knob(unsigned value){assert(value==80);++knob_calls;return 1;}
+int seq_audition_view(struct seq_audition_view*out){*out=(struct seq_audition_view){2,2,0,-2,5};return swap_on;}
+static unsigned large_note,status_badge,load_restores;
+void seq_audition_off(const char*why){assert(!strcmp(why,"load selected file"));swap_on=0;++load_restores;}
+static void audition_text(void*g,const uint64_t*s,int x,int y,int w,int h,int flags,int lines,float scale){
+ const char*t=(char*)(uintptr_t)*s;
+ if(!strcmp(t,"D")){assert(x==107&&y==212&&height>=25&&w==105&&h==26);++large_note;}
+ if(strstr(t,"SWAPPED"))++status_badge;
+ output_text(g,s,x,y,w,h,flags,lines,scale);
+}
+static void set_bounds(void*p,uint64_t xy,uint64_t wh){FIELD(p,0x20,int)=(int)xy;FIELD(p,0x24,int)=(int)(xy>>32);FIELD(p,0x28,int)=(int)wh;FIELD(p,0x2c,int)=(int)(wh>>32);}
 static unsigned char private_program[0x1400],private_instrument[0x2400],private_layer[0xb00],source_sample[0x138],source_backing[0x400],shared_sample[24],ui_queue[0x200];
 static uintptr_t ui_vtable[3];static unsigned replacements,voices,cleanups;static unsigned starts,stops,playing_state,oneshot_mode,loop_enabled;
 static void*private_lookup(void*p,int pad){assert(p==private_program&&pad==20);return private_instrument;}
@@ -38,6 +53,20 @@ int main(int argc,char**argv){assert(argc==2);struct sigaction sa={0};sa.sa_siga
  /* Consecutive requests share one private voice, never overlap. */
  for(unsigned n=0;n<3;++n){FIELD(reference,8,unsigned)=1;assert(workflow_preview_worker(payload));FN(0x20bd5d0,void(*)(void*))(payload);assert(voices==1&&starts==n+2&&replacements==n+2);}
  FIELD(reference,8,unsigned)=1;FN(0x20bc8b0,void(*)(void*))(payload);assert(stops==1&&!playing_state&&!FIELD(reference,8,unsigned));
+ /* Swap must not veto the native load. Suppress only its private voice. */
+ swap_on=1;transport_bits=3;FIELD(reference,8,unsigned)=1;
+ unsigned old_starts=starts;assert(workflow_preview_worker(payload));FN(0x20bd5d0,void(*)(void*))(payload);workflow_preview_played(payload);
+ assert(starts==old_starts+1&&!voices&&FIELD(private_layer,0x4a8,void*)==source_sample&&preview_notifications);
+ transport_bits=0;FIELD(reference,8,unsigned)=1;assert(workflow_preview_worker(payload));FN(0x20bd5d0,void(*)(void*))(payload);workflow_preview_played(payload);assert(voices==1);
+ stub(0x112fd50,component_visible);stub(0x112f6b0,unblocked);stub(0x1149880,invalidate);stub(0x102d5e0,set_colour);stub(0x102e000,fill);stub(0x1082810,font_make);stub(0x102dca0,font_use);stub(0x1070d60,font_end);stub(0x10817b0,audition_text);stub(0x1160fc0,set_bounds);__builtin___clear_cache((char*)base,(char*)base+0x7500000);
+ files=file_root;is_visible=file_root;FIELD(file_root,0x1388,int)=FILE_SAMPLES;
+ unsigned char knob[16]={0};knob[8]=0x11;knob[9]=80;assert(workflow_control(knob,workflow_ticket())&&knob_calls==1);
+ audition_panels((void*)1);assert(large_note==1&&status_badge==1);
+ for(unsigned n=0;n<2;++n){void*p=file_root+(n?0x11d0:0xff0);FIELD(p,0x18,void*)=file_root;FIELD(p,0x24,int)=n?198:38;FIELD(p,0x2c,int)=n?38:160;}
+ browser_path_layout(file_root);assert(FIELD(file_root,0xff0+0x24,int)==58&&FIELD(file_root,0xff0+0x2c,int)==140&&FIELD(file_root,0x11d0+0x24,int)==38&&FIELD(file_root,0x11d0+0x2c,int)==20);
+ FIELD(file_root,0x100,void*)=surface_controls;atomic_store(&selected_audio,1);unsigned char load_event[16]={0};load_event[8]=0x6f;load_event[9]=1;
+ assert(!workflow_button(load_event,workflow_ticket())&&!swap_on&&load_restores==1);
+ puts("PASS Swap/Preview playing and stopped: native candidate load always runs; only private voice is silenced during Play; K2 owns Orig Note, 25px note/status panels and upper folder path resize the native list");
  atomic_store(&preview_allowed,0);assert(!workflow_preview_worker(payload));
  puts("PASS actual native SampleFileAudition20bd5d0 ->20bd210 -> private instrument20: one-shot/Loop Off, exact selected slice copied to private layer, natural completion20bc9c0 resets replay, single-voice replacement, native force-stop20bc8b0 and refcounts; source retained; UI/property/final audio receivers remain fixtures");
 }

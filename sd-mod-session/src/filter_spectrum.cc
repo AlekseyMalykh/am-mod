@@ -9,6 +9,11 @@ static int (*page_enabled)(void*);
 static thread_local unsigned filtered;
 static thread_local bool sample_scope;
 static thread_local void*sample_graphics;
+static thread_local void*sample_view;
+static thread_local bool spectrum_drawn;
+static thread_local int page_index=-1; /* Filter group tab: 0 draws its spectrum after the native stage. */
+static void (*spectrum_painter)(void*,void*);
+extern "C" void filter_spectrum_painter(void(*painter)(void*,void*)){spectrum_painter=painter;}
 static int (*tint_provider)(uint32_t*);
 extern "C" void filter_spectrum_tint_provider(int(*provider)(uint32_t*)){tint_provider=provider;}
 typedef int (*Waveform)(void*,const void*,int,int,void*,unsigned,float,float);
@@ -17,8 +22,19 @@ struct Scope {
     unsigned previous;
     bool previous_sample;
     void*previous_graphics;
-    explicit Scope(bool on,bool sample,void*g):previous(filtered),previous_sample(sample_scope),previous_graphics(sample_graphics){filtered=on?previous+1:0;sample_scope=sample;sample_graphics=sample?g:nullptr;}
-    ~Scope(){filtered=previous;sample_scope=previous_sample;sample_graphics=previous_graphics;}
+    void*previous_view;bool previous_drawn;
+    explicit Scope(bool on,bool sample,void*g,void*v):previous(filtered),previous_sample(sample_scope),previous_graphics(sample_graphics),previous_view(sample_view),previous_drawn(spectrum_drawn){filtered=on?previous+1:0;sample_scope=sample;sample_graphics=sample?g:nullptr;sample_view=sample?v:nullptr;spectrum_drawn=false;}
+    ~Scope(){filtered=previous;sample_scope=previous_sample;sample_graphics=previous_graphics;sample_view=previous_view;spectrum_drawn=previous_drawn;}
+};
+struct SpectrumState {
+ void*context;uintptr_t*table;
+ SpectrumState():context(nullptr),table(nullptr){
+  if(!sample_graphics)return;
+  void*g=F(sample_graphics,8,void*);if(!g)return;
+  table=F(g,0,uintptr_t*);if(!table||!table[14]||!table[15])return;
+  context=g;reinterpret_cast<void(*)(void*)>(table[14])(context);
+ }
+ ~SpectrumState(){if(context)reinterpret_cast<void(*)(void*)>(table[15])(context);}
 };
 /* Pinned LowLevelGraphicsContext: saveState14, restoreState15, setFill18.
  * Only the sample rasterizer is tinted. Restoring the context also preserves
@@ -43,7 +59,13 @@ struct WaveTint {
 static int draw_samples(void*g,const void*rect,int channels,int samples,void*out,unsigned first,float scale,float y){
     /* This helper draws sample min/max data, not the filter/envelope paths.
      * A false return means no waveform drawing occurred. */
-    if(filtered)return 0;
+    if(filtered){
+        if(page_index!=0&&!spectrum_drawn&&spectrum_painter&&sample_view){
+            spectrum_drawn=true;SpectrumState state;
+            if(state.context)spectrum_painter(sample_view,sample_graphics);
+        }
+        return 0;
+    }
     WaveTint tint;
     return waveform(g,rect,channels,samples,out,first,scale,y);
 }
@@ -54,10 +76,27 @@ static void paint_waveform(void*view,void*g){
         root=F(root,0x18,void*);
     }
     bool sample=root&&F(root,0,uintptr_t)==image+0x6e212a0;
-    Scope scope(sample&&page_enabled(root),sample,g);
+    int enabled=sample&&page_enabled(root);
+    if(sample){
+        static int last_mode=-99,last_index=-99,last_enabled=-99;
+        int mode=F(root,0xe50+0x21c,int),index=F(root,0xe50+0x218,int);
+        if(mode!=last_mode||index!=last_index||enabled!=last_enabled){
+            last_mode=mode;last_index=index;last_enabled=enabled;
+            std::fprintf(stderr,"FILTER_SPECTRUM page mode=%d index=%d enabled=%d\n",mode,index,enabled);
+        }
+    }
+    Scope scope(enabled,sample,g,view);
+    int previous_index=page_index;page_index=sample?F(root,0xe50+0x218,int):-1;
     /* Keep the original complete painter: backgrounds, native filter and
      * envelope curves, handles and child layout remain its responsibility. */
     reinterpret_cast<void(*)(void*,void*)>(image+0x2d574b0)(view,g);
+    /* Some Filter tabs never call the sample raster helper. Draw the spectrum
+     * once after the native stage rather than leaving the page empty. */
+    if(filtered&&!spectrum_drawn&&spectrum_painter&&sample_view){
+        spectrum_drawn=true;SpectrumState state;
+        if(state.context)spectrum_painter(sample_view,sample_graphics);
+    }
+    page_index=previous_index;
 }
 extern "C" int filter_spectrum_install(uintptr_t base,int(*enabled)(void*)){
     if(image)return image==base&&page_enabled==enabled;

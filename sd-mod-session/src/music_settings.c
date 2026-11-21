@@ -1,5 +1,8 @@
 #define _GNU_SOURCE
 #include "music_settings.h"
+#ifdef MPC_MIDI_TOOLS
+#include "midi_tools.h"
+#endif
 #ifdef MPC_COMPRESSOR
 #include "compressor.h"
 #endif
@@ -28,7 +31,11 @@ static _Atomic unsigned relation_lighting=5; /* Pad Link Selected (bits 0-1) + M
 int music_pad_link_lighting(void){return (int)(atomic_load(&relation_lighting)&3);}
 int music_mute_group_lighting(void){return (int)((atomic_load(&relation_lighting)>>2)&3);}
 static _Atomic unsigned relation_colours=(12u)|(11u<<4); /* link Cyan, group Amber. */
-static _Atomic unsigned led_vivid;
+static _Atomic unsigned extended_roles; /* 0 legacy, 1 explicit global palette assignments */
+static _Atomic unsigned service_slots[MUSIC_SERVICE_COUNT]={8,9,10,11,12,13};
+static _Atomic unsigned relation_slots[MUSIC_RELATION_COUNT]={12,11};
+static _Atomic unsigned reserve_system; /* Off: every colour may be reused. */
+static _Atomic unsigned led_vivid=1;
 unsigned music_led_vivid(void){return atomic_load(&led_vivid);}
 static _Atomic unsigned text_input=1; /* 1 Pads (default), 0 Encoder; card file .am-mod-text-input */
 unsigned music_text_input(void){return atomic_load(&text_input);}
@@ -38,13 +45,15 @@ unsigned music_fx_view(void){return atomic_load(&fx_view);}
  * card (.am-mod-fx-mode); the value in force is latched at start-up, so a change
  * applies after a restart. */
 static _Atomic unsigned rec_route[3]={0,0,1};
-static _Atomic unsigned pad_colour_source;
+static _Atomic unsigned pad_colour_source,piano_roll_colour,hide_play_cursor;
+unsigned music_hide_play_cursor(void){return atomic_load(&hide_play_cursor);}
+unsigned music_piano_roll_colour(void){return atomic_load(&piano_roll_colour);}
 static _Atomic unsigned fx_mode_saved=1,fx_mode_active=1;static _Atomic int fx_mode_latched;
 static _Atomic unsigned usb_audio_saved;
 unsigned music_usb_audio(void){return atomic_load(&usb_audio_saved);}
 unsigned music_fx_mode(void){return atomic_load(&fx_mode_saved);}
 unsigned music_fx_mode_active(void){return atomic_load(&fx_mode_active);}
-unsigned music_relation_colour(unsigned role){return role<MUSIC_RELATION_COUNT?(atomic_load(&relation_colours)>>(4*role))&15u:0;}
+unsigned music_relation_colour(unsigned role){return role<MUSIC_RELATION_COUNT?(atomic_load(&extended_roles)?atomic_load(&relation_slots[role]):(atomic_load(&relation_colours)>>(4*role))&15u):0;}
 uint32_t music_relation_rgb(unsigned role){
  unsigned slot=music_relation_colour(role);
  /* A deleted custom colour falls back to the role's recommended slot. */
@@ -64,7 +73,7 @@ uint32_t music_led_correct(uint32_t rgb){
 }
 static int lighting_directory=-1;
 static unsigned lighting_write_serial;
-static const uint32_t mod_palette_rgb[MUSIC_PALETTE_SIZE]={0x2868ff,0xa050ff,0xff24ce,0xff7500,0xff5a78,0xaaff20,0x00eab0,0xffee24,0xffffff,0x00ff00,0xff0000,0xffb000,0x00ffff,0x707070};
+static const uint32_t mod_palette_rgb[MUSIC_PALETTE_SIZE]={0x0040ff,0x8800ff,0xff00cc,0xff6600,0xff2050,0x99ff00,0x00ff99,0xffff00,0xffffff,0x00ff00,0xff0000,0xffb000,0x00ffff,0x707070};
 /* Bit 24 distinguishes a saved colour, including black, from an empty slot. */
 static _Atomic uint32_t custom_palette[MUSIC_PALETTE_SLOTS];
 static char custom_names[MUSIC_PALETTE_SLOTS][MUSIC_COLOUR_NAME_BYTES];
@@ -113,56 +122,59 @@ uint32_t music_palette_rgb(unsigned c){
 }
 const char*music_palette_name(unsigned c){
  if(c<MUSIC_PALETTE_SLOTS&&custom_names[c][0])return custom_names[c];
- return c<MUSIC_PALETTE_SIZE?palette_names[c]:c==14?"Custom 1":"Custom 2";
+ if(c<MUSIC_PALETTE_SIZE)return palette_names[c];
+ static const char *const extra[]={"Custom 1","Custom 2","Custom 3","Custom 4","Custom 5","Custom 6","Custom 7","Custom 8","Custom 9","Custom 10","Custom 11","Custom 12","Custom 13","Custom 14","Custom 15","Custom 16","Custom 17","Custom 18"};
+ return c<MUSIC_PALETTE_SLOTS?extra[c-MUSIC_PALETTE_SIZE]:"Default";
 }
-unsigned music_service_colour(unsigned role){return palette_slot(atomic_load(&mod_settings),MUSIC_USER_COLOURS+(role<MUSIC_SERVICE_COUNT?role:0));}
-static int service_colours_distinct(uint64_t settings)
-{
- uint32_t seen[MUSIC_SERVICE_COUNT];
- for(unsigned role=0;role<MUSIC_SERVICE_COUNT;++role){
-  uint32_t colour=music_palette_rgb(palette_slot(settings,MUSIC_USER_COLOURS+role))&0xf0f0f0u;
-  if(!colour)return 0;
-  for(unsigned i=0;i<role;++i)if(seen[i]==colour)return 0;
-  seen[role]=colour;
- }
- return 1;
+unsigned music_service_colour(unsigned role){role=role<MUSIC_SERVICE_COUNT?role:0;return atomic_load(&extended_roles)?atomic_load(&service_slots[role]):palette_slot(atomic_load(&mod_settings),MUSIC_USER_COLOURS+role);}
+static unsigned service_display_slot(unsigned role){
+ unsigned slot=music_service_colour(role);
+ return music_palette_present(slot)?slot:8+role;
 }
-int music_service_colours_fallback(void)
-{
- uint64_t settings=atomic_load(&mod_settings);
- return (settings&1)&&!service_colours_distinct(settings);
-}
-uint32_t music_service_rgb(unsigned role)
-{
- uint64_t settings=atomic_load(&mod_settings);
- unsigned offset=MUSIC_USER_COLOURS+(role<MUSIC_SERVICE_COUNT?role:0);
- if((settings&1)&&service_colours_distinct(settings))
-  return music_palette_rgb(palette_slot(settings,offset));
- return mod_palette_rgb[palette_slot(MOD_DEFAULT,offset)];
-}
-unsigned music_identity_count(void){
- return MUSIC_IDENTITY_CHOICES+music_palette_present(14)+music_palette_present(15);
-}
-unsigned music_identity_choice(unsigned index){
- if(index<MUSIC_IDENTITY_CHOICES)return music_colour_choice(index);
- if(index==MUSIC_IDENTITY_CHOICES&&music_palette_present(14))return 14;
- return music_palette_present(15)?15:0;
-}
-unsigned music_identity_index(unsigned raw){
- if(raw<14)return music_colour_choice_index(raw);
- if(raw==14&&music_palette_present(14))return MUSIC_IDENTITY_CHOICES;
- if(raw==15&&music_palette_present(15))return MUSIC_IDENTITY_CHOICES+music_palette_present(14);
+int music_service_colours_fallback(void){
+ if(!music_pad_lighting_mode())return 0;
+ for(unsigned role=0;role<MUSIC_SERVICE_COUNT;++role)
+  if(!music_palette_present(music_service_colour(role)))return 1;
  return 0;
 }
-uint32_t music_user_rgb(unsigned raw){
- if(raw>=14&&music_palette_present(raw))return music_palette_rgb(raw);
- unsigned slot=music_colour_choice_index(raw);
- return music_palette_rgb(palette_slot(atomic_load(&mod_settings),slot?slot-1:0));
+uint32_t music_service_rgb(unsigned role){
+ role=role<MUSIC_SERVICE_COUNT?role:0;
+ return music_pad_lighting_mode()?music_palette_rgb(service_display_slot(role)):mod_palette_rgb[8+role];
 }
-const char*music_identity_name(unsigned raw){
- if(raw>=14&&music_palette_present(raw))return music_palette_name(raw);
- unsigned slot=music_colour_choice_index(raw);
- return raw&&raw<14?music_palette_name(palette_slot(atomic_load(&mod_settings),slot?slot-1:0)):"Default";
+unsigned music_palette_reserved(void){return atomic_load(&reserve_system);}
+int music_palette_available(unsigned slot){
+ if(!music_palette_present(slot))return 0;
+ if(music_palette_reserved())for(unsigned r=0;r<MUSIC_SERVICE_COUNT;++r)
+  if(slot==service_display_slot(r))return 0;
+ return 1;
+}
+unsigned music_palette_choice_count(void){unsigned n=0;for(unsigned s=0;s<MUSIC_PALETTE_SLOTS;++s)n+=music_palette_available(s);return n;}
+unsigned music_palette_choice(unsigned index){for(unsigned s=0;s<MUSIC_PALETTE_SLOTS;++s)if(music_palette_available(s)&&!index--)return s;return 0;}
+unsigned music_palette_choice_index(unsigned slot){unsigned n=0;for(unsigned s=0;s<MUSIC_PALETTE_SLOTS;++s)if(music_palette_available(s)){if(s==slot)return n;++n;}return 0;}
+unsigned music_identity_count(void){return 1+music_palette_choice_count();}
+unsigned music_identity_choice(unsigned index){return index?16+music_palette_choice(index-1):0;}
+static unsigned identity_slot(unsigned raw){
+ if(raw>=16&&raw<16+MUSIC_PALETTE_SLOTS)return raw-16;
+ if(raw>=14&&raw<16)return raw;
+ unsigned index=music_colour_choice_index(raw);
+ return palette_slot(atomic_load(&mod_settings),index?index-1:0);
+}
+unsigned music_identity_index(unsigned raw){return raw?1+music_palette_choice_index(identity_slot(raw)):0;}
+uint32_t music_user_rgb(unsigned raw){
+ unsigned slot=identity_slot(raw);
+ if(!music_palette_available(slot))slot=music_palette_choice(0);
+ return music_palette_rgb(slot);
+}
+const char*music_identity_name(unsigned raw){return raw?music_palette_name(identity_slot(raw)):"Default";}
+unsigned music_light_colour_count(void){return 1+music_palette_choice_count();}
+unsigned music_light_colour_choice(unsigned index){return index?12+music_palette_choice(index-1):11;}
+static unsigned legacy_light_slot(unsigned raw){static const unsigned slots[12]={9,12,0,1,2,10,3,11,7,8,13,0};return slots[raw<12?raw:0];}
+unsigned music_light_colour_index(unsigned raw){return raw==11?0:1+music_palette_choice_index(raw>=12?raw-12:legacy_light_slot(raw));}
+const char *music_light_colour_name(unsigned raw){return raw==11?"Off":music_palette_name(raw<12?legacy_light_slot(raw):raw-12);}
+uint32_t music_light_colour_rgb(unsigned raw){
+ if(raw==11)return 0;
+ unsigned slot=raw<12?legacy_light_slot(raw):raw-12;if(!music_palette_available(slot))slot=music_palette_choice(0);
+ return music_palette_rgb(slot);
 }
 int music_cursor_on(uint64_t phase,unsigned duty){
  unsigned mode=(unsigned)music_mod_setting(MUSIC_SETTING_BLINK);if(!mode)return 1;
@@ -184,8 +196,9 @@ static void load_palette(int dir){
   ssize_t n=fstat(fd,&st)||!S_ISREG(st.st_mode)?-1:read(fd,data,sizeof(data));
   close(fd);
   int legacy=n==PALETTE_V1_BYTES&&!memcmp(data,"AMP1",4);
-  if(legacy||(n==PALETTE_BYTES&&!memcmp(data,"AMP2",4))){
-   unsigned count=legacy?MUSIC_PALETTE_SIZE:MUSIC_PALETTE_SLOTS;
+  int v2=n==4+PALETTE_RECORD_BYTES*16&&!memcmp(data,"AMP2",4);
+  if(legacy||v2||(n==PALETTE_BYTES&&!memcmp(data,"AMP3",4))){
+   unsigned count=legacy?MUSIC_PALETTE_SIZE:v2?16:MUSIC_PALETTE_SLOTS;
    unsigned record=legacy?4:PALETTE_RECORD_BYTES;
    for(unsigned i=0;i<count;++i){
     const unsigned char*p=data+4+record*i;
@@ -202,7 +215,7 @@ static void load_palette(int dir){
 }
 int music_lighting_preferences_open(const char *directory){
  int dir=open(directory,O_RDONLY|O_DIRECTORY|O_CLOEXEC|O_NOFOLLOW);if(dir<0)return 0;
- uint64_t value=MOD_DEFAULT;unsigned relations=5,rel_colours=12u|(11u<<4),vivid=0;
+ uint64_t value=MOD_DEFAULT;unsigned relations=5,rel_colours=12u|(11u<<4),vivid=1;
  int fd=openat(dir,".am-mod-settings",O_RDONLY|O_CLOEXEC|O_NOFOLLOW|O_NONBLOCK);
  int legacy=fd<0&&errno==ENOENT;
  if(legacy)fd=openat(dir,".am-mod-pad-lighting",O_RDONLY|O_CLOEXEC|O_NOFOLLOW|O_NONBLOCK);
@@ -264,7 +277,24 @@ int music_lighting_preferences_open(const char *directory){
   atomic_store(&text_input,pads);}
  if(lighting_directory>=0)close(lighting_directory);
  lighting_directory=dir;
+ {unsigned value=0;char text[13]={0};int pf=openat(dir,".am-mod-piano-roll",O_RDONLY|O_CLOEXEC|O_NOFOLLOW|O_NONBLOCK);
+  if(pf>=0){ssize_t n=read(pf,text,sizeof(text));close(pf);if(n==10&&!memcmp(text,"AM_ROLL ",8)&&text[8]>='0'&&text[8]<='1'&&text[9]=='\n')value=(unsigned)(text[8]-'0');}
+  atomic_store(&piano_roll_colour,value);}
+ {unsigned value=0;char text[17]={0};int pf=openat(dir,".am-mod-play-cursor",O_RDONLY|O_CLOEXEC|O_NOFOLLOW|O_NONBLOCK);
+  if(pf>=0){struct stat st;ssize_t n=read(pf,text,sizeof(text));
+   if(!fstat(pf,&st)&&S_ISREG(st.st_mode)&&n==16&&!memcmp(text,"AM_PLAYCURSOR ",14)&&text[14]>='0'&&text[14]<='1'&&text[15]=='\n')value=(unsigned)(text[14]-'0');
+   close(pf);}
+  atomic_store(&hide_play_cursor,value);}
  load_palette(dir);
+ atomic_store(&extended_roles,0);atomic_store(&reserve_system,0);
+ unsigned char roles[14]={0};int rf=openat(dir,".am-mod-colour-roles",O_RDONLY|O_CLOEXEC|O_NOFOLLOW|O_NONBLOCK);
+ if(rf>=0){ssize_t rn=read(rf,roles,sizeof(roles));close(rf);
+  int valid=rn==13&&!memcmp(roles,"AMR1",4)&&roles[4]<=1;
+  for(unsigned i=5;i<13;++i)if(roles[i]>=MUSIC_PALETTE_SLOTS)valid=0;
+  if(valid){for(unsigned i=0;i<MUSIC_SERVICE_COUNT;++i)atomic_store(&service_slots[i],roles[5+i]);
+   for(unsigned i=0;i<MUSIC_RELATION_COUNT;++i)atomic_store(&relation_slots[i],roles[11+i]);
+   atomic_store(&reserve_system,roles[4]);atomic_store(&extended_roles,1);}
+ }
  atomic_store(&relation_lighting,relations);
  atomic_store(&relation_colours,rel_colours);atomic_store(&led_vivid,vivid);
  music_mod_settings_restore(value);return 1;
@@ -294,10 +324,9 @@ static int save_preference(const char*name,const void*data,size_t size){
  return 1;
 }
 int music_palette_apply(const struct music_palette_edit edits[MUSIC_PALETTE_SLOTS],unsigned mask){
- if(mask&~((1u<<MUSIC_PALETTE_SLOTS)-1))return 0;
  if(!mask)return 1;
  if(!music_lighting_preferences_durable())return 0;
- unsigned char data[PALETTE_BYTES]={'A','M','P','2'};
+ unsigned char data[PALETTE_BYTES]={'A','M','P','3'};
  uint32_t values[MUSIC_PALETTE_SLOTS];
  for(unsigned i=0;i<MUSIC_PALETTE_SLOTS;++i){
   const char *name=custom_names[i];
@@ -333,8 +362,8 @@ int music_palette_save(unsigned colour,uint32_t rgb,const char *name){
 }
 int music_palette_reset(unsigned colour){return save_palette_entry(colour,0,"",1);}
 int music_palette_set_rgb(unsigned colour,uint32_t rgb){
- if(colour>=MUSIC_PALETTE_SIZE)return 0;
- if(rgb==mod_palette_rgb[colour])return music_palette_reset(colour);
+ if(colour>=MUSIC_PALETTE_SLOTS)return 0;
+ if(rgb==music_palette_default_rgb(colour))return music_palette_reset(colour);
  return music_palette_save(colour,rgb,custom_names[colour]);
 }
 static int save_card_settings(uint64_t value,unsigned relations,unsigned rel_colours,unsigned vivid){
@@ -347,10 +376,25 @@ static int save_card_settings(uint64_t value,unsigned relations,unsigned rel_col
 static int save_all_settings(uint64_t value,unsigned relations){
  return save_card_settings(value,relations,atomic_load(&relation_colours),atomic_load(&led_vivid));
 }
+static int save_global_roles(unsigned role,unsigned slot,int reserved){
+ unsigned char data[13]={'A','M','R','1'};
+ data[4]=(unsigned char)reserved;
+ for(unsigned i=0;i<MUSIC_SERVICE_COUNT;++i){
+  unsigned value=music_service_colour(i);
+  if(role==100)value=8+i;
+  else if(role<MUSIC_SERVICE_COUNT){if(i==role)value=slot;else if(value==slot)value=music_service_colour(role);}
+  data[5+i]=(unsigned char)value;
+ }
+ for(unsigned i=0;i<MUSIC_RELATION_COUNT;++i)data[11+i]=(unsigned char)(role==100?(i?11:12):role==6+i?slot:music_relation_colour(i));
+ if(!save_preference(".am-mod-colour-roles",data,sizeof(data)))return 0;
+ for(unsigned i=0;i<MUSIC_SERVICE_COUNT;++i)atomic_store(&service_slots[i],data[5+i]);
+ for(unsigned i=0;i<MUSIC_RELATION_COUNT;++i)atomic_store(&relation_slots[i],data[11+i]);
+ atomic_store(&reserve_system,reserved);atomic_store(&extended_roles,1);atomic_fetch_add(&mod_generation,1);return 1;
+}
+int music_set_palette_reserved(unsigned enabled){return enabled<=1&&save_global_roles(99,0,(int)enabled);}
 int music_set_relation_colour(unsigned role,unsigned slot){
- if(role>=MUSIC_RELATION_COUNT||slot>=MUSIC_PALETTE_SLOTS||!music_palette_present(slot))return 0;
- unsigned v=atomic_load(&relation_colours);v=(v&~(15u<<(4*role)))|(slot<<(4*role));
- return save_card_settings(atomic_load(&mod_settings),atomic_load(&relation_lighting),v,atomic_load(&led_vivid));
+ if(role>=MUSIC_RELATION_COUNT||slot>=MUSIC_PALETTE_SLOTS||!music_palette_available(slot))return 0;
+ return save_global_roles(6+role,slot,(int)music_palette_reserved());
 }
 int music_set_text_input(unsigned pads){
  if(pads>1)return 0;
@@ -366,6 +410,18 @@ int music_set_fx_view(unsigned view){
 }
 int music_pad_colour_locked(void){return atomic_load(&pad_colour_source)&&music_pad_lighting_mode()&&music_fx_mode_active()==1;}
 unsigned music_pad_colour_source(void){return atomic_load(&pad_colour_source);}
+int music_set_hide_play_cursor(unsigned value){
+ if(value>1)return 0;
+ char text[17];snprintf(text,sizeof(text),"AM_PLAYCURSOR %u\n",value);
+ if(!save_preference(".am-mod-play-cursor",text,16))return 0;
+ atomic_store(&hide_play_cursor,value);return 1;
+}
+int music_set_piano_roll_colour(unsigned value){
+ if(value>1)return 0;
+ char text[11];snprintf(text,sizeof(text),"AM_ROLL %u\n",value);
+ if(!save_preference(".am-mod-piano-roll",text,10))return 0;
+ atomic_store(&piano_roll_colour,value);return 1;
+}
 int music_set_pad_colour_source(unsigned value){
  if(value>1)return 0;
  char text[13];snprintf(text,sizeof(text),"AM_PADSRC %u\n",value);
@@ -416,21 +472,19 @@ int music_set_mod_setting(unsigned field,unsigned value){
 }
 int music_set_pad_lighting_mode(unsigned mode){return music_set_mod_setting(MUSIC_SETTING_LIGHTING,mode);}
 int music_set_service_colour(unsigned role,unsigned colour){
- if(role>=MUSIC_SERVICE_COUNT||colour>=MUSIC_PALETTE_SIZE)return 0;
- uint64_t v=atomic_load(&mod_settings);unsigned target=role+MUSIC_USER_COLOURS,previous=palette_slot(v,target),owner=0;
- while(owner<MUSIC_PALETTE_SIZE&&palette_slot(v,owner)!=colour)++owner;
- if(owner==MUSIC_PALETTE_SIZE)return 0;
- v&=~((UINT64_C(15)<<(5+4*target))|(UINT64_C(15)<<(5+4*owner)));
- v|=(uint64_t)colour<<(5+4*target);v|=(uint64_t)previous<<(5+4*owner);
- return save_mod_settings(v);
+ if(role>=MUSIC_SERVICE_COUNT||!music_palette_present(colour))return 0;
+ return save_global_roles(role,colour,(int)music_palette_reserved());
 }
 int music_mod_restore_recommended(unsigned section){
  uint64_t mask=section==0?1:section==1?6|TAIL_MASK:section==2?UINT64_C(0x1fffffffffffffe0):section==3?24:0;
  if(section>3)return 0;
+ if(section==1&&!music_set_piano_roll_colour(0))return 0;
+ if(section==3&&!music_set_hide_play_cursor(0))return 0;
+ if(section==2&&!save_global_roles(100,0,0))return 0;
  return save_card_settings((atomic_load(&mod_settings)&~mask)|(MOD_DEFAULT&mask),
      section==0?5:atomic_load(&relation_lighting),
      section==2?(12u|(11u<<4)):atomic_load(&relation_colours),
-     section==2?0:atomic_load(&led_vivid));
+     section==2?1:atomic_load(&led_vivid));
 }
 
 const char *const music_note_names[12]={"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
@@ -456,6 +510,55 @@ int music_set_sequence_colour(unsigned sequence,unsigned colour){
     atomic_fetch_add(&generation,1);return 1;
 }
 
+int music_sequence_pad_muted(unsigned sequence,unsigned pad){
+    if(sequence>=128||pad>=128)return 0;
+    pthread_mutex_lock(&mutex);int v=(int)((project.sequence_mutes[sequence][pad/64]>>(pad%64))&1u);pthread_mutex_unlock(&mutex);return v;
+}
+int music_sequence_pad_toggle(unsigned sequence,unsigned pad){
+    if(sequence>=128||pad>=128)return -1;
+    pthread_mutex_lock(&mutex);project.sequence_mutes[sequence][pad/64]^=(uint64_t)1<<(pad%64);
+    int v=(int)((project.sequence_mutes[sequence][pad/64]>>(pad%64))&1u);pthread_mutex_unlock(&mutex);
+    atomic_fetch_add(&generation,1);return v;
+}
+int music_sequence_mutes_get(unsigned sequence,uint64_t out[2]){
+    out[0]=out[1]=0;if(sequence>=128)return 0;
+    pthread_mutex_lock(&mutex);out[0]=project.sequence_mutes[sequence][0];out[1]=project.sequence_mutes[sequence][1];pthread_mutex_unlock(&mutex);
+    return (out[0]|out[1])!=0;
+}
+int music_sequence_mutes_clear(unsigned sequence){
+    if(sequence>=128)return 0;
+    pthread_mutex_lock(&mutex);project.sequence_mutes[sequence][0]=project.sequence_mutes[sequence][1]=0;pthread_mutex_unlock(&mutex);
+    atomic_fetch_add(&generation,1);return 1;
+}
+int music_sequence_mutes_copy(unsigned from,unsigned to){
+    if(from>=128||to>=128)return 0;
+    pthread_mutex_lock(&mutex);project.sequence_mutes[to][0]=project.sequence_mutes[from][0];project.sequence_mutes[to][1]=project.sequence_mutes[from][1];pthread_mutex_unlock(&mutex);
+    atomic_fetch_add(&generation,1);return 1;
+}
+int music_seqmutes_encode(const struct music_project *p,char *out,size_t size){
+    size_t used=0;int n=snprintf(out,size,"AMSM1\n");if(n!=6||(size_t)n>=size)return 0;used=(size_t)n;unsigned any=0;
+    for(unsigned i=0;i<128;++i){
+        if(!(p->sequence_mutes[i][0]|p->sequence_mutes[i][1]))continue;
+        n=snprintf(out+used,size-used,"%u %016llx%016llx\n",i,(unsigned long long)p->sequence_mutes[i][0],(unsigned long long)p->sequence_mutes[i][1]);
+        if(n<0||(size_t)n>=size-used)return 0;
+        used+=(size_t)n;any=1;
+    }
+    return any?(int)used:0;
+}
+int music_seqmutes_decode(const char *in,size_t size,struct music_project *out){
+    if(size<7||memcmp(in,"AMSM1\n",6))return 0;
+    uint64_t masks[128][2];memset(masks,0,sizeof(masks));
+    const char *s=in+6,*end=in+size;int last=-1;
+    while(s<end){
+        int q=0,digits=0;while(s<end&&*s>='0'&&*s<='9'){if(++digits>3)return 0;q=q*10+(*s++-'0');}
+        if(!digits||s==end||*s++!=' '||q<=last||q>=128||end-s<33)return 0;
+        for(unsigned w=0;w<2;++w){uint64_t v=0;for(unsigned j=0;j<16;++j){char c=*s++;int d=c>='0'&&c<='9'?c-'0':c>='a'&&c<='f'?c-'a'+10:-1;if(d<0)return 0;v=(v<<4)|(unsigned)d;}masks[q][w]=v;}
+        if(*s++!='\n'||!(masks[q][0]|masks[q][1]))return 0;
+        last=q;
+    }
+    memcpy(out->sequence_mutes,masks,sizeof(masks));return 1;
+}
+
 int music_pad_colour(unsigned pad){
     if(pad>=128)return 0;
     pthread_mutex_lock(&mutex);int v=project.pad_colours[pad];pthread_mutex_unlock(&mutex);return v;
@@ -473,13 +576,16 @@ static void sample_default(struct music_sample *p,const char *name)
 {
     memset(p,0,sizeof(*p)); p->root=-1; p->tonic=-1; p->scale=-1;
     p->colour[0]=MUSIC_DEFAULT_TONIC_COLOUR; p->colour[1]=1; p->colour[2]=10;
-    p->original_colour=4; /* musical Lights palette is separate from user IDs */
+    p->original_colour=4; /* historical Lights ID, migrated only at selection time */
     p->fifth_colour=MUSIC_DEFAULT_FIFTH_COLOUR;p->fourth_colour=MUSIC_DEFAULT_FOURTH_COLOUR;
     if (name) memcpy(p->name,name,strlen(name)+1);
 }
 void music_defaults(struct music_project *p) { memset(p,0,sizeof(*p)); }
 void music_reset(void)
 {
+#ifdef MPC_MIDI_TOOLS
+    am_midi_reset();
+#endif
     pthread_mutex_lock(&mutex); music_defaults(&project); pthread_mutex_unlock(&mutex);
 #ifdef MPC_PAD_EQ
     uint64_t empty[128]={0};pad_eq_publish_all(empty);
@@ -518,11 +624,11 @@ int music_set_sample(const char *name,int field,int value)
     if ((field==MUSIC_ROOT && (value< -1 || value>11))
         || (field==MUSIC_MODE && (value<0 || value>4))
         || (field==MUSIC_TRANSPOSE && (value< -24 || value>24))
-        || (field>=MUSIC_COLOUR0 && field<=MUSIC_COLOUR2 && (value<0 || value>11))
+        || (field>=MUSIC_COLOUR0 && field<=MUSIC_COLOUR2 && (value<0 || value>=12+MUSIC_PALETTE_SLOTS))
         || (field==MUSIC_LOCAL_TONIC && (value< -1 || value>11))
         || (field==MUSIC_LOCAL_SCALE && (value< -1 || value>7))
-        || (field==MUSIC_ORIGINAL_COLOUR && (value<0||value>11))
-        || ((field==MUSIC_FIFTH_COLOUR||field==MUSIC_FOURTH_COLOUR) && (value<0||value>11))
+        || (field==MUSIC_ORIGINAL_COLOUR && (value<0||value>=12+MUSIC_PALETTE_SLOTS))
+        || ((field==MUSIC_FIFTH_COLOUR||field==MUSIC_FOURTH_COLOUR) && (value<0||value>=12+MUSIC_PALETTE_SLOTS))
         || field<0 || field>MUSIC_FOURTH_COLOUR) return 0;
     pthread_mutex_lock(&mutex);
     unsigned i;
@@ -592,15 +698,21 @@ int music_encode(const struct music_project *p,char *out,size_t size)
 {
     if (p->count>MUSIC_MAX_SAMPLES) return 0;
     unsigned extended=0;
-    unsigned pads=0,fifth=0;
-    for(unsigned i=0;i<p->count;++i){int c=p->samples[i].fifth_colour,d=p->samples[i].fourth_colour;if(c<0||c>11||d<0||d>11)return 0;if(c!=MUSIC_DEFAULT_FIFTH_COLOUR||d!=MUSIC_DEFAULT_FOURTH_COLOUR)fifth=1;}
+    unsigned pads=0,fifth=0,wide=0;
+    for(unsigned i=0;i<p->count;++i){int c=p->samples[i].fifth_colour,d=p->samples[i].fourth_colour;if(c<0||c>=12+MUSIC_PALETTE_SLOTS||d<0||d>=12+MUSIC_PALETTE_SLOTS)return 0;if(c!=MUSIC_DEFAULT_FIFTH_COLOUR||d!=MUSIC_DEFAULT_FOURTH_COLOUR)fifth=1;}
     for(unsigned i=0;i<128;++i){if(p->sequence_colours[i]>=MUSIC_SEQUENCE_COLOURS)return 0;if(p->sequence_colours[i]>=5)extended=1;}
     for(unsigned i=0;i<128;++i){if(p->pad_colours[i]>=MUSIC_SEQUENCE_COLOURS)return 0;if(p->pad_colours[i])pads=1;}
     /* Version 7 only when a pad colour is set and version 9 only when a
      * Degrees IV or V colour differs from its default (8 carried V only), so older builds keep reading
      * projects that do not use these features. Version 8 implies PAD128. */
+    for(unsigned i=0;i<p->count;++i){const struct music_sample *q=p->samples+i;
+     if(q->original_colour>=12||q->fifth_colour>=12||q->fourth_colour>=12)wide=1;
+     for(unsigned j=0;j<3;++j)if(q->colour[j]>=12)wide=1;
+    }
+    for(unsigned i=0;i<128;++i)if(p->sequence_colours[i]>=16||p->pad_colours[i]>=16)wide=1;
+    if(wide)fifth=1;
     if(fifth)pads=1;
-    int n=snprintf(out,size,"MPCS1%c %d %d %u\n",fifth?'9':pads?'7':extended?'6':'5',p->tonic,p->scale,p->count);
+    int n=wide?snprintf(out,size,"MPCS20 %d %d %u\n",p->tonic,p->scale,p->count):snprintf(out,size,"MPCS1%c %d %d %u\n",fifth?'9':pads?'7':extended?'6':'5',p->tonic,p->scale,p->count);
     if (n<0 || (size_t)n>=size) return 0;
     size_t used=(size_t)n; const char hex[]="0123456789abcdef";
     for (unsigned i=0;i<p->count;++i) {
@@ -623,13 +735,13 @@ int music_encode(const struct music_project *p,char *out,size_t size)
         n=snprintf(out+used,size-used,"%08llx\n",(unsigned long long)v);if(n!=9||(size_t)n>=size-used)return 0;used+=(size_t)n;
     }
     n=snprintf(out+used,size-used,"SEQ128\n");if(n!=7||(size_t)n>=size-used)return 0;used+=(size_t)n;
-    if(size-used<=129)return 0;
-    for(unsigned i=0;i<128;++i)out[used++]=hex[p->sequence_colours[i]];
+    if(size-used<=(wide?257u:129u))return 0;
+    for(unsigned i=0;i<128;++i){if(wide)out[used++]=hex[p->sequence_colours[i]>>4];out[used++]=hex[p->sequence_colours[i]&15];}
     out[used++]='\n';out[used]=0;
     if(pads){
         n=snprintf(out+used,size-used,"PAD128\n");if(n!=7||(size_t)n>=size-used)return 0;used+=(size_t)n;
-        if(size-used<=129)return 0;
-        for(unsigned i=0;i<128;++i)out[used++]=hex[p->pad_colours[i]];
+        if(size-used<=(wide?257u:129u))return 0;
+        for(unsigned i=0;i<128;++i){if(wide)out[used++]=hex[p->pad_colours[i]>>4];out[used++]=hex[p->pad_colours[i]&15];}
         out[used++]='\n';out[used]=0;
     }
     return (int)used;
@@ -648,8 +760,9 @@ static int number(const char **cursor,const char *end,int *out,char delimiter)
 static int unhex(char c) { return c>='0' && c<='9' ? c-'0' : c>='a' && c<='f' ? c-'a'+10 : -1; }
 int music_decode(const char *in,size_t size,struct music_project *out)
 {
-    if (size<12 || size>=MUSIC_PAYLOAD_BYTES || (memcmp(in,"MPCS12 ",7)&&memcmp(in,"MPCS13 ",7)&&memcmp(in,"MPCS14 ",7)&&memcmp(in,"MPCS15 ",7)&&memcmp(in,"MPCS16 ",7)&&memcmp(in,"MPCS17 ",7)&&memcmp(in,"MPCS18 ",7)&&memcmp(in,"MPCS19 ",7))) return 0;
-    int version13=in[5]>='3',version14=in[5]>='4',version15=in[5]>='5',version16=in[5]>='6',version17=in[5]>='7',version18=in[5]>='8',version19=in[5]=='9';
+    int wide=size>=7&&!memcmp(in,"MPCS20 ",7);
+    if (size<12 || size>=MUSIC_PAYLOAD_BYTES || (!wide&&memcmp(in,"MPCS12 ",7)&&memcmp(in,"MPCS13 ",7)&&memcmp(in,"MPCS14 ",7)&&memcmp(in,"MPCS15 ",7)&&memcmp(in,"MPCS16 ",7)&&memcmp(in,"MPCS17 ",7)&&memcmp(in,"MPCS18 ",7)&&memcmp(in,"MPCS19 ",7))) return 0;
+    int version13=(wide? '9':in[5])>='3',version14=(wide? '9':in[5])>='4',version15=(wide? '9':in[5])>='5',version16=(wide? '9':in[5])>='6',version17=(wide? '9':in[5])>='7',version18=(wide? '9':in[5])>='8',version19=wide||in[5]=='9';
     const char *s=in+7,*end=in+size; int count;
     music_defaults(out);
     if (!number(&s,end,&out->tonic,' ') || !number(&s,end,&out->scale,' ')
@@ -666,8 +779,8 @@ int music_decode(const char *in,size_t size,struct music_project *out)
         if(version13&&!number(&s,end,&p->original_colour,version18?' ':'\n'))return 0;
         if(version18&&!number(&s,end,&p->fifth_colour,version19?' ':'\n'))return 0;
         if(version19&&!number(&s,end,&p->fourth_colour,'\n'))return 0;
-        if (p->root< -1 || p->root>11 || p->mode<0 || p->mode>(version13?4:3) || p->transpose< -24 || p->transpose>24 || p->original_colour<0 || p->original_colour>11 || p->fifth_colour<0 || p->fifth_colour>11 || p->fourth_colour<0 || p->fourth_colour>11) return 0;
-        for (unsigned j=0;j<3;++j) if (p->colour[j]<0 || p->colour[j]>11) return 0;
+        if (p->root< -1 || p->root>11 || p->mode<0 || p->mode>(version13?4:3) || p->transpose< -24 || p->transpose>24 || p->original_colour<0 || p->original_colour>=(wide?12+MUSIC_PALETTE_SLOTS:12) || p->fifth_colour<0 || p->fifth_colour>=(wide?12+MUSIC_PALETTE_SLOTS:12) || p->fourth_colour<0 || p->fourth_colour>=(wide?12+MUSIC_PALETTE_SLOTS:12)) return 0;
+        for (unsigned j=0;j<3;++j) if (p->colour[j]<0 || p->colour[j]>=(wide?12+MUSIC_PALETTE_SLOTS:12)) return 0;
         if (p->tonic< -1 || p->tonic>11 || p->scale< -1 || p->scale>7) return 0;
         size_t n=0;
         while (s<end && *s!='\n') {
@@ -693,28 +806,41 @@ int music_decode(const char *in,size_t size,struct music_project *out)
         }
     }
     if(version15){
-        if(end-s!=(version17?272:136)||memcmp(s,"SEQ128\n",7))return 0;
+        if(end-s!=(wide?528:version17?272:136)||memcmp(s,"SEQ128\n",7))return 0;
         s+=7;
-        for(unsigned i=0;i<128;++i){int v=unhex(*s++);if(v<0||v>=(version16?MUSIC_SEQUENCE_COLOURS:5))return 0;out->sequence_colours[i]=(unsigned char)v;}
+        for(unsigned i=0;i<128;++i){int v=unhex(*s++);if(wide){int low=unhex(*s++);if(v<0||low<0)return 0;v=v*16+low;}if(v<0||v>=(version16?MUSIC_SEQUENCE_COLOURS:5))return 0;out->sequence_colours[i]=(unsigned char)v;}
         if(*s++!='\n')return 0;
         if(version17){
             if(memcmp(s,"PAD128\n",7))return 0;
             s+=7;
-            for(unsigned i=0;i<128;++i){int v=unhex(*s++);if(v<0||v>=MUSIC_SEQUENCE_COLOURS)return 0;out->pad_colours[i]=(unsigned char)v;}
+            for(unsigned i=0;i<128;++i){int v=unhex(*s++);if(wide){int low=unhex(*s++);if(v<0||low<0)return 0;v=v*16+low;}if(v<0||v>=MUSIC_SEQUENCE_COLOURS)return 0;out->pad_colours[i]=(unsigned char)v;}
             if(*s++!='\n')return 0;
         }
     }
     return s==end;
 }
 
+static uint64_t light_pack(unsigned colour,unsigned role){
+ unsigned low=role<3?28+role*4:role==3?41:role==4?45:49;
+ unsigned high=53+role*2;
+ uint64_t v=(uint64_t)(colour&15)<<low;
+ if(role==5){v|=(uint64_t)((colour>>4)&1)<<63;v|=(uint64_t)((colour>>5)&1)<<27;}
+ else v|=(uint64_t)(colour>>4)<<high;
+ return v;
+}
+static unsigned light_unpack(uint64_t v,unsigned role){
+ unsigned low=role<3?28+role*4:role==3?41:role==4?45:49;
+ unsigned upper=role==5?(unsigned)((v>>63)&1)|((unsigned)((v>>27)&1)<<1):(unsigned)(v>>(53+role*2))&3;
+ return ((unsigned)(v>>low)&15)|(upper<<4);
+}
 uint64_t music_light_snapshot(const struct music_sample *p,int semitones)
 {
     int tonic,scale; music_get_key(&tonic,&scale);
     if (!p || p->root< -1 || p->root>11 || p->mode<0 || p->mode>MUSIC_DEGREES
         || p->transpose< -24 || p->transpose>24 || p->tonic< -1 || p->tonic>11
-        || p->scale< -1 || p->scale>7 || p->original_colour<0 || p->original_colour>11 || p->fifth_colour<0 || p->fifth_colour>11 || p->fourth_colour<0 || p->fourth_colour>11
+        || p->scale< -1 || p->scale>7 || p->original_colour<0 || p->original_colour>=12+MUSIC_PALETTE_SLOTS || p->fifth_colour<0 || p->fifth_colour>=12+MUSIC_PALETTE_SLOTS || p->fourth_colour<0 || p->fourth_colour>=12+MUSIC_PALETTE_SLOTS
         || semitones< -96 || semitones>96) return 0;
-    for(unsigned i=0;i<3;++i)if(p->colour[i]<0||p->colour[i]>11)return 0;
+    for(unsigned i=0;i<3;++i)if(p->colour[i]<0||p->colour[i]>=12+MUSIC_PALETTE_SLOTS)return 0;
     if (p->tonic>=0) tonic=p->tonic;
     if (p->scale>=0) scale=p->scale;
     /* Tonic was dropped in r25f and lights as Scale. ID 4 is reused by the
@@ -723,11 +849,11 @@ uint64_t music_light_snapshot(const struct music_sample *p,int semitones)
     int mode=p->mode==MUSIC_TONIC?MUSIC_SCALE:p->mode;
     uint64_t v=(uint64_t)(p->root+1) | ((uint64_t)(mode&3)<<4) | ((uint64_t)(p->transpose+24)<<6)
         | ((uint64_t)(semitones+96)<<12) | ((uint64_t)tonic<<20) | ((uint64_t)scale<<24);
-    for (unsigned i=0;i<3;++i) v|=(uint64_t)p->colour[i]<<(28+i*4);
+    for (unsigned i=0;i<3;++i) v|=light_pack((unsigned)p->colour[i],i);
     v|=(uint64_t)(mode>>2)<<40;
-    v|=(uint64_t)p->original_colour<<41;
-    v|=(uint64_t)p->fifth_colour<<45;
-    v|=(uint64_t)p->fourth_colour<<49;
+    v|=light_pack((unsigned)p->original_colour,3);
+    v|=light_pack((unsigned)p->fifth_colour,4);
+    v|=light_pack((unsigned)p->fourth_colour,5);
     return v;
 }
 void music_publish(const struct music_sample *p,int semitones)
@@ -772,15 +898,15 @@ uint64_t music_pitch_light(uint64_t v,int semitones,int *replace)
              * off. The original pitch is marked only when it is a key note. */
             int role=music_degree_role(mask,degree);
             if(role<0){colour=0;brightness=0.f;}
-            else{unsigned slot=role==0?(v>>28)&15:role==1?(v>>49)&15:role==3?(v>>45)&15:(v>>32)&15;colour=music_colours[slot];brightness=role==2?0.32f:0.60f;}
+            else{unsigned slot=light_unpack(v,role==0?0:role==1?5:role==3?4:1);colour=music_light_colour_rgb(slot);brightness=role==2?0.32f:0.60f;}
         } else {
             int role=degree==0 ? 0 : (mask&(1u<<degree)) ? 1 : 2;
-            colour=music_colours[(v>>(28+role*4))&15];
+            colour=music_light_colour_rgb(light_unpack(v,(unsigned)role));
             brightness=role==0 ? 0.60f : role==1 ? 0.28f : 0.08f;
         }
     }
     /* Mark the reference pitch, not every octave of its pitch class. */
-    if(semitones==0){colour=music_colours[(v>>41)&15];brightness=.75f;}
+    if(semitones==0){colour=music_light_colour_rgb(light_unpack(v,3));brightness=.75f;}
     uint32_t bits; memcpy(&bits,&brightness,sizeof(bits)); *replace=1;
     return colour|((uint64_t)bits<<32);
 }

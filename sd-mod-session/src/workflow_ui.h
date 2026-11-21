@@ -27,6 +27,8 @@ void workflow_copy_context_dead(void*);
 int workflow_event_preview(void *program,const void *event,unsigned key,unsigned mode);
 void workflow_event_preview_stop(int cancel_pending);
 unsigned workflow_event_preview_pending(void);
+int workflow_piano_input(void *program,const void *event,unsigned key);
+void workflow_piano_input_stop(void);
 int workflow_tick(void);
 int workflow_startup_loading(void); /* UI-only; false while a native modal is active. */
 int workflow_active(void);

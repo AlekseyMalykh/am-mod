@@ -132,8 +132,11 @@ void pad_eq_paint(uint64_t v,unsigned pad,int muted,int shift,int focus,const st
     const uint32_t white=0xffffffffu,amber=0xffffc247u,grey=0xff777777u;char s[64];
     /* Keep the native Sample side strips (volume/pan) visible. Only the
      * centre graph and our complete K footer belong to this overlay. */
-    p->rect(p->user,14,33,292,165,0xff000000u);p->rect(p->user,0,198,320,42,0xff000000u);snprintf(s,sizeof(s),"%c%02u  EQ%s",'A'+pad/16,pad%16+1,cfg.bypass?"  BYPASS":"");p->text(p->user,s,18,36,284,24,18,white,0);
-    int left=42,top=72,width=260,height=105;
+    /* Native y33..80 owns the pad/sample title and Loop/Note On/Reverse/
+     * 16 Levels icons. Preserve that whole strip as well as the side meters. */
+    p->rect(p->user,14,81,292,117,0xff000000u);p->rect(p->user,0,198,320,42,0xff000000u);
+    p->text(p->user,cfg.bypass?"EQ BYPASS":"EQ",238,82,64,10,10,cfg.bypass?grey:white,0);
+    int left=42,top=94,width=260,height=83;
     pad_eq_spectrum_paint(pad,muted,left,top,width,height,0xff5a4419u,p);
     for(int db=-18;db<=18;db+=9){int y=top+(18-db)*height/36;p->rect(p->user,left,y,width,1,db?0xff252525:0xff666666);snprintf(s,sizeof(s),"%+d",db);p->text(p->user,s,16,y-6,23,13,10,grey,1);}
     int previous=-1;for(int x=0;x<width;++x){double hz=20*pow(1000,x/(double)(width-1)),db=fx_eq_response_db(&cfg,48000,hz);if(db>18)db=18;if(db< -18)db=-18;int y=top+(int)lround((18-db)*height/36);if(previous<0)previous=y;

@@ -11,7 +11,15 @@
 #include <unistd.h>
 
 /* Fixed-path SD flush helper. No working-data copy and no mount capability. */
+#ifndef RAM_ROOT
 #define RAM_ROOT "/run/mpc-clone-trial-v1"
+#endif
+#ifndef AM_STAGE_INTERNAL_PROJECTS
+#define AM_STAGE_INTERNAL_PROJECTS "/data/UserContent/Projects"
+#endif
+#ifndef AM_STAGE_INTERNAL_SAMPLES
+#define AM_STAGE_INTERNAL_SAMPLES "/data/UserContent/Samples/User"
+#endif
 static void die(const char *s) {
     fprintf(stderr, "DATA_STAGE_FAILED: %s errno=%d\n", s, errno);
     exit(1);
@@ -60,8 +68,28 @@ static int flush_sd(int journal) {
     puts(journal?"SD_JOURNAL_FLUSHED":"SD_SAVE_FLUSHED");
     return 0;
 }
+static int flush_internal(void) {
+    alarm(10);
+    char marker[192],expected[192];metadata("internal-storage",marker,sizeof marker);
+    const char *paths[]={AM_STAGE_INTERNAL_PROJECTS,AM_STAGE_INTERNAL_SAMPLES};
+    struct stat st[2];int fd[2]={-1,-1};
+    for(unsigned i=0;i<2;++i){
+        char *resolved=realpath(paths[i],NULL);if(!resolved)die("internal canonical path");
+        int same=!strcmp(resolved,paths[i]);free(resolved);if(!same)die("internal redirected path");
+        fd[i]=open(paths[i],O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);
+        struct statfs fs;
+        if(fd[i]<0||fstat(fd[i],&st[i])||fstatfs(fd[i],&fs)||fs.f_type!=0xef53)die("internal filesystem changed");
+    }
+    snprintf(expected,sizeof expected,"AM_INTERNAL1\n%llu:%llu\n%llu:%llu",
+       (unsigned long long)st[0].st_dev,(unsigned long long)st[0].st_ino,
+       (unsigned long long)st[1].st_dev,(unsigned long long)st[1].st_ino);
+    if(strcmp(marker,expected)||st[0].st_dev!=st[1].st_dev)die("internal identity changed");
+    if(syncfs(fd[0])||close(fd[0])||close(fd[1]))die("internal syncfs");
+    puts("INTERNAL_USER_STORAGE_FLUSHED");return 0;
+}
 int main(int argc,char **argv) {
-    if(argc!=2||(strcmp(argv[1],"--flush-sd")&&strcmp(argv[1],"--flush-journal"))) die("only fixed SD flush modes accepted");
+    if(argc!=2||(strcmp(argv[1],"--flush-sd")&&strcmp(argv[1],"--flush-journal")&&strcmp(argv[1],"--flush-internal"))) die("only fixed storage flush modes accepted");
     if(geteuid()!=0) die("root required");
+    if(!strcmp(argv[1],"--flush-internal"))return flush_internal();
     return flush_sd(!strcmp(argv[1],"--flush-journal"));
 }

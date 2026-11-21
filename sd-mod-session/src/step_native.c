@@ -1,6 +1,12 @@
 #define _GNU_SOURCE
 #include "shift_badge.h"
 #include "step_native.h"
+#include "piano_roll.h"
+#ifdef MPC_MIDI_TOOLS
+#include "midi_file_native.h"
+#include "browser_tree.h"
+#endif
+#include <stdlib.h>
 #include "ui_caption.h"
 #include "workflow_ui.h"
 #include "music_settings.h"
@@ -60,6 +66,16 @@
 #define T_BANK_SHIFT 47
 #define T_PICKER (UINT64_C(1)<<50)
 #define T_MUTE (UINT64_C(1)<<51)
+#define T_PIANO (UINT64_C(1)<<52)
+static _Atomic unsigned piano_active;
+/* Native shortcuts need their release even if the roll or its ticket changes. */
+static _Atomic unsigned piano_forwarded_buttons[112];
+static void roll_open(void),roll_close(void),roll_pad(unsigned),roll_paint(void*);
+static float roll_input_velocity=100.f/127.f;
+static int roll_refresh(int),roll_button(unsigned,int),roll_control(unsigned,unsigned,int);
+static void roll_erase_release(void);
+static void roll_palette(void),roll_pad_up(unsigned);
+static void roll_project_reset(void);
 
 _Static_assert(sizeof(struct step_event)==56,"Pinned tag-3 event size");
 _Static_assert(offsetof(struct step_event,data)==16,"Native event payload");
@@ -128,6 +144,8 @@ static void preview_gate_set(void*track,const struct step_event*event){
  }
  atomic_fetch_add_explicit(&preview_gate_serial,1,memory_order_release);
 }
+extern int seq_mutes_event_muted(const void *event) __attribute__((weak));
+extern void seq_mutes_refresh(void *program,void *sequence) __attribute__((weak));
 int step_native_preview_suppressed(void*track,const void*event,unsigned mask){
  /* Only sequence scheduling; the ordinary Sample input uses7ffffffa and
   * must still audition the original pitch. No models, locks or I/O here. */
@@ -138,6 +156,7 @@ int step_native_preview_suppressed(void*track,const void*event,unsigned mask){
    if(!m){atomic_store_explicit(&gate_pair[i][1],t0,memory_order_relaxed);atomic_store_explicit(&gate_pair[i][2],1,memory_order_relaxed);atomic_store_explicit(&gate_pair[i][0],mask|1u<<31,memory_order_relaxed);break;}}}
  if(mask!=0x7ffffff8)return 0; /* sequence playback; 7ffffffa is the pad input and must still sound */
  uint32_t type=FIELD(event,8,uint32_t);if((type&255)!=3||(type&0x100))return 0;
+ if(seq_mutes_event_muted&&seq_mutes_event_muted(event))return 1; /* Sequence Pad Mutes: sequencer note-on of a muted pad */
  atomic_fetch_add_explicit(&gate_calls,1,memory_order_relaxed);
  uint64_t words[7];memcpy(words,event,56);
  for(unsigned attempt=0;attempt<2;++attempt){
@@ -193,11 +212,13 @@ static _Atomic unsigned playback_muted_mask,sample_palette_enabled,sample_relati
 void step_native_relation_context(int enabled){atomic_store(&sample_relations_enabled,!!enabled);}
 static _Atomic uint64_t sample_palette[16];
 /* Pad Link "Playing": brief flash when a linked target starts sounding. UI owner only. */
+#ifdef MPC_LOOP_FEEDBACK
 static uint64_t link_flash_until[16];
 static uint64_t group_flash_until[16];
 static unsigned link_prev_active;
 static const void *link_prev_program;
 static int link_prev_bank=-1;
+#endif
 static _Atomic unsigned sample_native_rgb[16];
 static void *sample_focus_program;
 static int sample_focus_index=-1,sample_focus_bank=-1;
@@ -209,6 +230,7 @@ static void sample_palette_publish(void *things,void *program,int bank,int enabl
   * Instrument at+60 can still point to the previously selected loaded pad. */
  unsigned selected=things?__atomic_load_n((unsigned*)((char*)things+0x5f8),__ATOMIC_ACQUIRE):128;
  int focus=selected<128?(int)selected:-1;
+ int cursor_shown=music_pad_cursor_visible(atomic_load(&clock_running));
  if(program!=sample_focus_program||focus!=sample_focus_index||bank!=sample_focus_bank||now<sample_focus_since){
   sample_focus_program=program;sample_focus_index=focus;sample_focus_bank=bank;sample_focus_since=now;
  }
@@ -273,7 +295,7 @@ static void sample_palette_publish(void *things,void *program,int bank,int enabl
   }
   if(gate==MIXER_SAMPLE_SOLO_EXCLUDED){
    uint32_t hue=muted?PAD_MUTED:music_pad_rgb(n);
-   uint64_t light=(int)n==focus?pad_focus_light(hue,.12f,now-sample_focus_since):pad_light(hue,.12f);
+   uint64_t light=cursor_shown&&(int)n==focus?pad_focus_light(hue,.12f,now-sample_focus_since):pad_light(hue,.12f);
    atomic_store(&sample_palette[i],light);
    continue;
   }
@@ -331,7 +353,7 @@ static void sample_palette_publish(void *things,void *program,int bank,int enabl
   }
 #endif
   uint64_t light=pad_light(rgb,strength);
-  if((int)n==focus&&!(rgb==PAD_MUTED&&now<playback_until[i]))
+  if(cursor_shown&&(int)n==focus&&!(rgb==PAD_MUTED&&now<playback_until[i]))
 #ifdef MPC_LOOP_FEEDBACK
    light=sustained?(music_cursor_on(now-sample_focus_since,500)?pad_light(PAD_SELECT,.95f):
        pad_light(muted?PAD_MUTED:music_pad_rgb(n),muted?.65f:.95f)):
@@ -408,7 +430,7 @@ static void say(const char *s) { snprintf(message,sizeof(message),"%s",s);messag
 static void publish(void)
 {
     uint64_t t=0;
-    if (showing) t=T_VISIBLE|(steps ? T_STEPS : 0)|(menu ? T_MENU : 0)|(menu==3 ? T_PICKER : 0)
+    if (showing) t=T_VISIBLE|(atomic_load(&piano_active)?T_PIANO:0)|(steps ? T_STEPS : 0)|(menu ? T_MENU : 0)|(menu==3 ? T_PICKER : 0)
         |(atomic_load(&requested_shift) ? T_SHIFT : 0)|epoch
         |((steps && !menu && atomic_load(&requested_sound)) ? T_SOUND_SELECT : 0)
         |(atomic_load(&requested_erase) ? T_ERASE : 0)
@@ -429,11 +451,12 @@ void step_native_levels_state(unsigned enabled,unsigned mode,unsigned origin)
 int step_native_sample_chop(void){return atomic_load(&native_levels_enabled)&&atomic_load(&native_levels_mode)==8;}
 void step_native_native_mute(unsigned enabled){atomic_store(&native_mute,!!enabled);}
 int step_native_active(void) { return atomic_load(&active) || atomic_load(&held_buttons) || atomic_load(&events_erase_forwarded); }
-int step_native_custom(void) { return !!(atomic_load(&ticket)&T_STEPS); }
+int step_native_custom(void) { return !!(atomic_load(&ticket)&(T_STEPS|T_PIANO)); }
 int step_native_sound_layout(void)
-{uint64_t t=atomic_load(&ticket);return !!(t&T_VISIBLE)&&!(t&(T_STEPS|T_MENU));}
+{uint64_t t=atomic_load(&ticket);return !!(t&T_VISIBLE)&&!(t&(T_STEPS|T_MENU|T_PIANO));}
 int step_native_record_light(unsigned *value)
 {
+    if (atomic_load(&ticket)&T_PIANO) return 0; /* Native Seq Record indicator. */
     if (!(atomic_load(&ticket)&T_STEPS)) return 0;
     *value=atomic_load(&write_armed) ? 1u : 0u;return 1;
 }
@@ -451,7 +474,7 @@ int step_native_button_light(unsigned code,unsigned *value)
     return 1;
 }
 int step_native_pad_route(uint64_t t)
-{ return t&T_PICKER ? 1 : !(t&T_STEPS) ? ((t&T_VISIBLE) && !(t&T_MENU) && (t&T_ERASE) ? 3 : 0) : (t&T_SHIFT) ? 2 : 1; }
+{ return t&(T_PICKER|T_PIANO) ? 1 : !(t&T_STEPS) ? ((t&T_VISIBLE) && !(t&T_MENU) && (t&T_ERASE) ? 3 : 0) : (t&T_SHIFT) ? 2 : 1; }
 uint64_t step_native_ticket(void) { return atomic_load(&ticket); }
 void step_native_requested(unsigned code,unsigned down)
 {
@@ -481,15 +504,18 @@ int step_native_owns(unsigned cc)
 {
     uint64_t t=atomic_load(&ticket);
     if (!(t&T_VISIBLE)) return 0;
-    if ((t&T_STEPS)||(t&T_MENU)) return cc==0x10 || cc==0x11 || cc==0x12 || cc==0x64 || cc==0x14;
+    if ((t&T_STEPS)||(t&T_MENU)||(t&T_PIANO)) return cc==0x10 || cc==0x11 || cc==0x12 || cc==0x64 || cc==0x14;
     return cc==0x64 || (cc==0x12 && (t&T_SHIFT));
 }
 int step_native_button_owns(unsigned code)
 {
+    if (code<112 && atomic_load(&piano_forwarded_buttons[code])) return 1;
     if (code==BUTTON_ERASE && atomic_load(&events_erase_forwarded)) return 1;
     if (code<112 && atomic_load(&owned_buttons[code])) return 1;
     uint64_t t=atomic_load(&ticket);
     if (!(t&T_VISIBLE)) return 0;
+    if(t&T_PIANO)return code!=0x31; /* Ordered musical Stop/Play/Record and paired releases. */
+    if(code==0x00&&!(t&T_MENU))return 1;
     /* In either event view these buttons are contextual. An unavailable
      * action must not fall through and switch the native performance mode. */
     if ((code==BUTTON_LEVELS || code==BUTTON_CHOP) && !(t&T_SHIFT)) return 1;
@@ -864,6 +890,7 @@ void step_native_playback_context(void *things,int transpose,int sample_visible)
     int enabled=picker || sample_visible==1 || seq_mute;
     void *program=things ? FIELD(things,0xb8,void*) : NULL;
     void *seq=things ? FIELD(things,0x1c8,void*) : NULL;
+    if(seq_mutes_refresh)seq_mutes_refresh(program,seq);
     void *clip=things ? FIELD(things,0x3d0,void*) : NULL;
     void *list=clip ? (char*)clip+0x688 : NULL;
     if (!list && showing) list=event_list;
@@ -1031,6 +1058,7 @@ static void audition_picker(unsigned pad){
     else say(result==2?"Preview blocked: recording":"Preview not ready: try again");
 }
 void step_native_pad_release(unsigned pad,uint64_t t){
+    if(on_ui()&&atomic_load(&piano_active)){roll_pad_up(pad);return;}
     if(on_ui()&&current(t)&&(t&T_PICKER)&&picker_audition_active&&pad==picker_audition_pad){picker_preview_wait=1;picker_probe("AUDIO_WAIT",pad);workflow_event_preview_stop(0);picker_audition_active=0;}
 }
 static void picker_loop_audition(const struct step_event *list,unsigned n){
@@ -1127,6 +1155,8 @@ struct add_context {
     int64_t move_delta;
     void *replacements;
     unsigned expected;
+    int bulk;const struct step_event *bulk_removed,*bulk_added;
+    unsigned bulk_removed_count,bulk_added_count;const char *bulk_title;
 };
 extern void *step_mute_map(uintptr_t);
 extern void step_mute_pair(void*,const struct step_event*,const struct step_event*);
@@ -1136,7 +1166,10 @@ static int scan_page_into(int,int,int,struct slot[16],int,struct native_tree*);
 static void add_command(void *opaque)
 {
     struct add_context *c=opaque;
-    if(c->replace_count){
+    if(c->bulk){
+        for(unsigned i=0;i<c->bulk_removed_count;++i)FN(0x1574460,void(*)(void*,const void*))(&c->removed,c->bulk_removed+i);
+        for(unsigned i=0;i<c->bulk_added_count;++i)FN(0x1574460,void(*)(void*,const void*))(&c->added,c->bulk_added+i);
+    }else if(c->replace_count){
         if(c->replace_old)FN(0x1574460,void(*)(void*,const void*))(&c->removed,c->replace_old);
         for(unsigned i=0;i<c->replace_count;++i)FN(0x1574460,void(*)(void*,const void*))(&c->added,c->replace_notes+i);
     }
@@ -1175,7 +1208,7 @@ static void add_command(void *opaque)
             }
         }
     }
-    FN(0xf535c0,void(*)(uint64_t*,const char*))(&c->title,c->replace_count ? "Set Chord Notes" : c->event ? "Add Event" : c->move_delta ? "Move Step Notes" : c->mute_change ? (c->mute_value ? "Mute Step Notes" : "Unmute Step Notes") : "Delete Step Notes");
+    FN(0xf535c0,void(*)(uint64_t*,const char*))(&c->title,c->bulk ? c->bulk_title : c->replace_count ? "Set Chord Notes" : c->event ? "Add Event" : c->move_delta ? "Move Step Notes" : c->mute_change ? (c->mute_value ? "Mute Step Notes" : "Unmute Step Notes") : "Delete Step Notes");
     FN(0xf535c0,void(*)(uint64_t*,const char*))(&c->merge,"");
     if(c->mute_change||c->move_delta)
         step_mute_result(FIELD(controller,0x240,void*),event_list,c->replacements,&c->title,&c->merge,c->result,base+0x194fd60);
@@ -1459,6 +1492,7 @@ int step_native_light(unsigned pad,uint64_t *light)
 {
     uint64_t t=atomic_load(&ticket);
     if(pad>=16) return 0;
+    if(t&T_PIANO){*light=atomic_load(&lights[pad]);return 1;}
     if(!music_pad_lighting_mode()&&!(t&(T_STEPS|T_PICKER)))return 0;
     /* Shift alone changes knob/button meanings, not Sample pad ownership.
      * Real bank/workflow overlays are handled before this receiver. */
@@ -1468,8 +1502,9 @@ int step_native_light(unsigned pad,uint64_t *light)
     if (!(t&T_STEPS) && (!atomic_load(&requested_shift) || (t&T_PICKER)) && (atomic_load(&playback_mask)&(1u<<pad))) {
         int bank=atomic_load(&playback_colour_bank);
         if(bank>=0&&atomic_load(&requested_erase))return 0;
-        uint32_t rgb=(atomic_load(&playback_muted_mask)&(1u<<pad))?PAD_MUTED:bank>=0?music_pad_rgb((unsigned)bank*16+pad):PAD_PLAYHEAD;
-        float brightness=rgb==PAD_MUTED?.65f:.9f;uint32_t f;memcpy(&f,&brightness,4);*light=(uint64_t)rgb|((uint64_t)f<<32);return 1;
+        int muted=!!(atomic_load(&playback_muted_mask)&(1u<<pad));
+        uint32_t rgb=muted?PAD_MUTED:bank>=0?music_pad_rgb((unsigned)bank*16+pad):PAD_PLAYHEAD;
+        float brightness=muted?.65f:.9f;uint32_t f;memcpy(&f,&brightness,4);*light=(uint64_t)rgb|((uint64_t)f<<32);return 1;
     }
     if (!(t&(T_STEPS|T_PICKER))) return 0;
     *light=atomic_load(&lights[pad]); return 1;
@@ -1479,18 +1514,18 @@ int step_native_tick(void)
     if (!on_ui()) return 0;
     if(picker_preview_wait&&!workflow_event_preview_pending()){picker_preview_wait=0;picker_probe("PAD_DONE",picker_audition_pad);}
     if (atomic_exchange(&dead,0)) { root=NULL;controller=NULL;steps=menu=showing=0;reset_mute();invalidate(); }
-    if (atomic_exchange(&project_reset,0)) { atomic_store(&write_armed,0);atomic_store(&toggle_armed,0);sound_initialized=0;clip_valid=0;steps=want_steps=menu=0;last_sequence=NULL;reset_mute();invalidate(); }
-    if (atomic_exchange(&queue_fault,0)) { atomic_store(&write_armed,0);atomic_store(&toggle_armed,0);steps=want_steps=menu=0;reset_mute();invalidate();say("Steps stopped: input queue full"); }
+    if (atomic_exchange(&project_reset,0)) { roll_project_reset();atomic_store(&write_armed,0);atomic_store(&toggle_armed,0);sound_initialized=0;clip_valid=0;steps=want_steps=menu=0;last_sequence=NULL;reset_mute();invalidate(); }
+    if (atomic_exchange(&queue_fault,0)) { roll_close();atomic_store(&write_armed,0);atomic_store(&toggle_armed,0);steps=want_steps=menu=0;reset_mute();invalidate();say("Steps stopped: input queue full"); }
     if(menu!=3){stop_picker_audition();preview_gate_set(NULL,NULL);}
     int previous_showing=showing;
     showing=root && FIELD(root,0,uintptr_t)==base+SCREEN_VPTR
         && FN(0x112fd50,int(*)(void*))(root) && !FN(0x112f6b0,int(*)(void*))(root);
-    if (!showing) { stop_picker_audition();preview_gate_set(NULL,NULL);if(previous_showing) invalidate();menu=0;
+    if (!showing) { roll_close();stop_picker_audition();preview_gate_set(NULL,NULL);if(previous_showing) invalidate();menu=0;
         mute_latched=mute_held=mute_used=0;atomic_store(&mute_active,0);
         atomic_store(&event_edit_mask,0);publish();return root!=NULL; }
     if (message[0] && milliseconds()>=message_until) {message[0]=0;repaint();}
     controller=FIELD(root,0x108,void*);
-    if (!controller || FIELD(controller,0,uintptr_t)!=base+CONTROLLER_VPTR) { stop_picker_audition();preview_gate_set(NULL,NULL);showing=0;publish();return 0; }
+    if (!controller || FIELD(controller,0,uintptr_t)!=base+CONTROLLER_VPTR) { roll_close();stop_picker_audition();preview_gate_set(NULL,NULL);showing=0;publish();return 0; }
     void *things=FIELD(controller,0x248,void*);
     sequence=things ? FIELD(things,0x1c8,void*) : NULL;
     void *program=things ? FIELD(things,0xb8,void*) : NULL;
@@ -1503,7 +1538,7 @@ int step_native_tick(void)
         picker_muted=0;
         stop_picker_audition();
         preview_gate_set(NULL,NULL);
-        last_sequence=event_list;last_program=program;menu=0;invalidate();
+        last_sequence=event_list;last_program=program;menu=0;roll_close();invalidate();
         mute_latched=mute_held=mute_used=0;atomic_store(&mute_active,0);
         edit_tick=clamp_tick(FIELD(controller,0x70,int64_t)); cursor=(int)(edit_tick/grid_ticks[grid]);page=cursor/16;
     }
@@ -1517,6 +1552,7 @@ int step_native_tick(void)
     play_tick=(int64_t)atomic_load(&clock_tick);
     if (!atomic_load(&clock_valid) || play_tick<0) {was_playing=0;play_tick=0;}
     if (play_tick>=length) play_tick%=length;
+    if(atomic_load(&piano_active)){roll_refresh(0);roll_palette();publish();repaint();return 1;}
     if (steps) {
         int bank=native_bank();
         if (bank>=0 && bank!=last_native_bank) {browse_bank=bank;message[0]=0;repaint();}
@@ -1587,6 +1623,7 @@ int step_native_control(void *event,uint64_t t)
     unsigned cc=FIELD(event,8,unsigned char),v=FIELD(event,9,unsigned char);
     int event_shift=!!(t&T_SHIFT);
     int rel=cc==0x64;
+    if(atomic_load(&piano_active))return roll_control(cc,v,event_shift);
     if(menu==4){
         if(rel || cc==0x11)picker_source_index=(unsigned)choose(v,(int)picker_source_index,0,(int)picker_source_count-1,rel);
         repaint();return 1;
@@ -1713,6 +1750,7 @@ int step_native_control(void *event,uint64_t t)
     step_native_tick();repaint();return 1;
 }
 int step_native_reset_knob(unsigned column,unsigned shifted){
+ if(atomic_load(&piano_active))return 1;
  if(!showing||!steps)return 0;
  if(menu||column>2)return 1;
  if(column==1){grid=shifted?grid%5:2+(grid>=5?5:0);cursor=(int)(edit_tick/grid_ticks[grid]);page=cursor/16;}
@@ -1725,6 +1763,7 @@ int step_native_button_at(void *event,uint64_t t,uint64_t when_ms)
     if (!on_ui()) return 1;
     unsigned code=FIELD(event,8,unsigned char),down=FIELD(event,9,unsigned char)!=0;
     if (code>=112) return 0;
+    if (!down && atomic_exchange(&piano_forwarded_buttons[code],0)) return 2;
     if(code==BUTTON_MUTE && !down && atomic_load(&owned_buttons[code])){
         atomic_store(&owned_buttons[code],0);atomic_fetch_sub(&held_buttons,1);
         if(showing && steps && !menu && mute_held){
@@ -1741,6 +1780,7 @@ int step_native_button_at(void *event,uint64_t t,uint64_t when_ms)
         step_native_tick();
         return 2; /* Native modifier release; never erase an Events row. */
     }
+    if (code==BUTTON_ERASE && !down) roll_erase_release();
     if (atomic_load(&owned_buttons[code])) {
         if (!down) {atomic_store(&owned_buttons[code],0);atomic_fetch_sub(&held_buttons,1);}
         return 1;
@@ -1748,6 +1788,8 @@ int step_native_button_at(void *event,uint64_t t,uint64_t when_ms)
     step_native_tick(); if (!current(t)) return 0;
     if (!down) return 0;
     int event_shift=!!(t&T_SHIFT);
+    if(atomic_load(&piano_active)){int result=roll_button(code,event_shift);if(result==1){atomic_store(&owned_buttons[code],1);atomic_fetch_add(&held_buttons,1);}else if(result==2)atomic_store(&piano_forwarded_buttons[code],1);publish();return result;}
+    if(code==0x00&&!menu){roll_open();atomic_store(&owned_buttons[code],1);atomic_fetch_add(&held_buttons,1);return 1;}
     if (code==BUTTON_ERASE && !steps && !menu) {
         atomic_store(&events_erase_forwarded,1);
         return 2; /* retain stock Erase modifier for Erase+pad */
@@ -1828,10 +1870,12 @@ int step_native_button_at(void *event,uint64_t t,uint64_t when_ms)
 }
 int step_native_button(void *event,uint64_t t)
 {return step_native_button_at(event,t,milliseconds());}
-void step_native_pad(unsigned pad,uint64_t t)
+void step_native_pad_velocity(unsigned pad,uint64_t t,unsigned velocity)
 {
     if (!on_ui() || pad>=16) return;
+    roll_input_velocity=clamp((int)velocity,1,127)/127.f;
     step_native_tick();if (!current(t)) return;
+    if(atomic_load(&piano_active)){roll_pad(pad);return;}
     if (menu==3 && (t&T_PICKER)) {
         ++picker_probe_serial;picker_probe("PAD_BUSY",pad);
         int valid=(picker_mode!=8||picker_base+(int)pad<=picker_slice_count)&&(picker_mode!=1||picker_pad_ok(pad));
@@ -1902,6 +1946,7 @@ static void shift_badge(void *g,int bx,int top,int on)
     colour(g,on ? 0xffff4747 : 0xffffffff);
     SHIFT_BADGE_RECTS(rect,g,bx,top);
 }
+void step_native_pad(unsigned pad,uint64_t t){step_native_pad_velocity(pad,t,100);}
 static void left_text(void*g,const char*s,int x,int y,int w,int h,float height){text_align(g,s,x,y,w,h,height,0x21);}
 static void right_text(void*g,const char*s,int x,int y,int w,int h,float height){text_align(g,s,x,y,w,h,height,0x22);}
 static void outline(void *g,int x,int y,int w,int h)
@@ -1949,6 +1994,7 @@ void step_native_paint(void *p,void *g)
         report("STEP_SCREEN_OBSERVED r13g");
     }
     if (!step_native_tick() || !showing) return;
+    if(atomic_load(&piano_active)){roll_paint(g);return;}
     if (!steps) {
         colour(g,0xff000000);rect(g,107,5,106,28);colour(g,WHITE);text(g,"Steps",109,6,102,22,14);
         colour(g,0xff000000);rect(g,213,5,107,28);colour(g,shift?WHITE:RED);text(g,shift ? "Copy/Paste" : "Erase",215,6,103,22,14);
@@ -2155,3 +2201,5 @@ int step_native_install(void (*paint)(void*,void*))
     if(mprotect(p,4096,PROT_READ)) _exit(121);
     return 1;
 }
+
+#include "piano_roll_native.inc"

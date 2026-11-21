@@ -328,17 +328,20 @@ static void header(const struct mixer_view_state*s,const struct resample_painter
     if(input_tabs){
         const char*tab[3]={"Back",s->shifted?"Paste":"FX",s->shifted?"Chain Bypass":"ROUTE"};
         for(unsigned i=0;i<3;++i){int x=i==2?213:(int)i*106,w=i==0?106:107;
+            if(i==2&&s->sequence_muted)w-=25;
             int on=s->shifted?(i==2&&s->project->input.fx_bypass!=0):(i>0&&s->input_tab==i);
             uint32_t ink=s->shifted?(on?SEND:i==0?WHITE:GREY):on?AMBER:WHITE;
-            mixer_key(p,tab[i],x+2,1,w-4,18,strlen(tab[i])>10?12:14,ink,on);}
+            mixer_key(p,tab[i],x+2,1,w-4,18,strlen(tab[i])>10?(i==2&&s->sequence_muted?10:12):14,ink,on);}
     }
     if(s->name_edit){names[0]="Cancel";names[1]=s->shifted?"Clear":"Erase";names[2]="Save";lit[1]=lit[2]=off=0;}
     else if(s->shifted&&s->page==MIXER_OVERVIEW){names[1]="Rename";names[2]="Clear Solo";lit[2]=0;}
     for(unsigned i=0;i<3&&!input_tabs;++i){int x=i==2?213:(int)i*106,w=i==0?106:107;
+        if(i==2&&s->sequence_muted)w-=25;
         uint32_t active=i==1?(0xff000000u|MIXER_MUTE_RGB):(s->shifted&&s->page==MIXER_KNOB_FX?SEND:0xff000000u|MIXER_SOLO_RGB);
         int gates=!s->name_edit&&!s->shifted&&(s->page==MIXER_OVERVIEW||s->page==MIXER_ASSIGN||s->page==MIXER_KNOB_FX);
         uint32_t ink=i&&(off||(i==2&&(s->master&&gates)))?GREY:lit[i]?active:i==2&&gates?GREY:WHITE;
-        mixer_key(p,names[i],x+2,1,w-4,18,strlen(names[i])>10?12:14,ink,lit[i]);}
+        mixer_key(p,names[i],x+2,1,w-4,18,strlen(names[i])>10?(i==2&&s->sequence_muted?10:12):14,ink,lit[i]);}
+    if(s->sequence_muted)text(p,"SM",294,1,24,15,12,0xffff4747u,1);
     unsigned group=0;for(unsigned i=0;i<8;++i)if(s->selected&(1u<<i))++group;
     int overview=s->page==MIXER_OVERVIEW&&!s->name_edit;
     if(overview){
@@ -445,7 +448,7 @@ static void footer(const struct mixer_view_state*s,const struct resample_painter
     if(!s->master){
         uint32_t colour=s->project->track[s->primary].colour;
         int index=mixer_colour_index(colour);
-        if(index>=0)knob_steps(p,2,index,MIXER_COLOURS,0xff000000u|colour);
+        if(index>=0)knob_steps(p,2,index,mixer_colour_count(),0xff000000u|colour);
         else rect(p,217,235,99,2,0xff000000u|colour);
     }
 }
@@ -769,13 +772,14 @@ static void comp_editor(const struct mixer_view_state*s,const struct resample_pa
     m.input_peak=powf(10.f,fminf(0.f,fmaxf(-90.f,k->level))/20.f);m.output_peak=m.input_peak*powf(10.f,(k->gain-m.gain_reduction_db)/20.f);
     struct comp_config cfg={k->threshold,k->ratio,k->gain,k->bypass||ch->fx_bypass||!k->available,k->attack,k->release,k->knee,k->warm};
     fxv_idle=!k->available||k->bypass||ch->fx_bypass;fxv_now=fxv_idle?0:s->now_ms;
+    fxv_history_bypass=(unsigned)fxv_idle;
     if(fxv_idle){memset(&m,0,sizeof m);}
-    fxv_history_push(0x5343u,fxv_now,&m);
+    fxv_history_push(0x5343u,s->now_ms,&m);
     {
         struct resample_painter dim={(void*)p,fxv_dim_rect,fxv_dim_text};
         fxv_opto_draw(fxv_idle?&dim:p,&cfg,fxv_idle?-60:k->level,m.gain_reduction_db,&m);
     }
-    fxv_idle=0;
+    fxv_idle=0;fxv_history_bypass=0;
     const char*label[3];char value[3][20];unsigned layer=s->shifted?2:1;
     if(s->shifted){
         label[0]="Attack";label[1]="Release";label[2]="Knee";

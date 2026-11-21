@@ -1,7 +1,9 @@
 """Render a render_fx_view trace to PNG (3x). usage: render_fx_view.py trace.txt out.png"""
 import sys
+from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 F='/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf'
+if not Path(F).exists():F='C:/Windows/Fonts/consola.ttf'
 im=Image.new('RGB',(320,240),'black');d=ImageDraw.Draw(im)
 for line in open(sys.argv[1],encoding='utf-8'):
     if line.startswith('R '):

@@ -222,7 +222,7 @@ static void set_pan(struct mixer_mix*m,float pan){m->pan=pan<-1?-1:pan>1?1:pan;}
 static void set_colour(struct mixer_control*c,unsigned index)
 {
     if(c->view.master){c->message="Master colour is fixed";return;}
-    uint32_t rgb=mixer_colour_at(index<MIXER_COLOURS?index:MIXER_COLOURS-1);
+    uint32_t rgb=mixer_colour_at(index<mixer_colour_count()?index:mixer_colour_count()-1);
     for(unsigned i=0;i<8;++i)if((c->view.selected&(1u<<i))&&c->desired.track[i].colour!=rgb){c->desired.track[i].colour=rgb;changed(c);}
 }
 static const struct mixer_mix*primary_mix(const struct mixer_control*c)
@@ -477,7 +477,10 @@ int mixer_control_button(struct mixer_control*c,enum mixer_action action,int dow
         int inspect=c->view.page==MIXER_INSPECT;
         int bank_key=action==MIXER_BANK;
         int previous=action==MIXER_BANK_PREVIOUS||(bank_key&&c->shift);
-        if(inspect?bank_key:!bank_key){
+        /* Pad FX / Assign: +/- browse tracks; PAD BANK changes pad banks.
+         * Read-only Routing retains its existing navigation. */
+        int track_action=c->view.page==MIXER_ASSIGN?!bank_key:inspect?bank_key:!bank_key;
+        if(track_action){
             browse_track(c,previous);
         }else if(bank_page){
             c->view.bank=(c->view.bank+(previous?7:1))%8;
@@ -934,7 +937,7 @@ static int raw_cc(struct mixer_control*c,unsigned cc,unsigned value,uint64_t tic
     if(c->view.page==MIXER_KNOB_FX&&c->fx_editing)return fx_cc(c,cc,value);
     if(c->view.page!=MIXER_OVERVIEW&&c->view.page!=MIXER_ASSIGN)return 1;
     if(cc==0x10){each(c,set_pan,value==64?0:((float)value-64)/(value<64?64:63));c->view.cursor=PARAM_PAN;return 1;}
-    if(cc==0x12){set_colour(c,value*MIXER_COLOURS/128);if(!c->view.master)c->view.cursor=PARAM_COLOUR;return 1;}
+    if(cc==0x12){set_colour(c,value*mixer_colour_count()/128);if(!c->view.master)c->view.cursor=PARAM_COLOUR;return 1;}
     if(cc==0x11){
         if(c->view.master)return 1;
         c->view.cursor=PARAM_SEND;
@@ -963,7 +966,7 @@ static int raw_cc(struct mixer_control*c,unsigned cc,unsigned value,uint64_t tic
         }else each(c,set_send,m->send+delta*.01f);
     }
     else if(c->view.cursor==PARAM_COLOUR&&!c->view.master){int index=mixer_colour_index(c->desired.track[c->view.primary].colour);
-        int next=index<0?0:index+delta;if(next<0)next=0;if(next>=(int)MIXER_COLOURS)next=MIXER_COLOURS-1;set_colour(c,(unsigned)next);}
+        int next=index<0?0:index+delta;if(next<0)next=0;if(next>=(int)mixer_colour_count())next=mixer_colour_count()-1;set_colour(c,(unsigned)next);}
     return 1;
 }
 
@@ -1002,7 +1005,7 @@ static float takeover_target(struct mixer_control*c,unsigned cc){
  if(k==0)return 64+ch->mix.pan*(ch->mix.pan<0?64:63);
  if(c->view.master)return -1;
  if(k==1)return c->shift?(mixer_routing_index(mixer_send_excluded(&c->desired,c->view.selected),c->desired.send_to[c->view.primary])+.5f)*128/mixer_routing_choice_count(mixer_send_excluded(&c->desired,c->view.selected)):ch->mix.send*127;
- if(k==2)return (mixer_colour_index(ch->colour)+.5f)*128/MIXER_COLOURS;
+ if(k==2)return (mixer_colour_index(ch->colour)+.5f)*128/mixer_colour_count();
  return -1;
 }
 int mixer_control_cc(struct mixer_control*c,unsigned cc,unsigned value,uint64_t ticket){

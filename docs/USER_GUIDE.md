@@ -87,6 +87,16 @@ One full-screen window, the same everywhere: note names, a straight ±50 cent sc
 
 Sample Record B1 selects Off / Record / On; only Off has a crossed-out icon. Rear Routing has separate Mon L/R controls. In Am MOD use Input FX and Input ROUTE's Record FX Wet / Dry; the stock **Rec Input Effects** row is hidden. Stock retains that row. In Routing, Stop finishes/cancels local recording and reaches the transport; the second Stop kills voices and FX tails.
 
+## r30c development: Piano Roll and sequence mutes
+
+In Piano Roll, select a row and press **Mute** to mute or unmute that pad in the current sequence. A red **M** marks the row. In Tune and Chop layers, the mute belongs to the source pad and is shown beside all its rows. Events and other pads' or sequences' mute states are preserved.
+
+A red **SM** means that the current sequence contains at least one muted pad. It appears in Piano Roll, the shared Sample/Sequence header, and ordinary Mixer/FX screens. Separate modal dialogs may use their own headers. Switching sequences shows the newly selected sequence's state.
+
+While browsing Piano Roll, **K2** selects the grid and displays its current value directly above the knob. There are ten straight/triplet divisions and **Off / 1 tick**. Grid selection leaves zoom unchanged; Shift+DATA controls horizontal zoom. During event editing, K2 retains its Pad/Pitch function, or Velocity with Shift.
+
+These changes are being prepared for r30c; source availability does not mean they are already installed on your MPC.
+
 ## Saving, export and help
 
 Save to **External**. Song → Export → Stems writes tracks and Master to `Samples/User/Export/<song>/`; sends make stems overlap. See [USB](USB_GUIDE.md) for separate USB tracks.
