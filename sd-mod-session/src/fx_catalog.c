@@ -83,6 +83,7 @@ const char*fx_catalog_parameter_label(const struct fx_catalog_entry*e,unsigned i
     return label;
 }
 unsigned fx_catalog_choice_count(const struct fx_catalog_entry*e,unsigned index){
+    if(e&&e->id==FX_OWN_HS_HEAT)return index==0||index==3?8u:index==14?7u:0u;
     return e&&e->id==0x61464153u?(index==FX_CONTROL_AMP_MODEL?fx_amp_model_count():index==9?11u:index==10?2u:0u):0u;
 }
 const char *fx_catalog_choice_name(const struct fx_catalog_entry*e,unsigned index,float v)
@@ -92,6 +93,13 @@ const char *fx_catalog_choice_name(const struct fx_catalog_entry*e,unsigned inde
     unsigned n=fx_catalog_choice_count(e,index);
     if(!n)return "";
     v=fminf(1.f,fmaxf(0.f,v));
+    if(e->id==FX_OWN_HS_HEAT){
+        static const char*const circuit[8]={"Clean Boost","Saturation","Enhancement","Mid Drive","Rough Crunch","Classic Dist","Round Fuzz","High Gain"};
+        static const char*const ftype[8]={"Off","LP 12 dB","LP 6 dB","Band Pass","HP 6 dB","HP 12 dB","Notch","Peak"};
+        static const char*const wave[7]={"Triangle","Sine","Square","Saw","Exp","Ramp","Random"};
+        unsigned k=(unsigned)(v*(float)(n-1)+.5f);
+        return index==0?circuit[k]:index==3?ftype[k]:wave[k];
+    }
     if(index==FX_CONTROL_AMP_MODEL)return fx_amp_model_name((unsigned)lroundf(v*(n-1)));
     if(index==10)return v<.5f?"Mono":"Stereo";
     return cab[(unsigned)(v*(float)(n-1)+.5f)];

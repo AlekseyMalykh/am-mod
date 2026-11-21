@@ -1126,8 +1126,80 @@ static void fxv_hs_drive(const struct resample_painter*p,const struct fx_stage*s
 }
 static void fxv_hs_saturator(const struct resample_painter*p,const struct fx_stage*stage)
 {fxv_hs_drive(p,stage,fxv_p(stage,0),fxv_p(stage,2));}
+static double fxv_heat_clip(int circuit,double x,double g)
+{
+    switch(circuit){
+    case 4:case 5:{double o=x*g;return o>1?1:o<-1?-1:o;}
+    case 6:return tanh(g*x+.3)-tanh(.3);
+    case 7:return tanh(2.0*tanh(g*x));
+    default:return tanh(g*x);}
+}
+static double fxv_heat_filter_db(int type,double hz,double fc,double res)
+{
+    double r=hz/fc,q=.7+res*7.0,m=1.0;
+    switch(type){
+    case 1:m=1.0/sqrt((1-r*r)*(1-r*r)+(r/q)*(r/q));break;
+    case 2:m=1.0/sqrt(1+r*r);break;
+    case 3:{double d=q*(r-1.0/r);m=1.0/sqrt(1+d*d);break;}
+    case 4:m=r/sqrt(1+r*r);break;
+    case 5:m=r*r/sqrt((1-r*r)*(1-r*r)+(r/q)*(r/q));break;
+    case 6:{double d=q*(r-1.0/r);m=fabs(d)/sqrt(1+d*d);break;}
+    case 7:{double d=q*(r-1.0/r);m=1.0+(1.0+3.0*res)/(1.0+d*d);m*=.5;break;}
+    default:break;}
+    return 20.0*log10(fmax(m,1e-3));
+}
+static double fxv_heat_wave(int w,double t)
+{
+    t-=floor(t);
+    switch(w){
+    case 0:return t<.5?4*t-1:3-4*t;
+    case 1:return sin(6.2831853*t);
+    case 2:return t<.5?1:-1;
+    case 3:return 1-2*t;
+    case 4:return 2*exp(-4*t)-1;
+    case 5:return 2*t-1;
+    default:{double h=sin(t*43.7)*9573.1;return 2*(h-floor(h))-1;}}
+}
+/* Faceplate-style panel: circuit name, its clipper curve, the filter response and the LFO shape. */
 static void fxv_hs_heat(const struct resample_painter*p,const struct fx_stage*stage)
-{fxv_hs_drive(p,stage,fxv_p(stage,1),fxv_p(stage,16));}
+{
+    static const char*const circuit[8]={"CLEAN BOOST","SATURATION","ENHANCEMENT","MID DRIVE","ROUGH CRUNCH","CLASSIC DIST","ROUND FUZZ","HIGH GAIN"};
+    static const char*const ftype[8]={"FILTER OFF","LP 12 dB","LP 6 dB","BAND PASS","HP 6 dB","HP 12 dB","NOTCH","PEAK"};
+    static const char*const wave[7]={"TRI","SINE","SQR","SAW","EXP","RAMP","RND"};
+    int c=(int)lround(fxv_p(stage,0)*7.0),ft=(int)lround(fxv_p(stage,3)*7.0),wv=(int)lround(fxv_p(stage,14)*6.0);
+    double drive=fxv_p(stage,1),fc=fxv_hz(fxv_p(stage,4)),res=fxv_p(stage,5);
+    rect(p,FXV_X,FXV_Y,FXV_W,FXV_H,WELL);
+    rect(p,FXV_X,FXV_Y,FXV_W,16,0xff10181fU);
+    text(p,circuit[c],FXV_X+8,FXV_Y+1,130,14,12,fxv_acc,0);
+    for(int i=0;i<8;++i)rect(p,FXV_X+FXV_W-76+i*8,FXV_Y+5,5,5,i==c?fxv_acc:0xff2a323aU);
+    /* left: clipper curve with a live input sine */
+    int lx=FXV_X+8,lw=132,ly=FXV_Y+20,lh=52,cy=ly+lh/2;
+    rect(p,lx,cy,lw,1,0xff1a222aU);rect(p,lx+lw/2,ly,1,lh,0xff1a222aU);
+    double g=1.0+drive*9.0;int prev=cy;
+    for(int x=0;x<lw;x+=2){
+        double s=((double)x/(lw-1))*2-1,o=fxv_heat_clip(c,s,g);
+        int y=cy-(int)lround((lh/2-2)*o);
+        rect(p,lx+x,y<prev?y:prev,2,abs(y-prev)+2,fxv_acc);prev=y;
+    }
+    double ph=fxv_now*.0015;rect(p,lx+(int)lround((lw-3)*(.5+.5*sin(ph))),ly,3,lh,0xff3a4650U);
+    /* right: filter response */
+    int rx=FXV_X+150,rw=138,ry=FXV_Y+20,rh=52;
+    text(p,ftype[ft],rx,FXV_Y+1,rw,14,10,0xffa0a8b0U,0);
+    rect(p,rx,ry+rh-1,rw,1,0xff1a222aU);
+    for(int x=0;x<rw;++x){
+        double hz=20.0*pow(1000.0,(double)x/(rw-1)),db=fxv_heat_filter_db(ft,hz,fc,res);
+        int h=(int)lround((db+36.0)/48.0*(rh-2));if(h<1)h=1;if(h>rh-2)h=rh-2;
+        rect(p,rx+x,ry+rh-1-h,1,h,0xff1a2830U);rect(p,rx+x,ry+rh-1-h,1,2,fxv_acc);
+    }
+    /* bottom: LFO shape and Dirt/EQ readout */
+    int by=FXV_Y+76;
+    text(p,wave[wv],FXV_X+8,by,30,14,10,0xffa0a8b0U,0);
+    for(int x=0;x<60;++x){int y=by+7-(int)lround(5*fxv_heat_wave(wv,x/60.0*2));rect(p,FXV_X+40+x,y,1,2,0xff4a8a98U);}
+    rect(p,FXV_X+40+(int)((fxv_now/40)%60),by,1,14,0xff3a4650U);
+    char line[40];snprintf(line,sizeof(line),"DIRT %d  MIX %d%%",(int)lround(fxv_p(stage,6)*127.0),(int)lround(fxv_p(stage,16)*100.0));
+    text(p,line,FXV_X+120,by,120,14,10,0xffa0a8b0U,0);
+    fxv_hs_credit(p);
+}
 /* Crossover line on a log axis; the bar left of it is the bass level, Mono Bass shades it. */
 static void fxv_hs_bass(const struct resample_painter*p,const struct fx_stage*stage)
 {

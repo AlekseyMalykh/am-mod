@@ -157,6 +157,19 @@ static void configure(struct heat *s, const float *v)
         design(&s->pre[0], 0, 150, cc->lo_db, .707f, rate);
         design(&s->pre[1], 1, cc->mid_hz, cc->mid_db, .8f, rate);
         design(&s->pre[2], 2, 3000, cc->hi_db, .707f, rate);
+        /* Start at the steady state for silence: the circuit's bias is a constant DC that the DC
+         * blocker would otherwise ring out as a short low-frequency thump (fresh or switched circuit). */
+        float u0 = cc->bias, y0;
+        switch (cc->shape) {
+        case HARD: y0 = hard(u0); break;
+        case FUZZ: y0 = tanhf(u0); y0 += .35f*fabsf(y0); break;
+        default: y0 = tanhf(u0);
+        }
+        for (int k = 0; k < 2; ++k) {
+            s->x1[k] = u0; s->inter[k] = tanhf(u0); s->x2[k] = 4*s->inter[k];
+            if (cc->shape == TWO_STAGE) y0 = hard(4*s->inter[k]);
+            s->post[k] = y0; s->dcx[k] = y0; s->dcy[k] = 0;
+        }
     }
     s->circuit = c;
     s->drive = db(cc->gain_min + (cc->gain_max - cc->gain_min)*v[HE_DRIVE]/127)/cc->headroom;
