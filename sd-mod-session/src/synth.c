@@ -106,7 +106,7 @@ static const uint8_t key_scales[7][12]={{0,2,4,5,7,9,11},{0,2,3,5,7,8,10},{0,2,3
 static const uint8_t key_scale_len[7]={7,7,7,7,5,5,6};
 unsigned am_synth_key_note(unsigned layout,int root,unsigned scale,unsigned octave,unsigned pad){
  int base=12*(int)(octave+1)+root;int n;
- if(layout==1){unsigned len=key_scale_len[scale%7];n=base+12*(int)(pad/len)+key_scales[scale%7][pad%len];}
+ if(layout>=2){unsigned len=key_scale_len[scale%7];n=base+12*(int)(pad/len)+key_scales[scale%7][pad%len];}
  else n=base+(int)pad;
  return n<0?0u:n>127?127u:(unsigned)n;
 }

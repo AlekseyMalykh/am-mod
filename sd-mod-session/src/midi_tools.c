@@ -145,6 +145,7 @@ static int bvalid(const struct am_midi_button*b){return b->kind<=2&&b->port<=2&&
 void am_midi_button_learn(unsigned code,int on){atomic_store(&learn_first,0);atomic_store(&learn_rel,0);atomic_store(&learn_message,0);atomic_store(&learn_pad,0);atomic_store(&learn_btn,on&&code<256?code+1:0);}
 unsigned am_midi_button_learning(void){return atomic_load(&learn_btn);}
 void am_midi_button_clear(void){for(unsigned i=0;i<AM_MIDI_BUTTON_SLOTS;++i)atomic_store(bslots+i,0);atomic_store(&learn_btn,0);atomic_fetch_add(&revision,1);}
+void am_midi_button_remove(unsigned code){for(unsigned i=0;i<AM_MIDI_BUTTON_SLOTS;++i){struct am_midi_button o;am_midi_button_get(i,&o);if(o.kind&&o.code==(uint8_t)code)atomic_store(bslots+i,0);}atomic_store(&learn_btn,0);atomic_store(&learn_first,0);atomic_store(&learn_rel,0);atomic_fetch_add(&revision,1);}
 int am_midi_button_take(unsigned*code,unsigned*down){
     unsigned r=atomic_load(&bq_r);
     if(r==atomic_load(&bq_w))return 0;

@@ -1243,13 +1243,14 @@ extern int am_synth_peek(struct synth_live*) __attribute__((weak));
 extern unsigned am_synth_key_note(unsigned,int,unsigned,unsigned,unsigned) __attribute__((weak));
 static void synth_text(const struct mixer_view_state*s,int id,char*name,size_t nn,char*val,size_t vn)
 {
-    static const char*const names[16]={"Wave","Cutoff","Attack","Decay","Sustain","Release","Level","MIDI channel","Mic","Fader","Layout","Key","Scale","Octave","Transpose","Colour"};
+    static const char*const names[17]={"Wave","Cutoff","Attack","Decay","Sustain","Release","Level","MIDI channel","Mic","Fader","Layout","Key","Scale","Octave","Transpose","Colour","Role"};
+    static const char*const rolen[4][4]={{"Pads","","",""},{"White","Black","",""},{"Tonic","Scale","",""},{"I","Key notes","IV","V"}};
     static const char*const cols[6]={"Purple","Blue","Green","Amber","Red","White"};
     static const char*const waves[4]={"Sine","Saw","Square","Triangle"};
-    static const char*const lay[2]={"Chromatic","Scale"};
+    static const char*const lay[4]={"Monochrome","Piano","Scale","Degrees"};
     static const char*const root[12]={"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
     static const char*const scl[7]={"Major","Minor","Dorian","Mixolydian","Pent maj","Pent min","Blues"};
-    if(id<0||id>15){name[0]=val[0]=0;return;}
+    if(id<0||id>16){name[0]=val[0]=0;return;}
     snprintf(name,nn,"%s",names[id]);
     unsigned v=id<10&&am_synth_param_get?am_synth_param_get((unsigned)id):0;
     switch(id){
@@ -1257,12 +1258,13 @@ static void synth_text(const struct mixer_view_state*s,int id,char*name,size_t n
         case 7:snprintf(val,vn,"%u",v+1);break;
         case 8:snprintf(val,vn,"%s",v?"On":"Off");break;
         case 9:snprintf(val,vn,"%s",v==1?"Mod":v==2?"Pitch":"Off");break;
-        case 10:snprintf(val,vn,"%s",lay[s->synth_layout%2]);break;
+        case 10:snprintf(val,vn,"%s",lay[s->synth_layout%4]);break;
         case 11:snprintf(val,vn,"%s",root[s->synth_root%12]);break;
         case 12:snprintf(val,vn,"%s",scl[s->synth_scale%7]);break;
         case 13:snprintf(val,vn,"%u",s->synth_octave);break;
-        case 14:snprintf(val,vn,"%+d",(int)s->synth_transpose-12);break;
-        case 15:snprintf(val,vn,"%s",cols[s->synth_colour%6]);break;
+        case 14:snprintf(val,vn,s->synth_layout==3?"%+d steps":"%+d st",(int)s->synth_transpose-24);break;
+        case 15:snprintf(val,vn,"%s",cols[s->synth_cols[s->synth_layout%4][s->synth_role%4]%6]);break;
+        case 16:snprintf(val,vn,"%s",rolen[s->synth_layout%4][s->synth_role%4]);break;
         default:snprintf(val,vn,"%u",v);
     }
 }
@@ -1278,12 +1280,13 @@ static float synth_frac(const struct mixer_view_state*s,int id)
         case 7:return (float)v/15.0f;
         case 8:return v?1.0f:0.0f;
         case 9:return (float)(v%3)/2.0f;
-        case 10:return (float)(s->synth_layout%2);
+        case 10:return (float)(s->synth_layout%4)/3.0f;
         case 11:return (float)(s->synth_root%12)/11.0f;
         case 12:return (float)(s->synth_scale%7)/6.0f;
         case 13:return (float)(s->synth_octave%8)/7.0f;
-        case 14:return (float)(s->synth_transpose%25)/24.0f;
-        case 15:return (float)(s->synth_colour%6)/5.0f;
+        case 14:return (float)(s->synth_transpose%49)/48.0f;
+        case 15:return (float)(s->synth_cols[s->synth_layout%4][s->synth_role%4]%6)/5.0f;
+        case 16:return mixer_view_synth_roles(s->synth_layout)>1?(float)(s->synth_role%4)/(float)(mixer_view_synth_roles(s->synth_layout)-1):0.0f;
         default:return id<0?0.0f:(float)v/127.0f;
     }
 }
@@ -1326,7 +1329,7 @@ void mixer_view_synth(const struct mixer_view_state*s,const struct resample_pain
         char info[24];snprintf(info,sizeof info,"Voices %u",live.voices);text(p,info,8,33,70,11,10,GREY,0);
     }else{
         static const char*const nm[12]={"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
-        int rt=((int)s->synth_root+(int)s->synth_transpose-12);
+        int rt=((int)s->synth_root+(int)s->synth_transpose-24);
         for(unsigned row=0;row<4;++row)for(unsigned col=0;col<4;++col){
             unsigned pad=(3-row)*4+col;char n[16];
             unsigned note=am_synth_key_note?am_synth_key_note(s->synth_layout,rt,s->synth_scale,s->synth_octave,pad):pad;
@@ -1342,7 +1345,7 @@ void mixer_view_synth(const struct mixer_view_state*s,const struct resample_pain
     synth_text(s,0,a,sizeof a,b,sizeof b);synth_text(s,1,c,sizeof c,d,sizeof d);
     snprintf(sum[0],sizeof sum[0],"%s  Cut %u",b,am_synth_param_get?am_synth_param_get(1):0);
     sum[1][0]=0;
-    {char l[24],lv[24],r[24],rv[24];synth_text(s,10,l,sizeof l,lv,sizeof lv);synth_text(s,11,r,sizeof r,rv,sizeof rv);snprintf(sum[2],sizeof sum[2],"%s  %s  Oct %u",lv,rv,s->synth_octave);}
+    {char l[24],lv[24],r[24],rv[24];synth_text(s,10,l,sizeof l,lv,sizeof lv);synth_text(s,11,r,sizeof r,rv,sizeof rv);{char sl[24],sv[24];synth_text(s,12,sl,sizeof sl,sv,sizeof sv);snprintf(sum[2],sizeof sum[2],"%s  %s  %s",lv,rv,sv);}}
     for(unsigned m=0;m<3;++m){
         int y=32+(int)m*33,sel=m==page;
         rect(p,164,y,152,30,sel?0xff4a3a10u:0xff1c1c1cu);

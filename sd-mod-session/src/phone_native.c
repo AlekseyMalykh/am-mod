@@ -508,6 +508,7 @@ static void mixer_bank_light(void *sender,unsigned value,unsigned code)
     pthread_mutex_unlock(&bank_light_lock);
 }
 static const uint32_t synth_palette[6]={0xb060ffu,0x4090ffu,0x40d070u,0xffc247u,0xff5050u,0xffffffu};
+extern unsigned am_synth_key_note(unsigned,int,unsigned,unsigned,unsigned) __attribute__((weak));
 static void mixer_bank_lights_tracks(int tracks)
 {
     if(!native_bank_light)return;
@@ -607,8 +608,12 @@ static void mixer_publish_route(void)
     else if ((state & MIXER_OPEN) && view.project && !mixer_view_sound_pads(&view)) {
         for (unsigned i=0;i<16;++i) {
             uint64_t light = 0;
-            if (view.synth_page && view.synth_pick) { atomic_store(&mixer_select_lights[i], i<3 ? pad_light(synth_palette[view.synth_colour%6], view.synth_cursor==i ? .95f : .35f) : (uint64_t)0); continue; } /* Loop: page pads */
-            if (view.synth_page && view.synth_keys) { atomic_store(&mixer_select_lights[i], pad_light(synth_palette[view.synth_colour%6], (i%(view.synth_layout?(view.synth_scale>=6?6u:view.synth_scale>=4?5u:7u):12u))==0 ? .90f : .30f)); continue; } /* keyboard: C bright */
+            if (view.synth_page && view.synth_pick) { atomic_store(&mixer_select_lights[i], i<3 ? pad_light(synth_palette[0], view.synth_cursor==i ? .95f : .35f) : (uint64_t)0); continue; } /* Loop: page pads */
+            if (view.synth_page && view.synth_keys) {
+                unsigned lay=view.synth_layout%4,note=am_synth_key_note?am_synth_key_note(lay,(int)view.synth_root+(int)view.synth_transpose-24,view.synth_scale,view.synth_octave,(unsigned)i):(unsigned)i;
+                unsigned role=mixer_view_synth_role_of(lay,view.synth_scale,note,(unsigned)i)%4;
+                atomic_store(&mixer_select_lights[i], pad_light(synth_palette[view.synth_cols[lay][role]%6], role==0 ? .90f : .35f)); continue;
+            } /* keyboard lights follow the 16 Levels layout and colour roles */
             if (i < 8) {
                 int on = !view.master && (view.selected & (1u<<i));
                 const struct mixer_channel *track=view.project->track+i;
@@ -628,7 +633,7 @@ static void mixer_publish_route(void)
                     else if(track->fx.stage[slot].bypass)light=flash?pad_light(MIXER_MUTE_RGB,.60f):pad_light(hue,.12f); /* effect Bypass: red flash */
                     else light=pad_light(hue,.90f);
                 }else light=pad_light(0x808080u,.22f);
-            } else if (i == 12) light = pad_light(synth_palette[view.synth_colour%6], view.synth_page ? .90f : .40f); /* Synth */
+            } else if (i == 12) light = pad_light(synth_palette[0], view.synth_page ? .90f : .40f); /* Synth */
             else if (i == 14) light = pad_light(view.project->input.colour & 0xffffffu, view.master==2 ? .90f : .22f);
             else if (i == 15) light = pad_light(view.project->master.colour & 0xffffffu, view.master==1 ? .90f : .22f);
             atomic_store(&mixer_select_lights[i], light);

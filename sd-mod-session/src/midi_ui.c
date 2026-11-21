@@ -180,7 +180,7 @@ static void mode_control(unsigned code,unsigned v,int delta,unsigned shift){
  am_midi_mode_set(&m);
 }
 static void button_name(char*s,size_t n,unsigned code){
- if(code&0x80){unsigned k=code&0x7f;if(k==0x64)snprintf(s,n,"Data encoder");else snprintf(s,n,"K%u",k-0x0f);}
+ if(code&0x80){unsigned k=code&0x7f;if(k==0x64)snprintf(s,n,"Data encoder");else if(k==0x14)snprintf(s,n,"Fader");else snprintf(s,n,"K%u",k-0x0f);}
  else if(code==0x50)snprintf(s,n,"Rec");else if(code==0x51)snprintf(s,n,"Stop");else if(code==0x52)snprintf(s,n,"Play");else snprintf(s,n,"Button %02x",code);
 }
 static void button_paint(void*g){
@@ -195,7 +195,7 @@ static void button_paint(void*g){
   if(b.mkind)snprintf(src,sizeof src,"%s %u + %s %u",b.mkind==1?"N":"CC",b.mnumber,b.kind==1?"N":"CC",b.number);else snprintf(src,sizeof src,"%s %u  ch %s  %s",b.kind==1?"Note":"CC",b.number,chan,b.port?am_midi_port_name(b.port):"Any");
   label(g,nm,12,y,110,16,13,0xffffffff);label(g,src,128,y,184,16,12,0xffaaaaaa);++shown;}
  if(!shown)label(g,"No buttons assigned",8,70,304,16,13,0xff999999);
- label(g,"B3: clear all   B1: back",8,204,304,16,11,0xff999999);
+ label(g,learning?"B3: delete this one   B1: back":"B3: clear all   B1: back",8,204,304,16,11,0xff999999);
 }
 static void map_paint(void*g,unsigned which){
  static const char*in_names[]={"Off","Note","CC"};static const char*out_names[]={"Native","Off","Note","CC","Program"};
@@ -252,7 +252,7 @@ int am_midi_ui_control(void*e,unsigned shift){
  int delta=v>64?(int)v-128:v==64?0:(int)v;focus=code>=0x10&&code<=0x12?code-0x10:focus;
  if(which==1){if(code==0x64)row=clamp((int)row+delta,5);}
  else if(which==2){if(code==0x10){direction=v*3/128;scroll_anchor=0;}else if(code==0x11){port=v*3/128;scroll_anchor=0;}else if(code==0x12){if(shift)channel=v*17/128;else type=v*8/128;scroll_anchor=0;}else if(code==0x64)scroll_by(-delta);}
- else if(which==6){if((code==0x10||code==0x11||code==0x12||code==0x64)&&!am_midi_button_learning())am_midi_button_learn(code|0x80u,1);repaint();}
+ else if(which==6){if((code==0x10||code==0x11||code==0x12||code==0x14||code==0x64)&&!am_midi_button_learning())am_midi_button_learn(code|0x80u,1);repaint();}
  else if(which==5)mode_control(code,v,delta,shift);
  else if(which==7){synth_control(code,v,delta,shift);repaint();}
  else if(which>=3&&which!=7){if(code==0x10){if(which==4&&shift){map_layer=v*2/128;edit=0;}else pad=v;notice[0]=0;am_midi_learn(0,0);}else if(code==0x11)field=v*4/128;else if(code==0x12)change_field(v,0);else if(code==0x64){if(edit)change_field((unsigned)delta,1);else field=clamp((int)field+delta,3);}}
@@ -280,7 +280,7 @@ int am_midi_ui_button(void*e){
  else if(which==1&&(code==0x0e||code==0x6f)){atomic_store(&page,row+2);notice[0]=0;scroll_anchor=0;}
  else if(which==2){if(code==0x0d)am_midi_log_pause(!am_midi_log_paused());else if(code==0x0e){am_midi_log_clear();scroll_anchor=0;}else if(code==0x36)scroll_by(-7);else if(code==0x37)scroll_by(7);}
  else if(which==7){if(code==0x0e){synth_test=1;am_synth_note(60,100,1);}else if(code==0x6f)edit=!edit;}
- else if(which==6){if(code==0x0e)am_midi_button_clear();else if(code!=0x0c)am_midi_button_learn(code,1);}
+ else if(which==6){if(code==0x0e){unsigned l=am_midi_button_learning();if(l)am_midi_button_remove(l-1);else am_midi_button_clear();}else if(code!=0x0c)am_midi_button_learn(code,1);}
  else if(which==5){if(code==0x0d){atomic_store(&page,3);edit=0;}else if(code==0x0e){struct am_midi_mode m;am_midi_mode_get(&m);if(music_ui_shift_active()){memset(&m,0,sizeof m);m.root=60;}else m.mode=m.mode==AM_MIDI_MODE_DRUM?AM_MIDI_MODE_CHANNELS:m.mode==AM_MIDI_MODE_CHANNELS?AM_MIDI_MODE_SELECTED:m.mode==AM_MIDI_MODE_SELECTED?AM_MIDI_MODE_INSTRUMENT:AM_MIDI_MODE_DRUM;am_midi_mode_set(&m);}}
  else if(which>=3&&which!=7){if(code==0x0e||code==0x6f)edit=!edit;else if(code==0x0d){if(which==3)am_midi_learn(pad,!am_midi_learn_active());else if(map_layer){struct am_midi_map m;am_midi_layer_get(pad,&m,NULL);am_midi_layer_set(pad,&m,0);}else{struct am_midi_map m;am_midi_map_get(pad,&m);m.out_kind=m.out_port=m.out_channel=m.out_number=0;am_midi_map_set(pad,&m);}}else if(code==0x36||code==0x37)pad=clamp((int)pad+(code==0x36?1:-1),127);}
  repaint();return 1;

@@ -7,7 +7,7 @@ extern void am_synth_param_set(unsigned,unsigned) __attribute__((weak));
 extern void am_synth_note(unsigned,unsigned,int) __attribute__((weak));
 extern void am_synth_fader(unsigned) __attribute__((weak));
 extern void am_synth_keys_cfg(unsigned,int,unsigned,unsigned) __attribute__((weak));
-#define SYNTH_ROOT(c) ((int)(c)->view.synth_root+(int)(c)->view.synth_transpose-12)
+#define SYNTH_ROOT(c) ((int)(c)->view.synth_root+(int)(c)->view.synth_transpose-24)
 extern int am_synth_keys_get(void) __attribute__((weak));
 extern void am_synth_keys_set(int) __attribute__((weak));
 extern unsigned rear_setting(unsigned,unsigned) __attribute__((weak));
@@ -87,7 +87,7 @@ struct mixer_control*mixer_control_create(const struct mixer_control_ops*ops,dou
     if(!ops||!ops->submit||!isfinite(rate)||rate<8000||rate>192000)return NULL;
     struct mixer_control*c=calloc(1,sizeof(*c));if(!c)return NULL;
     c->takeover_mode[0]=c->takeover_mode[1]=c->takeover_mode[2]=2;
-    c->ops=*ops;c->rate=rate;c->ticket=1;c->view.selected=1;c->message="";c->view.synth_octave=3;c->view.synth_transpose=12;
+    c->ops=*ops;c->rate=rate;c->ticket=1;c->view.selected=1;c->message="";c->view.synth_octave=3;c->view.synth_transpose=24;mixer_view_synth_defaults(&c->view);
     mixer_defaults(&c->model);c->desired=c->model;return c;
 }
 void mixer_control_destroy(struct mixer_control*c){free(c);}
@@ -130,7 +130,7 @@ static const uint8_t synth_scales[7][12]={{0,2,4,5,7,9,11},{0,2,3,5,7,8,10},{0,2
 static const uint8_t synth_scale_len[7]={7,7,7,7,5,5,6};
 static unsigned synth_key_note(const struct mixer_control*c,unsigned pad){
     int base=12*(int)(c->view.synth_octave+1)+SYNTH_ROOT(c);int n;
-    if(c->view.synth_layout==1){unsigned len=synth_scale_len[c->view.synth_scale%7];n=base+12*(int)(pad/len)+synth_scales[c->view.synth_scale%7][pad%len];}
+    if(c->view.synth_layout>=2){unsigned len=synth_scale_len[c->view.synth_scale%7];n=base+12*(int)(pad/len)+synth_scales[c->view.synth_scale%7][pad%len];}
     else n=base+(int)pad;
     return n<0?0u:n>127?127u:(unsigned)n;
 }
@@ -144,12 +144,13 @@ static void synth_set_slot(struct mixer_control*c,int id,unsigned value){
         if(!am_synth_param_set)return;
         unsigned v=id==0?value*4/128:id==7?value*16/128:id==8?value*2/128:id==9?value*3/128:value;
         am_synth_param_set((unsigned)id,v);
-    }else if(id==10)c->view.synth_layout=value*2/128;
+    }else if(id==10){c->view.synth_layout=value*4/128;if(c->view.synth_role>=mixer_view_synth_roles(c->view.synth_layout))c->view.synth_role=0;}
     else if(id==11)c->view.synth_root=value*12/128;
     else if(id==12)c->view.synth_scale=value*7/128;
     else if(id==13)c->view.synth_octave=value*8/128;
-    else if(id==14)c->view.synth_transpose=value*25/128;
-    else if(id==15)c->view.synth_colour=value*6/128;
+    else if(id==14)c->view.synth_transpose=value*49/128;
+    else if(id==15)c->view.synth_cols[c->view.synth_layout%4][c->view.synth_role%4]=(unsigned char)(value*6/128);
+    else if(id==16)c->view.synth_role=value*mixer_view_synth_roles(c->view.synth_layout)/128;
     if(id>=10&&am_synth_keys_cfg)am_synth_keys_cfg(c->view.synth_layout,SYNTH_ROOT(c),c->view.synth_scale,c->view.synth_octave);
 }
 static void synth_control(struct mixer_control*c,unsigned cc,unsigned value){

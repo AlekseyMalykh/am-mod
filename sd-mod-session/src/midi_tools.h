@@ -44,6 +44,7 @@ int am_midi_button_get(unsigned slot,struct am_midi_button*);
 void am_midi_button_learn(unsigned code,int on);
 unsigned am_midi_button_learning(void);
 void am_midi_button_clear(void);
+void am_midi_button_remove(unsigned code); /* delete the assignment(s) of one button/knob code */
 int am_midi_button_take(unsigned*code,unsigned*down);
 int am_midi_translate(struct am_midi_router*,unsigned direction,unsigned port,
                       const struct am_midi_message*,struct am_midi_message*);

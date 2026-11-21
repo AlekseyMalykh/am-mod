@@ -15,6 +15,7 @@ extern "C" {
 #include <cstdio>
 #include <cstring>
 #include <cmath>
+#include <ctime>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -303,7 +304,15 @@ extern "C" void *rear_native_process(void *thread, void *position, void *buffer,
     static float synth_keep[2][8192]; int synth_direct = 0;
     if (am_synth_mic_muted && am_synth_mic_muted() && pcm && frames > 0 && frames <= 8192)
         for (int ch = 0; ch < channels && ch < 8; ++ch) if (pcm[ch]) std::memset(pcm[ch],0,(size_t)frames*sizeof(float)); /* synth replaces the microphone */
-    if (am_synth_active && am_synth_render_add && am_synth_active() && pcm && frames > 0 && frames <= 8192 && channels >= 1 && pcm[0])
+    static long long synth_last_ms = 0;
+    bool synth_run = false;
+    if (am_synth_active && am_synth_render_add && pcm && frames > 0 && frames <= 8192 && channels >= 1 && pcm[0]) {
+        struct timespec ts; clock_gettime(CLOCK_MONOTONIC,&ts); long long now = (long long)ts.tv_sec*1000 + ts.tv_nsec/1000000;
+        if (am_synth_active()) synth_last_ms = now;
+        /* keep running silent for 15 s after the last note: the Input FX tails must not be cut and the chain never gates on/off */
+        synth_run = synth_last_ms && now - synth_last_ms < 15000;
+    }
+    if (synth_run)
     {
         static float synth_out[2][8192];
         std::memset(synth_out,0,sizeof synth_out);
