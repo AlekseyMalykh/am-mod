@@ -1,4 +1,6 @@
-# Am MOD r30c — MIDI, proyectos, sintetizador y Piano Roll
+# Am MOD r30c beta1 — MIDI, proyectos, sintetizador y Piano Roll
+
+> **BETA — r30c-beta1.** Esta es una versión beta. **Aún falta probar la compatibilidad con otros mods (Stock, SampQOL, D.S.B y otros)**: no la uses con la única copia de proyectos importantes; haz antes una copia de seguridad. Por favor, informa de los problemas.
 
 Para el **firmware original de Akai MPC Sample 1.3.0.12**. Continúa r30b; el firmware instalado no se reescribe. Los puntos marcados como *pendiente* han pasado las pruebas en host/emulador, pero aún falta comprobarlos en el MPC real.
 

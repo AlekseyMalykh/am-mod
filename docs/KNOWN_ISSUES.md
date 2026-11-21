@@ -1,5 +1,7 @@
 # Known limitations and status — r30b
 
+> **r30c-beta1:** beta status. Compatibility with other mods (Stock, SampQOL, D.S.B) requires testing. Known open items: stock Save overwrite warning for same-named projects; "Original location unknown" after a project was last edited under another mod; Pad Bank knob reset not on every native screen.
+
 Updated **17 November 2026**. [Release notes](RELEASE_NOTES-r30b.md) · [USB guide](USB_GUIDE.md) · [Feedback](FEEDBACK.md).
 
 | Area | Current status |

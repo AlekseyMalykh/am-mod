@@ -1,6 +1,9 @@
 # Changelog
 
-## r30c — in development
+## r30c-beta1 — beta
+
+**Beta:** compatibility with other mods (Stock, SampQOL, D.S.B) still needs testing; hardware verification is ongoing.
+
 
 - MIDI Input B3 cycles Drum map, Channels and Selected pad without losing channel assignments; Selected pad exposes incoming channel and root note, with Shift+B3 reset.
 - Input Config has a B3 MIDI In entry sharing the existing channel and Map/Learn settings.
