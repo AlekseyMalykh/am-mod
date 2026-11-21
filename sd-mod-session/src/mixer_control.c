@@ -6,9 +6,12 @@ extern unsigned am_synth_param_get(unsigned) __attribute__((weak));
 extern void am_synth_param_set(unsigned,unsigned) __attribute__((weak));
 extern void am_synth_note(unsigned,unsigned,int) __attribute__((weak));
 extern void am_synth_fader(unsigned) __attribute__((weak));
-extern void am_synth_keys_cfg(unsigned,unsigned,unsigned,unsigned,unsigned) __attribute__((weak));
-extern void am_synth_key_resolve(unsigned,unsigned,unsigned,int*,unsigned*) __attribute__((weak));
-extern unsigned am_synth_key_note(unsigned,int,unsigned,unsigned,unsigned) __attribute__((weak));
+extern void am_synth_keys_cfg(unsigned,unsigned,unsigned,unsigned,unsigned,const unsigned char*) __attribute__((weak));
+extern uint64_t am_synth_pad_info(unsigned,unsigned*) __attribute__((weak));
+extern unsigned music_light_colour_count(void) __attribute__((weak));
+extern unsigned music_light_colour_choice(unsigned) __attribute__((weak));
+extern unsigned music_light_colour_index(unsigned) __attribute__((weak));
+extern const char *music_light_colour_name(unsigned) __attribute__((weak));
 extern int am_synth_keys_get(void) __attribute__((weak));
 extern void am_synth_keys_set(int) __attribute__((weak));
 extern unsigned rear_setting(unsigned,unsigned) __attribute__((weak));
@@ -130,9 +133,7 @@ int mixer_control_reject(struct mixer_control*c,uint64_t revision,const char *re
     pickup(c);return 1;
 }
 static unsigned synth_key_note(const struct mixer_control*c,unsigned pad){
-    int root=0;unsigned scale=0;
-    if(am_synth_key_resolve)am_synth_key_resolve(c->view.synth_root,c->view.synth_transpose,c->view.synth_scale,&root,&scale);
-    return am_synth_key_note?am_synth_key_note(c->view.synth_layout,root,scale,c->view.synth_octave,pad):60u+pad;
+    unsigned n=60u+pad;(void)c;if(am_synth_pad_info)am_synth_pad_info(pad,&n);return n;
 }
 static void synth_release_all(struct mixer_control*c){
     if(am_synth_note){for(unsigned i=0;i<16;++i)if(c->synth_notes&(1u<<i))am_synth_note(c->synth_pad_note[i],0,0);if(c->synth_hold)am_synth_note(60,0,0);}
@@ -146,12 +147,12 @@ static void synth_set_slot(struct mixer_control*c,int id,unsigned value){
         am_synth_param_set((unsigned)id,v);
     }else if(id==10){c->view.synth_layout=value*4/128;if(c->view.synth_role>=mixer_view_synth_roles(c->view.synth_layout))c->view.synth_role=0;}
     else if(id==11)c->view.synth_root=value*13/128;
-    else if(id==12)c->view.synth_scale=value*12/128;
+    else if(id==12)c->view.synth_scale=value*9/128;
     else if(id==13)c->view.synth_octave=value*8/128;
     else if(id==14)c->view.synth_transpose=value*49/128;
-    else if(id==15)c->view.synth_cols[c->view.synth_layout%4][c->view.synth_role%4]=(unsigned char)(value*6/128);
+    else if(id==15){unsigned n=music_light_colour_count?music_light_colour_count():6;if(music_light_colour_choice)c->view.synth_cols[mixer_view_synth_field(c->view.synth_layout,c->view.synth_role)]=(unsigned char)music_light_colour_choice(value*n/128);}
     else if(id==16)c->view.synth_role=value*mixer_view_synth_roles(c->view.synth_layout)/128;
-    if(id>=10&&am_synth_keys_cfg)am_synth_keys_cfg(c->view.synth_layout,c->view.synth_root,c->view.synth_scale,c->view.synth_octave,c->view.synth_transpose);
+    if(id>=10&&am_synth_keys_cfg)am_synth_keys_cfg(c->view.synth_layout,c->view.synth_root,c->view.synth_scale,c->view.synth_octave,c->view.synth_transpose,c->view.synth_cols);
 }
 static void synth_control(struct mixer_control*c,unsigned cc,unsigned value){
     if(cc==0x14){if(am_synth_fader)am_synth_fader(value);return;}
@@ -640,7 +641,7 @@ int mixer_control_pad(struct mixer_control*c,unsigned pad,int down,uint64_t tick
     if(c->view.synth_page&&!c->naming&&c->view.synth_pick){if(pad<3){if(pad==2&&c->view.synth_cursor<2)c->view.synth_prev=c->view.synth_cursor;c->view.synth_cursor=pad;}return 1;}
     if(c->view.synth_page&&!c->naming&&pad!=12&&!c->view.synth_keys){synth_release_all(c);c->view.synth_page=0;} /* pads navigate to other entities */
     if(c->view.synth_page&&!c->naming){if(c->view.synth_keys&&am_synth_note){unsigned n=synth_key_note(c,pad);c->synth_pad_note[pad]=(uint8_t)n;am_synth_note(n,100,1);c->synth_notes|=bit;}return 1;}
-    if(pad==12&&!c->naming&&!c->view.fx_delete&&(c->view.page==MIXER_OVERVIEW||c->view.page==MIXER_KNOB_FX)&&am_synth_note){c->view.synth_page=1;c->view.synth_cursor=0;c->view.synth_keys=am_synth_keys_get?(unsigned)am_synth_keys_get():0;if(am_synth_keys_cfg)am_synth_keys_cfg(c->view.synth_layout,c->view.synth_root,c->view.synth_scale,c->view.synth_octave,c->view.synth_transpose);c->owned_pads&=~bit;return 1;}
+    if(pad==12&&!c->naming&&!c->view.fx_delete&&(c->view.page==MIXER_OVERVIEW||c->view.page==MIXER_KNOB_FX)&&am_synth_note){c->view.synth_page=1;c->view.synth_cursor=0;c->view.synth_keys=am_synth_keys_get?(unsigned)am_synth_keys_get():0;if(am_synth_keys_cfg)am_synth_keys_cfg(c->view.synth_layout,c->view.synth_root,c->view.synth_scale,c->view.synth_octave,c->view.synth_transpose,c->view.synth_cols);c->owned_pads&=~bit;return 1;}
     if(c->naming){c->name.shift=c->shift;phone_pad(&c->name,pad+1,1,name_time());return 1;}
     int fx_pad=pad>=8&&pad<8+MIXER_FX_SLOTS;
     if(pad==14&&!c->view.fx_delete&&

@@ -46,7 +46,7 @@ struct mixer_view_state {
     unsigned input_tab; /* Input page: 1 FX, 2 ROUTE (B1 is Back) */
     unsigned input_edit; /* ROUTE: the selected row is being edited with the encoder */
     unsigned input_tuner; /* Input: the full-screen tuner window is open */
-    unsigned synth_pick,synth_prev,synth_transpose,synth_colour,synth_role; unsigned char synth_cols[4][4]; /* transpose 0..24 = -12..+12; colour index; prev: page before the 16 Levels settings (B2) */
+    unsigned synth_pick,synth_prev,synth_transpose,synth_colour,synth_role; unsigned char synth_cols[6]; /* project colour slots: tonic, scale, other, original, V, IV */ /* transpose 0..24 = -12..+12; colour index; prev: page before the 16 Levels settings (B2) */
      /* Loop held: pads 1-3 jump between synth pages */
     unsigned synth_page,synth_shift,synth_cursor,synth_keys,synth_layout,synth_root,synth_scale,synth_octave; /* synth_keys: 16 Levels keyboard on pads */ /* trial synth window (Mixer pad 13) */
     double rate;
@@ -57,21 +57,19 @@ static inline int mixer_view_synth_slot(unsigned page,unsigned knob,unsigned shi
     static const signed char slot[3][3][2]={{{0,1},{6,8},{7,9}},{{2,3},{4,5},{6,-1}},{{10,14},{11,16},{12,15}}};
     return page<3&&knob<3&&shift<2?slot[page][knob][shift]:-1;
 }
-/* 16 Levels colour roles per layout: Mono 1, Piano 2 (white/black), Scale 2 (tonic/scale), Degrees 4 (I, key notes, IV, V) */
-static inline unsigned mixer_view_synth_roles(unsigned layout){static const unsigned char n[4]={1,2,2,4};return n[layout%4];}
-static inline unsigned mixer_view_synth_role_of(unsigned layout,unsigned scale,unsigned note,unsigned pad)
+/* 16 Levels colour roles per layout (as the project Lights page): Mono/Piano: Original; Scale: Tonic, Scale, Other, Original; Degrees: I, Key notes, IV, V, Original */
+static inline unsigned mixer_view_synth_roles(unsigned layout){static const unsigned char n[4]={1,1,4,5};return n[layout%4];}
+/* index into synth_cols for role r of a layout */
+static inline unsigned mixer_view_synth_field(unsigned layout,unsigned r)
 {
-    static const unsigned char len[11]={7,7,7,7,7,7,7,12,5,5,6};
-    unsigned l=len[scale%11],d=pad%l,pc=note%12;
-    if(layout==1)return (pc==1||pc==3||pc==6||pc==8||pc==10)?1u:0u;
-    if(layout==2)return d==0?0u:1u;
-    if(layout==3){if(d==0)return 0u;if(d==(l>=7?3u:2u))return 2u;if(d==(l>=7?4u:3u))return 3u;return 1u;}
-    return 0u;
+    static const unsigned char scale[4]={0,1,2,3},degrees[5]={0,1,5,4,3};
+    layout%=4;if(layout<2)return 3u;
+    return layout==3?degrees[r%5]:scale[r%4];
 }
 static inline void mixer_view_synth_defaults(struct mixer_view_state*s)
 {
-    static const unsigned char d[4][4]={{3,3,3,3},{5,1,5,5},{4,1,5,5},{4,1,0,3}}; /* Purple0 Blue1 Green2 Amber3 Red4 White5 */
-    for(unsigned i=0;i<4;++i)for(unsigned j=0;j<4;++j)s->synth_cols[i][j]=d[i][j];
+    static const unsigned char d[6]={5,1,10,4,8,3};
+    for(unsigned i=0;i<6;++i)s->synth_cols[i]=d[i];
 }
 static inline const struct mixer_channel*mixer_view_selected(const struct mixer_view_state*s)
 {return s->master==2?&s->project->input:s->master?&s->project->master:s->project->track+s->primary;}

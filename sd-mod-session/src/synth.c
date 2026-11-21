@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <time.h>
 #include "synth.h"
+#include "music_settings.h"
 extern unsigned input_fx_mode(void) __attribute__((weak));
 extern void input_fx_set_mode(unsigned) __attribute__((weak));
 #include <math.h>
@@ -106,22 +107,39 @@ int am_synth_direct_out(void){return atomic_load(&direct_out)!=0;}
 int am_synth_mic_muted(void){return atomic_load_explicit(&used,memory_order_acquire)&&!atomic_load_explicit(&mic_on,memory_order_acquire)&&(am_synth_active()||now_ms()-atomic_load(&last_note_ms)<10000ull);}
 
 extern void music_get_key(int*,int*) __attribute__((weak));
-/* 0 Major 1 Minor 2 Dorian 3 Phrygian 4 Lydian 5 Mixolydian 6 Locrian 7 Chromatic (same order as the project scales), 8 Pent maj 9 Pent min 10 Blues */
-static const uint8_t key_scales[11][12]={{0,2,4,5,7,9,11},{0,2,3,5,7,8,10},{0,2,3,5,7,9,10},{0,1,3,5,7,8,10},{0,2,4,6,7,9,11},{0,2,4,5,7,9,10},{0,1,3,5,6,8,10},{0,1,2,3,4,5,6,7,8,9,10,11},{0,2,4,7,9},{0,3,5,7,10},{0,3,5,6,7,10}};
-static const uint8_t key_scale_len[11]={7,7,7,7,7,7,7,12,5,5,6};
-void am_synth_key_resolve(unsigned root_raw,unsigned transpose,unsigned scale_raw,int*root,unsigned*scale){
+extern uint64_t music_light_snapshot(const struct music_sample*,int) __attribute__((weak));
+extern int music_layout_pad_pitch(uint64_t,unsigned,int,int*) __attribute__((weak));
+extern uint64_t music_pitch_light(uint64_t,int,int*) __attribute__((weak));
+extern uint32_t music_light_colour_rgb(unsigned) __attribute__((weak));
+/* 16 Levels of the synth = the project's own engine (music_settings.c): same colours, roles, layouts.
+ * Key (tonic) and scale stay; Transpose moves the pads along the notes (Degrees: scale steps, others: semitones)
+ * and the lights follow the notes. layout 0 Mono 1 Piano 2 Scale 3 Degrees; scale 0 Project, 1..8 = project scales. */
+static _Atomic unsigned cfg_root,cfg_transpose=24,cfg_layout,cfg_scale,cfg_octave=3;
+static unsigned char cfg_cols[6]={5,1,10,4,8,3}; /* project colour slots: tonic, scale, other, original, V, IV */
+uint64_t am_synth_pad_info(unsigned pad,unsigned*note_out){
+ if(pad>=16||!music_light_snapshot)return 0;
+ unsigned lay=atomic_load(&cfg_layout)%4,rr=atomic_load(&cfg_root)%13,sc=atomic_load(&cfg_scale)%9,tr=atomic_load(&cfg_transpose);
  int pt=0,ps=0;if(music_get_key)music_get_key(&pt,&ps);
  if(pt<0||pt>11)pt=0;
  if(ps<0||ps>7)ps=0;
- int r=(root_raw?(int)root_raw-1:pt)+(int)(transpose>48?24:transpose)-24;
- if(root)*root=r;
- if(scale)*scale=scale_raw?(scale_raw-1)%11:(unsigned)ps;
-}
-unsigned am_synth_key_note(unsigned layout,int root,unsigned scale,unsigned octave,unsigned pad){
- int base=12*(int)(octave+1)+root;int n;
- if(layout>=2){unsigned len=key_scale_len[scale%11];n=base+12*(int)(pad/len)+key_scales[scale%11][pad%len];}
- else n=base+(int)pad;
- return n<0?0u:n>127?127u:(unsigned)n;
+ int root=rr?(int)rr-1:pt;
+ struct music_sample m;memset(&m,0,sizeof m);
+ m.root=root;m.mode=lay==0?MUSIC_MONO:lay==1?MUSIC_PIANO:lay==2?MUSIC_SCALE:MUSIC_DEGREES;
+ m.transpose=(int)(tr>48?24:tr)-24;m.tonic=root;m.scale=sc?(int)sc-1:ps;
+ for(unsigned i=0;i<3;++i)m.colour[i]=cfg_cols[i];
+ m.original_colour=cfg_cols[3];m.fifth_colour=cfg_cols[4];m.fourth_colour=cfg_cols[5];
+ uint64_t v=music_light_snapshot(&m,0);
+ int pitch=(int)pad;
+ if(v&&music_layout_pad_pitch)music_layout_pad_pitch(v,pad,0,&pitch);
+ int n=12*(int)(atomic_load(&cfg_octave)+1)+root+pitch;n=n<0?0:n>127?127:n;
+ if(note_out)*note_out=(unsigned)n;
+ if(!v)return 0;
+ int rep=0;uint64_t l=lay&&music_pitch_light?music_pitch_light(v,pitch,&rep):0;
+ if(!rep&&music_light_colour_rgb){ /* Monochrome: only the original pad is marked */
+  float b=pitch==0?.75f:.10f;uint32_t bits;memcpy(&bits,&b,sizeof bits);
+  l=(uint64_t)(music_light_colour_rgb(cfg_cols[3])&0xffffffu)|((uint64_t)bits<<32);
+ }
+ return l;
 }
 /* Physical fader on the Mixer synth page: Off / Mod wheel / Pitch wheel (param "Fader"). */
 void am_synth_fader(unsigned value){
@@ -141,16 +159,16 @@ int am_synth_peek(struct am_synth_state*out){
 }
 
 /* Pad keyboard outside the Mixer (Sample Record screen): 16 Levels layout for the synth. */
-static _Atomic int keys_on;static _Atomic unsigned cfg_root,cfg_transpose=24,cfg_layout,cfg_scale,cfg_octave=3,pad_mask;static unsigned char pad_note[16];
-void am_synth_keys_cfg(unsigned layout,unsigned root,unsigned scale,unsigned octave,unsigned transpose){atomic_store(&cfg_transpose,transpose);atomic_store(&cfg_layout,layout);atomic_store(&cfg_root,root);atomic_store(&cfg_scale,scale);atomic_store(&cfg_octave,octave);}
+static _Atomic int keys_on;static _Atomic unsigned pad_mask;static unsigned char pad_note[16];
+void am_synth_keys_get_cfg(unsigned*l,unsigned*r,unsigned*sc,unsigned*o,unsigned*t,unsigned char*cols){if(l)*l=atomic_load(&cfg_layout);if(r)*r=atomic_load(&cfg_root);if(sc)*sc=atomic_load(&cfg_scale);if(o)*o=atomic_load(&cfg_octave);if(t)*t=atomic_load(&cfg_transpose);if(cols)memcpy(cols,cfg_cols,6);}
+void am_synth_keys_cfg(unsigned layout,unsigned root,unsigned scale,unsigned octave,unsigned transpose,const unsigned char*cols){if(cols)memcpy(cfg_cols,cols,6);atomic_store(&cfg_transpose,transpose);atomic_store(&cfg_layout,layout);atomic_store(&cfg_root,root);atomic_store(&cfg_scale,scale);atomic_store(&cfg_octave,octave);}
 int am_synth_keys_get(void){return atomic_load(&keys_on);}
 void am_synth_pad(unsigned pad,int down){
  if(pad>=16)return;
  unsigned bit=1u<<pad;
  if(down){
   if(atomic_load(&pad_mask)&bit)am_synth_note(pad_note[pad],0,0);
-  int rr;unsigned rs;am_synth_key_resolve(atomic_load(&cfg_root),atomic_load(&cfg_transpose),atomic_load(&cfg_scale),&rr,&rs);
-  unsigned n=am_synth_key_note(atomic_load(&cfg_layout),rr,rs,atomic_load(&cfg_octave),pad);
+  unsigned n=60;am_synth_pad_info(pad,&n);
   pad_note[pad]=(unsigned char)n;
   atomic_fetch_or(&pad_mask,bit);
   am_synth_note(n,100,1);

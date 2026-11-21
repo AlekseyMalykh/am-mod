@@ -1242,17 +1242,19 @@ void mixer_view_tuner(const struct resample_painter*p)
 extern unsigned am_synth_param_get(unsigned) __attribute__((weak));
 struct synth_live{float peak,env_level,bend,mod;unsigned env_stage,voices;unsigned notes[4];};
 extern int am_synth_peek(struct synth_live*) __attribute__((weak));
-extern unsigned am_synth_key_note(unsigned,int,unsigned,unsigned,unsigned) __attribute__((weak));
-extern void am_synth_key_resolve(unsigned,unsigned,unsigned,int*,unsigned*) __attribute__((weak));
+extern uint64_t am_synth_pad_info(unsigned,unsigned*) __attribute__((weak));
+extern unsigned music_light_colour_count(void) __attribute__((weak));
+extern unsigned music_light_colour_choice(unsigned) __attribute__((weak));
+extern unsigned music_light_colour_index(unsigned) __attribute__((weak));
+extern const char *music_light_colour_name(unsigned) __attribute__((weak));
 static void synth_text(const struct mixer_view_state*s,int id,char*name,size_t nn,char*val,size_t vn)
 {
     static const char*const names[17]={"Wave","Cutoff","Attack","Decay","Sustain","Release","Level","MIDI channel","Mic","Fader","Layout","Key","Scale","Octave","Transpose","Colour","Role"};
-    static const char*const rolen[4][4]={{"Pads","","",""},{"White","Black","",""},{"Tonic","Scale","",""},{"I","Key notes","IV","V"}};
-    static const char*const cols[6]={"Purple","Blue","Green","Amber","Red","White"};
+    static const char*const rolen[4][5]={{"Original","","","",""},{"Original","","","",""},{"Tonic","Scale","Other","Original",""},{"I","Key notes","IV","V","Original"}};
     static const char*const waves[4]={"Sine","Saw","Square","Triangle"};
     static const char*const lay[4]={"Monochrome","Piano","Scale","Degrees"};
     static const char*const root[13]={"Project","C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
-    static const char*const scl[12]={"Project","Major","Minor","Dorian","Phrygian","Lydian","Mixolydian","Locrian","Chromatic","Pent maj","Pent min","Blues"};
+    static const char*const scl[9]={"Project","Major","Minor","Dorian","Phrygian","Lydian","Mixolydian","Locrian","Chromatic"};
     if(id<0||id>16){name[0]=val[0]=0;return;}
     snprintf(name,nn,"%s",names[id]);
     unsigned v=id<10&&am_synth_param_get?am_synth_param_get((unsigned)id):0;
@@ -1263,11 +1265,11 @@ static void synth_text(const struct mixer_view_state*s,int id,char*name,size_t n
         case 9:snprintf(val,vn,"%s",v==1?"Mod":v==2?"Pitch":"Off");break;
         case 10:snprintf(val,vn,"%s",lay[s->synth_layout%4]);break;
         case 11:snprintf(val,vn,"%s",root[s->synth_root%13]);break;
-        case 12:snprintf(val,vn,"%s",scl[s->synth_scale%12]);break;
+        case 12:snprintf(val,vn,"%s",scl[s->synth_scale%9]);break;
         case 13:snprintf(val,vn,"%u",s->synth_octave);break;
         case 14:snprintf(val,vn,s->synth_layout==3?"%+d steps":"%+d st",(int)s->synth_transpose-24);break;
-        case 15:snprintf(val,vn,"%s",cols[s->synth_cols[s->synth_layout%4][s->synth_role%4]%6]);break;
-        case 16:snprintf(val,vn,"%s",rolen[s->synth_layout%4][s->synth_role%4]);break;
+        case 15:snprintf(val,vn,"%s",music_light_colour_name?music_light_colour_name(s->synth_cols[mixer_view_synth_field(s->synth_layout,s->synth_role)]):"-");break;
+        case 16:snprintf(val,vn,"%s",rolen[s->synth_layout%4][s->synth_role%5]);break;
         default:snprintf(val,vn,"%u",v);
     }
 }
@@ -1285,11 +1287,11 @@ static float synth_frac(const struct mixer_view_state*s,int id)
         case 9:return (float)(v%3)/2.0f;
         case 10:return (float)(s->synth_layout%4)/3.0f;
         case 11:return (float)(s->synth_root%13)/12.0f;
-        case 12:return (float)(s->synth_scale%12)/11.0f;
+        case 12:return (float)(s->synth_scale%9)/8.0f;
         case 13:return (float)(s->synth_octave%8)/7.0f;
         case 14:return (float)(s->synth_transpose%49)/48.0f;
-        case 15:return (float)(s->synth_cols[s->synth_layout%4][s->synth_role%4]%6)/5.0f;
-        case 16:return mixer_view_synth_roles(s->synth_layout)>1?(float)(s->synth_role%4)/(float)(mixer_view_synth_roles(s->synth_layout)-1):0.0f;
+        case 15:{unsigned n=music_light_colour_count?music_light_colour_count():2;return n>1&&music_light_colour_index?(float)music_light_colour_index(s->synth_cols[mixer_view_synth_field(s->synth_layout,s->synth_role)])/(float)(n-1):0.0f;}
+        case 16:return mixer_view_synth_roles(s->synth_layout)>1?(float)(s->synth_role%5)/(float)(mixer_view_synth_roles(s->synth_layout)-1):0.0f;
         default:return id<0?0.0f:(float)v/127.0f;
     }
 }
@@ -1332,15 +1334,16 @@ void mixer_view_synth(const struct mixer_view_state*s,const struct resample_pain
         char info[24];snprintf(info,sizeof info,"Voices %u",live.voices);text(p,info,8,33,70,11,10,GREY,0);
     }else{
         static const char*const nm[12]={"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
-        int rt=0;unsigned rsc=0;if(am_synth_key_resolve)am_synth_key_resolve(s->synth_root,s->synth_transpose,s->synth_scale,&rt,&rsc);
         for(unsigned row=0;row<4;++row)for(unsigned col=0;col<4;++col){
             unsigned pad=(3-row)*4+col;char n[16];
-            unsigned note=am_synth_key_note?am_synth_key_note(s->synth_layout,rt,rsc,s->synth_octave,pad):pad;
+            unsigned note=pad;uint64_t lt=am_synth_pad_info?am_synth_pad_info(pad,&note):0;
             snprintf(n,sizeof n,"%s%d",nm[note%12],(int)(note/12)-1);
             int cx=6+(int)col*37,cy=35+(int)row*23;
             int on=playing&&((live.notes[note>>5]>>(note&31))&1u);
-            int root=(int)(note%12)==((rt%12)+12)%12;
-            rect(p,cx,cy,35,21,on?AMBER:root?0xff4a3a10u:0xff242424u);text(p,n,cx,cy,35,20,11,on?BLACK:root?AMBER:WHITE,1);
+            float br;{uint32_t bb=(uint32_t)(lt>>32);memcpy(&br,&bb,sizeof br);}
+            br=br*1.4f+0.05f;if(br>1.0f)br=1.0f;
+            uint32_t rc=(uint32_t)lt,lr=(unsigned)((rc>>16)&255u)*br,lg=(unsigned)((rc>>8)&255u)*br,lb=(unsigned)(rc&255u)*br;
+            rect(p,cx,cy,35,21,on?AMBER:(0xff000000u|lr<<16|lg<<8|lb));text(p,n,cx,cy,35,20,11,on?BLACK:WHITE,1);
         }
     }
     /* top right: module scheme (pages) */

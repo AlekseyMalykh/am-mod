@@ -508,8 +508,7 @@ static void mixer_bank_light(void *sender,unsigned value,unsigned code)
     pthread_mutex_unlock(&bank_light_lock);
 }
 static const uint32_t synth_palette[6]={0xb060ffu,0x4090ffu,0x40d070u,0xffc247u,0xff5050u,0xffffffu};
-extern unsigned am_synth_key_note(unsigned,int,unsigned,unsigned,unsigned) __attribute__((weak));
-extern void am_synth_key_resolve(unsigned,unsigned,unsigned,int*,unsigned*) __attribute__((weak));
+extern uint64_t am_synth_pad_info(unsigned,unsigned*) __attribute__((weak));
 static void mixer_bank_lights_tracks(int tracks)
 {
     if(!native_bank_light)return;
@@ -611,10 +610,7 @@ static void mixer_publish_route(void)
             uint64_t light = 0;
             if (view.synth_page && view.synth_pick) { atomic_store(&mixer_select_lights[i], i<3 ? pad_light(synth_palette[0], view.synth_cursor==i ? .95f : .35f) : (uint64_t)0); continue; } /* Loop: page pads */
             if (view.synth_page && view.synth_keys) {
-                int krt=0;unsigned ksc=0;if(am_synth_key_resolve)am_synth_key_resolve(view.synth_root,view.synth_transpose,view.synth_scale,&krt,&ksc);
-                unsigned lay=view.synth_layout%4,note=am_synth_key_note?am_synth_key_note(lay,krt,ksc,view.synth_octave,(unsigned)i):(unsigned)i;
-                unsigned role=mixer_view_synth_role_of(lay,ksc,note,(unsigned)i)%4;
-                atomic_store(&mixer_select_lights[i], pad_light(synth_palette[view.synth_cols[lay][role]%6], role==0 ? .90f : .35f)); continue;
+                atomic_store(&mixer_select_lights[i], am_synth_pad_info?am_synth_pad_info((unsigned)i,0):(uint64_t)0); continue;
             } /* keyboard lights follow the 16 Levels layout and colour roles */
             if (i < 8) {
                 int on = !view.master && (view.selected & (1u<<i));
@@ -2521,6 +2517,13 @@ static int mixer_sample_button(unsigned code,unsigned down){
 #endif
 extern int rear_mic_screen_visible(void) __attribute__((weak));
 extern int am_synth_keys_get(void) __attribute__((weak));
+static int synth_keys_on_screen(void){return am_synth_keys_get&&rear_mic_screen_visible&&am_synth_keys_get()&&rear_mic_screen_visible();}
+/* Sample Record with the synth pad keyboard on: pads show the 16 Levels layout colours. */
+static int synth_keys_light(unsigned pad,uint64_t*out){
+    if(pad>=16||!synth_keys_on_screen()||!am_synth_pad_info)return 0;
+    *out=am_synth_pad_info(pad,0);return 1;
+}
+static void synth_keys_button_refresh(void);
 extern void am_synth_keys_set(int) __attribute__((weak));
 extern void am_synth_pad(unsigned,int) __attribute__((weak));
 static unsigned char button_template[16];static _Atomic int button_template_ready;
@@ -2543,7 +2546,7 @@ static void buttons(void *event)
     if(native_code==0x28&&native_down){static unsigned n;if(n<30){++n;fprintf(stderr,"SYNTH_KEYS press visible=%d keys=%d\n",rear_mic_screen_visible?rear_mic_screen_visible():-1,am_synth_keys_get?am_synth_keys_get():-1);}}
     /* 16 Levels on the Sample Record screen toggles the synth pad keyboard (no MIDI keyboard needed). */
     if(native_code==0x28&&am_synth_keys_set&&am_synth_keys_get&&rear_mic_screen_visible&&rear_mic_screen_visible()){
-        if(native_down){am_synth_keys_set(!am_synth_keys_get());fprintf(stderr,"SYNTH_KEYS toggle on=%d\n",am_synth_keys_get());}
+        if(native_down){am_synth_keys_set(!am_synth_keys_get());fprintf(stderr,"SYNTH_KEYS toggle on=%d\n",am_synth_keys_get());synth_keys_button_refresh();}
         return;
     }
     if(tuner_button(native_code,native_down))return;
@@ -3462,6 +3465,7 @@ static void rgb(void *s,uint32_t colour,unsigned pad)
         uint64_t replacement;
         if (
 #ifdef MPC_MIXER_LIVE
+            synth_keys_light(pad,&replacement) ||
             mixer_light(pad,&replacement) ||
 #endif
             workflow_light(pad,&replacement)
@@ -3665,12 +3669,12 @@ static void send_step_lights(void)
 #ifdef MPC_REAR_ROUTING
                    |(rear_ui_pad_owns()?2048u:0u)
 #endif
-                   ;
+                   |(synth_keys_on_screen()?4096u:0u);
         if(m!=last_mode){last_mode=m;resync=6;}
     }
     for(unsigned i=0;i<16;++i) {
         uint64_t light;unsigned bit=1u<<i;
-        if (music_ui_transfer_light(i,&light) || music_ui_palette_light(i,&light) || settings_pad_light(i,&light) ||
+        if (synth_keys_light(i,&light) || music_ui_transfer_light(i,&light) || music_ui_palette_light(i,&light) || settings_pad_light(i,&light) ||
 
 #ifdef MPC_REAR_ROUTING
             rear_ui_light(i,&light) ||
@@ -3768,6 +3772,14 @@ static void mixer_button_sync(void)
         ORIG(H_BUTTON_LIGHT,void(*)(void*,unsigned,unsigned))((void*)s,value,codes[i]);
     }
 }
+static void synth_keys_button_refresh(void)
+{
+    uintptr_t s=atomic_load(&button_sender);
+    if(!s)return;
+    unsigned v=atomic_load(&native_button_lights[0x28]);
+    if(synth_keys_on_screen())v=2;
+    ORIG(H_BUTTON_LIGHT,void(*)(void*,unsigned,unsigned))((void*)s,v,0x28);
+}
 static void button_light(void *s,unsigned value,unsigned code)
 {
     /* B0 CC0..15 are button LEDs (Knob FX, Sample, Seq, Erase...), not pads. */
@@ -3786,6 +3798,7 @@ static void button_light(void *s,unsigned value,unsigned code)
             if(code!=TAP_TEMPO_BUTTON&&logged<200){++logged;fprintf(stderr,"MIXER_BUTTON_LIGHT code=%02x native=%u sent=%u\n",code,before,value);}
         }
     }
+    if(code==0x28&&synth_keys_on_screen())value=2; /* 16 Levels lit while the synth keyboard is on */
     ORIG(H_BUTTON_LIGHT,void(*)(void*,unsigned,unsigned))(s,value,code);
 }
 static void send_record_light(void)
