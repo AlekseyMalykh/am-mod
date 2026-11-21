@@ -1247,7 +1247,7 @@ void mixer_view_synth(const struct mixer_view_state*s,const struct resample_pain
     for(unsigned i=0;i<8;++i){unsigned v=am_synth_param_get?am_synth_param_get(i):0;if(i==0)snprintf(value[i],sizeof value[i],"%s",waves[v%4]);else if(i==7)snprintf(value[i],sizeof value[i],"%u",v+1);else snprintf(value[i],sizeof value[i],"%u",v);}
     rect(p,0,0,320,240,BLACK);
     rect(p,2,2,102,26,0xff242424u);text(p,"Back",2,2,102,25,13,WHITE,1);
-    rect(p,108,2,102,26,0xff242424u);
+    rect(p,108,2,102,26,s->synth_keys?0xff4a3a10u:0xff242424u);text(p,"16 Levels",108,2,102,25,13,s->synth_keys?AMBER:WHITE,1);
     rect(p,214,2,104,26,0xff242424u);text(p,"Hold note",214,2,104,25,13,AMBER,1);
     text(p,"Synth",4,30,312,22,17,AMBER,1);
     for(unsigned i=0;i<8;++i){
@@ -1256,7 +1256,18 @@ void mixer_view_synth(const struct mixer_view_state*s,const struct resample_pain
         text(p,names[i],12,y,140,16,13,i==s->synth_cursor?AMBER:WHITE,0);
         text(p,value[i],170,y,140,16,13,i==s->synth_cursor?AMBER:WHITE,0);
     }
-    text(p,"Pads play notes   Shift+DATA: change value",8,196,304,12,10,GREY,0);
+    text(p,s->synth_keys?"16 Levels on: pads play notes":"Pads: other entities   16 Levels: keys",8,196,304,12,10,GREY,0);
+    if(s->synth_keys){
+        static const char*const lay[2]={"Chromatic","Scale"};
+        static const char*const root[12]={"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
+        static const char*const scl[7]={"Major","Minor","Dorian","Mixolydian","Pent maj","Pent min","Blues"};
+        char oct[8];snprintf(oct,sizeof oct,"%u",s->synth_octave);
+        const char*lab[3]={s->synth_shift?"Octave":"Layout",s->synth_shift?"":"Root",s->synth_shift?"":"Scale"};
+        const char*val[3]={s->synth_shift?oct:lay[s->synth_layout%2],s->synth_shift?"":root[s->synth_root%12],s->synth_shift?"":scl[s->synth_scale%7]};
+        for(unsigned k=0;k<3;++k){int x=(int)k*106;rect(p,x+2,209,k==2?105:102,31,0xff202020u);
+            text(p,lab[k],x+3,210,k==2?104:100,11,10,GREY,1);text(p,val[k],x+3,222,k==2?104:100,16,13,AMBER,1);}
+        return;
+    }
     const unsigned*map=s->synth_shift?fine:plain;
     for(unsigned k=0;k<3;++k){
         int x=(int)k*106;
