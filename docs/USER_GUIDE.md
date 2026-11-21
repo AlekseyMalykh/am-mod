@@ -99,6 +99,14 @@ These changes are being prepared for r30c; source availability does not mean the
 
 ## Saving, export and help
 
-Save to **External**. Song → Export → Stems writes tracks and Master to `Samples/User/Export/<song>/`; sends make stems overlap. See [USB](USB_GUIDE.md) for separate USB tracks.
+The r30c candidate supports **Internal / External** through the native **K3** Storage control in Save Project, Save Sample and Song Export. Internal user projects and samples persist on flash rather than RAM. The writable user directories are `UserContent/Projects` and `UserContent/Samples/User`, including `Export`; other system data stays isolated.
+
+Recovery retains the original volume, name and nested project folder. The first recovered Save requires a separate confirmation; a changed name or volume remains Save As. Missing folders or legacy metadata with an unknown origin produce a notice rather than selecting a same-named project on another volume. Recovery audio and native Temp autosave are not redirected into the original project.
+
+Song → Export → Stems writes tracks and Master to the chosen volume's `<song>/` export folder; sends make stems overlap. MIDI files currently use a separate SD export path. See [USB](USB_GUIDE.md) for separate USB tracks.
+
+**Shift+Sample → Input Config → B3 MIDI In** opens the shared MIDI input-channel settings. **B2 Map / Learn** opens mapping and learning. B1 returns from Map to MIDI Input, then to Input Config. These edit the same settings as MIDI Tools.
+
+On MIDI Input, **B3 Mode** cycles **Drum map → Channels → Selected pad** without erasing assignments. Drum map keeps ordinary keyboard-to-pad mapping. Channels assigns a pad and Tune/Chop role to each incoming channel. Selected pad plays the pad currently selected on the MPC chromatically: K1 chooses the incoming channel (All or 1–16), K3 sets the root note. Select another MPC pad to change the sound; for channel-specific chops use Channels. **Shift+B3** clears input-mode settings and restores Drum map. Map/Learn assignments are separate.
 
 [Settings](MOD_SETTINGS.md) · [Limitations](KNOWN_ISSUES.md) · [Report a bug](FEEDBACK.md).

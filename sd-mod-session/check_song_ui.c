@@ -11,9 +11,15 @@
 #undef FN
 #undef FIELD
 #define MPC_EARLY_STARTUP 1
+#define MPC_MIXER_LIVE 1
 #include "src/song_ui.c"
 static int sd_ready=1;
 int startup_song_export_ready(void){return sd_ready;}
+static int fixture_internal_storage;
+int internal_storage_enabled(void){return fixture_internal_storage;}
+int mixer_stems_available(void){return 1;}
+void mixer_stems_arm(int with_fx){(void)with_fx;}
+void mixer_stems_disarm(void){}
 #include <assert.h>
 
 static void stub(uintptr_t offset,void *fn)
@@ -250,6 +256,9 @@ int main(int argc,char **argv)
     assert(song_ui_owns(PHONE_CONTROLLER,0x12,0,1)&&song_ui_control(storage_knob));
     assert(!song_ui_stems_name_editor());
     song_ui_stems_name_closed();
+    atomic_store(&stems_name_stage,1);fixture_internal_storage=1;song_ui_stems_name_opened();
+    assert(!song_ui_owns(PHONE_CONTROLLER,0x12,0,1)&&!song_ui_control(storage_knob));
+    song_ui_stems_name_closed();fixture_internal_storage=0;
     export_forget(export_obj);
 
     phase="screen destruction";

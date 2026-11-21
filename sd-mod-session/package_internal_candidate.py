@@ -4,9 +4,9 @@ import hashlib,json,subprocess,sys,zipfile
 from bootloader_mount_scope import transform as boot_transform
 from internal_storage_controller import transform as internal_transform
 from usb_drive_boot_package import transform as usb_boot_transform
-R=Path(__file__).resolve().parent;O=R/'build/r30c-internal-dev1';O.mkdir(exist_ok=True)
+R=Path(__file__).resolve().parent;O=R/'build/r30c-storage-dev2';O.mkdir(exist_ok=True)
 sys.path.insert(0,str(R.parent/'installer'));from mpc_mod_installer import Package,AUTORUN_CHECK_SALT
-sha=lambda b:hashlib.sha256(b).hexdigest();version='r30c-internal-dev1'
+sha=lambda b:hashlib.sha256(b).hexdigest();version='r30c-storage-dev2'
 base=R/'build/r30b-user-fixes-dev7/am-mod-r30b-user-fixes-dev7.zip'
 assert sha(base.read_bytes())=='0882a3b10af9538d430b8daf6019302be2a4097a17a4308aef0bc23e00b3a0e3'
 with zipfile.ZipFile(base) as z:files={n:z.read(n) for n in z.namelist() if not n.endswith('/')}

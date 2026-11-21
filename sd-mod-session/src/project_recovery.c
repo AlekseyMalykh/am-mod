@@ -2,6 +2,7 @@
 #include "project_recovery.h"
 #include "internal_storage.h"
 extern int internal_storage_enabled(void) __attribute__((weak));
+extern int internal_storage_project_path(const char*) __attribute__((weak));
 static int internal_ready(void){return internal_storage_enabled&&internal_storage_enabled();}
 #ifdef MPC_EARLY_STARTUP
 #include "startup_project.h"
@@ -22,8 +23,12 @@ static int internal_ready(void){return internal_storage_enabled&&internal_storag
 #ifndef PROJECT_RECOVERY_STORAGE
 #define PROJECT_RECOVERY_STORAGE "/run/mpc-trial-app/storage-meta/save-path"
 #endif
+#ifndef PROJECT_RECOVERY_INTERNAL
+#define PROJECT_RECOVERY_INTERNAL "/data/UserContent"
+#endif
 static pthread_mutex_t mutex=PTHREAD_MUTEX_INITIALIZER;
 static char captured[PROJECT_RECOVERY_BYTES],pending[PROJECT_RECOVERY_BYTES];
+static char restored_target[1200],restored_default[1200],restored_user_default[1200];
 static unsigned generation,applied;
 static unsigned named_save;
 static unsigned waiting_revision;static uint64_t waiting_since;
@@ -33,6 +38,7 @@ static unsigned copy_active;
 static char notice[180];static uint64_t notice_until;
 static void*save_surface;static unsigned first_save,save_prompt,save_seeded,save_owned[112];
 static char save_name[129];
+static enum project_recovery_origin save_origin=PROJECT_ORIGIN_UNKNOWN;
 static uint64_t milliseconds(void){struct timespec t;clock_gettime(CLOCK_MONOTONIC,&t);return (uint64_t)t.tv_sec*1000+t.tv_nsec/1000000;}
 static int valid_name(const char*s){
  size_t n=strnlen(s,129);if(!n||n>128||!strcmp(s,".")||!strcmp(s,".."))return 0;
@@ -64,13 +70,31 @@ static int decode_part(const char*s,size_t n,char*out,size_t size){
  if(n%2||n/2>=size)return 0;
  for(size_t i=0;i<n;i+=2){int a=unhex(s[i]),b=unhex(s[i+1]);if(a<0||b<0||!(a|b))return 0;out[i/2]=(char)(a*16+b);}out[n/2]=0;return 1;
 }
-int project_recovery_decode(const char*p,char*name,size_t namesz,char*relative,size_t pathsz){
- if(!p||strnlen(p,PROJECT_RECOVERY_BYTES)>=PROJECT_RECOVERY_BYTES||strncmp(p,"AMR1\n",5))return 0;
- const char*line=strchr(p+5,'\n');if(!line)return 0;
- if(!decode_part(p+5,(size_t)(line-p-5),name,namesz)||!decode_part(line+1,strlen(line+1),relative,pathsz))return 0;
+int project_recovery_encode_origin(enum project_recovery_origin origin,const char*name,const char*relative,char*out,size_t size){
+ if(origin!=PROJECT_ORIGIN_SD&&origin!=PROJECT_ORIGIN_INTERNAL)return 0;
+ if(!relative||!*relative||!out||size<3)return 0;
+ char legacy[PROJECT_RECOVERY_BYTES];
+ if(!project_recovery_encode(name,relative,legacy,sizeof(legacy)))return 0;
+ size_t n=strlen(legacy);if(n+3>size)return 0;
+ memcpy(out,"AMR2\n",5);out[5]=origin==PROJECT_ORIGIN_INTERNAL?'I':'S';out[6]='\n';memcpy(out+7,legacy+5,n-4);return 1;
+}
+int project_recovery_decode_origin(const char*p,enum project_recovery_origin*origin,char*name,size_t namesz,char*relative,size_t pathsz){
+ if(!p||!origin||strnlen(p,PROJECT_RECOVERY_BYTES)>=PROJECT_RECOVERY_BYTES)return 0;
+ const char*body;
+ if(!strncmp(p,"AMR1\n",5)){body=p+5;*origin=PROJECT_ORIGIN_SD;}
+ else if(!strncmp(p,"AMR2\n",5)&&(p[5]=='I'||p[5]=='S')&&p[6]=='\n'){
+  body=p+7;*origin=p[5]=='I'?PROJECT_ORIGIN_INTERNAL:PROJECT_ORIGIN_SD;
+ }else return 0;
+ const char*line=strchr(body,'\n');if(!line)return 0;
+ if(!decode_part(body,(size_t)(line-body),name,namesz)||!decode_part(line+1,strlen(line+1),relative,pathsz))return 0;
  if(!valid_name(name)||!valid_relative(relative))return 0;
  if(*relative){const char*file=strrchr(relative,'/');size_t n=strlen(file+1)-4;if(strlen(name)!=n||memcmp(file+1,name,n))return 0;}
+ else if(body==p+5)*origin=PROJECT_ORIGIN_UNKNOWN;
+ else return 0;
  return 1;
+}
+int project_recovery_decode(const char*p,char*name,size_t namesz,char*relative,size_t pathsz){
+ enum project_recovery_origin origin;return project_recovery_decode_origin(p,&origin,name,namesz,relative,pathsz);
 }
 static int storage_root(char*out,size_t size){
  int fd=open(PROJECT_RECOVERY_STORAGE,O_RDONLY|O_CLOEXEC|O_NOFOLLOW|O_NONBLOCK);if(fd<0)return 0;
@@ -84,6 +108,10 @@ static void*current_things(uintptr_t image,void*saver){
  void*p=F(saver,0x90,void*);return p&&F(p,0,uintptr_t)==image+0x6ecc648?p:NULL;
 }
 static int copy_string(const char*p,char*out,size_t size){if(!p||strnlen(p,size)>=size)return 0;memcpy(out,p,strlen(p)+1);return 1;}
+static const char*internal_relative(const char*path){
+ size_t n=strlen(PROJECT_RECOVERY_INTERNAL);
+ return path&&!strncmp(path,PROJECT_RECOVERY_INTERNAL,n)&&path[n]=='/'&&valid_relative(path+n+1)&&path[n+1]?path+n+1:NULL;
+}
 static int saved_identity(const char*path,char*payload,size_t size){
  char root[1024],relative[1024]="",name[129];
  if(!path||strnlen(path,1200)>=1200)return 0;
@@ -91,11 +119,13 @@ static int saved_identity(const char*path,char*payload,size_t size){
  size_t n=strlen(leaf);if(n<=4||n-4>=sizeof(name)||strcmp(leaf+n-4,".xpj"))return 0;
  memcpy(name,leaf,n-4);name[n-4]=0;
  if(!valid_name(name)||!strncmp(name,"Mod-Exit-",9)||!strcmp(name,"Temp-Project"))return 0;
- int internal=!strncmp(path,"/data/UserContent/Projects/",27);
+ enum project_recovery_origin origin=PROJECT_ORIGIN_SD;
  if(storage_root(root,sizeof(root))&&!strncmp(path,root,strlen(root))&&path[strlen(root)]=='/'&&valid_relative(path+strlen(root)+1))
   snprintf(relative,sizeof(relative),"%s",path+strlen(root)+1);
- else if(!internal)return 0;
- return project_recovery_encode(name,relative,payload,size);
+ else if(internal_relative(path)){
+  snprintf(relative,sizeof(relative),"%s",internal_relative(path));origin=PROJECT_ORIGIN_INTERNAL;
+ }else return 0;
+ return project_recovery_encode_origin(origin,name,relative,payload,size);
 }
 /* After the startup load selected a real project, make the Save editor default to that
  * project's own name instead of whatever the previous session left in the name property. */
@@ -114,8 +144,15 @@ void project_recovery_adopt_name(uintptr_t image,void*saver,const char*path){
 }
 void project_recovery_saved(const char*path){
  char payload[PROJECT_RECOVERY_BYTES];if(!saved_identity(path,payload,sizeof(payload)))return;
- pthread_mutex_lock(&mutex);memcpy(captured,payload,strlen(payload)+1);named_save=1;pending[0]=0;++generation;pthread_mutex_unlock(&mutex);
+ pthread_mutex_lock(&mutex);memcpy(captured,payload,strlen(payload)+1);named_save=1;pending[0]=0;restored_target[0]=restored_default[0]=restored_user_default[0]=0;++generation;pthread_mutex_unlock(&mutex);
  fprintf(stderr,"PROJECT_RECOVERY NAMED_SAVE_CAPTURED path=%s\n",path);
+}
+int project_recovery_save_target(const char*requested,char*out,size_t size){
+ if(!requested||!out||!size)return 0;
+ pthread_mutex_lock(&mutex);
+ int use=restored_target[0]&&restored_default[0]&&(!strcmp(requested,restored_default)||!strcmp(requested,restored_user_default))&&strlen(restored_target)<size;
+ if(use)memcpy(out,restored_target,strlen(restored_target)+1);
+ pthread_mutex_unlock(&mutex);return use;
 }
 void project_recovery_capture(uintptr_t image,void*saver){
  /* Save Project may write a named copy while CurrentThings still points at
@@ -123,7 +160,7 @@ void project_recovery_capture(uintptr_t image,void*saver){
   * wins until a different project is loaded or New Project is created. */
  pthread_mutex_lock(&mutex);int saved=named_save&&captured[0];pthread_mutex_unlock(&mutex);
  if(saved)return;
- char root[1024],path[1200],name[129]="Recovered Project",relative[1024]="",payload[PROJECT_RECOVERY_BYTES];
+ char path[1200],name[129]="Recovered Project",payload[PROJECT_RECOVERY_BYTES];
  void*things=current_things(image,saver);
  if(things&&copy_string(F(things,0x9b0,const char*),path,sizeof(path))){
   /* Native shutdown autosaves to Internal Temp-Project before our UI save
@@ -138,17 +175,16 @@ void project_recovery_capture(uintptr_t image,void*saver){
    if(remembered)memcpy(captured,pending,sizeof(captured));
    pthread_mutex_unlock(&mutex);if(remembered)return;
   }
+  if(saved_identity(path,payload,sizeof(payload)))goto publish_identity;
   const char*file=strrchr(path,'/');file=file?file+1:path;size_t n=strlen(file);
   if(n>4&&!strcmp(file+n-4,".xpj")&&n-4<sizeof(name)){
    memcpy(name,file,n-4);name[n-4]=0;
-   if(storage_root(root,sizeof(root))&&!strncmp(path,root,strlen(root))&&path[strlen(root)]=='/'){
-    const char*r=path+strlen(root)+1;if(valid_relative(r))snprintf(relative,sizeof(relative),"%s",r);
-   }
   }
  }
  /* Legacy recovery files have no reliable original identity: never guess it. */
  if(!strncmp(name,"Mod-Exit-",9)||!strcmp(name,"Temp-Project"))snprintf(name,sizeof(name),"Recovered Project");
- if(!project_recovery_encode(name,relative,payload,sizeof(payload)))project_recovery_encode("Recovered Project","",payload,sizeof(payload));
+ if(!project_recovery_encode(name,"",payload,sizeof(payload)))project_recovery_encode("Recovered Project","",payload,sizeof(payload));
+publish_identity:
  pthread_mutex_lock(&mutex);memcpy(captured,payload,strlen(payload)+1);pthread_mutex_unlock(&mutex);
 }
 /* Native SaveProject queues serialization on a different worker. Publish
@@ -165,7 +201,7 @@ const char*project_recovery_copy_payload(void){
 }
 void project_recovery_loaded(const char*payload){
  char name[129],relative[1024];int valid=project_recovery_decode(payload,name,sizeof(name),relative,sizeof(relative));
- pthread_mutex_lock(&mutex);captured[0]=pending[0]=0;named_save=0;if(valid)memcpy(pending,payload,strlen(payload)+1);++generation;pthread_mutex_unlock(&mutex);
+ pthread_mutex_lock(&mutex);captured[0]=pending[0]=0;restored_target[0]=restored_default[0]=restored_user_default[0]=0;named_save=0;if(valid)memcpy(pending,payload,strlen(payload)+1);++generation;pthread_mutex_unlock(&mutex);
 }
 void project_recovery_reset(void){project_recovery_loaded(NULL);notice[0]=0;notice_until=0;first_save=save_prompt=save_seeded=0;}
 const char*project_recovery_notice(void){return milliseconds()<notice_until?notice:NULL;}
@@ -185,29 +221,31 @@ void project_recovery_tick(uintptr_t image,void*services){
  char path[1200];if(!copy_string(F(things,0x9b0,const char*),path,sizeof(path)))return;
  /* Cache real saved projects on the UI thread, never the native
   * temporary autosave path or the recovery file's technical identity. */
- if(!strncmp(path,"/data/UserContent/Projects/",27)||
+ if(internal_relative(path)||
     (storage_root(root,sizeof(root))&&!strncmp(path,root,strlen(root))&&path[strlen(root)]=='/'&&valid_relative(path+strlen(root)+1)))
   project_recovery_capture(image,saver);
  if(revision==applied||!payload[0])return;
  const char*file=strrchr(path,'/');if(!file||strcmp(file+1,"Mod-Exit-Last.xpj")){waiting_since=0;return;}
- if(!project_recovery_decode(payload,name,sizeof(name),relative,sizeof(relative))||!storage_root(root,sizeof(root)))return;
+ enum project_recovery_origin origin;
+ if(!project_recovery_decode_origin(payload,&origin,name,sizeof(name),relative,sizeof(relative))||!storage_root(root,sizeof(root)))return;
  char recovery_path[1200];snprintf(recovery_path,sizeof(recovery_path),"%s/Projects/Mod-Exit-Last.xpj",root);
  if(strcmp(path,recovery_path))return;
  if(waiting_revision!=revision||!waiting_since){waiting_revision=revision;waiting_since=milliseconds();return;}
  if(milliseconds()-waiting_since<2500)return;
- int written=relative[0]?snprintf(target,sizeof(target),"%s/%s",root,relative):snprintf(target,sizeof(target),"%s/Projects/%s.xpj",root,name);
+ if(origin==PROJECT_ORIGIN_UNKNOWN){snprintf(notice,sizeof(notice),"Original location unknown; save a new copy");notice_until=milliseconds()+5000;return;}
+ int written=snprintf(target,sizeof(target),"%s/%s",origin==PROJECT_ORIGIN_INTERNAL?PROJECT_RECOVERY_INTERNAL:root,relative);
  if(written>=(int)sizeof(target))return;
- /* Validate the destination folder, not the source file: the original may have
-  * been renamed/deleted. A missing/linked folder falls back to SD Projects. */
+ /* A missing/linked origin never falls back to another volume or folder. */
  char parent[1200],resolved[PATH_MAX];snprintf(parent,sizeof(parent),"%s",target);char*slash=strrchr(parent,'/');if(!slash)return;*slash=0;
  if(!realpath(parent,resolved)||strcmp(parent,resolved)){
-  if(snprintf(target,sizeof(target),"%s/Projects/%s.xpj",root,name)>=(int)sizeof(target))return;
-  snprintf(parent,sizeof(parent),"%s/Projects",root);
-  if(!realpath(parent,resolved)||strcmp(parent,resolved))return;
+  snprintf(notice,sizeof(notice),"Original folder unavailable; save a new copy");notice_until=milliseconds()+5000;return;
  }
  struct stat destination;
  if(lstat(target,&destination)){if(errno!=ENOENT)return;}
- else if(!S_ISREG(destination.st_mode))return;
+ else if(!S_ISREG(destination.st_mode)||destination.st_nlink!=1)return;
+ if(origin==PROJECT_ORIGIN_INTERNAL&&(!internal_storage_project_path||!internal_storage_project_path(target))){
+  snprintf(notice,sizeof(notice),"Internal storage unavailable; save a new copy");notice_until=milliseconds()+5000;return;
+ }
  uint64_t value=0;FN(0xf535c0,void(*)(uint64_t*,const char*))(&value,target);
  /* Native String/File property setter notifies the UI. Preserve +9b8/+a08:
   * it is the recovery data directory used by samples. Do not call290cd00,
@@ -223,7 +261,12 @@ void project_recovery_tick(uintptr_t image,void*services){
   * editor default. Leave Temp-Project there: pointing it at the original
   * would let native background/shutdown saves overwrite it without consent.
   * Seed the visible Save editor separately when that screen opens. */
- applied=revision;first_save=1;save_prompt=save_seeded=0;snprintf(save_name,sizeof(save_name),"%s",name);snprintf(notice,sizeof(notice),"Restored: %s",name);notice_until=milliseconds()+5000;
+ pthread_mutex_lock(&mutex);
+ snprintf(restored_target,sizeof(restored_target),"%s",target);
+ snprintf(restored_default,sizeof(restored_default),"%s/Projects/%s.xpj",origin==PROJECT_ORIGIN_INTERNAL?PROJECT_RECOVERY_INTERNAL:root,name);
+ snprintf(restored_user_default,sizeof(restored_user_default),"%s/Projects/User/%s.xpj",origin==PROJECT_ORIGIN_INTERNAL?PROJECT_RECOVERY_INTERNAL:root,name);
+ pthread_mutex_unlock(&mutex);
+ applied=revision;first_save=1;save_origin=origin;save_prompt=save_seeded=0;snprintf(save_name,sizeof(save_name),"%s",name);snprintf(notice,sizeof(notice),"Restored (%s): %s",origin==PROJECT_ORIGIN_INTERNAL?"Internal":"SD",name);notice_until=milliseconds()+5000;
 #ifdef MPC_EARLY_STARTUP
  startup_project_changed();
 #endif
@@ -302,6 +345,8 @@ void project_recovery_save_paint(uintptr_t image,void*p,void*g){
  int external=F(p,storage+1,unsigned char)!=0;
  int project=save_kind(image,p)==SAVE_PROJECT;
  if(project&&first_save&&!save_seeded&&F(p,0x9f8,uintptr_t)==image+0x6e18e20){
+  if(save_origin==PROJECT_ORIGIN_INTERNAL&&!internal_ready())return;
+  if(internal_ready())FN(0x16480e0,void(*)(void*,float))(p,save_origin==PROJECT_ORIGIN_INTERNAL?0.f:1.f);
   save_seeded=1;uint64_t value=0;FN(0xf535c0,void(*)(uint64_t*,const char*))(&value,save_name);
   FN(0x11c4ec0,void(*)(void*,const uint64_t*,int))((char*)p+0x9f8,&value,1);
   FN(0x15bdb10,void(*)(void*))((char*)p+0x9f8);

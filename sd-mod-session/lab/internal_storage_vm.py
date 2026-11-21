@@ -2,7 +2,9 @@
 from pathlib import Path
 import argparse,json,os,socket,subprocess,sys,zipfile
 R=Path(__file__).resolve().parent.parent
-LAB=Path('/opt/mpc-sample-lab');RUN=LAB/'out/run/r30c-internal-dev1';BASE=LAB/'out/run/piano-roll-dev'
+VERSION=sys.argv[2] if len(sys.argv)>2 else 'r30c-internal-dev1'
+assert VERSION.startswith('r30c-') and all(c.isalnum() or c=='-' for c in VERSION)
+LAB=Path('/opt/mpc-sample-lab');RUN=LAB/'out/run'/VERSION;BASE=LAB/'out/run/piano-roll-dev'
 sys.path.insert(0,str(LAB));import lab
 mode=sys.argv[1]
 if mode=='stage':
@@ -28,7 +30,7 @@ if mode=='stage':
    assert autorun.resolve().parent==mount and not autorun.is_symlink()
    if not backup.exists():autorun.rename(backup)
   autorun.mkdir(exist_ok=True)
-  package=R/'build/r30c-internal-dev1/am-mod-r30c-internal-dev1.zip'
+  package=R/'build'/VERSION/('am-mod-'+VERSION+'.zip')
   with zipfile.ZipFile(package) as z:
    for n in z.namelist():
     if not n.startswith('autorun/') or n.endswith('/'):continue

@@ -6,7 +6,7 @@
 
 Necesitas un **Akai MPC Sample** con firmware **1.3.0.12** (la pantalla muestra 1.3.0). No se admiten otros modelos o versiones. Copia toda la tarjeta, especialmente `MPC-Sample`, proyectos, samples y ajustes. Se recomienda exFAT. FAT32 es experimental y no admite archivos de 4 GiB o más. Utiliza una etiqueta de volumen ASCII sin espacios, como `MPC`.
 
-El mod ejecuta una copia de la aplicación en RAM y no reescribe el firmware. **Internal es temporal durante la sesión: guarda en External.** El sistema original y los mods antiguos pueden perder campos nuevos al guardar; trabaja con copias de los proyectos.
+El mod ejecuta una copia de la aplicación en RAM sin reescribir el firmware. En el candidato r30c, **los proyectos, samples y exportaciones de audio de Internal permanecen en la memoria interna**; los demás datos del sistema siguen aislados. K3 selecciona Internal/External en los diálogos Save/Export. Los paquetes antiguos limitados a SD conservan sus restricciones. El sistema original y los mods antiguos pueden perder campos nuevos al guardar; trabaja con copias de los proyectos.
 
 ![Tres formas de instalación](media/r30c/install-es.png)
 
@@ -58,4 +58,4 @@ En **D.S.B**, copia el **contenido** del autorun del ZIP a `autorun/os/AM-Mod/`,
 
 ## Primera prueba
 
-Usa una copia de un proyecto pequeño. Toca un pad, abre Mixer, modifica y desactiva un efecto, guarda en External, reinicia y vuelve a cargar. Prueba MIDI, importación y Sample Swap por separado. El informe registra pruebas de software; el paquete final y los gestores externos aún necesitan pruebas físicas.
+Usa una copia de un proyecto pequeño. Toca un pad, abre Mixer y modifica y desactiva un efecto. Guarda en Internal y External con K3; apaga por completo y vuelve a cargar. Comprueba también un sample guardado y una exportación de audio. Prueba MIDI, importación y Sample Swap por separado. El paquete final y los gestores externos aún necesitan pruebas físicas.

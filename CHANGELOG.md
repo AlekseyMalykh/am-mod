@@ -2,6 +2,10 @@
 
 ## r30c — in development
 
+- MIDI Input B3 cycles Drum map, Channels and Selected pad without losing channel assignments; Selected pad exposes incoming channel and root note, with Shift+B3 reset.
+- Input Config has a B3 MIDI In entry sharing the existing channel and Map/Learn settings.
+- Recovery metadata identifies Internal/SD and the nested project folder; native Save retains that folder, with no fallback to a same-named project on another volume.
+- Internal audio exports now remain on Internal flash. Save/Export K3 retains the native storage selector when persistent Internal user folders are available.
 - Piano Roll shows the K2 grid value directly above the knob, independently of zoom.
 - Press Mute on the selected Piano Roll row to toggle that pad's local mute in the current sequence; red M marks muted rows, including the source pad's Tune/Chop layers.
 - Red SM now also appears in Piano Roll and ordinary Mixer/FX headers, with space reserved for the B3 caption.

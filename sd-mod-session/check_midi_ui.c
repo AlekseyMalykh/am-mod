@@ -5,7 +5,8 @@ void am_midi_io_ready(void){}
 static unsigned char context[0xc0],program_model[0x2000];
 static void*test_context;
 void*note_native_context(void){return test_context;}
-int music_ui_shift_active(void){return 0;}
+static unsigned test_shift;
+int music_ui_shift_active(void){return test_shift;}
 static void button(unsigned code,unsigned down){unsigned char e[16]={0};e[8]=(uint8_t)code;e[9]=(uint8_t)down;assert(am_midi_ui_button(e));}
 static void tap(unsigned code){button(code,1);button(code,0);}
 static void knob_input(unsigned code,unsigned value,unsigned shift){unsigned char e[16]={0};e[8]=(uint8_t)code;e[9]=(uint8_t)value;assert(am_midi_ui_control(e,shift));}
@@ -46,5 +47,23 @@ int main(void){
  struct am_midi_record wrapped[AM_MIDI_LOG];unsigned indices[AM_MIDI_LOG];
  unsigned count=am_midi_snapshot(wrapped,AM_MIDI_LOG,&latest);for(unsigned i=0;i<count;++i)indices[i]=i;
  assert(log_finish(wrapped,indices,count)==7);scroll_by(-1000);assert(!scroll_anchor);
- puts("PASS production MIDI UI handlers: menu, K filters, Shift channel, B1 Back, B2 Pause, B3 Clear, maps, Learn and paired releases");return 0;
+ /* The Input Config entry edits exactly the same settings and returns there. */
+ am_midi_ui_open_input(context);assert(am_midi_ui_input_host(context)&&am_midi_ui_active()&&atomic_load(&page)==5);
+ knob_input(0x10,8,0);assert(mode_channel==2);mode_assign_pad(17);
+ struct am_midi_mode mode;am_midi_mode_get(&mode);assert(mode.pad[1]==18&&mode.mode==AM_MIDI_MODE_CHANNELS);
+ tap(0x0e);am_midi_mode_get(&mode);assert(mode.mode==AM_MIDI_MODE_SELECTED&&mode.pad[1]==18);
+ knob_input(0x10,8,0);knob_input(0x12,48,0);mode_assign_pad(31);
+ am_midi_mode_get(&mode);assert(mode.mode==AM_MIDI_MODE_SELECTED&&mode.channel==1&&mode.root==48&&mode.pad[1]==18);
+ knob_input(0x64,127,0);am_midi_mode_get(&mode);assert(!mode.channel);
+ tap(0x0e);am_midi_mode_get(&mode);assert(mode.mode==AM_MIDI_MODE_DRUM&&mode.pad[1]==18);
+ knob_input(0x10,8,0);am_midi_mode_get(&mode);assert(mode.mode==AM_MIDI_MODE_DRUM); /* browsing must not reactivate saved channels */
+ tap(0x0e);am_midi_mode_get(&mode);assert(mode.mode==AM_MIDI_MODE_CHANNELS&&mode.pad[1]==18);
+ tap(0x0d);assert(atomic_load(&page)==3);knob_input(0x10,17,0);tap(0x0d);assert(am_midi_learn_active());
+ tap(0x0c);assert(atomic_load(&page)==5&&!am_midi_learn_active()&&am_midi_ui_input_host(context));
+ button(0x0c,1);assert(!am_midi_ui_input_host(context)&&!am_midi_ui_active()&&am_midi_ui_owns(0x0c,1));
+ button(0x0c,0);am_midi_mode_get(&mode);assert(mode.pad[1]==18);
+ am_midi_ui_open_input(context);test_shift=1;tap(0x0e);test_shift=0;
+ am_midi_mode_get(&mode);assert(mode.mode==AM_MIDI_MODE_DRUM&&mode.root==60&&!mode.pad[1]&&!mode.channel);
+ am_midi_ui_open_input(context);am_midi_ui_destroyed(context);assert(!input_host&&!am_midi_ui_active());
+ puts("PASS production MIDI UI handlers: menu, filters, maps, Learn, paired releases, shared Input Config channel/map settings and Back/destroy lifecycle");return 0;
 }

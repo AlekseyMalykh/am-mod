@@ -6,12 +6,16 @@
 extern "C" {
 #endif
 #define PROJECT_RECOVERY_BYTES 2400
+enum project_recovery_origin { PROJECT_ORIGIN_SD, PROJECT_ORIGIN_INTERNAL, PROJECT_ORIGIN_UNKNOWN };
 /* Capture on the UI thread before starting the exit-copy worker. */
 void project_recovery_capture(uintptr_t base,void *saver);
 /* Native Save returned success. Record the explicit target, including Internal,
  * without changing the current sample directory or autosave destination. */
 void project_recovery_saved(const char *path);
 void project_recovery_adopt_name(uintptr_t base,void *saver,const char *path);
+/* Keep a restored nested folder when native Save proposes its root default.
+ * A changed name, volume or explicit nested folder remains the user's choice. */
+int project_recovery_save_target(const char *requested,char *out,size_t size);
 void project_recovery_begin_copy(void);
 void project_recovery_end_copy(void);
 const char *project_recovery_copy_payload(void);
@@ -28,6 +32,9 @@ int project_recovery_save_button(uintptr_t base,void *screen,void *event);
 /* Bounded, mount-independent format; paths are relative to MPC-Sample. */
 int project_recovery_encode(const char *name,const char *relative,char *out,size_t size);
 int project_recovery_decode(const char *payload,char *name,size_t namesz,char *relative,size_t pathsz);
+/* AMR2 carries a volume and Projects-relative folder; AMR1 remains readable. */
+int project_recovery_encode_origin(enum project_recovery_origin,const char *name,const char *relative,char *out,size_t size);
+int project_recovery_decode_origin(const char *payload,enum project_recovery_origin*,char *name,size_t namesz,char *relative,size_t pathsz);
 #ifdef __cplusplus
 }
 #endif

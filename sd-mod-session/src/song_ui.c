@@ -2,6 +2,7 @@
 #include "song_ui.h"
 #ifdef MPC_EARLY_STARTUP
 #include "startup_project.h"
+extern int internal_storage_enabled(void) __attribute__((weak));
 #endif
 
 #ifdef MPC_MIXER_LIVE
@@ -123,6 +124,7 @@ static _Atomic unsigned stems_name_stage;
  * over the modal itself; keep it until TextEditor destruction. */
 static _Atomic unsigned stems_modal_visible;
 static _Atomic unsigned stems_modal_pads;
+static _Atomic unsigned native_export_storage; /* UI-validated capability snapshot for input routing. */
 static uint64_t stems_name_requested_ms; /* UI thread only */
 void song_ui_shift_event(int down){atomic_store(&export_shift,down!=0);}
 /* Compatibility with the native Shift input hook: Stems no longer uses it. */
@@ -173,6 +175,9 @@ void song_ui_stems_name_opened(void)
     atomic_store(&stems_name_stage,2u);
     atomic_store(&stems_modal_pads,0u);
     atomic_store(&stems_modal_visible,1u);
+#ifdef MPC_EARLY_STARTUP
+    atomic_store(&native_export_storage,internal_storage_enabled&&internal_storage_enabled());
+#endif
     /* The TextEditor painter will attach a guarded modal-root footer. */
     stems_modal_root=NULL;
     stems_modal_scan_logs=0;
@@ -228,7 +233,7 @@ int song_ui_pads_active(void){ return atomic_load(&pads_shown)!=0; }
 int song_ui_owns(unsigned kind,unsigned code,int shift,int down)
 {
     if(kind==PHONE_CONTROLLER){
-        if(code==0x12&&song_ui_stems_modal_visible())return 1;
+        if(code==0x12&&song_ui_stems_modal_visible())return !atomic_load(&native_export_storage);
         if(atomic_load(&shown)&&(code==K1||code==DATA_ENCODER))return 1;
         /* The main DATA encoder (not K1) scrolls Export choices only when
          * our menu is active. The native name dialog keeps its own encoder. */
@@ -406,7 +411,7 @@ static void select_step(int delta)
 int song_ui_control(void *e)
 {
     unsigned cc=FIELD(e,8,unsigned char); int value=FIELD(e,9,unsigned char);
-    if(cc==0x12&&song_ui_stems_modal_visible())return 1;
+    if(cc==0x12&&song_ui_stems_modal_visible())return !atomic_load(&native_export_storage);
     if(atomic_load(&clear_pending))return cc==DATA_ENCODER||cc==K1;
     if(cc==DATA_ENCODER && atomic_load(&export_menu_active)){
         /* Native DATA encoder is relative: 1..63=clockwise,
@@ -723,7 +728,7 @@ static void stems_modal_footer_paint(void *p,void *g)
     if(p!=stems_modal_root||!atomic_load(&stems_modal_visible))return;
     int w=FIELD(p,0x28,int),h=FIELD(p,0x2c,int);
     if(w<200||w>320||h<150||h>240)return;
-    /* Draw input and the fixed SD destination after the stock children. */
+    /* Keep the native Storage control when Internal is persistent. */
     const int x=(w>=300)?38:8;
     const int y=(h>=230)?180:h-44;
     const unsigned pads=atomic_load(&stems_modal_pads);
@@ -734,9 +739,11 @@ static void stems_modal_footer_paint(void *p,void *g)
     colour(g,0xff3b3b3bu);rect(g,x+7,y+39,61,2);
     colour(g,0xffffffffu);rect(g,x+7+(pads?30:0),y+39,31,2);
 #ifdef MPC_EARLY_STARTUP
-    colour(g,0xff000000u);rect(g,w/2-44,h-36,w/2+44,34);
-    colour(g,0xffffffffu);
-    text_at(g,"Save to SD Card",w/2-39,h-33,w/2+29,29,15.0f,0x22);
+    if(!atomic_load(&native_export_storage)){
+        colour(g,0xff000000u);rect(g,w/2-44,h-36,w/2+44,34);
+        colour(g,0xffffffffu);
+        text_at(g,"Save to SD Card",w/2-39,h-33,w/2+29,29,15.0f,0x22);
+    }
 #endif
 }
 

@@ -1,8 +1,20 @@
 """Narrow persistent Internal storage for a verified current AM controller."""
 from pathlib import Path
 R=Path(__file__).resolve().parent
+def persistent_exports(launcher):
+ if 'INTERNAL_EXPORT_PERSISTENT' in launcher:return launcher
+ old=' $EXPORT_PATH:/data/UserContent/Samples/User/Export'
+ assert launcher.count(old)==1;launcher=launcher.replace(old,'')
+ launcher=launcher.replace('ReadWritePaths=$SAVE/Projects $SAVE/Samples /data/UserContent/Projects /data/UserContent/Samples/User /data/UserContent/Samples/User/Export','ReadWritePaths=$SAVE/Projects $SAVE/Samples /data/UserContent/Projects /data/UserContent/Samples/User')
+ old='    [ "$(stat -c \'%d:%i\' "$song_export")" = "$(cat "$APP/storage-meta/song-export-identity")" ] || return 1'
+ assert launcher.count(old)==1
+ launcher=launcher.replace(old,'    # INTERNAL_EXPORT_PERSISTENT: inherits the pinned Internal Samples/User bind.\n    [ "$(readlink -f "$song_export")" = "$song_export" ] || return 1\n    [ "$(stat -c %d "$song_export")" = "$(stat -c %d /data/UserContent/Samples/User)" ] || return 1')
+ launcher=launcher.replace('[ "$(stat -f -c %t "$song_export")" = "$save_magic" ]','[ "$(stat -f -c %t "$song_export")" = ef53 ]')
+ line='          else if (target=="/data/UserContent/Samples/User/Export" && fs==save_fs && opts ~ /(^|,)rw(,|$)/) allowed_song_export++;\n'
+ assert launcher.count(line)==1;launcher=launcher.replace(line,'').replace(' || allowed_song_export!=1','')
+ return launcher
 def transform(launcher):
- if 'INTERNAL_USER_STORAGE_PINNED' in launcher:return launcher
+ if 'INTERNAL_USER_STORAGE_PINNED' in launcher:return persistent_exports(launcher)
  def replace(old,new):
   nonlocal launcher
   assert launcher.count(old)==1,old
@@ -35,4 +47,4 @@ def transform(launcher):
          '    "$R/stage-data" --flush-sd >> "$R/events.txt" 2>&1 || return 1\n    "$R/stage-data" --flush-internal >> "$R/events.txt" 2>&1 || return 1')
  replace('        if ! "$R/stage-data" --flush-sd >> "$R/events.txt" 2>&1; then',
          '        if ! "$R/stage-data" --flush-sd >> "$R/events.txt" 2>&1 || ! "$R/stage-data" --flush-internal >> "$R/events.txt" 2>&1; then')
- return launcher
+ return persistent_exports(launcher)

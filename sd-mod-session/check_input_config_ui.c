@@ -16,6 +16,8 @@ static unsigned fx_mode,rows;
 static void *args[3];
 static uint32_t ink,pixels[98*38];
 static char caption[32];
+static void*midi_host;static unsigned midi_opens;
+void am_midi_ui_open_input(void*p){midi_host=p;++midi_opens;}
 unsigned music_fx_mode_active(void){return fx_mode;}
 static void add_row(void*a,void*b,void*c){assert(a==args[0]&&b==args[1]&&c==args[2]);++rows;}
 static void set_ink(void*g,uint32_t c){(void)g;ink=c;}
@@ -67,6 +69,10 @@ int main(int argc,char**argv){
   if(mode==1)assert(pixels[8*98+27]==REAR_RED);
  }
  assert(hashes[0]!=hashes[1]&&hashes[1]!=hashes[2]&&hashes[0]!=hashes[2]);
- puts("PASS pinned Input Config insertion: Stock keeps Rec Input Effects, Am MOD omits it; unknown callsite rejected; three distinct Monitor Off/Record/On headers, slash only on Off");
+ unsigned char config[0x400]={0};roots[0]=config;atomic_store(&visible_roots,1);atomic_store(&open_panel,0);
+ button(0x0e);assert(midi_opens==1&&midi_host==config);
+ button(0x6d);assert(midi_opens==2); /* Native soft-button alias shares the action. */
+ atomic_store(&visible_roots,0);assert(!rear_ui_owns(2,0x0e));
+ puts("PASS pinned Input Config insertion and Monitor headers; B3 MIDI In on Input Config opens shared settings with paired release and hidden-screen ownership");
  return 0;
 }

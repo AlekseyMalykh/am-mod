@@ -16,7 +16,6 @@ base=[
  '12 1 8:1 /Projects /media/MPC/MPC-Sample/Projects rw - exfat /dev/card rw',
  '13 1 8:1 /Samples /media/MPC/MPC-Sample/Samples rw - exfat /dev/card rw',
  '14 11 8:1 /TempProjects /data/TempProjects rw - exfat /dev/card rw',
- '15 11 8:1 /Export /data/UserContent/Samples/User/Export rw - exfat /dev/card rw',
  '16 11 179:12 /UserContent /data/UserContent ro - ext4 /dev/internal ro',
  '17 16 179:12 /UserContent/Projects /data/UserContent/Projects rw - ext4 /dev/internal rw',
  '18 16 179:12 /UserContent/Samples/User /data/UserContent/Samples/User rw - ext4 /dev/internal rw']
@@ -24,7 +23,7 @@ def scope(lines):
  p=subprocess.run(['awk','-v','save=/media/MPC/MPC-Sample','-v','save_fs=exfat','-v','data_type=tmpfs','-v','data_id=11','-v','boot_config=/media/MPC/autorun/os/mpcqol.conf','-v','boot_config_hidden=1',program],input='\n'.join(lines)+'\n',text=True,capture_output=True)
  return p.returncode==0
 assert scope(base)
-for bad in [base[:-1],base+[base[-1]],base[:-1]+[base[-1].replace(' rw - ext4 ',' ro - ext4 ')],base+['19 1 179:12 /Settings /data/Settings rw - ext4 /dev/internal rw'],base[:-2]+[base[-2].replace(' - ext4 ',' - exfat '),base[-1]],base[:6]+[base[6].replace(' ro - ext4 ',' rw - ext4 ')]+base[7:]]:assert not scope(bad),bad
+for bad in [base[:-1],base+[base[-1]],base[:-1]+[base[-1].replace(' rw - ext4 ',' ro - ext4 ')],base+['19 1 179:12 /Settings /data/Settings rw - ext4 /dev/internal rw'],base[:-2]+[base[-2].replace(' - ext4 ',' - exfat '),base[-1]],base[:5]+[base[5].replace(' ro - ext4 ',' rw - ext4 ')]+base[6:],base+['20 11 8:1 /Export /data/UserContent/Samples/User/Export rw - exfat /dev/card rw']]:assert not scope(bad),bad
 checks=['scope permits exactly the two pinned Internal subdirectories plus the existing SD scopes',
         'missing/duplicate/readonly/wrong-filesystem scopes and writable settings/UserContent rejected',
         'D.S.B hidden config handling retained; no extra device or system capabilities']
@@ -46,6 +45,8 @@ if '--namespace' in sys.argv:
    (target/'Projects/From-AM.xpj').write_bytes(b'persistent project fixture')
    with wave.open(str(target/'Samples/User/From-AM.wav'),'wb') as w:
     w.setparams((1,2,44100,0,'NONE','not compressed'));w.writeframes(b'\0\0\x10\0\xf0\xff')
+   with wave.open(str(target/'Samples/User/Export/Mixdown.wav'),'wb') as w:
+    w.setparams((2,2,48000,0,'NONE','not compressed'));w.writeframes(b'\x10\0\xf0\xff'*8)
    for path in [target/'Samples/Factory/unchanged.dat',target/'outside-projects.dat']:
     try:path.write_bytes(b'must not change');raise AssertionError('Read-only content became writable')
     except OSError as error:assert error.errno==30,error
@@ -57,8 +58,9 @@ if '--namespace' in sys.argv:
   try:
    assert (target/'Projects/From-AM.xpj').read_bytes()==b'persistent project fixture'
    with wave.open(str(target/'Samples/User/From-AM.wav')) as w:assert w.getnframes()==3 and w.getframerate()==44100
+   with wave.open(str(target/'Samples/User/Export/Mixdown.wav')) as w:assert w.getnframes()==8 and w.getnchannels()==2 and w.getframerate()==48000
   finally:unmount_user()
-  checks.append('real namespace: project and WAV survive namespace restart and are visible in original storage; existing project/factory bytes unchanged; other UserContent writes rejected')
+  checks.append('real namespace: project, sample WAV and stereo Export WAV survive namespace restart on original Internal storage; no SD alias covers Export; existing project/factory bytes unchanged; other UserContent writes rejected')
   run=root/'runtime';(run/'storage-meta').mkdir(parents=True)
   prepare=(R/'src/internal_storage_controller.inc.sh').read_text().replace('/data/UserContent',str(source))
   subprocess.run(['sh'],input='R='+str(run)+'\nlog(){ :; }\n'+prepare+'\ninternal_storage_prepare\n',text=True,check=True)

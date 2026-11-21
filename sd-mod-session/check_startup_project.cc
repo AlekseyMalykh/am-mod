@@ -22,7 +22,11 @@ static unsigned named_saved;static std::string named_target;
 #include "src/startup_project.cc"
 static bool fixture_internal_allowed;
 extern "C" int internal_storage_project_path(const char*path){return fixture_internal_allowed&&!std::strcmp(path,"/data/UserContent/Projects/Internal-Proof.xpj");}
+extern "C" int internal_storage_enabled(void){return fixture_internal_allowed;}
+extern "C" int internal_storage_sample_path(const char*path){return fixture_internal_allowed&&!std::strncmp(path,"/data/UserContent/Samples/User/Export/",38)&&!std::strstr(path,"..");}
 extern "C" void project_recovery_saved(const char*path){++named_saved;named_target=path;}
+extern "C" void project_recovery_adopt_name(uintptr_t,void*,const char*){}
+extern "C" int project_recovery_save_target(const char*,char*,size_t){return 0;}
 static void elf(const char*path,uintptr_t base){
  FILE*f=fopen(path,"rb");assert(f);Elf64_Ehdr h;assert(fread(&h,1,sizeof(h),f)==sizeof(h));
  auto*memory=static_cast<unsigned char*>(mmap(reinterpret_cast<void*>(base),0x7500000,7,MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED_NOREPLACE,-1,0));assert(memory==reinterpret_cast<void*>(base));
@@ -140,6 +144,10 @@ int main(int argc,char**argv){
  assert(!project_save_destination("/data/UserContent/Projects/Internal-Proof.xpj"));
  fixture_internal_allowed=true;assert(project_save_destination("/data/UserContent/Projects/Internal-Proof.xpj"));
  assert(!project_save_destination("/data/UserContent/Projects/Not-Pinned.xpj")&&!project_save_destination("/data/Settings/evil.xpj"));
+ char export_result[4096];const char*internal_export="/data/UserContent/Samples/User/Export/Internal-Proof.wav";
+ assert(startup_song_export_ready()&&startup_song_export_target(internal_export,export_result,sizeof(export_result))&&!strcmp(export_result,internal_export));
+ assert(startup_song_export_native_file(internal_export,export_result,sizeof(export_result))&&!strcmp(export_result,internal_export));
+ assert(!startup_song_export_target("/data/UserContent/Samples/User/Export/../evil.wav",export_result,sizeof(export_result)));
  fixture_internal_allowed=false;
  puts("PASS native save guard admits pinned Internal project destinations and keeps arbitrary internal/system paths rejected");
  unlink(meta.c_str());assert(!rmdir(workspace.c_str())&&!rmdir(temp_root)&&!rmdir(projects.c_str())&&!rmdir(root.c_str())&&!rmdir(dir));

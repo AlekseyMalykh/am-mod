@@ -59,6 +59,25 @@ int main(void){
   assert(am_midi_restore(saved));am_midi_mode_get(&md);assert(md.mode==AM_MIDI_MODE_CHANNELS&&md.pad[1]==6&&md.pad[2]==9&&md.kind[2]==AM_MIDI_KEY_CHOP&&md.root==60);
   saved[5+2178*2]='f';assert(!am_midi_restore(saved));
   am_midi_reset();assert(am_midi_encode(saved,sizeof saved)==2063);}
+ /* Selected-pad keyboard routing: fixed/omni channel, release captured before
+  * selection/mode changes, and the project payload preserves the choice. */
+ am_midi_reset();am_midi_native_notes(notes);am_midi_selected_pad(5);
+ am_midi_mode_get(&md);md.mode=AM_MIDI_MODE_SELECTED;md.channel=2;assert(am_midi_mode_set(&md));
+ {struct am_midi_router sr={0};char saved[AM_MIDI_PAYLOAD];
+  a=(struct am_midi_message){3,{0x91,67,100}};
+  assert(am_midi_translate(&sr,AM_MIDI_IN,AM_MIDI_USB,&a,&b)&&b.data[1]==41);
+  assert(am_midi_tune_take(41,&tune,&chop)&&tune==7&&!chop);
+  am_midi_selected_pad(8);md.mode=AM_MIDI_MODE_DRUM;assert(am_midi_mode_set(&md));
+  a.data[0]=0x81;assert(am_midi_translate(&sr,AM_MIDI_IN,AM_MIDI_USB,&a,&b)&&b.data[1]==41);
+  md.mode=AM_MIDI_MODE_SELECTED;md.channel=0;md.root=48;assert(am_midi_mode_set(&md));
+  a=(struct am_midi_message){3,{0x9f,60,90}};
+  assert(am_midi_translate(&sr,AM_MIDI_IN,AM_MIDI_USB,&a,&b)&&b.data[1]==8);
+  assert(am_midi_tune_take(8,&tune,&chop)&&tune==12&&!chop);
+  assert(am_midi_encode(saved,sizeof saved)>0);am_midi_reset();assert(am_midi_restore(saved));
+  am_midi_mode_get(&md);assert(md.mode==AM_MIDI_MODE_SELECTED&&!md.channel&&md.root==48);
+  am_midi_selected_pad(-1);memset(&sr,0,sizeof sr);
+  assert(!am_midi_translate(&sr,AM_MIDI_IN,AM_MIDI_USB,&a,&b));
+ }
  /* Controller sources for native buttons (transport) */
  am_midi_reset();
  {struct am_midi_message cc={3,{0xb0,20,127}},ccoff={3,{0xb0,20,0}},note={3,{0x90,40,100}},noteoff={3,{0x80,40,0}};unsigned code=0,down=9;char saved[AM_MIDI_PAYLOAD];

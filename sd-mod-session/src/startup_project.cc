@@ -4,6 +4,8 @@
 #include "startup_project.h"
 #include "internal_storage.h"
 extern "C" int internal_storage_project_path(const char*) __attribute__((weak));
+extern "C" int internal_storage_enabled(void) __attribute__((weak));
+extern "C" int internal_storage_sample_path(const char*) __attribute__((weak));
 #ifdef MPC_PROJECT_RECOVERY
 #include "project_recovery.h"
 #endif
@@ -105,25 +107,34 @@ bool project_save_destination(const char *target){
 }
 using Save=int(*)(void*,const uint64_t*,bool,bool,bool);
 Save original_save;
-int save(void*saver,const uint64_t*file,bool a,bool b,bool c){
- char target[1200]={0};
- const char*incoming=file?reinterpret_cast<const char*>(*file):nullptr;
- if(incoming&&strnlen(incoming,sizeof(target))<sizeof(target))std::snprintf(target,sizeof(target),"%s",incoming);
- if(!project_save_destination(target)){
-  std::fprintf(stderr,"STARTUP_PROJECT SAVE_REQUIRES_PERSISTENT_STORAGE\n");
-  return 0;
- }
- int result=original_save(saver,file,a,b,c);
-#ifdef MPC_PROJECT_RECOVERY
- if(result&&target[0])project_recovery_saved(target);
-#endif
- return result;
-}
 struct File {
  uint64_t value=0;
  explicit File(const char*path){reinterpret_cast<void(*)(uint64_t*,const char*)>(image+0xf535c0)(&value,path);}
  ~File(){reinterpret_cast<void(*)(uint64_t*)>(image+0xf0a290)(&value);}
 };
+int save(void*saver,const uint64_t*file,bool a,bool b,bool c){
+ char target[1200]={0};
+ const char*incoming=file?reinterpret_cast<const char*>(*file):nullptr;
+ if(incoming&&strnlen(incoming,sizeof(target))<sizeof(target))std::snprintf(target,sizeof(target),"%s",incoming);
+#ifdef MPC_PROJECT_RECOVERY
+ char restored[1200];int redirect=project_recovery_save_target(target,restored,sizeof(restored));
+ if(redirect)std::snprintf(target,sizeof(target),"%s",restored);
+#endif
+ if(!project_save_destination(target)){
+  std::fprintf(stderr,"STARTUP_PROJECT SAVE_REQUIRES_PERSISTENT_STORAGE\n");
+  return 0;
+ }
+ int result;
+#ifdef MPC_PROJECT_RECOVERY
+ if(redirect){File chosen(target);result=original_save(saver,&chosen.value,a,b,c);}
+ else
+#endif
+ result=original_save(saver,file,a,b,c);
+#ifdef MPC_PROJECT_RECOVERY
+ if(result&&target[0])project_recovery_saved(target);
+#endif
+ return result;
+}
 void autosave(void*saver){
  /* Native New Project removes the old Temp XPJ. The next timer expects an
   * existing file before it will save, although its native SaveProject method
@@ -232,6 +243,8 @@ Errors load(void*saver,const uint64_t*file){
 }
 }
 extern "C" int startup_song_export_ready(void){
+ if(internal_storage_enabled&&internal_storage_enabled()&&internal_storage_sample_path)
+  return internal_storage_sample_path("/data/UserContent/Samples/User/Export/.am-export-check.wav");
  char root[PATH_MAX],folder[PATH_MAX];
  if(!card_root(root)||std::snprintf(folder,sizeof(folder),"%s/Samples/Export",root)>=(int)sizeof(folder)){
   std::fprintf(stderr,"STARTUP_PROJECT SONG_EXPORT_NOT_READY reason=card_root\n");return 0;}
@@ -255,6 +268,10 @@ extern "C" int startup_song_export_external(const char*path){
 }
 extern "C" int startup_song_export_target(const char*path,char*out,size_t size){
  static const char internal[]="/data/UserContent/Samples/User/Export/";
+ if(path&&out&&size&&!std::strncmp(path,internal,sizeof(internal)-1)&&internal_storage_enabled&&internal_storage_enabled()){
+  if(!internal_storage_sample_path||!internal_storage_sample_path(path))return 0;
+  return std::snprintf(out,size,"%s",path)<(int)size;
+ }
  char root[PATH_MAX],dir[PATH_MAX];
  if(!path||!out||!size||!card_root(root))return 0;
  if(std::snprintf(dir,sizeof(dir),"%s/Samples/User/Export/",root)>=(int)sizeof(dir))return 0;
@@ -270,6 +287,10 @@ extern "C" int startup_song_export_target(const char*path,char*out,size_t size){
 }
 extern "C" int startup_song_export_native_file(const char*path,char*out,size_t size){
  static const char internal[]="/data/UserContent/Samples/User/Export/";
+ if(path&&out&&size&&!std::strncmp(path,internal,sizeof(internal)-1)&&internal_storage_enabled&&internal_storage_enabled()){
+  if(!internal_storage_sample_path||!internal_storage_sample_path(path))return 0;
+  return std::snprintf(out,size,"%s",path)<(int)size;
+ }
  char root[PATH_MAX];
  if(!path||!out||!size||!card_root(root))return 0;
  if(!std::strncmp(path,internal,sizeof(internal)-1))return std::snprintf(out,size,"%s/Samples/Export/%s",root,path+sizeof(internal)-1)<(int)size;

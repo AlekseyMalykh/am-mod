@@ -6,7 +6,7 @@
 
 Use an **Akai MPC Sample**, firmware **1.3.0.12** (the device displays 1.3.0). Other MPC models/firmware are unsupported. Back up the entire card, especially `MPC-Sample`, projects, samples and settings. Prefer exFAT. FAT32 is experimental and cannot hold files of 4 GiB or larger. Give the card an ASCII volume label without spaces, such as `MPC`.
 
-The mod runs an application copy in RAM. It does not flash internal firmware. **Internal storage is temporary during a mod session: save to External.** Stock firmware or older mods may drop newer project fields when resaving; keep a separate project copy.
+The mod runs an application copy in RAM without flashing firmware. In the r30c storage candidate, **Internal user projects, samples and audio exports persist on flash**; system data outside those folders remains isolated. K3 selects Internal/External in native Save/Export dialogs. Older SD-only packages retain their original limits. Stock firmware or older mods may drop newer project fields when resaving; keep a separate project copy.
 
 ![Three supported installation layouts](media/r30c/install-en.png)
 
@@ -58,4 +58,4 @@ On **D.S.B**, copy the **contents** of the ZIP's autorun folder into `autorun/os
 
 ## First-session check
 
-Start with a copy of a small project. Play a pad; open Mixer; edit/bypass an effect; save to External, power-cycle and reload. Then try MIDI, imports and Sample Swap separately. The release verification records software tests; the final package still needs physical-device checks, including third-party bootloaders.
+Start with a copy of a small project. Play a pad; open Mixer; edit/bypass an effect. Save to Internal and External using K3, then power-cycle and reload. Check a saved sample and an audio export too. Try MIDI, imports and Sample Swap separately. The final package still needs physical-device checks, including third-party bootloaders.

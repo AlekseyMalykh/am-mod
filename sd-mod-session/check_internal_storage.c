@@ -21,6 +21,10 @@ int main(int argc,char **argv){
  snprintf(nested,sizeof nested,"%s/linked.xpj",p);assert(!symlink(file,nested)&&!internal_storage_project_path(nested)&&!unlink(nested));
  assert(!link(file,nested)&&!internal_storage_project_path(file)&&!unlink(nested));
  snprintf(nested,sizeof nested,"%s/voice.wav",sample);assert(internal_storage_sample_path(nested));
+ char exports[8192];snprintf(exports,sizeof(exports),"%s/Export",sample);assert(!mkdir(exports,0700));
+ snprintf(nested,sizeof nested,"%s/Export/mixdown.wav",sample);assert(internal_storage_sample_path(nested));
+ snprintf(nested,sizeof nested,"%s/Export/../outside.wav",sample);assert(!internal_storage_sample_path(nested));
+ assert(!rmdir(exports));
  assert(!internal_storage_sample_path(file)&&!internal_storage_project_path(nested));
  assert(!internal_storage_project_path("/etc/passwd")&&!internal_storage_sample_path("/data/System/config"));
  out=fopen(meta,"w");assert(out);fputs("AM_INTERNAL1\n0:0\n0:0\n",out);assert(!fclose(out));assert(!internal_storage_enabled()&&!internal_storage_project_path(file));

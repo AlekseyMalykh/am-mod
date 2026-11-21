@@ -10,6 +10,7 @@
 #define FN(o,T) ((T)(image+(o)))
 static uintptr_t image;
 static void*root;
+static void*input_host;
 static _Atomic unsigned pad_hit; /* absolute pad + 1, published by the surface thread */
 static _Atomic unsigned visible,page; /* 0 stock,1 tools,2 log,3 input map,4 output map */
 static unsigned row,pad,field,edit,direction,port,type,channel,focus;
@@ -26,7 +27,7 @@ extern void phone_native_inject_button(unsigned code,unsigned down);
 extern void phone_native_inject_controller(unsigned code,unsigned value);
 #pragma weak phone_native_inject_controller
 static const char*const filters[]={"All","Notes","CC","Program","Pitch/Pressure","Transport","Clock","SysEx"};
-static void repaint(void){if(root)FN(0x1149880,void(*)(void*,uint64_t,uint64_t))(root,0,F(root,0x28,uint64_t));}
+static void repaint(void){if(root&&image)FN(0x1149880,void(*)(void*,uint64_t,uint64_t))(root,0,F(root,0x28,uint64_t));}
 static void rect(void*g,int x,int y,int w,int h,uint32_t c){FN(0x102d5e0,void(*)(void*,uint32_t))(g,c);FN(0x102e000,void(*)(void*,int,int,int,int))(g,x,y,w,h);}
 static void text(void*g,const char*s,int x,int y,int w,int h,float size,uint32_t c,int align){
  uint64_t value=0,font=0;FN(0xf535c0,void(*)(void*,const char*))(&value,s);FN(0x1082810,void(*)(void*,int,float))(&font,0,size);FN(0x102dca0,void(*)(void*,void*))(g,&font);FN(0x102d5e0,void(*)(void*,uint32_t))(g,c);
@@ -42,9 +43,19 @@ void am_midi_ui_pad_hit(unsigned p){
 }
 void am_midi_ui_init(uintptr_t b){image=b;am_midi_io_ready();}
 int am_midi_ui_active(void){return atomic_load(&visible)&&atomic_load(&page);}
-void am_midi_ui_destroyed(void*p){if(root==p){root=NULL;atomic_store(&visible,0);atomic_store(&page,0);am_midi_learn(0,0);}}
+void am_midi_ui_destroyed(void*p){if(input_host==p)input_host=NULL;if(root==p){root=NULL;atomic_store(&visible,0);atomic_store(&page,0);am_midi_learn(0,0);}}
+void am_midi_ui_open_input(void*p){
+ if(!p)return;
+ input_host=root=p;atomic_store(&visible,1);atomic_store(&page,5);notice[0]=0;edit=0;
+ am_midi_learn(0,0);repaint();
+}
+int am_midi_ui_input_host(void*p){return p&&p==input_host&&atomic_load(&page)!=0;}
 static void mode_assign_pad(unsigned p);
 void am_midi_ui_tick(void*p){
+ if(input_host){
+  if(FN(0x112fd50,int(*)(void*))(input_host)&&!FN(0x112f6b0,int(*)(void*))(input_host))p=input_host;
+  else {am_midi_ui_destroyed(input_host);input_host=NULL;}
+ }
  root=p;atomic_store(&visible,p!=NULL);if(!p){atomic_store(&page,0);am_midi_learn(0,0);}am_midi_learn_tick();am_midi_diagnostic_tick();
  {unsigned c,d;while(am_midi_button_take(&c,&d)){if(p&&atomic_load(&page)==6)continue;if(c&0x80u){if(phone_native_inject_controller)phone_native_inject_controller(c&0x7fu,d);}else if(phone_native_inject_button)phone_native_inject_button(c,d);}}
  {unsigned hit=atomic_exchange(&pad_hit,0);if(hit&&atomic_load(&page)>=3&&atomic_load(&page)<=5){pad=hit-1;notice[0]=0;if(atomic_load(&page)==5)mode_assign_pad(pad);repaint();}}
@@ -92,18 +103,26 @@ static void map_read(unsigned which,struct am_midi_map *m,unsigned *enabled){
 static void pad_name(char*s,size_t n,unsigned v){if(!v)snprintf(s,n,"-");else snprintf(s,n,"%c%02u",'A'+(v-1)/16,(v-1)%16+1);}
 static void mode_paint(void*g){
  struct am_midi_mode m;am_midi_mode_get(&m);unsigned sel=mode_channel-1;
- heads(g,"Back","","Clear");
- char title[48];snprintf(title,sizeof title,"MIDI Input   Root %u",m.root);centre(g,title,4,31,312,20,15,0xffffc247);
+ heads(g,"Back","Map / Learn",music_ui_shift_active()?"Clear":"Mode");
+ char title[48];snprintf(title,sizeof title,"MIDI Input: %s",m.mode==AM_MIDI_MODE_SELECTED?"Selected pad":m.mode==AM_MIDI_MODE_CHANNELS?"Channels":"Drum map");centre(g,title,4,31,312,20,15,0xffffc247);
+ if(m.mode==AM_MIDI_MODE_SELECTED){
+  centre(g,"Play the selected MPC pad",8,72,304,24,17,0xffffffff);
+  centre(g,"Tune / 16 Levels from your keyboard",8,102,304,20,13,0xffaaaaaa);
+  centre(g,"Select another pad on the MPC to change sound.",8,139,304,30,11,0xff999999);
+  label(g,"B3: mode   Shift+B3: clear input settings",8,184,304,12,10,0xff999999);
+  char ch[12],r[12];if(m.channel)snprintf(ch,sizeof ch,"%u",m.channel);else snprintf(ch,sizeof ch,"All");snprintf(r,sizeof r,"%u",m.root);
+  knob(g,0,"Channel",ch);knob(g,1,"Role","Tune");knob(g,2,"Root",r);return;
+ }
  rect(g,4,53,312,16,0xff242424);label(g,"CH",12,53,40,16,11,0xff999999);label(g,"PAD",70,53,90,16,11,0xff999999);label(g,"ROLE",170,53,140,16,11,0xff999999);
- unsigned first=sel<4?0:sel>11?8:sel-4;
- for(unsigned r=0;r<8;++r){unsigned k=first+r;int y=70+(int)r*16;char c[8],p[8];
+ unsigned first=sel<3?0:sel>12?9:sel-3;
+ for(unsigned r=0;r<7;++r){unsigned k=first+r;int y=70+(int)r*16;char c[8],p[8];
   if(k==sel)rect(g,4,y,312,16,0xff302412);
   snprintf(c,sizeof c,"%u",k+1);pad_name(p,sizeof p,m.pad[k]);
   uint32_t col=k==sel?0xffffc247:0xffffffff;
   label(g,c,12,y,40,16,13,col);label(g,m.pad[k]?p:"All pads",70,y,90,16,13,col);
   label(g,!m.pad[k]?"Stock drum map":m.kind[k]==AM_MIDI_KEY_CHOP?"Chop (16 keys)":"Tune (16 Levels)",170,y,140,16,13,col);
  }
- label(g,"Tap a pad to give it to the selected channel.",8,182,304,14,10,0xff999999);
+ label(g,"Tap pad: assign channel   B3: input mode",8,184,304,12,10,0xff999999);
  char a[24],b[24],c2[24];snprintf(a,sizeof a,"%u",mode_channel);
  snprintf(b,sizeof b,"%s",!m.pad[sel]?"Drum":m.kind[sel]==AM_MIDI_KEY_CHOP?"Chop":"Tune");
  snprintf(c2,sizeof c2,"%s",music_ui_shift_active()?"Root":"Pad");
@@ -112,15 +131,22 @@ static void mode_paint(void*g){
 }
 static void mode_assign_pad(unsigned p){
  struct am_midi_mode m;am_midi_mode_get(&m);unsigned i=mode_channel-1;
+ if(m.mode==AM_MIDI_MODE_SELECTED)return;
  m.pad[i]=(uint8_t)(p+1);m.mode=AM_MIDI_MODE_CHANNELS;am_midi_mode_set(&m);
 }
 static void mode_control(unsigned code,unsigned v,int delta,unsigned shift){
  struct am_midi_mode m;am_midi_mode_get(&m);unsigned i=mode_channel-1;
+ if(m.mode==AM_MIDI_MODE_SELECTED){
+  if(code==0x10)m.channel=(uint8_t)(v*17/128);
+  else if(code==0x12)m.root=(uint8_t)v;
+  else if(code==0x64){int n=(int)m.channel+delta;m.channel=(uint8_t)(n<0?0:n>16?16:n);}
+  am_midi_mode_set(&m);return;
+ }
  if(code==0x10)mode_channel=1+v*16/128;
  else if(code==0x11){unsigned a=v*3/128;if(!a)m.pad[i]=0;else{m.kind[i]=(uint8_t)(a==2);if(!m.pad[i])m.pad[i]=1;}}
  else if(code==0x12){if(shift)m.root=(uint8_t)v;else m.pad[i]=(uint8_t)(v*129/128>128?128:v*129/128);}
  else if(code==0x64){int n=(int)mode_channel+delta;mode_channel=(unsigned)(n<1?1:n>16?16:n);}
- unsigned any=0;for(unsigned k=0;k<16;++k)any|=m.pad[k]!=0;m.mode=any?AM_MIDI_MODE_CHANNELS:AM_MIDI_MODE_DRUM;
+ if(code==0x11||(code==0x12&&!shift))m.mode=AM_MIDI_MODE_CHANNELS;
  am_midi_mode_set(&m);
 }
 static void button_name(char*s,size_t n,unsigned code){
@@ -214,11 +240,15 @@ int am_midi_ui_button(void*e){
  if(!down)return 0;
  held[code]=1;++held_count;
  if(!which){atomic_store(&page,1);row=0;}
- else if(code==0x0c){atomic_store(&page,which==1?0:1);am_midi_learn(0,0);edit=0;}
+ else if(code==0x0c){
+  if(input_host&&which==5){void*p=input_host;input_host=NULL;atomic_store(&page,0);atomic_store(&visible,0);repaint();if(root==p)root=NULL;}
+  else atomic_store(&page,input_host?5:which==1?0:1);
+  am_midi_learn(0,0);edit=0;
+ }
  else if(which==1&&(code==0x0e||code==0x6f)){atomic_store(&page,row+2);notice[0]=0;scroll_anchor=0;}
  else if(which==2){if(code==0x0d)am_midi_log_pause(!am_midi_log_paused());else if(code==0x0e){am_midi_log_clear();scroll_anchor=0;}else if(code==0x36)scroll_by(-7);else if(code==0x37)scroll_by(7);}
  else if(which==6){if(code==0x0e)am_midi_button_clear();else if(code!=0x0c)am_midi_button_learn(code,1);}
- else if(which==5){if(code==0x0e){struct am_midi_mode m={AM_MIDI_MODE_DRUM,0,60,{0},{0}};am_midi_mode_set(&m);}}
+ else if(which==5){if(code==0x0d){atomic_store(&page,3);edit=0;}else if(code==0x0e){struct am_midi_mode m;am_midi_mode_get(&m);if(music_ui_shift_active()){memset(&m,0,sizeof m);m.root=60;}else m.mode=m.mode==AM_MIDI_MODE_DRUM?AM_MIDI_MODE_CHANNELS:m.mode==AM_MIDI_MODE_CHANNELS?AM_MIDI_MODE_SELECTED:AM_MIDI_MODE_DRUM;am_midi_mode_set(&m);}}
  else if(which>=3){if(code==0x0e||code==0x6f)edit=!edit;else if(code==0x0d){if(which==3)am_midi_learn(pad,!am_midi_learn_active());else if(map_layer){struct am_midi_map m;am_midi_layer_get(pad,&m,NULL);am_midi_layer_set(pad,&m,0);}else{struct am_midi_map m;am_midi_map_get(pad,&m);m.out_kind=m.out_port=m.out_channel=m.out_number=0;am_midi_map_set(pad,&m);}}else if(code==0x36||code==0x37)pad=clamp((int)pad+(code==0x36?1:-1),127);}
  repaint();return 1;
 }

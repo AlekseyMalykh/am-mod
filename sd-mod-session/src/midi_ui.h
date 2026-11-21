@@ -12,4 +12,7 @@ int am_midi_ui_button(void*);
 /* Control-surface thread: a physical pad (absolute 0..127) was struck. Only
  * atomics cross threads; the UI owner applies it in am_midi_ui_tick. */
 void am_midi_ui_pad_hit(unsigned pad);
+/* UI-owner embedding in Shift+Sample Input Config; settings remain shared. */
+void am_midi_ui_open_input(void *host);
+int am_midi_ui_input_host(void *host);
 #endif

@@ -2033,7 +2033,7 @@ static void controller_ui(void *event,uint64_t route)
     if(on_ui()&&project_recovery_save_control(base,screen,cc))return;
 #endif
 #ifdef MPC_SONG_UI
-    if(cc==0x12&&song_ui_stems_modal_visible())return;
+    if(cc==0x12&&song_ui_stems_modal_visible()&&song_ui_owns(PHONE_CONTROLLER,cc,0,1))return;
 #endif
     if (on_ui() && editor && visible()) {
         if (cc == 0x10) {

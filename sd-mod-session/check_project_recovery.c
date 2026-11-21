@@ -13,6 +13,8 @@
 #include <signal.h>
 #include <ucontext.h>
 static char metadata[1024];static uint64_t fake_ms=100;
+static char internal_root[1024]="/data/UserContent";
+#define PROJECT_RECOVERY_INTERNAL internal_root
 static int recovery_clock(clockid_t id,struct timespec*t){(void)id;t->tv_sec=fake_ms/1000;t->tv_nsec=(fake_ms%1000)*1000000;return 0;}
 #define PROJECT_RECOVERY_STORAGE metadata
 #define clock_gettime recovery_clock
@@ -20,6 +22,7 @@ static int recovery_clock(clockid_t id,struct timespec*t){(void)id;t->tv_sec=fak
 #undef clock_gettime
 static int fixture_internal_storage;
 int internal_storage_enabled(void){return fixture_internal_storage;}
+int internal_storage_project_path(const char*path){(void)path;return fixture_internal_storage;}
 #include "src/music_archive.h"
 #include "src/music_settings.h"
 #include "src/compressor.h"
@@ -67,10 +70,10 @@ static void invalidated(void*p,uint64_t a,uint64_t b){assert((p==save_screen||p=
 static int shown(void*p){return (p==save_screen||p==sample_save_screen);}
 static int unblocked(void*p){assert((p==save_screen||p==sample_save_screen));return 0;}
 static unsigned name_seeds,storage_seeds,rebuilds;
-static void seed_name(void*p,const uint64_t*s,int notify){assert((p==save_screen||p==sample_save_screen)+0x9f8&&notify==1&&!strcmp((const char*)*s,"TestB"));++name_seeds;}
-static void rebuild_name(void*p){assert((p==save_screen||p==sample_save_screen)+0x9f8);++rebuilds;}
+static void seed_name(void*p,const uint64_t*s,int notify){assert((p==save_screen+0x9f8||p==sample_save_screen+0x9f8)&&notify==1&&!strcmp((const char*)*s,save_name));++name_seeds;}
+static void rebuild_name(void*p){assert(p==save_screen+0x9f8||p==sample_save_screen+0x9f8);++rebuilds;}
 static unsigned card_available=1;
-static void seed_storage(void*p,float v){assert(p==save_screen&&v==1.f);++storage_seeds;F(p,0x10a0,unsigned char)=1;F(p,0x10a1,unsigned char)=card_available;}
+static void seed_storage(void*p,float v){assert(p==save_screen&&(v==0.f||v==1.f));++storage_seeds;F(p,0x10a0,unsigned char)=v==1.f;F(p,0x10a1,unsigned char)=v==1.f&&card_available;}
 static void seed_sample_storage(void*p,float v){
  assert(p==sample_save_screen&&v==1.f);
  F(p,0x10b8,unsigned char)=1;F(p,0x10b9,unsigned char)=card_available;
@@ -116,11 +119,15 @@ int main(int argc,char**argv){
  strcpy(metadata,"/tmp/am-recovery-meta-XXXXXX");int fd=mkstemp(metadata);assert(fd>=0);assert(write(fd,root,strlen(root))==(ssize_t)strlen(root));close(fd);
  char encoded[PROJECT_RECOVERY_BYTES],name[129],relative[1024];
  assert(project_recovery_encode("TestB","Projects/TestB.xpj",encoded,sizeof(encoded)));
+ enum project_recovery_origin origin;
+ assert(project_recovery_decode_origin(encoded,&origin,name,sizeof(name),relative,sizeof(relative))&&origin==PROJECT_ORIGIN_SD);
+ assert(project_recovery_encode("TestB","",encoded,sizeof(encoded))&&project_recovery_decode_origin(encoded,&origin,name,sizeof(name),relative,sizeof(relative))&&origin==PROJECT_ORIGIN_UNKNOWN);
+ assert(project_recovery_encode_origin(PROJECT_ORIGIN_SD,"TestB","Projects/TestB.xpj",encoded,sizeof(encoded)));
  assert(project_recovery_decode(encoded,name,sizeof(name),relative,sizeof(relative))&&!strcmp(name,"TestB")&&!strcmp(relative,"Projects/TestB.xpj"));
  const char*bad[]={"../TestB.xpj","Projects/../TestB.xpj","Projects//TestB.xpj","/Projects/TestB.xpj","Projects/Mod-Exit-Last.xpj","Projects/TestB.xpj/","Projects\\TestB.xpj"};
  for(unsigned i=0;i<sizeof(bad)/sizeof(*bad);++i)assert(!project_recovery_encode("TestB",bad[i],encoded,sizeof(encoded)));
  assert(!project_recovery_encode("../Bad","",encoded,sizeof(encoded)));assert(!project_recovery_decode("AMR1\n00\n",name,sizeof(name),relative,sizeof(relative)));
- assert(project_recovery_encode("TestB","Projects/TestB.xpj",encoded,sizeof(encoded)));
+ assert(project_recovery_encode_origin(PROJECT_ORIGIN_SD,"TestB","Projects/TestB.xpj",encoded,sizeof(encoded)));
  phase="native strings";music_archive_init(base);music_reset();set_string(things+0x9b0,original);set_string(things+0xa08,data);set_string(preferences+0xa8,"/data/TempProjects/Temp-Project.xpj");
  phase="copy archive";
  /* UI observes B before native shutdown redirects identity to Temp-Project. */
@@ -210,17 +217,56 @@ int main(int argc,char**argv){
  project_recovery_saved("/data/UserContent/Projects/User/Workspace Test.xpj");
  set_string(things+0x9b0,original);project_recovery_tick(base,services);
  set_string(things+0x9b0,"/data/TempProjects/Temp-Project.xpj");project_recovery_capture(base,saver);project_recovery_begin_copy();
- assert(project_recovery_decode(project_recovery_copy_payload(),name,sizeof(name),relative,sizeof(relative))&&!strcmp(name,"Workspace Test")&&!relative[0]);project_recovery_end_copy();
+ assert(project_recovery_decode_origin(project_recovery_copy_payload(),&origin,name,sizeof(name),relative,sizeof(relative))&&origin==PROJECT_ORIGIN_INTERNAL&&!strcmp(name,"Workspace Test")&&!strcmp(relative,"Projects/User/Workspace Test.xpj"));project_recovery_end_copy();
  char named[1200];snprintf(named,sizeof(named),"%s/Projects/Workspace-Test.xpj",root);project_recovery_saved(named);
  project_recovery_saved("/data/TempProjects/Temp-Project.xpj");project_recovery_saved(recovery);
  project_recovery_capture(base,saver);project_recovery_begin_copy();
  assert(project_recovery_decode(project_recovery_copy_payload(),name,sizeof(name),relative,sizeof(relative))&&!strcmp(name,"Workspace-Test")&&!strcmp(relative,"Projects/Workspace-Test.xpj"));project_recovery_end_copy();
  project_recovery_loaded(NULL);set_string(things+0x9b0,"/data/UserContent/Projects/User/internal_saved.xpj");project_recovery_tick(base,services);
  set_string(things+0x9b0,"/data/TempProjects/Temp-Project.xpj");project_recovery_capture(base,saver);project_recovery_begin_copy();
- assert(project_recovery_decode(project_recovery_copy_payload(),name,sizeof(name),relative,sizeof(relative))&&!strcmp(name,"internal_saved")&&!relative[0]);project_recovery_end_copy();
+ assert(project_recovery_decode_origin(project_recovery_copy_payload(),&origin,name,sizeof(name),relative,sizeof(relative))&&origin==PROJECT_ORIGIN_INTERNAL&&!strcmp(name,"internal_saved")&&!strcmp(relative,"Projects/User/internal_saved.xpj"));project_recovery_end_copy();
  project_recovery_reset();project_recovery_capture(base,saver);project_recovery_begin_copy();
  assert(project_recovery_decode(project_recovery_copy_payload(),name,sizeof(name),relative,sizeof(relative))&&!strcmp(name,"Recovered Project"));project_recovery_end_copy();
  puts("PASS explicit Internal/External Save names survive stale current identity and native Temp autosave; technical saves cannot replace them; Internal UI identity cached; Load/New Project clear the saved-name override");
+ /* Same basename on SD/Internal: retain the actual volume AND nested folder. */
+ snprintf(internal_root,sizeof(internal_root),"%s/Internal",temporary);assert(!mkdir(internal_root,0700));
+ char internal_projects[1050],nested[1100],moved[1100],internal_file[1200];
+ snprintf(internal_projects,sizeof(internal_projects),"%s/Projects",internal_root);assert(!mkdir(internal_projects,0700));
+ snprintf(nested,sizeof(nested),"%s/Nested",internal_projects);assert(!mkdir(nested,0700));
+ snprintf(moved,sizeof(moved),"%s/Moved",internal_projects);snprintf(internal_file,sizeof(internal_file),"%s/TestB.xpj",nested);
+ f=fopen(internal_file,"wb");assert(f);fputs("Internal original unchanged",f);fclose(f);
+ fixture_internal_storage=1;project_recovery_reset();set_string(things+0x9b0,internal_file);
+ project_recovery_capture(base,saver);project_recovery_begin_copy();
+ char internal_payload[PROJECT_RECOVERY_BYTES];strcpy(internal_payload,project_recovery_copy_payload());project_recovery_end_copy();
+ assert(project_recovery_decode_origin(internal_payload,&origin,name,sizeof(name),relative,sizeof(relative))&&origin==PROJECT_ORIGIN_INTERNAL&&!strcmp(relative,"Projects/Nested/TestB.xpj"));
+ set_string(things+0x9b0,recovery);load_metadata(internal_payload,1);project_recovery_tick(base,services);fake_ms+=3000;project_recovery_tick(base,services);
+ assert(!strcmp(string_at(things+0x9b0),internal_file)&&!strcmp(string_at(things+0xa08),data)&&!strcmp(string_at(preferences+0xa8),"/data/TempProjects/Temp-Project.xpj"));
+ char save_default[1200],save_actual[1200];snprintf(save_default,sizeof(save_default),"%s/Projects/TestB.xpj",internal_root);
+ assert(project_recovery_save_target(save_default,save_actual,sizeof(save_actual))&&!strcmp(save_actual,internal_file));
+ snprintf(save_default,sizeof(save_default),"%s/Projects/User/TestB.xpj",internal_root);assert(project_recovery_save_target(save_default,save_actual,sizeof(save_actual))&&!strcmp(save_actual,internal_file));
+ assert(!project_recovery_save_target(original,save_actual,sizeof(save_actual))); /* explicit External */
+ snprintf(save_default,sizeof(save_default),"%s/Projects/New Name.xpj",internal_root);assert(!project_recovery_save_target(save_default,save_actual,sizeof(save_actual)));
+ F(save_screen,0x10a1,unsigned char)=1;project_recovery_save_paint(base,save_screen,NULL);assert(!F(save_screen,0x10a1,unsigned char));
+ F(save_screen,0x10a1,unsigned char)=1;project_recovery_save_paint(base,save_screen,NULL);assert(F(save_screen,0x10a1,unsigned char)); /* user's later K3 choice survives */
+ project_recovery_capture(base,saver);project_recovery_begin_copy();assert(!strcmp(internal_payload,project_recovery_copy_payload()));project_recovery_end_copy();
+ /* Missing folders and unavailable Internal capability never redirect to SD. */
+ assert(!rename(nested,moved));set_string(things+0x9b0,recovery);load_metadata(internal_payload,1);
+ project_recovery_tick(base,services);fake_ms+=3000;project_recovery_tick(base,services);
+ assert(!strcmp(string_at(things+0x9b0),recovery)&&strstr(project_recovery_notice(),"folder unavailable"));
+ assert(!rename(moved,nested));fixture_internal_storage=0;project_recovery_tick(base,services);
+ assert(!strcmp(string_at(things+0x9b0),recovery)&&strstr(project_recovery_notice(),"Internal storage unavailable"));
+ fixture_internal_storage=1;project_recovery_tick(base,services);assert(!strcmp(string_at(things+0x9b0),internal_file));
+ /* A legacy name without a location stays a recovery copy, not SD/TestB. */
+ assert(project_recovery_encode("TestB","",encoded,sizeof(encoded)));set_string(things+0x9b0,recovery);load_metadata(encoded,1);
+ project_recovery_tick(base,services);fake_ms+=3000;project_recovery_tick(base,services);
+ assert(!strcmp(string_at(things+0x9b0),recovery)&&strstr(project_recovery_notice(),"location unknown"));
+ char malformed[PROJECT_RECOVERY_BYTES];strcpy(malformed,internal_payload);malformed[5]='X';
+ assert(!project_recovery_decode_origin(malformed,&origin,name,sizeof(name),relative,sizeof(relative)));
+ assert(!project_recovery_encode_origin(PROJECT_ORIGIN_INTERNAL,"TestB","",malformed,sizeof(malformed)));
+ f=fopen(internal_file,"rb");assert(f);memset(contents,0,sizeof(contents));assert(fread(contents,1,sizeof(contents)-1,f)>0);fclose(f);assert(!strcmp(contents,"Internal original unchanged"));
+ f=fopen(original,"rb");assert(f);memset(contents,0,sizeof(contents));assert(fread(contents,1,sizeof(contents)-1,f)>0);fclose(f);assert(!strcmp(contents,"Original B unchanged"));
+ assert(!unlink(internal_file)&&!rmdir(nested)&&!rmdir(internal_projects)&&!rmdir(internal_root));
+ puts("PASS AMR2 restores Internal nested origin independently of same-named SD project, pins storage choice once, retains recovery PCM directory and Temp autosave; unavailable/unknown origins never fall back to SD; original bytes preserved");
  N(0xf0a290,void(*)(void*))(things+0x958);N(0xf0a290,void(*)(void*))(things+0x9b0);N(0xf0a290,void(*)(void*))(things+0xa08);N(0xf0a290,void(*)(void*))(preferences+0xa8);
  assert(!unlink(original)&&!unlink(metadata));snprintf(original,sizeof(original),"%s/Projects",root);assert(!rmdir(original)&&!rmdir(root)&&!rmdir(temporary));
  assert(!munmap((void*)base,0x7500000));return 0;

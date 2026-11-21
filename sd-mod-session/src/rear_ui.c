@@ -6,6 +6,10 @@
 #include "pad_workflow_colour.h"
 #include "step_native.h"
 #include "resample_view.h"
+extern void am_midi_ui_open_input(void*) __attribute__((weak));
+extern int am_midi_ui_input_host(void*) __attribute__((weak));
+extern void am_midi_ui_paint(void*,void*) __attribute__((weak));
+extern void am_midi_ui_destroyed(void*) __attribute__((weak));
 #include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
@@ -135,12 +139,14 @@ static void paint(void *p,void *g){
     unsigned kind=FIELD(p,0,uintptr_t)==image+0x6e22970?1:0;
     rear_ui_wake();roots[kind]=p;atomic_store(&dead[kind],0);
     if(!visible(p)||music_ui_repeat_active()||music_ui_knob_fx_active())return;
+    if(!kind&&am_midi_ui_input_host&&am_midi_ui_input_host(p)&&am_midi_ui_paint){am_midi_ui_paint(p,g);return;}
     if(kind&&mixer_view_tuner&&atomic_load(&tuner_open)){
         const struct resample_painter painter={g,tuner_rect,tuner_text};
         mixer_view_tuner(&painter);
         return;
     }
     if(!atomic_load(&open_panel)){
+        if(!kind&&am_midi_ui_open_input)text(g,"MIDI In",214,2,105,23,14,0xffffffffu);
         if(kind)monitor_header(g,(unsigned)rear_native_monitor());
         if(kind&&mixer_view_tuner)text(g,"Tuner",206,19,70,17,14,0xffddddddu);
         if(rear_native_source()!=1)return;
@@ -205,12 +211,12 @@ static void paint(void *p,void *g){
         else{pan_name(value,ch);panel(g,1+ch,label,value,1,0,rear_setting(ch,REAR_PAN),101);}
     }
 }
-static void destroy(void *p){unsigned i=FIELD(p,0,uintptr_t)==image+0x6e22970;atomic_store(&dead[i],1);FN(i?0x1682430:0x16248e0,void(*)(void*))(p);}
-static void deleting(void *p){unsigned i=FIELD(p,0,uintptr_t)==image+0x6e22970;atomic_store(&dead[i],1);FN(i?0x1682d70:0x1624d50,void(*)(void*))(p);}
+static void destroy(void *p){unsigned i=FIELD(p,0,uintptr_t)==image+0x6e22970;if(!i&&am_midi_ui_destroyed)am_midi_ui_destroyed(p);atomic_store(&dead[i],1);FN(i?0x1682430:0x16248e0,void(*)(void*))(p);}
+static void deleting(void *p){unsigned i=FIELD(p,0,uintptr_t)==image+0x6e22970;if(!i&&am_midi_ui_destroyed)am_midi_ui_destroyed(p);atomic_store(&dead[i],1);FN(i?0x1682d70:0x1624d50,void(*)(void*))(p);}
 static void secondary_destroy_record(void *p){atomic_store(&dead[1],1);FN(0x1682430,void(*)(void*))((char*)p-0xb0);}
 static void secondary_delete_record(void *p){atomic_store(&dead[1],1);FN(0x1682d70,void(*)(void*))((char*)p-0xb0);}
-static void secondary_destroy_config(void *p){atomic_store(&dead[0],1);FN(0x16248e0,void(*)(void*))((char*)p-0xb0);}
-static void secondary_delete_config(void *p){atomic_store(&dead[0],1);FN(0x1624d50,void(*)(void*))((char*)p-0xb0);}
+static void secondary_destroy_config(void *p){if(am_midi_ui_destroyed)am_midi_ui_destroyed((char*)p-0xb0);atomic_store(&dead[0],1);FN(0x16248e0,void(*)(void*))((char*)p-0xb0);}
+static void secondary_delete_config(void *p){if(am_midi_ui_destroyed)am_midi_ui_destroyed((char*)p-0xb0);atomic_store(&dead[0],1);FN(0x1624d50,void(*)(void*))((char*)p-0xb0);}
 int rear_ui_install(uintptr_t base){
     image=base;
     const uintptr_t offsets[]={0x6e22970+0xd8,0x6e1dd80+0xd8,0x6e22970,0x6e22978,0x6e1dd80,0x6e1dd88,0x6e22ae8,0x6e22af0,0x6e1def8,0x6e1df00};
@@ -256,6 +262,7 @@ int rear_ui_owns(unsigned kind,unsigned code){
     if(music_ui_repeat_active()||music_ui_knob_fx_active())return 0;
     if(!atomic_load(&visible_roots))return 0;
     unsigned panel=atomic_load(&open_panel);
+    if(!panel&&(atomic_load(&visible_roots)&1)&&am_midi_ui_open_input&&(code==0x0e||code==0x6d))return 1;
     if(atomic_load(&tuner_open)&&(atomic_load(&visible_roots)&2))return code==0x0c||code==0x0d||code==0x0e||code==0x6b||code==0x6c||code==0x6d;
     if(!panel&&mixer_view_tuner&&(atomic_load(&visible_roots)&2)&&(code==0x0e||code==0x6d))return 1;
     if(code==0x0d||code==0x6c)return panel||(rear_native_source()==1&&((atomic_load(&visible_roots)&2)||music_ui_shift_active()));
@@ -272,6 +279,9 @@ int rear_ui_button(void *event){
         }
     }
     if(!down){held[code]=0;return code!=0x51;}if(held[code])return code!=0x51;held[code]=1;
+    if(!atomic_load(&open_panel)&&(atomic_load(&visible_roots)&1)&&am_midi_ui_open_input&&(code==0x0e||code==0x6d)){
+        am_midi_ui_open_input(roots[0]);return 1;
+    }
     if(atomic_load(&tuner_open)){atomic_store(&tuner_open,0);repaint();return 1;}
     if(!atomic_load(&open_panel)&&(code==0x0e||code==0x6d)){atomic_store(&tuner_open,1);repaint();return 1;}
     /* An idle Stop still reaches the transport. Active Rear captures own
