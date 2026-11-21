@@ -75,7 +75,7 @@ static unsigned synth_cursor,synth_test;
 static void synth_value(char*s,size_t n,unsigned i){unsigned v=am_synth_param_get(i);if(i==0)snprintf(s,n,"%s",synth_waves[v%4]);else if(i==7)snprintf(s,n,"%u",v+1);else if(i==8)snprintf(s,n,"%s",v?"On":"Off");else if(i==9)snprintf(s,n,"%s",v==1?"Mod":v==2?"Pitch":"Off");else if(i==10)snprintf(s,n,"%s",v?"On":"Off");else snprintf(s,n,"%u",v);}
 static void synth_paint(void*g){
  heads(g,"Back","",synth_test?"Playing":"Test C4");centre(g,"Synth",4,31,312,22,16,0xffffc247);
- for(unsigned i=0;i<AM_SYNTH_PARAMS;++i){int y=52+(int)i*15;char v[16];synth_value(v,sizeof v,i);
+ for(unsigned i=0;i<11u;++i){int y=52+(int)i*15;char v[16];synth_value(v,sizeof v,i);
   if(i==synth_cursor)rect(g,4,y,312,16,0xff302412);
   label(g,synth_names[i],12,y,140,16,13,i==synth_cursor?0xffffc247:0xffffffff);label(g,v,170,y,140,16,13,i==synth_cursor?0xffffc247:0xffffffff);}
  label(g,"DATA: row / change   B3: hold to play",8,186,304,12,10,0xff999999);
@@ -87,7 +87,7 @@ static unsigned synth_scaled(unsigned index,unsigned v){return index==0?v*4/128:
 static void synth_control(unsigned code,unsigned v,int delta,unsigned shift){
  static const unsigned plain[3]={0,1,6},fine[3]={2,3,5};
  if(code>=0x10&&code<=0x12){unsigned i=(shift?fine:plain)[code-0x10];am_synth_param_set(i,synth_scaled(i,v));synth_cursor=i;}
- else if(code==0x64&&delta){if(edit){int n=(int)am_synth_param_get(synth_cursor)+delta;if(synth_cursor==0)n=(n%4+4)%4;else if(synth_cursor==7)n=(n%16+16)%16;am_synth_param_set(synth_cursor,n<0?0:(unsigned)n);}else synth_cursor=clamp((int)synth_cursor+delta,AM_SYNTH_PARAMS-1);}
+ else if(code==0x64&&delta){if(edit){int n=(int)am_synth_param_get(synth_cursor)+delta;if(synth_cursor==0)n=(n%4+4)%4;else if(synth_cursor==7)n=(n%16+16)%16;am_synth_param_set(synth_cursor,n<0?0:(unsigned)n);}else synth_cursor=clamp((int)synth_cursor+delta,11u-1);}
 }
 static int matches(const struct am_midi_record*r){
  if(direction&&r->direction!=direction-1)return 0;

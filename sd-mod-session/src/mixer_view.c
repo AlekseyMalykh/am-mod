@@ -1249,17 +1249,19 @@ extern unsigned music_light_colour_count(void) __attribute__((weak));
 extern unsigned music_light_colour_choice(unsigned) __attribute__((weak));
 extern unsigned music_light_colour_index(unsigned) __attribute__((weak));
 extern const char *music_light_colour_name(unsigned) __attribute__((weak));
+/* UI slot id -> engine parameter (0-9 direct, 17-27 = 11-21), -1 for the 16 Levels key settings */
+static int synth_pidx(int id){return id>=0&&id<10?id:id>=17&&id<=27?id-6:-1;}
 static void synth_text(const struct mixer_view_state*s,int id,char*name,size_t nn,char*val,size_t vn)
 {
-    static const char*const names[17]={"Wave","Cutoff","Attack","Decay","Sustain","Release","Level","MIDI channel","Mic","Fader","Layout","Key","Scale","Octave","Transpose","Colour","Role"};
+    static const char*const names[28]={"Wave","Cutoff","Attack","Decay","Sustain","Release","Level","MIDI channel","Mic","Fader","Layout","Key","Scale","Octave","Transpose","Colour","Role","Filter","Resonance","Env > Cutoff","LFO Rate","LFO Depth","LFO Target","Unison","Detune","Spread","Glide","Velocity"};
     static const char*const rolen[4][5]={{"Original","","","",""},{"Original","","","",""},{"Tonic","Scale","Other","Original",""},{"I","Key notes","IV","V","Original"}};
     static const char*const waves[4]={"Sine","Saw","Square","Triangle"};
     static const char*const lay[4]={"Monochrome","Piano","Scale","Degrees"};
     static const char*const root[13]={"Project","C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
     static const char*const scl[9]={"Project","Major","Minor","Dorian","Phrygian","Lydian","Mixolydian","Locrian","Chromatic"};
-    if(id<0||id>16){name[0]=val[0]=0;return;}
+    if(id<0||id>27){name[0]=val[0]=0;return;}
     snprintf(name,nn,"%s",names[id]);
-    unsigned v=id<10&&am_synth_param_get?am_synth_param_get((unsigned)id):0;
+    unsigned v=am_synth_param_get&&synth_pidx(id)>=0?am_synth_param_get((unsigned)synth_pidx(id)):0;
     switch(id){
         case 0:snprintf(val,vn,"%s",waves[v%4]);break;
         case 7:snprintf(val,vn,"%u",v+1);break;
@@ -1272,6 +1274,13 @@ static void synth_text(const struct mixer_view_state*s,int id,char*name,size_t n
         case 14:snprintf(val,vn,s->synth_layout==3?"%+d steps":"%+d st",(int)s->synth_transpose-24);break;
         case 15:snprintf(val,vn,"%s",music_light_colour_name?music_light_colour_name(s->synth_cols[mixer_view_synth_field(s->synth_layout,s->synth_role)]):"-");break;
         case 16:snprintf(val,vn,"%s",rolen[s->synth_layout%4][s->synth_role%5]);break;
+        case 17:snprintf(val,vn,"%s",v%3==0?"Low pass":v%3==1?"High pass":"Band pass");break;
+        case 20:snprintf(val,vn,"%.1f Hz",0.1*pow(200.0,v/127.0));break;
+        case 22:snprintf(val,vn,"%s",v%3==0?"Pitch":v%3==1?"Filter":"Amp");break;
+        case 23:snprintf(val,vn,"%u voice%s",v%4+1,v%4?"s":"");break;
+        case 24:snprintf(val,vn,"%u ct",v*50/127);break;
+        case 26:if(v)snprintf(val,vn,"%.0f ms",5.0*pow(200.0,v/127.0));else snprintf(val,vn,"Off");break;
+        case 18:case 19:case 21:case 25:case 27:snprintf(val,vn,"%u%%",v*100/127);break;
         default:snprintf(val,vn,"%u",v);
     }
 }
@@ -1281,8 +1290,10 @@ static float synth_wave_at(unsigned w,float ph)
 }
 static float synth_frac(const struct mixer_view_state*s,int id)
 {
-    unsigned v=id>=0&&id<10&&am_synth_param_get?am_synth_param_get((unsigned)id):0;
+    unsigned v=am_synth_param_get&&synth_pidx(id)>=0?am_synth_param_get((unsigned)synth_pidx(id)):0;
     switch(id){
+        case 17:case 22:return (float)(v%3)/2.0f;
+        case 23:return (float)(v%4)/3.0f;
         case 0:return (float)(v%4)/3.0f;
         case 7:return (float)v/15.0f;
         case 8:return v?1.0f:0.0f;
@@ -1311,8 +1322,7 @@ static void synth_adsr_mini(const struct resample_painter*p,int x0,int y0,int w,
 }
 void mixer_view_synth(const struct mixer_view_state*s,const struct resample_painter*p)
 {
-    static const char*const mods[3]={"Tone","Envelope","Keys"};
-    unsigned page=s->synth_cursor%3;
+    unsigned page=s->synth_cursor%5;
     rect(p,0,0,320,240,BLACK);
     rect(p,2,2,102,26,0xff242424u);text(p,"Back",2,2,102,25,13,WHITE,1);
     rect(p,108,2,102,26,page==2?0xff4a3a10u:0xff242424u);text(p,"16 Levels",108,2,102,25,13,s->synth_keys?AMBER:WHITE,1);
@@ -1351,22 +1361,24 @@ void mixer_view_synth(const struct mixer_view_state*s,const struct resample_pain
             rect(p,cx,cy,35,21,on?AMBER:(0xff000000u|lr<<16|lg<<8|lb));text(p,n,cx,cy,35,20,11,on?BLACK:WHITE,1);
         }
     }
-    /* top right: module scheme (pages) */
-    char sum[3][96],a[24],b[24],c[24],d[24];
-    synth_text(s,0,a,sizeof a,b,sizeof b);synth_text(s,1,c,sizeof c,d,sizeof d);
-    snprintf(sum[0],sizeof sum[0],"%s  Cut %u",b,am_synth_param_get?am_synth_param_get(1):0);
-    sum[1][0]=0;
-    {char l[24],lv[24],r[24],rv[24];synth_text(s,10,l,sizeof l,lv,sizeof lv);synth_text(s,11,r,sizeof r,rv,sizeof rv);{char sl[24],sv[24];synth_text(s,12,sl,sizeof sl,sv,sizeof sv);snprintf(sum[2],sizeof sum[2],"%s  %s  %s",lv,rv,sv);}}
-    for(unsigned m=0;m<3;++m){
-        int y=32+(int)m*33,sel=m==page;
-        rect(p,164,y,152,30,sel?0xff4a3a10u:0xff1c1c1cu);
-        if(sel){rect(p,164,y,3,30,AMBER);}
-        text(p,mods[m],172,y+1,74,13,12,sel?AMBER:WHITE,0);
-        if(m==1)synth_adsr_mini(p,172,y+15,136,13,sel);
-        else text(p,sum[m],172,y+15,140,12,10,GREY,0);
-        if(m<2)rect(p,238,y+30,2,3,0xff606060u);
+    /* top right: module scheme (pages): Tone, Envelope, Filter + LFO, Voices, Keys */
+    static const char*const mods[5]={"Tone","Envelope","Filter + LFO","Voices","Keys"};
+    static const unsigned char order[5]={0,1,3,4,2};
+    for(unsigned m=0;m<5;++m){
+        unsigned pg=order[m];int y=32+(int)m*19,sel=pg==page;
+        char sum[64],a1[24],b1[24],c1[24],d1[24],e1[24],f1[24];sum[0]=0;
+        if(pg==0){synth_text(s,0,a1,sizeof a1,b1,sizeof b1);snprintf(sum,sizeof sum,"%s  Cut %u",b1,am_synth_param_get?am_synth_param_get(1):0);}
+        else if(pg==3){synth_text(s,17,a1,sizeof a1,b1,sizeof b1);synth_text(s,22,c1,sizeof c1,d1,sizeof d1);synth_text(s,21,e1,sizeof e1,f1,sizeof f1);
+            snprintf(sum,sizeof sum,"%.4s  %s %s",b1,d1,f1);}
+        else if(pg==4){synth_text(s,23,a1,sizeof a1,b1,sizeof b1);synth_text(s,24,c1,sizeof c1,d1,sizeof d1);snprintf(sum,sizeof sum,"%s  %s",b1,d1);}
+        else if(pg==2){char sl[24],sv[24],l[24],lv[24],r[24],rv[24];synth_text(s,10,l,sizeof l,lv,sizeof lv);synth_text(s,11,r,sizeof r,rv,sizeof rv);synth_text(s,12,sl,sizeof sl,sv,sizeof sv);snprintf(sum,sizeof sum,"%.5s %s %.5s",lv,rv,sv);}
+        rect(p,164,y,152,17,sel?0xff4a3a10u:0xff1c1c1cu);
+        if(sel)rect(p,164,y,3,17,AMBER);
+        text(p,mods[m],170,y+1,74,15,11,sel?AMBER:WHITE,0);
+        if(pg==1)synth_adsr_mini(p,246,y+3,64,11,sel);
+        else text(p,sum,246,y+2,68,13,9,GREY,0);
     }
-    text(p,s->synth_pick?"Pads 1-3: Tone / Envelope / Keys":"Loop: pages   B2: 16 Levels setup   DATA: page",8,131,304,11,10,s->synth_pick?AMBER:GREY,0);
+    text(p,s->synth_pick?"Pads 1-5: Tone/Env/Keys/Filter/Voices":"Loop: pages   B2: 16 Levels setup   DATA: page",8,131,304,11,10,s->synth_pick?AMBER:GREY,0);
     /* bottom: knobs of the selected page, direct + Shift */
     for(unsigned k=0;k<3;++k){
         int x=(int)k*106,w=k==2?105:102;

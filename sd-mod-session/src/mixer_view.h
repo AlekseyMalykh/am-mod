@@ -51,11 +51,12 @@ struct mixer_view_state {
     unsigned synth_hold,synth_hold_note,synth_page,synth_shift,synth_cursor,synth_keys,synth_layout,synth_root,synth_scale,synth_octave; /* synth_keys: 16 Levels keyboard on pads */ /* trial synth window (Mixer pad 13) */
     double rate;
 };
-/* synth param id (0-9) or key setting (10-13) on a K knob, -1 none */
+/* synth param id (0-9), key setting (10-16) or Filter/LFO/Voices id (17-27 = engine param id-6) on a K knob, -1 none */
 static inline int mixer_view_synth_slot(unsigned page,unsigned knob,unsigned shift)
 {
-    static const signed char slot[3][3][2]={{{0,1},{6,8},{7,9}},{{2,3},{4,5},{6,-1}},{{10,14},{11,16},{12,15}}};
-    return page<3&&knob<3&&shift<2?slot[page][knob][shift]:-1;
+    static const signed char slot[5][3][2]={{{0,1},{6,8},{7,9}},{{2,3},{4,5},{6,-1}},{{10,14},{11,16},{12,15}},
+        {{17,20},{18,21},{19,22}},{{23,26},{24,27},{25,-1}}}; /* 3 Filter + LFO, 4 Voices */
+    return page<5&&knob<3&&shift<2?slot[page][knob][shift]:-1;
 }
 /* 16 Levels colour roles per layout (as the project Lights page): Mono/Piano: Original; Scale: Tonic, Scale, Other, Original; Degrees: I, Key notes, IV, V, Original */
 static inline unsigned mixer_view_synth_roles(unsigned layout){static const unsigned char n[4]={1,1,4,5};return n[layout%4];}
