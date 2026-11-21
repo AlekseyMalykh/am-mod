@@ -2517,14 +2517,21 @@ static int mixer_sample_button(unsigned code,unsigned down){
 #endif
 extern int rear_mic_screen_visible(void) __attribute__((weak));
 extern int am_synth_keys_get(void) __attribute__((weak));
-static int synth_keys_on_screen(void){return am_synth_keys_get&&rear_mic_screen_visible&&am_synth_keys_get()&&rear_mic_screen_visible();}
+extern void am_synth_keys_set(int) __attribute__((weak));
+/* The synth keyboard is never on right after Sample Record opens (or closes): it only starts with the 16 Levels button. */
+static int synth_keys_on_screen(void){
+    static int was_visible;
+    if(!am_synth_keys_get||!rear_mic_screen_visible)return 0;
+    int visible=rear_mic_screen_visible()?1:0;
+    if(visible!=was_visible){was_visible=visible;if(am_synth_keys_set&&am_synth_keys_get())am_synth_keys_set(0);}
+    return visible&&am_synth_keys_get();
+}
 /* Sample Record with the synth pad keyboard on: pads show the 16 Levels layout colours. */
 static int synth_keys_light(unsigned pad,uint64_t*out){
     if(pad>=16||!synth_keys_on_screen()||!am_synth_pad_info)return 0;
     *out=am_synth_pad_info(pad,0);return 1;
 }
 static void synth_keys_button_refresh(void);
-extern void am_synth_keys_set(int) __attribute__((weak));
 extern void am_synth_pad(unsigned,int) __attribute__((weak));
 static unsigned char button_template[16];static _Atomic int button_template_ready;
 static void buttons(void *event)
