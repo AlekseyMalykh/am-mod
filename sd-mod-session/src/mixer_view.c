@@ -1237,9 +1237,38 @@ void mixer_view_tuner(const struct resample_painter*p)
     int have=input_fx_pitch&&input_fx_pitch(&hz);
     mixer_view_tuner_ex(p,"Input",have,hz,"Play or sing a note","");
 }
+extern unsigned am_synth_param_get(unsigned) __attribute__((weak));
+void mixer_view_synth(const struct mixer_view_state*s,const struct resample_painter*p)
+{
+    static const char*const waves[4]={"Sine","Saw","Square","Triangle"};
+    static const char*const names[8]={"Wave","Cutoff","Attack","Decay","Sustain","Release","Level","MIDI channel"};
+    static const unsigned plain[3]={0,1,6},fine[3]={2,3,5};
+    char value[8][16];
+    for(unsigned i=0;i<8;++i){unsigned v=am_synth_param_get?am_synth_param_get(i):0;if(i==0)snprintf(value[i],sizeof value[i],"%s",waves[v%4]);else if(i==7)snprintf(value[i],sizeof value[i],"%u",v+1);else snprintf(value[i],sizeof value[i],"%u",v);}
+    rect(p,0,0,320,240,BLACK);
+    rect(p,2,2,102,26,0xff242424u);text(p,"Back",2,2,102,25,13,WHITE,1);
+    rect(p,108,2,102,26,0xff242424u);
+    rect(p,214,2,104,26,0xff242424u);text(p,"Hold note",214,2,104,25,13,AMBER,1);
+    text(p,"Synth",4,30,312,22,17,AMBER,1);
+    for(unsigned i=0;i<8;++i){
+        int y=52+(int)i*17;
+        if(i==s->synth_cursor)rect(p,4,y,312,16,0xff302412u);
+        text(p,names[i],12,y,140,16,13,i==s->synth_cursor?AMBER:WHITE,0);
+        text(p,value[i],170,y,140,16,13,i==s->synth_cursor?AMBER:WHITE,0);
+    }
+    text(p,"Pads play notes   Shift+DATA: change value",8,196,304,12,10,GREY,0);
+    const unsigned*map=s->synth_shift?fine:plain;
+    for(unsigned k=0;k<3;++k){
+        int x=(int)k*106;
+        rect(p,x+2,209,k==2?105:102,31,0xff202020u);
+        text(p,names[map[k]],x+3,210,k==2?104:100,11,10,GREY,1);
+        text(p,value[map[k]],x+3,222,k==2?104:100,16,13,AMBER,1);
+    }
+}
 void mixer_view_paint(const struct mixer_view_state*s,const struct resample_painter*p)
 {
     if(!s||!s->project||!p||!p->rect||!p->text||s->primary>=8||s->bank>=8||s->page>MIXER_INSPECT)return;
+    if(s->synth_page){mixer_view_synth(s,p);return;}
     if(s->master==2&&s->page==MIXER_KNOB_FX&&s->input_tuner){mixer_view_tuner(p);return;}
     if(s->page==MIXER_KNOB_FX&&s->fx_delete){
         fx_delete_confirm(s,p);

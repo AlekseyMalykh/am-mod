@@ -46,6 +46,7 @@ struct mixer_view_state {
     unsigned input_tab; /* Input page: 1 FX, 2 ROUTE (B1 is Back) */
     unsigned input_edit; /* ROUTE: the selected row is being edited with the encoder */
     unsigned input_tuner; /* Input: the full-screen tuner window is open */
+    unsigned synth_page,synth_shift,synth_cursor; /* trial synth window (Mixer pad 13) */
     double rate;
 };
 static inline const struct mixer_channel*mixer_view_selected(const struct mixer_view_state*s)

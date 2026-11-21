@@ -8,8 +8,8 @@ enum { ENV_OFF, ENV_ATTACK, ENV_DECAY, ENV_SUSTAIN, ENV_RELEASE };
 struct voice { unsigned note,env;float phase,inc,level,velocity,lp;unsigned long age; };
 static struct voice voices[VOICES];
 static unsigned long clock_age;
-static _Atomic unsigned wave,cutoff=100,attack=2,decay=40,sustain=90,release_cc=40,gain=100;
-static _Atomic unsigned *const params[AM_SYNTH_PARAMS]={&wave,&cutoff,&attack,&decay,&sustain,&release_cc,&gain};
+static _Atomic unsigned wave,cutoff=100,attack=2,decay=40,sustain=90,release_cc=40,gain=100,midi_channel=15;
+static _Atomic unsigned *const params[AM_SYNTH_PARAMS]={&wave,&cutoff,&attack,&decay,&sustain,&release_cc,&gain,&midi_channel};
 static _Atomic int active_voices;
 /* MIDI thread pushes, audio thread pops: single producer, single consumer. */
 #define QUEUE 64u
@@ -20,7 +20,7 @@ static void push(unsigned value){unsigned h=atomic_load_explicit(&event_head,mem
 void am_synth_note(unsigned note,unsigned velocity,int on){if(note>127)return;push((on&&velocity?1u:0u)<<16|(velocity&127)<<8|note);}
 void am_synth_cc(unsigned cc,unsigned value){push(2u<<16|(value&127)<<8|(cc&127));}
 void am_synth_midi(const unsigned char *d,unsigned n){
- if(!d||n<2||(d[0]&0x0f)!=15)return;
+ if(!d||n<2||(d[0]&0x0f)!=atomic_load(&midi_channel))return;
  switch(d[0]&0xf0){
   case 0x90:am_synth_note(d[1],n>2?d[2]:0,n>2&&d[2]);break;
   case 0x80:am_synth_note(d[1],0,0);break;
@@ -71,4 +71,4 @@ void am_synth_render_add(float *left,float *right,unsigned frames){
  atomic_store_explicit(&active_voices,alive,memory_order_release);
 }
 unsigned am_synth_param_get(unsigned index){return index<AM_SYNTH_PARAMS?atomic_load(params[index]):0;}
-void am_synth_param_set(unsigned index,unsigned value){if(index<AM_SYNTH_PARAMS)atomic_store(params[index],index==0?value%4:value>127?127:value);}
+void am_synth_param_set(unsigned index,unsigned value){if(index<AM_SYNTH_PARAMS)atomic_store(params[index],index==0?value%4:index==7?value%16:value>127?127:value);}

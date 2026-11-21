@@ -300,7 +300,7 @@ extern "C" void *rear_native_process(void *thread, void *position, void *buffer,
         for (int ch = 0; ch < channels && ch < 8; ++ch) if (pcm[ch]) std::memset(pcm[ch],0,(size_t)frames*sizeof(float));
     }
     if (am_synth_active && am_synth_render_add && am_synth_active() && pcm && frames > 0 && frames <= 8192 && channels >= 1 && pcm[0])
-        am_synth_render_add(pcm[0], channels >= 2 ? pcm[1] : nullptr, (unsigned)frames);
+    { am_synth_render_add(pcm[0], channels >= 2 ? pcm[1] : nullptr, (unsigned)frames); FIELD(buffer,0x128,unsigned char) &= (unsigned char)~1u; /* no longer a silent buffer */ }
     bool prepared_mix=input_active.load(std::memory_order_acquire)&&rear_setting(0,REAR_MODE)==REAR_MIX&&
         channels>=2&&frames>0&&frames<=8192&&pcm&&pcm[0]&&pcm[1];
     if(prepared_mix){

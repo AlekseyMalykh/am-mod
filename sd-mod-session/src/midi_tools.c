@@ -17,6 +17,7 @@ static uint64_t log_serial,clear_serial;
 static _Atomic uint64_t revision,dropped;
 static _Atomic unsigned paused;
 static _Atomic uint64_t bslots[AM_MIDI_BUTTON_SLOTS]; /* port | channel<<8 | kind<<16 | number<<24 | code<<32 */
+static _Atomic uint64_t learn_first;static _Atomic unsigned learn_rel,modheld; /* combo learn: first (modifier) source, its release, held mask per slot */
 static _Atomic unsigned learn_btn; /* native button code+1 while Learn waits for its MIDI source */
 static _Atomic uint32_t bq[32];static _Atomic unsigned bq_w,bq_r;
 static _Atomic unsigned learn_pad; /* pad+1; callback publishes a message, UI commits */
@@ -136,26 +137,27 @@ void am_midi_native_notes(const int n[128]){atomic_store(&notes_ready,0);for(uns
 int am_midi_button_get(unsigned slot,struct am_midi_button*out){
     if(slot>=AM_MIDI_BUTTON_SLOTS||!out)return 0;
     uint64_t v=atomic_load_explicit(bslots+slot,memory_order_acquire);
-    out->port=(uint8_t)v;out->channel=(uint8_t)(v>>8);out->kind=(uint8_t)(v>>16);out->number=(uint8_t)(v>>24);out->code=(uint8_t)(v>>32);return 1;
+    out->port=(uint8_t)v;out->channel=(uint8_t)(v>>8);out->kind=(uint8_t)(v>>16);out->number=(uint8_t)(v>>24);out->code=(uint8_t)(v>>32);out->mport=(uint8_t)((v>>40)&3);out->mkind=(uint8_t)((v>>42)&3);out->mchannel=(uint8_t)((v>>44)&31);out->mnumber=(uint8_t)((v>>49)&127);return 1;
 }
-static uint64_t bpack(const struct am_midi_button*b){return (uint64_t)b->port|(uint64_t)b->channel<<8|(uint64_t)b->kind<<16|(uint64_t)b->number<<24|(uint64_t)b->code<<32;}
-static int bvalid(const struct am_midi_button*b){return b->kind<=2&&b->port<=2&&b->channel<=16&&b->number<128&&(b->kind||!(b->port|b->channel|b->number|b->code));}
-void am_midi_button_learn(unsigned code,int on){atomic_store(&learn_message,0);atomic_store(&learn_pad,0);atomic_store(&learn_btn,on&&code<256?code+1:0);}
+static uint64_t bpack(const struct am_midi_button*b){return (uint64_t)b->port|(uint64_t)b->channel<<8|(uint64_t)b->kind<<16|(uint64_t)b->number<<24|(uint64_t)b->code<<32|(uint64_t)(b->mport&3)<<40|(uint64_t)(b->mkind&3)<<42|(uint64_t)(b->mchannel&31)<<44|(uint64_t)(b->mnumber&127)<<49;}
+static int bvalid(const struct am_midi_button*b){return b->kind<=2&&b->port<=2&&b->channel<=16&&b->number<128&&b->mkind<=2&&b->mport<=2&&b->mchannel<=16&&b->mnumber<128&&(b->kind||!(b->port|b->channel|b->number|b->code|b->mkind));}
+void am_midi_button_learn(unsigned code,int on){atomic_store(&learn_first,0);atomic_store(&learn_rel,0);atomic_store(&learn_message,0);atomic_store(&learn_pad,0);atomic_store(&learn_btn,on&&code<256?code+1:0);}
 unsigned am_midi_button_learning(void){return atomic_load(&learn_btn);}
 void am_midi_button_clear(void){for(unsigned i=0;i<AM_MIDI_BUTTON_SLOTS;++i)atomic_store(bslots+i,0);atomic_store(&learn_btn,0);atomic_fetch_add(&revision,1);}
 int am_midi_button_take(unsigned*code,unsigned*down){
     unsigned r=atomic_load(&bq_r);
     if(r==atomic_load(&bq_w))return 0;
-    uint32_t v=atomic_load(bq+(r&31));atomic_store(&bq_r,r+1);if(code)*code=(v>>8)-1;if(down)*down=v&255;return 1;
+    uint32_t v=atomic_load(bq+(r&31));atomic_store(&bq_r,r+1);if(code)*code=(((v>>8)&0x1ff)-1)|(((v>>24)&1)?0x200u:0u);if(down)*down=v&255;return 1;
 }
-static void button_commit(uint64_t n){
-    unsigned code=atomic_load(&learn_btn)-1;struct am_midi_button b={(uint8_t)(n>>32),(uint8_t)(((n>>16)&15)+1),(uint8_t)(((n>>20)&15)==9?1:2),(uint8_t)(n>>8),(uint8_t)code};
+static void button_commit(uint64_t n,uint64_t mod){
+    unsigned code=atomic_load(&learn_btn)-1;struct am_midi_button b={(uint8_t)(n>>32),(uint8_t)(((n>>16)&15)+1),(uint8_t)(((n>>20)&15)==9?1:2),(uint8_t)(n>>8),(uint8_t)code,0,0,0,0};
+    if(mod){b.mport=(uint8_t)(mod>>32);b.mchannel=(uint8_t)(((mod>>16)&15)+1);b.mkind=(uint8_t)(((mod>>20)&15)==9?1:2);b.mnumber=(uint8_t)(mod>>8);}
     int slot=-1;
     for(unsigned i=0;i<AM_MIDI_BUTTON_SLOTS;++i){struct am_midi_button o;am_midi_button_get(i,&o);
-        if(o.kind&&(o.code==code||(o.kind==b.kind&&o.number==b.number&&o.channel==b.channel&&o.port==b.port))){if(slot<0)slot=(int)i;else atomic_store(bslots+i,0);}}
+        if(o.kind&&(o.code==code||(o.kind==b.kind&&o.number==b.number&&o.channel==b.channel&&o.port==b.port&&o.mkind==b.mkind&&o.mnumber==b.mnumber&&o.mchannel==b.mchannel&&o.mport==b.mport))){if(slot<0)slot=(int)i;else atomic_store(bslots+i,0);}}
     if(slot<0)for(unsigned i=0;i<AM_MIDI_BUTTON_SLOTS;++i){struct am_midi_button o;am_midi_button_get(i,&o);if(!o.kind){slot=(int)i;break;}}
     if(slot<0||!bvalid(&b))return;
-    atomic_store_explicit(bslots+slot,bpack(&b),memory_order_release);atomic_store(&learn_btn,0);atomic_fetch_add(&revision,1);
+    atomic_store_explicit(bslots+slot,bpack(&b),memory_order_release);atomic_store(&learn_btn,0);atomic_store(&learn_first,0);atomic_store(&learn_rel,0);atomic_fetch_add(&revision,1);
 }
 static int native_note(unsigned pad){return atomic_load_explicit(&notes_ready,memory_order_acquire)?atomic_load(native_notes+pad):-1;}
 static int scope(unsigned port,unsigned channel,unsigned wanted_port,unsigned wanted_channel){return (!wanted_port||port==wanted_port)&&(!wanted_channel||channel+1==wanted_channel);}
@@ -168,8 +170,18 @@ static int translate_impl(struct am_midi_router*r,unsigned direction,unsigned po
     int on=kind==0x90&&in->data[2],off=kind==0x80||(kind==0x90&&!in->data[2]);
     int cc_source=direction==AM_MIDI_IN&&kind==0xb0;
     if(direction==AM_MIDI_IN&&(kind==0x90||kind==0x80||kind==0xb0)){
-        for(unsigned i=0;i<AM_MIDI_BUTTON_SLOTS;++i){
+        unsigned mvalue=kind==0x80?0:in->data[2];
+        for(unsigned i=0;i<AM_MIDI_BUTTON_SLOTS;++i){ /* modifier source: track held state, swallow */
+            uint64_t v=atomic_load_explicit(bslots+i,memory_order_acquire);unsigned mk=(unsigned)((v>>42)&3);if(!(((v>>16)&255)&&mk))continue;
+            unsigned mp=(unsigned)((v>>40)&3),mc=(unsigned)((v>>44)&31),mn=(unsigned)((v>>49)&127);
+            if((mp&&mp!=port)||(mc&&mc!=ch+1)||mn!=num||mk!=(kind==0xb0?2u:1u))continue;
+            if(mvalue)atomic_fetch_or(&modheld,1u<<i);else atomic_fetch_and(&modheld,~(1u<<i));
+            return 0;
+        }
+        for(unsigned pass=0;pass<2;++pass)for(unsigned i=0;i<AM_MIDI_BUTTON_SLOTS;++i){
             uint64_t v=atomic_load_explicit(bslots+i,memory_order_acquire);if(!((v>>16)&255))continue;
+            unsigned combo=(unsigned)((v>>42)&3)!=0;if(combo!=(pass==0))continue;
+            
             unsigned sp=(unsigned)(v&255),sc=(unsigned)((v>>8)&255),sk=(unsigned)((v>>16)&255),sn=(unsigned)((v>>24)&255),code=(unsigned)((v>>32)&255);
             if((sp&&sp!=port)||(sc&&sc!=ch+1)||sn!=num||sk!=(kind==0xb0?2u:1u))continue;
             unsigned value=kind==0x80?0:in->data[2];
@@ -177,7 +189,7 @@ static int translate_impl(struct am_midi_router*r,unsigned direction,unsigned po
                 if(kind==0x80)return 0;
                 if((code&0x7f)==0x64){int d=(int)value-64;value=d<0?(unsigned)(128+d):(unsigned)d;}
             }else value=value!=0;
-            unsigned w=atomic_load(&bq_w);if(w-atomic_load(&bq_r)<32){atomic_store(bq+(w&31),((code+1)<<8)|value);atomic_store(&bq_w,w+1);}
+            unsigned w=atomic_load(&bq_w);if(w-atomic_load(&bq_r)<32){atomic_store(bq+(w&31),((code+1)<<8)|value|(combo?1u<<24:0));atomic_store(&bq_w,w+1);}
             return 0;
         }
     }
@@ -281,14 +293,14 @@ void am_midi_router_panic(struct am_midi_router*r,unsigned channel,am_midi_emit 
 }
 int am_midi_encode(char*out,size_t cap){
  if(!out||cap<AM_MIDI_PAYLOAD)return 0;
- uint8_t wire[2292]={0};unsigned expanded=0,hasb=0;
+ uint8_t wire[2340]={0};unsigned expanded=0,hasb=0,hasm=0;
  struct am_midi_mode mode;am_midi_mode_get(&mode);
  unsigned modal=mode.mode||mode.channel||mode.root!=60;for(unsigned i=0;i<16;++i)modal|=mode.pad[i]!=0||mode.kind[i]!=0;
  for(unsigned i=0;i<128;++i){struct am_midi_map m;am_midi_map_get(i,&m);memcpy(wire+i*8,&m,8);
   unsigned enabled;am_midi_layer_get(i,&m,&enabled);wire[1024+i*9]=(uint8_t)enabled;memcpy(wire+1025+i*9,&m,8);expanded|=enabled;
  }
- for(unsigned i=0;i<AM_MIDI_BUTTON_SLOTS;++i){struct am_midi_button b;am_midi_button_get(i,&b);hasb|=b.kind!=0;wire[2212+i*5]=b.port;wire[2213+i*5]=b.channel;wire[2214+i*5]=b.kind;wire[2215+i*5]=b.number;wire[2216+i*5]=b.code;}
- unsigned bytes=hasb?2292:modal?2212:expanded?2176:1024;memcpy(out,hasb?"AMM5 ":modal?"AMM4 ":expanded?"AMM2 ":"AMM1 ",5);modal|=hasb;
+ for(unsigned i=0;i<AM_MIDI_BUTTON_SLOTS;++i){struct am_midi_button b;am_midi_button_get(i,&b);hasb|=b.kind!=0;wire[2212+i*5]=b.port;wire[2213+i*5]=b.channel;wire[2214+i*5]=b.kind;wire[2215+i*5]=b.number;wire[2216+i*5]=b.code;wire[2292+i*3]=b.mnumber;wire[2293+i*3]=(uint8_t)(b.mkind|b.mport<<2);wire[2294+i*3]=b.mchannel;hasm|=b.mkind!=0;}
+ unsigned bytes=hasm?2340:hasb?2292:modal?2212:expanded?2176:1024;memcpy(out,hasm?"AMM6 ":hasb?"AMM5 ":modal?"AMM4 ":expanded?"AMM2 ":"AMM1 ",5);modal|=hasb;
  if(modal){wire[2176]=mode.mode;wire[2177]=mode.channel;wire[2178]=mode.root;memcpy(wire+2179,mode.pad,16);memcpy(wire+2195,mode.kind,16);}
  static const char hex[]="0123456789abcdef";
  for(unsigned i=0;i<bytes;++i){out[5+i*2]=hex[wire[i]>>4];out[6+i*2]=hex[wire[i]&15];}
@@ -297,9 +309,9 @@ int am_midi_encode(char*out,size_t cap){
 static int nibble(unsigned c){return c>='0'&&c<='9'?(int)c-'0':c>='a'&&c<='f'?(int)c-'a'+10:-1;}
 int am_midi_restore(const char*text){
  if(!text){am_midi_reset();return 1;}
- size_t length=strnlen(text,AM_MIDI_PAYLOAD);unsigned bytes=length==2063?1024:length==4367?2176:length==4407?2196:length==4439?2212:length==4599?2292:0;
- if(!bytes||memcmp(text,bytes==1024?"AMM1 ":bytes==2176?"AMM2 ":bytes==2196?"AMM3 ":bytes==2212?"AMM4 ":"AMM5 ",5)||text[5+bytes*2]!=' '||text[length-1]!='\n')return 0;
- uint8_t wire[2292]={0};uint32_t expected=0;struct am_midi_mode mode={0,0,60,{0},{0}};
+ size_t length=strnlen(text,AM_MIDI_PAYLOAD);unsigned bytes=length==2063?1024:length==4367?2176:length==4407?2196:length==4439?2212:length==4599?2292:length==4695?2340:0;
+ if(!bytes||memcmp(text,bytes==1024?"AMM1 ":bytes==2176?"AMM2 ":bytes==2196?"AMM3 ":bytes==2212?"AMM4 ":bytes==2292?"AMM5 ":"AMM6 ",5)||text[5+bytes*2]!=' '||text[length-1]!='\n')return 0;
+ uint8_t wire[2340]={0};uint32_t expected=0;struct am_midi_mode mode={0,0,60,{0},{0}};
  for(unsigned i=0;i<bytes;++i){int a=nibble((unsigned char)text[5+i*2]),b=nibble((unsigned char)text[6+i*2]);if(a<0||b<0)return 0;wire[i]=(uint8_t)((a<<4)|b);}
  for(unsigned i=6+bytes*2;i<14+bytes*2;++i){int n=nibble((unsigned char)text[i]);if(n<0)return 0;expected=(expected<<4)|(unsigned)n;}
  if(crc(wire,bytes)!=expected)return 0;
@@ -311,18 +323,29 @@ int am_midi_restore(const char*text){
  for(unsigned i=0;i<128;++i){struct am_midi_map m;memcpy(&m,wire+i*8,8);atomic_store_explicit(maps+i,pack(&m),memory_order_release);
   memcpy(&m,wire+1025+i*9,8);atomic_store(level_maps+i,pack(&m));atomic_store(level_enabled+i,wire[1024+i*9]);
  }
- if(bytes==2292)for(unsigned i=0;i<AM_MIDI_BUTTON_SLOTS;++i){struct am_midi_button b={wire[2212+i*5],wire[2213+i*5],wire[2214+i*5],wire[2215+i*5],wire[2216+i*5]};if(!bvalid(&b))return 0;}
- for(unsigned i=0;i<AM_MIDI_BUTTON_SLOTS;++i){struct am_midi_button b={0,0,0,0,0};if(bytes==2292){b.port=wire[2212+i*5];b.channel=wire[2213+i*5];b.kind=wire[2214+i*5];b.number=wire[2215+i*5];b.code=wire[2216+i*5];}atomic_store(bslots+i,bpack(&b));}
+ if(bytes>=2292)for(unsigned i=0;i<AM_MIDI_BUTTON_SLOTS;++i){struct am_midi_button b={wire[2212+i*5],wire[2213+i*5],wire[2214+i*5],wire[2215+i*5],wire[2216+i*5],0,0,0,0};if(bytes==2340){b.mnumber=wire[2292+i*3];b.mkind=wire[2293+i*3]&3;b.mport=(uint8_t)(wire[2293+i*3]>>2);b.mchannel=wire[2294+i*3];}if(!bvalid(&b))return 0;}
+ for(unsigned i=0;i<AM_MIDI_BUTTON_SLOTS;++i){struct am_midi_button b={0,0,0,0,0,0,0,0,0};if(bytes>=2292){b.port=wire[2212+i*5];b.channel=wire[2213+i*5];b.kind=wire[2214+i*5];b.number=wire[2215+i*5];b.code=wire[2216+i*5];if(bytes==2340){b.mnumber=wire[2292+i*3];b.mkind=wire[2293+i*3]&3;b.mport=(uint8_t)(wire[2293+i*3]>>2);b.mchannel=wire[2294+i*3];}}atomic_store(bslots+i,bpack(&b));}atomic_store(&modheld,0);
  am_midi_mode_set(&mode);memset((void*)voice_count,0,sizeof voice_count);
  am_midi_learn(0,0);atomic_fetch_add(&revision,1);return 1;
 }
 void am_midi_learn(unsigned pad,int enabled){atomic_store(&learn_message,0);atomic_store(&learn_btn,0);atomic_store(&learn_pad,enabled&&pad<128?pad+1:0);}
 void am_midi_learn_retarget(unsigned pad){unsigned old=atomic_load(&learn_pad);if(!old||pad>=128)return;atomic_store(&learn_message,0);atomic_store(&learn_pad,pad+1);}
 int am_midi_learn_active(void){return atomic_load(&learn_pad)!=0;}
-void am_midi_learn_tick(void){uint64_t n=atomic_exchange(&learn_message,0);if(n&&atomic_load(&learn_btn)){button_commit(n);return;}unsigned p=atomic_load(&learn_pad);if(!n||!p)return;struct am_midi_map m;am_midi_map_get(p-1,&m);m.in_port=(uint8_t)(n>>32);m.in_channel=(uint8_t)(((n>>16)&15)+1);m.in_kind=((n>>20)&15)==9?1:2;m.in_number=(uint8_t)(n>>8);if(am_midi_map_set(p-1,&m))atomic_store(&learn_pad,0);}
+void am_midi_learn_tick(void){uint64_t n=atomic_exchange(&learn_message,0);
+    if(atomic_load(&learn_btn)){
+        unsigned lb=atomic_load(&learn_btn)-1;uint64_t first=atomic_load(&learn_first);
+        if(lb&0x80u){if(n)button_commit(n,0);return;} /* knobs: no combos */
+        if(!first){if(n)atomic_store(&learn_first,n);return;}
+        #define SRC(x) ((x)&~1ull&~(0xfull<<16)) /* port + number + kind nibble */
+        if(n&&SRC(n)!=SRC(first)){button_commit(n,first);return;}
+        if(atomic_load(&learn_rel)){button_commit(first,0);return;}
+        return;
+    }unsigned p=atomic_load(&learn_pad);if(!n||!p)return;struct am_midi_map m;am_midi_map_get(p-1,&m);m.in_port=(uint8_t)(n>>32);m.in_channel=(uint8_t)(((n>>16)&15)+1);m.in_kind=((n>>20)&15)==9?1:2;m.in_number=(uint8_t)(n>>8);if(am_midi_map_set(p-1,&m))atomic_store(&learn_pad,0);}
 void am_midi_observe(unsigned dir,unsigned port,const struct am_midi_message*m){
     if(port==AM_MIDI_SURFACE||!m||!m->size||m->size>3)return;
     if(dir==AM_MIDI_IN&&port>0&&port<3&&(atomic_load(&learn_pad)||atomic_load(&learn_btn))&&m->size==3&&((m->data[0]&0xf0)==0x90||(m->data[0]&0xf0)==0xb0)&&m->data[2]){uint64_t empty=0,value=((uint64_t)port<<32)|((uint64_t)m->data[0]<<16)|((uint64_t)m->data[1]<<8)|1;atomic_compare_exchange_strong(&learn_message,&empty,value);}
+    if(dir==AM_MIDI_IN&&port>0&&port<3&&atomic_load(&learn_btn)&&m->size==3){uint64_t f=atomic_load(&learn_first);unsigned k=m->data[0]&0xf0;
+        if(f&&(k==0x80||((k==0x90||k==0xb0)&&!m->data[2]))&&m->data[1]==(uint8_t)(f>>8)&&(uint8_t)port==(uint8_t)(f>>32)&&((f>>16)&15)==(m->data[0]&15u))atomic_store(&learn_rel,1);}
     if(dir==AM_MIDI_IN&&am_synth_midi)am_synth_midi(m->data,m->size);
     if(atomic_load(&paused))return;
     if(pthread_mutex_trylock(&log_lock)){atomic_fetch_add(&dropped,1);return;}

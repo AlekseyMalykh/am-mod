@@ -4,7 +4,7 @@
 #include <stdint.h>
 #define AM_MIDI_PADS 128u
 #define AM_MIDI_LOG 512u
-#define AM_MIDI_PAYLOAD 4608u
+#define AM_MIDI_PAYLOAD 4736u
 enum { AM_MIDI_LAYER_PAD, AM_MIDI_LAYER_LEVELS };
 enum { AM_MIDI_OTHER, AM_MIDI_USB, AM_MIDI_EXTERNAL, AM_MIDI_SURFACE };
 enum { AM_MIDI_IN, AM_MIDI_OUT };
@@ -39,7 +39,7 @@ unsigned am_midi_held_notes(void);
  * MIDI message after a hardware button was chosen; the stream thread queues
  * presses that the UI thread replays through the native button path. */
 #define AM_MIDI_BUTTON_SLOTS 16
-struct am_midi_button { uint8_t port,channel,kind,number,code; };
+struct am_midi_button { uint8_t port,channel,kind,number,code,mport,mchannel,mkind,mnumber; }; /* m*: optional modifier source (combo -> MPC Shift+button) */
 int am_midi_button_get(unsigned slot,struct am_midi_button*);
 void am_midi_button_learn(unsigned code,int on);
 unsigned am_midi_button_learning(void);
