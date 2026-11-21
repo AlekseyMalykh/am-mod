@@ -154,6 +154,22 @@ static void synth_set_slot(struct mixer_control*c,int id,unsigned value){
     else if(id==16)c->view.synth_role=value*mixer_view_synth_roles(c->view.synth_layout)/128;
     if(id>=10&&am_synth_keys_cfg)am_synth_keys_cfg(c->view.synth_layout,c->view.synth_root,c->view.synth_scale,c->view.synth_octave,c->view.synth_transpose,c->view.synth_cols);
 }
+/* Pad Bank + knob on the synth page: default of the parameter under that knob. */
+static void synth_reset(struct mixer_control*c,unsigned cc,int shift){
+    if(cc<0x10||cc>0x12)return;
+    int id=mixer_view_synth_slot(c->view.synth_cursor,cc-0x10,shift?1:0);
+    if(id<0)return;
+    if(id<10){static const unsigned char def[10]={0,100,2,40,90,40,100,15,0,0};if(am_synth_param_set)am_synth_param_set((unsigned)id,def[id]);return;}
+    static const unsigned char colours[6]={5,1,10,4,8,3};
+    if(id==10){c->view.synth_layout=0;c->view.synth_role=0;}
+    else if(id==11)c->view.synth_root=0;
+    else if(id==12)c->view.synth_scale=0;
+    else if(id==13)c->view.synth_octave=3;
+    else if(id==14)c->view.synth_transpose=24;
+    else if(id==15){unsigned f=mixer_view_synth_field(c->view.synth_layout,c->view.synth_role);c->view.synth_cols[f]=colours[f];}
+    else if(id==16)c->view.synth_role=0;
+    if(am_synth_keys_cfg)am_synth_keys_cfg(c->view.synth_layout,c->view.synth_root,c->view.synth_scale,c->view.synth_octave,c->view.synth_transpose,c->view.synth_cols);
+}
 static void synth_control(struct mixer_control*c,unsigned cc,unsigned value){
     if(cc==0x14){if(am_synth_fader)am_synth_fader(value);return;}
     if(cc>=0x10&&cc<=0x12)synth_set_slot(c,mixer_view_synth_slot(c->view.synth_cursor,cc-0x10,c->shift?1:0),value);
@@ -845,7 +861,7 @@ int mixer_control_reset(struct mixer_control*c,unsigned cc,int shift,uint64_t ti
     if(!c||!c->active)return 0;
     if(ticket!=c->ticket||c->naming||c->view.fx_delete)return 1;
     if(INPUT_PAGE(c)&&c->view.input_tuner)return 1;
-    if(c->view.synth_page)return 1;
+    if(c->view.synth_page){synth_reset(c,cc,shift);return 1;}
     if(INPUT_PAGE(c)&&cc==0x14){c->desired.input.mix.level_db=0;changed(c);return 1;}
     if(input_record_control(c,cc,0,1,shift))return 1;
     if(c->view.page==MIXER_KNOB_FX&&cc>=0x10&&cc<=0x12){

@@ -156,15 +156,6 @@ static int eligible(struct mixer_route_native*a)
         unsigned pair=dest!=a->main?(word(route,16)|word(route,20)<<8):0;
         a->source[i]=(struct route_source){instrument,source,dest,orig,word(instrument,0x2168),native,pair,word(route,0)};
     }
-    {   /* Diagnostic for Knob FX scoping: log when the set of stock Pad destinations changes. */
-        static unsigned long long last_sig;static unsigned lines;
-        unsigned long long sig=a->count;
-        for(unsigned i=0;i<a->count;++i)sig=sig*1099511628211ull^(unsigned long long)(uintptr_t)a->source[i].dest^((unsigned long long)a->source[i].pad<<48)^((unsigned long long)a->source[i].pair<<40)^((unsigned long long)a->source[i].id<<32);
-        if(sig!=last_sig&&lines<80){++lines;last_sig=sig;
-            fprintf(stderr,"ROUTE_PADS count=%u main=%p",a->count,a->main);
-            for(unsigned i=0;i<a->count&&i<16;++i)fprintf(stderr," [pad%u id=%u dest=%s pair=%04x n=%u]",a->source[i].pad,a->source[i].id,a->source[i].dest==a->main?"main":"other",a->source[i].pair,a->source[i].native);
-            fputc('\n',stderr);}
-    }
     /* Tracks sit between every Pad and the Master: all Pads with a usable
      * route are captured, whatever buffer the stock route names. The mixed
      * Master goes to ONE output: the Program main if any Pad uses it, else

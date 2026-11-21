@@ -2550,10 +2550,9 @@ static void buttons(void *event)
 #ifdef MPC_MIXER_LIVE
     if(mixer_sample_button(native_code,native_down))return;
 #endif
-    if(native_code==0x28&&native_down){static unsigned n;if(n<30){++n;fprintf(stderr,"SYNTH_KEYS press visible=%d keys=%d\n",rear_mic_screen_visible?rear_mic_screen_visible():-1,am_synth_keys_get?am_synth_keys_get():-1);}}
     /* 16 Levels on the Sample Record screen toggles the synth pad keyboard (no MIDI keyboard needed). */
     if(native_code==0x28&&am_synth_keys_set&&am_synth_keys_get&&rear_mic_screen_visible&&rear_mic_screen_visible()){
-        if(native_down){am_synth_keys_set(!am_synth_keys_get());fprintf(stderr,"SYNTH_KEYS toggle on=%d\n",am_synth_keys_get());synth_keys_button_refresh();}
+        if(native_down){am_synth_keys_set(!am_synth_keys_get());synth_keys_button_refresh();}
         return;
     }
     if(tuner_button(native_code,native_down))return;

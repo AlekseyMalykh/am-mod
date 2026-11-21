@@ -14,6 +14,11 @@
 - Press Mute on the selected Piano Roll row to toggle that pad's local mute in the current sequence; red M marks muted rows, including the source pad's Tune/Chop layers.
 - Red SM now also appears in Piano Roll and ordinary Mixer/FX headers, with space reserved for the B3 caption.
 - D.S.B shared-mount SD Card Access and return to AM are confirmed on MPC. The new Piano Roll/Mixer UI changes still need final device verification.
+- Trial synth is now a full Input source: Input routing Clean/Track/Synth (Mixer → Input → ROUTE), Mic layering, Direct out, synth pages (Tone/Envelope/Keys) on Mixer pad 13, parameter reset with Pad Bank + knob.
+- Synth 16 Levels reuses the project's engine and colours (Monochrome/Piano/Scale/Degrees, project key and scale); Transpose moves the notes along the scale and the lights follow. In Sample Record the keyboard starts off; the 16 Levels button turns it on and is lit while it is on.
+- MIDI Tools → MIDI Buttons: list, delete one entry, assign faders.
+- Pad Bank letters stay off on the synth page.
+- Release notes: [EN](docs/RELEASE_NOTES-r30c.md) · [RU](docs/RELEASE_NOTES-r30c.ru.md) · [ES](docs/RELEASE_NOTES-r30c.es.md).
 
 ## r30b — USB audio, SD access and updated effects
 
