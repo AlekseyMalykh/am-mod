@@ -674,6 +674,7 @@ static void effect_editor(const struct mixer_view_state*s,const struct resample_
         }
         struct fx_stage visual_stage=*stage;visual_stage.bypass|=ch->fx_bypass;
         const struct mixer_fx_monitor*m=visual_stage.bypass?NULL:s->fx_signal;
+        fxv_page=s->parameter_page;
         if(s->fx_illustrated&&fx_visual_paint(p,e,&visual_stage,m,s->rate?s->rate:48000,
                 (e?e->id:0)^(s->fx_slot<<28)^((s->master?8u:s->primary)<<24),s->now_ms)){
             /* Illustrated view drawn above; knobs and status follow. */

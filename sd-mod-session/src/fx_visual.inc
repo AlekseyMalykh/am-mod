@@ -281,6 +281,7 @@ static void fxv_sidechain(const struct resample_painter*p,const struct fx_stage*
 
 /* ---- Delay and reverb: animated from the paint clock; parameters drive the picture. ---- */
 static uint64_t fxv_now;
+static unsigned fxv_page; /* parameter page of the open effect (set by the Mixer view before painting) */
 static uint32_t fxv_acc=0xffffc247u;
 #define CYAN 0xff40c8e0u
 static float fxv_p(const struct fx_stage*stage,unsigned i){return fmaxf(0.f,fminf(1.f,stage->parameter[i]));}
@@ -1103,6 +1104,17 @@ static void fxv_crush(const struct resample_painter*p,const struct fx_stage*stag
     }
 }
 /* ---- Henry Skillz effects (fx_hs.c): simple live pictures, credited in the corner. ---- */
+/* Page tabs in the style of the HS mod kit screens: the open page is the light tab. */
+static void fxv_hs_tabs(const struct resample_painter*p,const char*const*names,unsigned n,unsigned active,int width)
+{
+    rect(p,FXV_X,FXV_Y,FXV_W,16,0xff10181fU);
+    for(unsigned i=0;i<n;++i){
+        int x=FXV_X+4+(int)i*(width+3);int on=i==active;
+        rect(p,x,FXV_Y+2,width,12,on?0xff7c8a98U:0xff1a232bU);
+        rect(p,x,FXV_Y+13,width,1,on?fxv_acc:0xff2c3640U);
+        text(p,names[i],x,FXV_Y+2,width,12,9,on?0xff0a0e12U:0xff8a949eU,1);
+    }
+}
 static void fxv_hs_credit(const struct resample_painter*p)
 {
     text(p,"HENRY SKILLZ",FXV_X+FXV_W-76,FXV_Y+FXV_H-12,72,10,7,0xff6a7480U,0);
@@ -1111,7 +1123,8 @@ static void fxv_hs_credit(const struct resample_painter*p)
 static void fxv_hs_drive(const struct resample_painter*p,const struct fx_stage*stage,double drive,double mix)
 {
     rect(p,FXV_X,FXV_Y,FXV_W,FXV_H,WELL);
-    int cy=FXV_Y+FXV_H/2-4,amp=FXV_H/2-12;
+    {static const char*const t[1]={"DRIVE"};fxv_hs_tabs(p,t,1,0,58);}
+    int cy=FXV_Y+FXV_H/2+6,amp=FXV_H/2-20;
     rect(p,FXV_X+8,cy,FXV_W-16,1,0xff1a222aU);
     double gain=1.0+drive*7.0;int prevo=cy,previ=cy;(void)stage;
     for(int x=0;x<FXV_W-16;x+=2){
@@ -1169,9 +1182,10 @@ static void fxv_hs_heat(const struct resample_painter*p,const struct fx_stage*st
     int c=(int)lround(fxv_p(stage,0)*7.0),ft=(int)lround(fxv_p(stage,3)*7.0),wv=(int)lround(fxv_p(stage,14)*6.0);
     double drive=fxv_p(stage,1),fc=fxv_hz(fxv_p(stage,4)),res=fxv_p(stage,5);
     rect(p,FXV_X,FXV_Y,FXV_W,FXV_H,WELL);
-    rect(p,FXV_X,FXV_Y,FXV_W,16,0xff10181fU);
-    text(p,circuit[c],FXV_X+8,FXV_Y+1,130,14,12,fxv_acc,0);
-    for(int i=0;i<8;++i)rect(p,FXV_X+FXV_W-76+i*8,FXV_Y+5,5,5,i==c?fxv_acc:0xff2a323aU);
+    {static const char*const t[3]={"DRIVE","FILTER","MOTION"};unsigned pg=fxv_page<3?fxv_page:0;
+     fxv_hs_tabs(p,t,3,pg,56);text(p,circuit[c],FXV_X+184,FXV_Y+2,108,12,10,fxv_acc,1);}
+    unsigned pg2=fxv_page<3?fxv_page:0;
+    uint32_t dimc=0xff4a525aU,ca=pg2==0?fxv_acc:dimc,cf=pg2==1?fxv_acc:dimc,cm=pg2==2?0xff4a8a98U:0xff3a444cU;
     /* left: clipper curve with a live input sine */
     int lx=FXV_X+8,lw=132,ly=FXV_Y+20,lh=52,cy=ly+lh/2;
     rect(p,lx,cy,lw,1,0xff1a222aU);rect(p,lx+lw/2,ly,1,lh,0xff1a222aU);
@@ -1179,22 +1193,22 @@ static void fxv_hs_heat(const struct resample_painter*p,const struct fx_stage*st
     for(int x=0;x<lw;x+=2){
         double s=((double)x/(lw-1))*2-1,o=fxv_heat_clip(c,s,g);
         int y=cy-(int)lround((lh/2-2)*o);
-        rect(p,lx+x,y<prev?y:prev,2,abs(y-prev)+2,fxv_acc);prev=y;
+        rect(p,lx+x,y<prev?y:prev,2,abs(y-prev)+2,ca);prev=y;
     }
     double ph=fxv_now*.0015;rect(p,lx+(int)lround((lw-3)*(.5+.5*sin(ph))),ly,3,lh,0xff3a4650U);
     /* right: filter response */
     int rx=FXV_X+150,rw=138,ry=FXV_Y+20,rh=52;
-    text(p,ftype[ft],rx,FXV_Y+1,rw,14,10,0xffa0a8b0U,0);
+    text(p,ftype[ft],rx+2,ry+1,rw,11,9,0xffa0a8b0U,0);
     rect(p,rx,ry+rh-1,rw,1,0xff1a222aU);
     for(int x=0;x<rw;++x){
         double hz=20.0*pow(1000.0,(double)x/(rw-1)),db=fxv_heat_filter_db(ft,hz,fc,res);
         int h=(int)lround((db+36.0)/48.0*(rh-2));if(h<1)h=1;if(h>rh-2)h=rh-2;
-        rect(p,rx+x,ry+rh-1-h,1,h,0xff1a2830U);rect(p,rx+x,ry+rh-1-h,1,2,fxv_acc);
+        rect(p,rx+x,ry+rh-1-h,1,h,0xff1a2830U);rect(p,rx+x,ry+rh-1-h,1,2,cf);
     }
     /* bottom: LFO shape and Dirt/EQ readout */
     int by=FXV_Y+76;
     text(p,wave[wv],FXV_X+8,by,30,14,10,0xffa0a8b0U,0);
-    for(int x=0;x<60;++x){int y=by+7-(int)lround(5*fxv_heat_wave(wv,x/60.0*2));rect(p,FXV_X+40+x,y,1,2,0xff4a8a98U);}
+    for(int x=0;x<60;++x){int y=by+7-(int)lround(5*fxv_heat_wave(wv,x/60.0*2));rect(p,FXV_X+40+x,y,1,2,cm);}
     rect(p,FXV_X+40+(int)((fxv_now/40)%60),by,1,14,0xff3a4650U);
     char line[40];snprintf(line,sizeof(line),"DIRT %d  MIX %d%%",(int)lround(fxv_p(stage,6)*127.0),(int)lround(fxv_p(stage,16)*100.0));
     text(p,line,FXV_X+120,by,120,14,10,0xffa0a8b0U,0);
@@ -1204,7 +1218,8 @@ static void fxv_hs_heat(const struct resample_painter*p,const struct fx_stage*st
 static void fxv_hs_bass(const struct resample_painter*p,const struct fx_stage*stage)
 {
     rect(p,FXV_X,FXV_Y,FXV_W,FXV_H,WELL);
-    int x0=FXV_X+8,w=FXV_W-16,cx=x0+(int)lround(w*fxv_p(stage,0)),base=FXV_Y+FXV_H-16,top=FXV_Y+10;
+    {static const char*const t[1]={"BASS"};fxv_hs_tabs(p,t,1,0,58);}
+    int x0=FXV_X+8,w=FXV_W-16,cx=x0+(int)lround(w*fxv_p(stage,0)),base=FXV_Y+FXV_H-16,top=FXV_Y+22;
     int level=(int)lround((base-top)*(.25+.75*fxv_p(stage,1)));
     rect(p,x0,base,w,1,0xff1a222aU);
     rect(p,x0,base-level,cx-x0,level,fxv_p(stage,2)>=.5?0xff5a6a78U:fxv_acc);
