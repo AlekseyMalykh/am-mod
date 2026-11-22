@@ -826,8 +826,7 @@ void music_ui_sample(void *p,void *g)
     const char *const *roles=s.mode==MUSIC_PIANO?scale_roles+3:s.mode==MUSIC_DEGREES?degree_roles:scale_roles;
     int shown_role=role<(int)role_count(&s)?role:(int)role_count(&s)-1;
     if (shift) {
-        snprintf(value,sizeof(value),s.mode==MUSIC_DEGREES?"%+d steps":"%+d st",s.transpose);
-        cell(g,0,"Transpose16",value,1,1,ok,s.transpose+24,49);
+        cell(g,0,"Layout",modes[music_mode_ui_index(s.mode)],1,1,ok,music_mode_ui_index(s.mode),MUSIC_LAYOUT_CHOICES);
         int c=role_value(&s,role_field(&s,shown_role));
         if(s.mode!=MUSIC_PIANO)cell(g,1,"Role",roles[shown_role],1,1,ok && s.mode!=MUSIC_MONO,shown_role,(int)role_count(&s));
         cell(g,2,s.mode==MUSIC_PIANO?"Original Colour":"Colour",music_light_colour_name((unsigned)c),1,1,ok && s.mode!=MUSIC_MONO,(int)music_light_colour_index((unsigned)c),(int)music_light_colour_count());
@@ -836,7 +835,8 @@ void music_ui_sample(void *p,void *g)
         music_get_key(&project_tonic,&project_scale);
         snprintf(tonic_text,sizeof(tonic_text),s.tonic<0 ? "%s (P)" : "%s",music_note_names[s.tonic<0 ? project_tonic : s.tonic]);
         snprintf(scale_text,sizeof(scale_text),s.scale<0 ? "%s (P)" : "%s",music_scale_names[s.scale<0 ? project_scale : s.scale]);
-        cell(g,0,"Layout",modes[music_mode_ui_index(s.mode)],0,1,ok,music_mode_ui_index(s.mode),MUSIC_LAYOUT_CHOICES);
+        snprintf(value,sizeof(value),s.mode==MUSIC_DEGREES?"%+d steps":"%+d st",s.transpose);
+        cell(g,0,"Transpose16",value,0,1,ok,s.transpose+24,49);
         cell(g,1,"Tonic",tonic_text,0,s.mode!=MUSIC_PIANO,ok,s.tonic+1,13);
         cell(g,2,"Scale",scale_text,0,1,ok,s.scale+1,9);
     }
@@ -1308,7 +1308,7 @@ int music_ui_control_at(void *event,unsigned event_shift)
     if (!settings(name,&s)) return 1;
     int field,current,lo=0,hi;
     if (shifted(sample,0)) {
-        if (focus==0) { field=MUSIC_TRANSPOSE; current=s.transpose; lo=-24; hi=24; }
+        if (focus==0) { field=MUSIC_MODE; current=music_mode_ui_index(s.mode); hi=MUSIC_LAYOUT_CHOICES-1; }
         else {
             if (s.mode==MUSIC_MONO) return 1;
             int last=(int)role_count(&s)-1;if(role>last)role=last;
@@ -1316,7 +1316,7 @@ int music_ui_control_at(void *event,unsigned event_shift)
             field=role_field(&s,role); current=(int)music_light_colour_index((unsigned)role_value(&s,field)); hi=(int)music_light_colour_count()-1;
         }
     } else {
-        if (focus==0) { field=MUSIC_MODE; current=music_mode_ui_index(s.mode); hi=MUSIC_LAYOUT_CHOICES-1; }
+        if (focus==0) { field=MUSIC_TRANSPOSE; current=s.transpose; lo=-24; hi=24; }
         else if (focus==1) { field=MUSIC_LOCAL_TONIC; current=s.tonic; lo=-1; hi=11; }
         else { field=MUSIC_LOCAL_SCALE; current=s.scale; lo=-1; hi=7; }
     }
@@ -1361,8 +1361,8 @@ int music_ui_reset_knob(unsigned column,unsigned shift){
  if(lights){
   char name[MUSIC_NAME_BYTES];struct music_sample s;if(!settings(name,&s))return 1;
   int field,value;
-  if(shift){if(column==0){field=MUSIC_TRANSPOSE;value=0;}else if(column==1){role=0;repaint(sample);return 1;}else{field=role_field(&s,role);value=role_default(field);}}
-  else{field=column==0?MUSIC_MODE:column==1?MUSIC_LOCAL_TONIC:MUSIC_LOCAL_SCALE;value=column==0?MUSIC_MONO:-1;}
+  if(shift){if(column==0){field=MUSIC_MODE;value=MUSIC_MONO;}else if(column==1){role=0;repaint(sample);return 1;}else{field=role_field(&s,role);value=role_default(field);}}
+  else{field=column==0?MUSIC_TRANSPOSE:column==1?MUSIC_LOCAL_TONIC:MUSIC_LOCAL_SCALE;value=column==0?0:-1;}
   music_set_sample(name,field,value);note_native_tick();repaint(sample);return 1;
  }
  return 0;

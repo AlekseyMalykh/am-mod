@@ -53,6 +53,7 @@ void pr_view_layer(struct piano_roll*,int layer,int sound);
 void pr_cursor(struct piano_roll*,int64_t,int row);
 void pr_select(struct piano_roll*,int additive);
 void pr_range(struct piano_roll*);
+void pr_range_apply(struct piano_roll*);
 unsigned pr_selected(const struct piano_roll*);
 void pr_select_all(struct piano_roll*);
 int64_t pr_grid_ticks(int);

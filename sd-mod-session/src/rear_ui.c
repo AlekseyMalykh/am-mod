@@ -40,7 +40,13 @@ extern unsigned input_fx_mode(void) __attribute__((weak));
 extern int am_synth_keys_get(void) __attribute__((weak));
 extern void am_synth_keys_get_cfg(unsigned*,unsigned*,unsigned*,unsigned*,unsigned*,unsigned char*) __attribute__((weak));
 extern void am_synth_keys_cfg(unsigned,unsigned,unsigned,unsigned,unsigned,const unsigned char*) __attribute__((weak));
-extern void mixer_view_synth_cfg_text(unsigned,unsigned,unsigned,unsigned,unsigned,char*,unsigned,char*,unsigned) __attribute__((weak));
+extern void mixer_view_synth_cfg_text(unsigned,unsigned,unsigned,unsigned,unsigned,unsigned,const unsigned char*,char*,unsigned,char*,unsigned) __attribute__((weak));
+extern unsigned music_light_colour_count(void) __attribute__((weak));
+extern unsigned music_light_colour_choice(unsigned) __attribute__((weak));
+/* 16 Levels colour roles as the Mixer synth page: Mono/Piano 1 (Original), Scale 4, Degrees 5; field = index into the colour slots */
+static unsigned synth_role_count(unsigned layout){static const unsigned char n[4]={1,1,4,5};return n[layout%4];}
+static unsigned synth_role_field(unsigned layout,unsigned role){static const unsigned char scale[4]={0,1,2,3},degrees[5]={0,1,5,4,3};layout%=4;return layout<2?3u:layout==3?degrees[role%5]:scale[role%4];}
+static unsigned rec_role;
 /* Sample Record with the synth keyboard on (16 Levels): K1 Layout / Shift Key, K3 Octave / Shift Scale. */
 static int synth_keys_knobs(void){return am_synth_keys_get&&am_synth_keys_get()&&am_synth_keys_get_cfg&&am_synth_keys_cfg;}
 static int knob_focus=-1;
@@ -187,10 +193,12 @@ static void paint(void *p,void *g){
             if(on)rect(g,107+105/2-22,routing?22:31,44,2,REAR_AMBER);
             if(routing)text(g,"Shift+B2 Routing",107,24,105,11,9,0xffbbbbbb);
             if(synth_keys_knobs()&&mixer_view_synth_cfg_text){
-                unsigned l,r,sc,o,t,shifted=music_ui_shift_active()!=0;char lab[24],val[24];
-                am_synth_keys_get_cfg(&l,&r,&sc,&o,&t,NULL);
-                mixer_view_synth_cfg_text(shifted?11:10,l,r,sc,o,lab,sizeof lab,val,sizeof val);panel(g,0,lab,val,1,shifted,0,0);
-                mixer_view_synth_cfg_text(shifted?12:13,l,r,sc,o,lab,sizeof lab,val,sizeof val);panel(g,2,lab,val,1,shifted,0,0);
+                unsigned l,r,sc,o,t,shifted=music_ui_shift_active()!=0;char lab[24],val[24];unsigned char cols[16]={0};
+                am_synth_keys_get_cfg(&l,&r,&sc,&o,&t,cols);rec_role%=synth_role_count(l);
+                /* as the Tune tab: K1 Layout / Shift Transpose16, K2 Tonic / Shift Role, K3 Scale / Shift Colour */
+                mixer_view_synth_cfg_text(shifted?10:14,l,r,sc,t,rec_role,cols,lab,sizeof lab,val,sizeof val);panel(g,0,lab,val,1,shifted,0,0);
+                mixer_view_synth_cfg_text(shifted?16:11,l,r,sc,t,rec_role,cols,lab,sizeof lab,val,sizeof val);panel(g,1,lab,val,1,shifted,0,0);
+                mixer_view_synth_cfg_text(shifted?15:12,l,r,sc,t,rec_role,cols,lab,sizeof lab,val,sizeof val);panel(g,2,lab,val,1,shifted,0,0);
             }else if(mixer_view_route_text){
                 char lab[24],val[24];unsigned src=(unsigned)rear_native_source(),shifted=music_ui_shift_active()!=0;
                 int has_mode=src==2||src==6||src==7;
@@ -332,7 +340,7 @@ int rear_ui_tick(void){
 
 int rear_ui_owns(unsigned kind,unsigned code){
     if(kind==1&&code==0x11&&(atomic_load(&visible_roots)&2))atomic_store(&k2_until,now_ms_ui()+500); /* K2 (Free/Seq) is the stock's: repaint the screen while it turns so the switch redraws */
-    if(kind==1&&(code==0x12&&synth_keys_knobs()&&(atomic_load(&visible_roots)&2)&&!atomic_load(&open_panel)&&!music_ui_repeat_active()&&!music_ui_knob_fx_active()))return 1;
+    if(kind==1&&((code==0x12||code==0x11)&&synth_keys_knobs()&&(atomic_load(&visible_roots)&2)&&!atomic_load(&open_panel)&&!music_ui_repeat_active()&&!music_ui_knob_fx_active()))return 1;
     if(kind==1&&code==0x10&&(atomic_load(&visible_roots)&2)&&!atomic_load(&open_panel)&&mixer_input_row_apply&&!music_ui_repeat_active()&&!music_ui_knob_fx_active())return 1; /* Sample Record: K1 = input Source */
     if(kind==1)return atomic_load(&open_panel)&&atomic_load(&visible_roots)&&code!=0x13&&!music_ui_repeat_active()&&!music_ui_knob_fx_active();
     if(kind!=2)return 0;
@@ -402,12 +410,16 @@ int rear_ui_control_at(void *event,unsigned shift){
     unsigned cc=FIELD(event,8,unsigned char),value=FIELD(event,9,unsigned char);
     if(!rear_ui_owns(1,cc))return 0;
     if(cc==0x13)return 0;
-    if((cc==0x10||cc==0x12)&&!atomic_load(&open_panel)&&synth_keys_knobs()){
+    if((cc==0x10||cc==0x11||cc==0x12)&&!atomic_load(&open_panel)&&synth_keys_knobs()){
         unsigned l,r,sc,o,t;unsigned char cols[16]={0};
         am_synth_keys_get_cfg(&l,&r,&sc,&o,&t,cols);
-        if(cc==0x10){if(shift)r=value*13/128;else l=value*4/128;}
-        else{if(shift)sc=value*9/128;else o=value*8/128;}
-        am_synth_keys_cfg(l,r,sc,o,t,cols);knob_focus=cc==0x10?0:2;repaint();return 1;
+        if(cc==0x10){if(shift){l=value*4/128;rec_role%=synth_role_count(l);}else t=value*49/128;}
+        else if(cc==0x11){if(shift)rec_role=value*synth_role_count(l)/128;else r=value*13/128;}
+        else{if(shift){unsigned n=music_light_colour_count?music_light_colour_count():6;
+                if(music_light_colour_choice)cols[synth_role_field(l,rec_role%synth_role_count(l))]=(unsigned char)music_light_colour_choice(value*n/128);}
+            else sc=value*9/128;}
+        (void)o;
+        am_synth_keys_cfg(l,r,sc,o,t,cols);knob_focus=(int)(cc-0x10);repaint();return 1;
     }
     if(cc==0x10&&!atomic_load(&open_panel)&&mixer_input_row_apply){
         /* Sample Record K1: input Source (Mic, Rear, USB, Resample, Synth); Shift+K1: Rear mode / USB mode. */

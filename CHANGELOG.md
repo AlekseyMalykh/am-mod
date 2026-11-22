@@ -1,5 +1,19 @@
 # Changelog
 
+## r30d-beta1 — beta
+
+**Beta:** compatibility with other mods and boot menus (Stock, SampQOL, D.S.B, SampleBoot, mpc-boot-thingy) still needs testing; the items below were finished after the last full device check and await hardware verification.
+
+- Synth: five modules (Tone, Envelope, Keys, Filter+LFO, Voices) on Mixer pad 13; Loop + pad or + / − changes module, DATA flips pages, hidden parameter on Shift+K; synth passes through the Input FX slots (pads 9–12) and mixer track selection is cleared on entry.
+- Synth K1–K3 on every page use the MIDI-config takeover mode (Pickup / Scaled / Jump).
+- Layout and Transpose16 swapped everywhere: K1 = Transpose16, Shift+K1 = Layout (Tune, synth Keys, Sample Record). Sample Record panels use the Tune style.
+- Input ROUTE: Shift+Sample from any screen opens one Input list; Sample Record K1 selects the Source.
+- Piano Roll: hold DATA + encoder (time) + fader (rows) selects an area; a short DATA click still selects a note.
+- Exit to bootloader (Mod Settings → About): saves a project copy and returns to the D.S.B menu, or stock if no D.S.B is present; D.S.B's local “OK” boot state is carried to the card so a good session is not counted as a crash. Diagnostics: `dsb-boot.log`, `dsb-state-fix.log`.
+- Boot layouts: plain card, D.S.B (`autorun/os/AM-Mod/`), mpc-boot-thingy, SampleBoot marker. Installer 1.4.0.
+- Docs: release notes, synth guide and boot-menu guide in EN/RU/ES; new overview, synth-module and bootloader-exit images in `docs/media/r30d/`.
+- Release notes: [EN](docs/RELEASE_NOTES-r30d.md) · [RU](docs/RELEASE_NOTES-r30d.ru.md) · [ES](docs/RELEASE_NOTES-r30d.es.md).
+
 ## r30c-beta1 — beta
 
 **Beta:** compatibility with other mods (Stock, SampQOL, D.S.B) still needs testing; hardware verification is ongoing.

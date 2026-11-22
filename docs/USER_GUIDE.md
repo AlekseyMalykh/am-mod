@@ -1,4 +1,4 @@
-# Am MOD r30b user guide
+# Am MOD r30d user guide
 
 [README](../README.md) · [USB](USB_GUIDE.md) · [Русский](USER_GUIDE.ru.md)
 
@@ -110,3 +110,7 @@ Song → Export → Stems writes tracks and Master to the chosen volume's `<song
 On MIDI Input, **B3 Mode** cycles **Drum map → Channels → Selected pad** without erasing assignments. Drum map keeps ordinary keyboard-to-pad mapping. Channels assigns a pad and Tune/Chop role to each incoming channel. Selected pad plays the pad currently selected on the MPC chromatically: K1 chooses the incoming channel (All or 1–16), K3 sets the root note. Select another MPC pad to change the sound; for channel-specific chops use Channels. **Shift+B3** clears input-mode settings and restores Drum map. Map/Learn assignments are separate.
 
 [Settings](MOD_SETTINGS.md) · [Limitations](KNOWN_ISSUES.md) · [Report a bug](FEEDBACK.md).
+
+## Synth, Input and Piano Roll (r30d)
+
+Full details: [Synth guide](SYNTH_GUIDE.md). Mixer pad 13 opens the synth; Loop + pad (13–16, 9) or + / − picks a module, DATA flips pages, Shift+K edits the hidden parameter. K1 on Keys is Transpose16, Shift+K1 is Layout. Shift+Sample opens Input ROUTE from any screen. In Piano Roll hold DATA, turn the encoder and move the fader to select an area. **Mod Settings → About → Exit to bootloader** saves a project copy and returns to the D.S.B menu (or stock); see [Boot menus](BOOTLOADERS.md).

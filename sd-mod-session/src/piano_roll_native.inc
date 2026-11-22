@@ -11,6 +11,15 @@ static int roll_reference_note=-1;
 static uint64_t roll_tune_lights;
 static int roll_pad_rows[16],roll_pad_page,roll_audition=-1;
 static unsigned roll_input_held;
+static int roll_data_held,roll_data_moved; /* DATA held: encoder + fader draw a selection area */
+static void roll_data_begin_move(void){if(roll_data_held&&!roll_data_moved){roll.anchor_tick=roll.cursor_tick;roll.anchor_row=roll.cursor_row;roll.range=1;roll_data_moved=1;}}
+static void roll_data_release(int shift){
+ if(!roll_data_held)return;
+ roll_data_held=0;
+ if(!atomic_load(&piano_active)){roll_data_moved=0;return;}
+ if(roll_data_moved){pr_range_apply(&roll);roll.range=0;roll_data_moved=0;repaint();}
+ else if(!roll_editing&&!roll_actions){pr_select(&roll,shift);repaint();}
+}
 static int roll_row_pending(void);static void roll_row_execute(int);
 static int roll_erase_held,roll_erase_used;static int roll_row_confirm=-1,roll_row_layer,roll_row_sound;static uint64_t roll_row_until;
 static void roll_layout_update(void);
@@ -272,7 +281,7 @@ static int roll_button(unsigned code,int event_shift){
   else if(roll_actions)roll_action_run();
   else if(roll_editing){int result=roll.plan.removed_count?pr_apply(&roll):1;roll_editing=0;roll_error(result,"Event edit applied; Undo / Redo available");}
   else if(roll.layer==PR_PADS&&!pr_selected(&roll))roll_enter();else roll_edit_start();
- }else if(code==0x6f){if(roll_actions)roll_action_run();else if(!roll_editing)pr_select(&roll,event_shift);}
+ }else if(code==0x6f){if(roll_actions)roll_action_run();else if(!roll_editing){roll_data_held=1;roll_data_moved=0;}} /* selects on release unless the area was drawn */
  else if(code==BUTTON_MINUS||code==BUTTON_PLUS){if(!roll_editing&&!roll_actions)pr_cursor(&roll,roll.cursor_tick,roll.cursor_row+(code==BUTTON_PLUS?1:-1));}
  else if(code==BUTTON_ERASE){roll_editing=roll_actions=0;roll_erase_held=1;roll_erase_used=0;} /* Erase alone deletes the selection on release; Erase + pad clears a row. */
  else if(code==0x23){
@@ -294,10 +303,10 @@ static int roll_control(unsigned cc,unsigned v,int event_shift){
 #endif
  int delta=v>64?(int)v-128:(int)v;
  if(roll_actions){if(cc==0x64)roll_action=clamp(roll_action+delta,0,ROLL_ACTIONS_COUNT-1);else if(cc==0x10)roll_action=(int)(v*(unsigned)ROLL_ACTIONS_COUNT/128);repaint();return 1;}
- if(cc==0x64){if(event_shift){pr_zoom(&roll,1,roll.zoom-delta);repaint();return 1;}roll.follow=0;if(!roll_editing){if(roll.note_focus&&!roll.range&&!event_shift)pr_browse(&roll,delta);else pr_cursor(&roll,roll.cursor_tick+(int64_t)delta*(event_shift?1:pr_grid_ticks(roll.grid)),roll.cursor_row);}
+ if(cc==0x64){if(event_shift){pr_zoom(&roll,1,roll.zoom-delta);repaint();return 1;}roll.follow=0;if(!roll_editing){if(roll.note_focus&&!roll.range&&!event_shift&&!roll_data_held)pr_browse(&roll,delta);else{roll_data_begin_move();pr_cursor(&roll,roll.cursor_tick+(int64_t)delta*(event_shift?1:pr_grid_ticks(roll.grid)),roll.cursor_row);if(roll_data_moved)pr_range_apply(&roll);}}
   else {roll_delta_time+=(int64_t)delta*(event_shift?1:pr_grid_ticks(roll.grid));roll_error(pr_edit(&roll,roll_delta_time,roll_delta_row,roll_delta_length,roll_delta_velocity),NULL);}
   repaint();return 1;}
- if(cc==0x14){if(event_shift){pr_zoom(&roll,0,12+(int)v*27/128);repaint();return 1;}if(!roll_editing)pr_cursor(&roll,roll.cursor_tick,(int)v*(roll.row_count-1)/127);
+ if(cc==0x14){if(event_shift){pr_zoom(&roll,0,12+(int)v*27/128);repaint();return 1;}if(!roll_editing){roll_data_begin_move();pr_cursor(&roll,roll.cursor_tick,(int)v*(roll.row_count-1)/127);if(roll_data_moved)pr_range_apply(&roll);}
   else {for(unsigned i=0;i<roll.count;++i)if(roll.notes[i].selected){
     int row=(int)v*(roll_fader_count-1)/127;roll_delta_row=roll_fader_rows[row]-pr_note_row(&roll,roll.notes+i);
     break;}

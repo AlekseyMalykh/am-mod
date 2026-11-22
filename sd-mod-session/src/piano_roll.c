@@ -135,6 +135,14 @@ void pr_select(struct piano_roll*p,int additive){
  if(hit>=0)p->notes[hit].selected=additive?!p->notes[hit].selected:1;
  p->range=0;pr_cancel(p);
 }
+/* Live area selection (hold DATA + encoder / fader): select every event inside anchor..cursor, keep the rectangle open. */
+void pr_range_apply(struct piano_roll*p){
+ int64_t a=p->anchor_tick,b=p->cursor_tick;if(a>b){int64_t t=a;a=b;b=t;}
+ int lo=p->anchor_row,hi=p->cursor_row;if(lo>hi){int t=lo;lo=hi;hi=t;}
+ for(unsigned i=0;i<p->count;++i){int row=pr_row_index(p,pr_note_row(p,p->notes+i));
+  p->notes[i].selected=row>=lo&&row<=hi&&p->notes[i].event.time<=b&&p->notes[i].event.time+(duration(&p->notes[i].event)>0?duration(&p->notes[i].event):1)>a;
+ }pr_cancel(p);
+}
 void pr_range(struct piano_roll*p){
  if(!p->range){p->anchor_tick=p->cursor_tick;p->anchor_row=p->cursor_row;p->range=1;return;}
  int64_t a=p->anchor_tick,b=p->cursor_tick;if(a>b){int64_t t=a;a=b;b=t;}

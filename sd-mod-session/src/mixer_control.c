@@ -9,6 +9,7 @@ extern void am_synth_note(unsigned,unsigned,int) __attribute__((weak));
 extern void am_synth_fader(unsigned) __attribute__((weak));
 extern void am_synth_keys_cfg(unsigned,unsigned,unsigned,unsigned,unsigned,const unsigned char*) __attribute__((weak));
 extern uint64_t am_synth_pad_info(unsigned,unsigned*) __attribute__((weak));
+extern float mixer_view_synth_frac(const struct mixer_view_state*,int) __attribute__((weak));
 extern unsigned music_light_colour_count(void) __attribute__((weak));
 extern unsigned music_light_colour_choice(unsigned) __attribute__((weak));
 extern unsigned music_light_colour_index(unsigned) __attribute__((weak));
@@ -707,9 +708,10 @@ int mixer_control_pad(struct mixer_control*c,unsigned pad,int down,uint64_t tick
     if(!down)return 1;
     c->owned_pads|=bit;
     if(c->view.synth_page&&!c->naming&&c->view.synth_pick){int pg=mixer_view_synth_pad_page(pad);if(pg>=0)synth_goto_module(c,(unsigned)pg);return 1;}
+    if(c->view.synth_page&&!c->naming&&pad==13&&!c->view.synth_keys){c->owned_pads&=~bit;return 1;} /* unused pad: stay in the synth */
     if(c->view.synth_page&&!c->naming&&pad!=12&&!c->view.synth_keys){synth_release_all(c);c->view.synth_page=0;} /* pads navigate to other entities */
     if(c->view.synth_page&&!c->naming){if(c->view.synth_keys&&am_synth_note){unsigned n=synth_key_note(c,pad);c->synth_pad_note[pad]=(uint8_t)n;c->synth_last=(uint8_t)n;am_synth_note(n,100,1);c->synth_notes|=bit;}return 1;}
-    if(pad==12&&!c->naming&&!c->view.fx_delete&&(c->view.page==MIXER_OVERVIEW||c->view.page==MIXER_KNOB_FX)&&am_synth_note){c->view.synth_page=1;c->view.synth_cursor=0;{unsigned l,r,sc,o,t;if(am_synth_keys_get_cfg){am_synth_keys_get_cfg(&l,&r,&sc,&o,&t,NULL);c->view.synth_layout=l%4;c->view.synth_root=r;c->view.synth_scale=sc;c->view.synth_octave=o;c->view.synth_transpose=t;}} /* Record's K knobs may have changed them */c->view.synth_keys=am_synth_keys_get?(unsigned)am_synth_keys_get():0;if(am_synth_keys_cfg)am_synth_keys_cfg(c->view.synth_layout,c->view.synth_root,c->view.synth_scale,c->view.synth_octave,c->view.synth_transpose,c->view.synth_cols);c->owned_pads&=~bit;return 1;}
+    if(pad==12&&!c->naming&&!c->view.fx_delete&&(c->view.page==MIXER_OVERVIEW||c->view.page==MIXER_KNOB_FX)&&am_synth_note){c->view.synth_page=1;c->view.synth_cursor=0;c->view.master=2;c->view.selected=0;c->held_tracks=0;{unsigned l,r,sc,o,t;if(am_synth_keys_get_cfg){am_synth_keys_get_cfg(&l,&r,&sc,&o,&t,NULL);c->view.synth_layout=l%4;c->view.synth_root=r;c->view.synth_scale=sc;c->view.synth_octave=o;c->view.synth_transpose=t;}} /* Record's K knobs may have changed them */c->view.synth_keys=am_synth_keys_get?(unsigned)am_synth_keys_get():0;if(am_synth_keys_cfg)am_synth_keys_cfg(c->view.synth_layout,c->view.synth_root,c->view.synth_scale,c->view.synth_octave,c->view.synth_transpose,c->view.synth_cols);c->owned_pads&=~bit;return 1;}
     if(c->naming){c->name.shift=c->shift;phone_pad(&c->name,pad+1,1,name_time());return 1;}
     int fx_pad=pad>=8&&pad<8+MIXER_FX_SLOTS;
     if(pad==14&&!c->view.fx_delete&&
@@ -1128,6 +1130,7 @@ void mixer_control_takeover(struct mixer_control*c,unsigned parameter,unsigned f
  c->takeover_mode[0]=parameter<=2?parameter:2;c->takeover_mode[1]=fx<=2?fx:2;c->takeover_mode[2]=fader<=2?fader:2;
 }
 static float takeover_target(struct mixer_control*c,unsigned cc){
+ if(c->view.synth_page){int id=cc>=0x10&&cc<=0x12?mixer_view_synth_slot(c->view.synth_cursor,cc-0x10,c->shift?1:0):-1;return id<0||!mixer_view_synth_frac?-1.f:mixer_view_synth_frac(&c->view,id)*127.f;} /* synth K knobs follow the MIDI config takeover too */
  if(c->naming||c->view.fx_delete||c->view.page==MIXER_INSPECT||c->view.input_tuner)return -1;
  struct mixer_channel*ch=selected(c);unsigned k=cc-0x10;
  if(cc==0x14){float db=ch->mix.level_db;return !isfinite(db)?0:db<=0?1+(db+60)*102/60:103+db*4;}
@@ -1162,7 +1165,7 @@ static float takeover_target(struct mixer_control*c,unsigned cc){
  return -1;
 }
 int mixer_control_cc(struct mixer_control*c,unsigned cc,unsigned value,uint64_t ticket){
- if(c&&c->active&&ticket==c->ticket&&c->view.synth_page&&value<=127&&(cc==0x10||cc==0x11||cc==0x12||cc==0x14||cc==0x64)){synth_control(c,cc,value);return 1;}
+ if(c&&c->active&&ticket==c->ticket&&c->view.synth_page&&value<=127&&(cc==0x14||cc==0x64)){synth_control(c,cc,value);return 1;}
  if(!c||!c->active||ticket!=c->ticket||value>127||!(cc==0x14||(cc>=0x10&&cc<=0x12)))return raw_cc(c,cc,value,ticket);
  unsigned slot=cc==0x14?3:cc-0x10;
  unsigned mode=c->takeover_mode[slot==3?2:c->view.page==MIXER_KNOB_FX?1:0];
@@ -1170,7 +1173,7 @@ int mixer_control_cc(struct mixer_control*c,unsigned cc,unsigned value,uint64_t 
  if(mode==2||target<0||!isfinite(target)){c->takeover[slot].valid=0;return raw_cc(c,cc,value,ticket);}
  target=fmaxf(0,fminf(127,target));
  uint64_t key=c->ticket;
- const unsigned context[]={c->view.master,c->view.primary,c->view.selected,c->view.page,c->shift,c->view.fx_slot,c->parameter_page,c->catalog,c->view.fx_parameters,c->view.catalog_filter};
+ const unsigned context[]={c->view.master,c->view.primary,c->view.selected,c->view.page,c->shift,c->view.fx_slot,c->parameter_page,c->catalog,c->view.fx_parameters,c->view.catalog_filter,c->view.synth_page?c->view.synth_cursor+1:0};
  for(unsigned i=0;i<sizeof(context)/sizeof(context[0]);++i)key=key*257+context[i]+1;
  // Keep independent histories per physical control and parameter binding.
  unsigned fresh=!c->takeover[slot].valid||c->takeover[slot].key!=key||c->takeover[slot].mode!=mode||fabsf(c->takeover[slot].expected-target)>.01f;

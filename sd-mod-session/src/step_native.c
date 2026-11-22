@@ -75,6 +75,7 @@ static void roll_open(void),roll_close(void),roll_pad(unsigned,int),roll_paint(v
 static float roll_input_velocity=100.f/127.f;
 static int roll_refresh(int),roll_button(unsigned,int),roll_control(unsigned,unsigned,int);
 static void roll_erase_release(void);
+static void roll_data_release(int);
 static void roll_palette(void),roll_pad_up(unsigned);
 static void roll_project_reset(void);
 
@@ -1875,6 +1876,7 @@ int step_native_button_at(void *event,uint64_t t,uint64_t when_ms)
         return 2; /* Native modifier release; never erase an Events row. */
     }
     if (code==BUTTON_ERASE && !down) roll_erase_release();
+    if (code==0x6f && !down) roll_data_release(!!(t&T_SHIFT));
     if (atomic_load(&owned_buttons[code])) {
         if (!down) {atomic_store(&owned_buttons[code],0);atomic_fetch_sub(&held_buttons,1);}
         return 1;

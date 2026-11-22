@@ -61,6 +61,7 @@ static inline unsigned mixer_view_synth_first_page(unsigned module){static const
 /* the other page of the same module (Keys has one) */
 static inline unsigned mixer_view_synth_sibling(unsigned page){static const unsigned char n[MIXER_SYNTH_PAGES]={1,0,3,2,4,6,5,8,7};return n[page%MIXER_SYNTH_PAGES];}
 /* synth param id (0-9), key setting (10-16) or Filter/LFO/Voices id (17-27 = engine param id-6) on a K knob, -1 none */
+float mixer_view_synth_frac(const struct mixer_view_state*s,int id); /* 0..1 position of a synth slot, for K takeover */
 static inline int mixer_view_synth_slot(unsigned page,unsigned knob,unsigned shift)
 {
     /* ids: 0-9 synth, 10-16 keys, 17-27 filter/lfo/voices, 28-41 oscillators/filter env/extras. Often-used on the knob, rarely-used on Shift. */
@@ -69,11 +70,11 @@ static inline int mixer_view_synth_slot(unsigned page,unsigned knob,unsigned shi
         {{6,33},{32,-1},{35,-1}},      /* 1 Mix: Level|Drive, Noise, Bend range */
         {{2,3},{4,5},{27,-1}},         /* 2 Amp env: Attack|Decay, Sustain|Release, Velocity */
         {{36,37},{38,39},{19,-1}},     /* 3 Filter env: Attack|Decay, Sustain|Release, Env > Cutoff */
-        {{10,14},{11,16},{12,15}},     /* 4 Keys: Layout|Transpose, Key|Role, Scale|Colour */
+        {{14,10},{11,16},{12,15}},     /* 4 Keys: Transpose|Layout, Key|Role, Scale|Colour (as the Tune tab) */
         {{1,17},{18,-1},{40,-1}},      /* 5 Filter: Cutoff|Type, Resonance, Key track */
         {{20,41},{21,-1},{22,-1}},     /* 6 LFO: Rate|Shape, Depth, Target */
         {{23,24},{25,-1},{26,-1}},     /* 7 Voices: Unison|Detune, Spread, Glide */
-        {{7,8},{9,-1},{-1,-1}}};       /* 8 Setup: MIDI channel|Mic, Fader */
+        {{9,35},{7,8},{-1,-1}}};       /* 8 Controller: Fader (Off/Mod/Pitch)|Bend range, MIDI channel|Mic */
     return page<MIXER_SYNTH_PAGES&&knob<3&&shift<2?slot[page][knob][shift]:-1;
 }
 /* 16 Levels colour roles per layout (as the project Lights page): Mono/Piano: Original; Scale: Tonic, Scale, Other, Original; Degrees: I, Key notes, IV, V, Original */
