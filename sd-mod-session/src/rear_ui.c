@@ -34,6 +34,9 @@ static _Atomic unsigned tuner_open;
 static _Atomic unsigned to_seq;
 unsigned rear_ui_to_seq(void){return atomic_load(&to_seq);}
 extern void mixer_view_tuner(const struct resample_painter*) __attribute__((weak));
+extern const char*mixer_input_row_apply(unsigned,int,int,unsigned) __attribute__((weak));
+extern void mixer_view_route_text(unsigned,char*,unsigned,char*,unsigned) __attribute__((weak));
+extern unsigned input_fx_mode(void) __attribute__((weak));
 static int knob_focus=-1;
 static _Atomic unsigned waiting_right;
 static _Atomic unsigned selected_mask;
@@ -176,6 +179,12 @@ static void paint(void *p,void *g){
             else text(g,"To Seq",107,routing?1:8,105,routing?20:22,14,on?REAR_AMBER:0xffffffffu);
             if(on)rect(g,107+105/2-22,routing?22:31,44,2,REAR_AMBER);
             if(routing)text(g,"Shift+B2 Routing",107,24,105,11,9,0xffbbbbbb);
+            if(mixer_view_route_text){
+                char lab[24],val[24];unsigned src=(unsigned)rear_native_source(),shifted=music_ui_shift_active()!=0;
+                int has_mode=src==1||src==2||src==6||src==7;
+                mixer_view_route_text(shifted&&has_mode?6:5,lab,sizeof lab,val,sizeof val);
+                panel(g,0,lab,val,has_mode,shifted&&has_mode,0,0);
+            }
             return;
         }
         if(rear_native_source()!=1)return;
@@ -307,6 +316,7 @@ int rear_ui_tick(void){
 }
 
 int rear_ui_owns(unsigned kind,unsigned code){
+    if(kind==1&&code==0x10&&(atomic_load(&visible_roots)&2)&&!atomic_load(&open_panel)&&mixer_input_row_apply&&!music_ui_repeat_active()&&!music_ui_knob_fx_active())return 1; /* Sample Record: K1 = input Source */
     if(kind==1)return atomic_load(&open_panel)&&atomic_load(&visible_roots)&&code!=0x13&&!music_ui_repeat_active()&&!music_ui_knob_fx_active();
     if(kind!=2)return 0;
     if(code==0x51&&record_stop_owned)return 1;
@@ -375,6 +385,15 @@ int rear_ui_control_at(void *event,unsigned shift){
     unsigned cc=FIELD(event,8,unsigned char),value=FIELD(event,9,unsigned char);
     if(!rear_ui_owns(1,cc))return 0;
     if(cc==0x13)return 0;
+    if(cc==0x10&&!atomic_load(&open_panel)&&mixer_input_row_apply){
+        /* Sample Record K1: input Source (Mic, Rear, USB, Resample, Synth); Shift+K1: Rear mode / USB mode. */
+        unsigned src=(unsigned)rear_native_source();
+        if(shift){
+            if(src==1){if(!rear_native_busy()){unsigned m=1+adjusted(value,3);if(m!=rear_setting(0,REAR_MODE)){rear_native_clear();rear_set_setting(0,REAR_MODE,m);}}}
+            else if(src==2||src==6||src==7)mixer_input_row_apply(6,0,1,value);
+        }else mixer_input_row_apply(5,0,1,value);
+        knob_focus=0;repaint();return 1;
+    }
     if(confirm||(rear_native_busy()&&cc==0x10))return 1;
     if(cc==0x10&&panel_on_record){knob_focus=0;unsigned mode=1+adjusted(value,3);if(mode!=rear_setting(0,REAR_MODE)){cancel_choice();rear_set_setting(0,REAR_MODE,mode);rear_native_clear();}}
     else if(cc==0x11||cc==0x12){knob_focus=(int)(cc-0x10);rear_set_setting(cc-0x11,shift?REAR_LEVEL:REAR_PAN,adjusted(value,100));}

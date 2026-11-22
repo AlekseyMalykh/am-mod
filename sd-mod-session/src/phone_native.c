@@ -420,6 +420,7 @@ static _Atomic unsigned mixer_flush_request;
 static struct mixer_entry mixer_entry;
 static uint64_t mixer_binding;
 static _Atomic uint64_t mixer_route, mixer_pending;
+static _Atomic int mixer_stock_pads; /* Input ROUTE page: pads stay the Sample screen's (stock input + lights) */
 static _Atomic unsigned mixer_input_fault, mixer_project_invalidated;
 static uint64_t mixer_pad_pairs[16], mixer_button_pairs[112];
 static unsigned mixer_native_pads, mixer_mode_forwarded;
@@ -572,7 +573,8 @@ static void mixer_publish_route(void)
     atomic_store(&mixer_route, state ? (mixer_binding << 2) | state : 0);
     struct mixer_view_state view = {0};
     mixer_control_view(control,now_ms(),&view);
-    int tracks=(state&MIXER_OPEN)&&!mixer_view_sound_pads(&view)
+    atomic_store(&mixer_stock_pads,(state&MIXER_OPEN)&&view.master==2&&view.page==MIXER_KNOB_FX&&view.input_tab==2);
+    int tracks=(state&MIXER_OPEN)&&!atomic_load(&mixer_stock_pads)&&!mixer_view_sound_pads(&view)
         ? ((view.master||view.synth_page)?0:(int)(view.selected&0xffu)) : -1;
     mixer_bank_lights_tracks(tracks);
     /* Device report: the Sample pad colours stayed lit in the Mixer. Outside
@@ -753,6 +755,7 @@ static int mixer_queue_pad(void *raw, unsigned pad, int down, int up)
     uint64_t route = atomic_load(&mixer_route);
     uint64_t binding = mixer_capture_route();
     uint64_t *held = &mixer_pad_pairs[pad];
+    if (!*held && atomic_load(&mixer_stock_pads)) return 0;
     if (!*held && (!down || atomic_load(&mixer_input_fault))) return 0;
     /* Shift+Pad9 is the stock Fader Settings again (device request 07.11);
      * the Mixer opens with PAD FX + KNOB FX. */
@@ -852,7 +855,7 @@ static void mixer_tick_ui(void)
         mixer_entry_tick(&mixer_entry, now_ms(), mixer_binding, ready, blocked) == MIXER_ENTRY_LONG_DOWN &&
         mixer_replay_entry()) mixer_native_pads |= 1u << 8;
     if (mixer_open_after) {
-        if (now_ms() - mixer_open_after > 1500) mixer_open_after = 0;
+        if (now_ms() - mixer_open_after > (mixer_want_input ? 4000u : 1500u)) {mixer_open_after = 0;mixer_want_input = 0;}
         else if (ready && !blocked && !mixer_control_active(control)) { mixer_open_from_entry(control); was_open = 0; }
     }
     mixer_publish_route();
@@ -1226,7 +1229,7 @@ static int sample_relations_visible(void)
        ||step_native_active()||atomic_load(&naming_active)
        ||atomic_load(&native_mute_mode)||atomic_load(&native_buttons_down[0x09]))return 0;
 #ifdef MPC_MIXER_LIVE
-    if(atomic_load(&mixer_route)&MIXER_OPEN)return 0;
+    if((atomic_load(&mixer_route)&MIXER_OPEN)&&!atomic_load(&mixer_stock_pads))return 0;
 #endif
 #ifdef MPC_COMPRESSOR
     if(compressor_ui_active())return 0;
@@ -2594,7 +2597,11 @@ static void buttons(void *event)
 #ifdef MPC_MIXER_LIVE
     /* Am MOD: Shift+Sample opens the Mixer Input ROUTE page; the stock Input Config is never shown. */
     if(native_code==6&&native_down&&!atomic_load(&route_intercept_off)&&atomic_load(&native_buttons_down[0x31])&&music_fx_mode_active&&music_fx_mode_active()==1&&
-       mixer_ui_session&&mixer_session_status(mixer_ui_session)==1&&!mixer_ui_blocked()){
+       mixer_ui_session&&mixer_session_status(mixer_ui_session)==1&&!atomic_load(&naming_active)&&!resample_running()&&!atomic_load(&mixer_project_invalidated)
+#ifdef MPC_POWER_BUTTON
+       &&!power_control_busy()
+#endif
+       ){
         phone_native_open_input_route();return;
     }
 #endif
@@ -3287,7 +3294,7 @@ static _Atomic unsigned settings_pad_mask;
 static _Atomic int settings_pad_bank=-1;
 static int settings_pad_visible(void){
 #ifdef MPC_MIXER_LIVE
-    if(atomic_load(&mixer_route)&MIXER_OPEN)return 0;
+    if((atomic_load(&mixer_route)&MIXER_OPEN)&&!atomic_load(&mixer_stock_pads))return 0;
 #endif
 #ifdef MPC_REAR_ROUTING
     if(rear_ui_pad_owns())return 0;
@@ -3431,7 +3438,7 @@ static int pad_colour_light(unsigned pad,uint64_t *out){
 #ifdef MPC_MIXER_LIVE
 static int mixer_light(unsigned pad,uint64_t *out)
 {
-    if (pad < 16 && atomic_load(&mixer_select_enabled) && (atomic_load(&mixer_route) & MIXER_OPEN)) {
+    if (pad < 16 && atomic_load(&mixer_select_enabled) && !atomic_load(&mixer_stock_pads) && (atomic_load(&mixer_route) & MIXER_OPEN)) {
         *out = atomic_load(&mixer_select_lights[pad]);
         return 1;
     }

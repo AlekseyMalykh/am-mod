@@ -491,9 +491,6 @@ extern "C" void rear_native_tick(int visible) {
     void *properties = s->properties_input;
     if (!properties) return;
     int source = FIELD(properties,0x24,int), monitor = FIELD(properties,0x98,int);
-    {static int last_source = -2; /* choosing Mic/Rear/USB/Resample in Input Config takes the Input track off the synth */
-     if (last_source != -2 && last_source != source && input_fx_mode && input_fx_set_mode && input_fx_mode() == 2) input_fx_set_mode(1);
-     last_source = source;}
     s->source.store(source); s->monitor.store(monitor);
     bool rear = source == 1;
     bool enabled = rear_setting(0,REAR_ENABLED) != 0;
