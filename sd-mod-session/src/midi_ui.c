@@ -23,6 +23,17 @@ static uint64_t seen;
 static char notice[56];
 static const char*const menu[]={"MIDI Monitor","MIDI In Map","MIDI Out Map","MIDI Input Mode","MIDI Buttons","Synth"};
 static unsigned mode_channel=1;
+/* Am MOD: Input Config is replaced by the Input ROUTE list (page 8). Row ids as mixer_view ROUTE. */
+extern void mixer_view_route_text(unsigned,char*,unsigned,char*,unsigned) __attribute__((weak));
+extern const char*mixer_input_row_apply(unsigned,int,int,unsigned) __attribute__((weak));
+extern int rear_native_source(void) __attribute__((weak));
+extern unsigned music_fx_mode_active(void) __attribute__((weak));
+extern void phone_native_open_input_fx(void) __attribute__((weak));
+static const unsigned char route_order[8]={5,1,7,0,2,3,4,6};
+static unsigned route_cursor,route_edit,route_on;
+static void*route_stock; /* Input Config instance the user sent to the stock screen */
+static const char*route_msg;
+static unsigned route_rows(void){return rear_native_source&&rear_native_source()==1?8u:7u;}
 extern void phone_native_inject_button(unsigned code,unsigned down);
 #pragma weak phone_native_inject_button
 extern void phone_native_inject_controller(unsigned code,unsigned value);
@@ -44,12 +55,16 @@ void am_midi_ui_pad_hit(unsigned p){
 }
 void am_midi_ui_init(uintptr_t b){image=b;am_midi_io_ready();}
 int am_midi_ui_active(void){return atomic_load(&visible)&&atomic_load(&page);}
-void am_midi_ui_destroyed(void*p){if(input_host==p)input_host=NULL;if(root==p){root=NULL;atomic_store(&visible,0);atomic_store(&page,0);am_midi_learn(0,0);}}
+void am_midi_ui_destroyed(void*p){if(route_stock==p)route_stock=NULL;if(input_host==p){input_host=NULL;route_on=0;}if(root==p){root=NULL;atomic_store(&visible,0);atomic_store(&page,0);am_midi_learn(0,0);}}
 void am_midi_ui_open_input(void*p){
  if(!p)return;
  input_host=root=p;atomic_store(&visible,1);atomic_store(&page,5);notice[0]=0;edit=0;
  am_midi_learn(0,0);repaint();
 }
+/* Called while the stock Input Config paints: take it over in Am MOD (no repaint, already painting). */
+int am_midi_ui_route_wants(void*p){return p&&p!=route_stock&&p!=input_host&&mixer_view_route_text&&mixer_input_row_apply&&music_fx_mode_active&&music_fx_mode_active()==1;}
+void am_midi_ui_open_route(void*p){input_host=root=p;route_on=1;atomic_store(&visible,1);atomic_store(&page,8);notice[0]=0;route_edit=0;route_cursor=0;route_msg=NULL;am_midi_learn(0,0);}
+void am_midi_ui_input_gone(void){route_stock=NULL;}
 int am_midi_ui_input_host(void*p){return p&&p==input_host&&atomic_load(&page)!=0;}
 static void mode_assign_pad(unsigned p);
 void am_midi_ui_tick(void*p){
@@ -203,6 +218,17 @@ static void button_paint(void*g){
  if(!shown)label(g,"No buttons assigned",8,70,304,16,13,0xff999999);
  label(g,learning||bpick?"B2: cancel   B1: back":"DATA: scroll   B2: delete   Shift+B2: all",8,204,304,16,11,0xff999999);
 }
+static void route_paint(void*g){
+ heads(g,"Back","FX","MIDI In");
+ unsigned rows=route_rows();if(route_cursor>=rows)route_cursor=rows-1;
+  for(unsigned i=0;i<rows;++i){char lab[24]="",val[24]="";if(mixer_view_route_text)mixer_view_route_text(route_order[i],lab,sizeof lab,val,sizeof val);
+  int y=32+(int)i*18;int sel=i==route_cursor;if(sel)rect(g,4,y,312,17,route_edit?0xff403016:0xff302412);
+  label(g,lab,12,y,150,17,14,sel?0xffffc247:0xffffffff);
+  char shown[40];if(sel&&route_edit)snprintf(shown,sizeof shown,"< %s >",val);else snprintf(shown,sizeof shown,"%s",val);
+  label(g,shown,166,y,146,17,14,sel?0xffffc247:0xffffffff);}
+ label(g,route_msg?route_msg:"DATA: edit   B2: FX   Shift+B2: stock screen",8,32+(int)rows*18+3,304,15,11,route_msg?0xffffc247:0xff999999);
+ {char lab[24]="",val[24]="";if(mixer_view_route_text)mixer_view_route_text(route_order[route_cursor],lab,sizeof lab,val,sizeof val);knob(g,0,lab,val);}
+}
 static void map_paint(void*g,unsigned which){
  static const char*in_names[]={"Off","Note","CC"};static const char*out_names[]={"Native","Off","Note","CC","Program"};
  struct am_midi_map m;unsigned enabled;map_read(which,&m,&enabled);heads(g,"Back",am_midi_learn_active()?"Learning":which==3?"Learn":map_layer?"Inherit":"Reset",edit?"Done":"Edit");
@@ -219,6 +245,7 @@ void am_midi_ui_paint(void*p,void*g){
  if(!which){rect(g,108,2,104,26,0xff242424);centre(g,"Map / Log",110,2,100,25,13,0xffffc247);return;}
  rect(g,0,0,320,240,0xff000000);
  if(which==1){heads(g,"Back","","Open");centre(g,"MIDI Tools",4,35,312,25,19,0xffffffff);for(unsigned i=0;i<6;++i){if(row==i)rect(g,4,64+(int)i*23,312,22,0xff302412);label(g,menu[i],12,64+(int)i*23,295,22,15,row==i?0xffffc247:0xffffffff);}label(g,"DATA: select   Press / B3: open",8,206,304,22,12,0xffaaaaaa);return;}
+ if(which==8){route_paint(g);return;}
  if(which==5){mode_paint(g);return;}
  if(which==6){button_paint(g);return;}
  if(which==7){synth_paint(g);return;}
@@ -239,6 +266,7 @@ int am_midi_ui_owns(unsigned code,int button){
  if(button&&code<112&&held[code])return 1;
  if(!atomic_load(&visible))return 0;
  if(!atomic_load(&page))return button&&code==0x0d;
+ if(atomic_load(&page)==8)return button?(code==0x0d||code==0x0e||code==0x6f):(code==0x10||code==0x64);
  if(button&&atomic_load(&page)==6)return code<112&&code!=0x31;
  return button?(code==0x0c||code==0x0d||code==0x0e||code==0x6f||code==0x36||code==0x37):code==0x10||code==0x11||code==0x12||code==0x64||(code==0x14&&atomic_load(&page)==6);
 }
@@ -257,6 +285,11 @@ static void change_field(unsigned value,int relative){
 int am_midi_ui_control(void*e,unsigned shift){
  unsigned code=F(e,8,uint8_t),v=F(e,9,uint8_t),which=atomic_load(&page);if(!am_midi_ui_owns(code,0))return 0;
  int delta=v>64?(int)v-128:v==64?0:(int)v;focus=code>=0x10&&code<=0x12?code-0x10:focus;
+ if(which==8){
+  unsigned rows=route_rows();if(route_cursor>=rows)route_cursor=rows-1;route_msg=NULL;
+  if(code==0x10){if(mixer_input_row_apply)route_msg=mixer_input_row_apply(route_order[route_cursor],0,1,v);}
+  else if(code==0x64){if(route_edit){if(mixer_input_row_apply&&delta)route_msg=mixer_input_row_apply(route_order[route_cursor],delta>0?1:-1,0,0);}else route_cursor=clamp((int)route_cursor+delta,rows-1);}
+  repaint();return 1;}
  if(which==1){if(code==0x64)row=clamp((int)row+delta,5);}
  else if(which==2){if(code==0x10){direction=v*3/128;scroll_anchor=0;}else if(code==0x11){port=v*3/128;scroll_anchor=0;}else if(code==0x12){if(shift)channel=v*17/128;else type=v*8/128;scroll_anchor=0;}else if(code==0x64)scroll_by(-delta);}
  else if(which==6){
@@ -283,9 +316,16 @@ int am_midi_ui_button(void*e){
  }
  if(!down)return 0;
  held[code]=1;++held_count;
+ if(which==8){
+  route_msg=NULL;
+  if(code==0x0e){atomic_store(&page,5);notice[0]=0;edit=0;am_midi_learn(0,0);}
+  else if(code==0x0d){if(music_ui_shift_active()){route_stock=input_host;input_host=NULL;route_on=0;atomic_store(&page,0);atomic_store(&visible,0);if(root==route_stock)root=NULL;}else if(phone_native_open_input_fx)phone_native_open_input_fx();}
+  else if(code==0x6f){unsigned id=route_order[route_cursor];if(id==0||id==7||id==3){route_edit=0;route_msg=id==7?"Threshold: Shift+B2 stock screen":NULL;}else route_edit=!route_edit;}
+  repaint();return 1;}
  if(!which){atomic_store(&page,1);row=0;}
  else if(code==0x0c){
-  if(input_host&&which==5){void*p=input_host;input_host=NULL;atomic_store(&page,0);atomic_store(&visible,0);repaint();if(root==p)root=NULL;}
+  if(input_host&&which==5&&route_on){atomic_store(&page,8);route_edit=0;}
+  else if(input_host&&which==5){void*p=input_host;input_host=NULL;atomic_store(&page,0);atomic_store(&visible,0);repaint();if(root==p)root=NULL;}
   else atomic_store(&page,input_host?5:which==1?0:1);
   am_midi_learn(0,0);edit=0;bpick=0;
  }

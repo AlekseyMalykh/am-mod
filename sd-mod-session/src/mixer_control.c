@@ -381,6 +381,13 @@ static void route_open_key(struct mixer_control*c)
 }
 /* Shift+Knob FX (Am MOD): select the Track that carries this sound (Master when
  * it has none) and open its FX page. */
+/* Input Config (Am MOD) B2: open the Mixer straight on the Input FX tab. */
+int mixer_control_show_input_fx(struct mixer_control*c)
+{
+    if(!c||!c->active)return 0;
+    c->view.master=2;c->view.selected=0;c->held_tracks=0;clear_fx_page(c);c->view.input_tab=1;c->view.input_edit=0;c->view.input_tuner=0;
+    c->view.page=MIXER_KNOB_FX;c->temporary=2;c->view.fx_slot=0;open_fx(c);return 1;
+}
 int mixer_control_focus_sound_fx(struct mixer_control*c,unsigned sound)
 {
     if(!c||!c->active)return 0;
@@ -792,37 +799,39 @@ static void move_fader(struct mixer_control*c,unsigned value)
 }
 /* ROUTE rows: 0 Tuner, 1 Monitor, 2 Record via, 3 Record track, 4 Record FX, 5 Rear mode.
  * mode 0: delta steps, 1: absolute knob value, 2: reset to default. */
-static void input_row_change(struct mixer_control*c,unsigned row,int delta,int mode,unsigned value)
+const char*mixer_input_row_apply(unsigned row,int delta,int mode,unsigned value)
 {
-    if(row==0)return; /* Tuner: display only */
-    if(row==7){c->message="Threshold: change in stock Input Config";return;}
-    if(row==3&&music_rec_get&&music_rec_get(0)==0){c->message="Record track: set Record via to Track";return;}
+    if(row==0)return NULL; /* Tuner: display only */
+    if(row==7)return "Threshold: Shift+B2 stock screen";
+    if(row==3&&music_rec_get&&music_rec_get(0)==0)return "Record track: set Record via to Track";
     if(row==1){
-        if(mode==2)return;
+        if(mode==2)return NULL;
         int on=mode==1?value>=64:delta>0;
-        if(!rear_native_monitor_set||!rear_native_monitor_set(on?2u:0u))c->message="Monitor: open Sample Record";
+        if(!rear_native_monitor_set||!rear_native_monitor_set(on?2u:0u))return "Monitor: open Sample Record";
     }else if(row<5){
         unsigned f=row-2,n=f==0?3u:f==1?8u:2u;
-        if(!music_rec_set||!music_rec_get)return;
+        if(!music_rec_set||!music_rec_get)return NULL;
         unsigned cur=music_rec_get(f),next;
         if(mode==2)next=f==2?1u:0u;
         else if(mode==1)next=value*n/128;
         else{int v=(int)cur+delta;next=(unsigned)(v<0?0:v>(int)n-1?(int)n-1:v);}
         music_rec_set(f,next);
     }else if(row==5){
-        if(!input_fx_set_mode||!input_fx_mode)return;
+        if(!input_fx_set_mode||!input_fx_mode)return NULL;
         unsigned cur=input_fx_mode(),next;
         if(mode==2)next=1;
         else if(mode==1)next=value*3/128;
         else{int v=(int)cur+delta;next=(unsigned)(v<0?0:v>2?2:v);}
         input_fx_set_mode(next);
     }else if(mode==0&&rear_setting&&rear_set_setting&&rear_native_source&&rear_native_source()==1){
-        if(rear_native_busy&&rear_native_busy()){c->message="Stop recording to change mode";return;}
+        if(rear_native_busy&&rear_native_busy())return "Stop recording to change mode";
         int m=(int)rear_setting(0,REAR_MODE)+delta;m=m<1?1:m>4?4:m;
         if(rear_native_clear)rear_native_clear();
         rear_set_setting(0,REAR_MODE,(unsigned)m);
     }
+    return NULL;
 }
+static void input_row_change(struct mixer_control*c,unsigned row,int delta,int mode,unsigned value){const char*m=mixer_input_row_apply(row,delta,mode,value);if(m)c->message=m;}
 /* These are the same saved controls as Rear Routing. Encoder and FX
  * catalogue/parameter pages retain their ordinary effect navigation. */
 static int input_record_control(struct mixer_control*c,unsigned cc,unsigned value,int reset,int shift){

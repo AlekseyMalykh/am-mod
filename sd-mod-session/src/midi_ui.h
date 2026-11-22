@@ -15,4 +15,7 @@ void am_midi_ui_pad_hit(unsigned pad);
 /* UI-owner embedding in Shift+Sample Input Config; settings remain shared. */
 void am_midi_ui_open_input(void *host);
 int am_midi_ui_input_host(void *host);
+int am_midi_ui_route_wants(void *host); /* Am MOD: replace Input Config by the Input ROUTE list */
+void am_midi_ui_open_route(void *host);
+void am_midi_ui_input_gone(void);
 #endif

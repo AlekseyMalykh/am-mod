@@ -826,6 +826,7 @@ static int mixer_replay_entry(void)
 static void mixer_fx_combo_tick(void);
 static unsigned char mixer_entry_template[16];
 static uint64_t mixer_open_after; /* UI owner: entry waiting for Sample */
+static int mixer_want_input_fx;                /* UI owner: open on the Input FX tab */
 static int mixer_focus_sound=-1;               /* UI owner: open on this sound's Track FX */
 static void mixer_open_from_entry(struct mixer_control *control);
 static void mixer_tick_ui(void)
@@ -942,6 +943,7 @@ static void mixer_open_from_entry(struct mixer_control *control)
     int bank = step_native_browser_bank(-1);
     if (bank >= 0 && bank < 8) mixer_control_presence(control,0,0,(unsigned)bank);
     if (mixer_focus_sound >= 0) {mixer_control_focus_sound_fx(control,(unsigned)mixer_focus_sound);mixer_focus_sound = -1;}
+    if (mixer_want_input_fx) {mixer_want_input_fx = 0;mixer_control_show_input_fx(control);}
     /* The stock KNOB FX overlay (shade over the knobs) must not stay over
      * the Mixer: toggle it closed with one stock KNOB FX press. */
     if (music_ui_knob_fx_active()) {
@@ -949,6 +951,12 @@ static void mixer_open_from_entry(struct mixer_control *control)
         knob[8]=0x00;knob[9]=1;forward_buttons(knob);knob[9]=0;forward_buttons(knob);
     }
     note_native_repaint_sample();
+}
+/* Input Config (Am MOD) B2: leave the stock screen with its Back press, then open the Mixer Input FX tab on Sample. */
+void phone_native_inject_button(unsigned code,unsigned down);
+void phone_native_open_input_fx(void){
+ mixer_want_input_fx=1;mixer_open_after=now_ms();
+ phone_native_inject_button(0x6b,1);phone_native_inject_button(0x6b,0);
 }
 static void mixer_takeover_settings(struct mixer_control*c){
  unsigned modes[3]={2,2,2};

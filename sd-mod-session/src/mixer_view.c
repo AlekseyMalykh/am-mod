@@ -1059,6 +1059,7 @@ static void route_row(const struct mixer_view_state*s,unsigned row,char*lab,unsi
         snprintf(lab,labn,"Rear mode");snprintf(val,valn,"%s",modes[mode]);}
     }
 }
+void mixer_view_route_text(unsigned id,char*lab,unsigned labn,char*val,unsigned valn){route_row(NULL,id,lab,labn,val,valn);}
 static void input_route_rows(const struct mixer_view_state*s,const struct resample_painter*p)
 {
     int rear=rear_native_source&&rear_native_source()==1;
