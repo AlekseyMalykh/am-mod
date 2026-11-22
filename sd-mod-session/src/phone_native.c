@@ -958,8 +958,9 @@ extern void am_midi_ui_request_midi_in(void) __attribute__((weak));
  * then open the Mixer on Sample. */
 void phone_native_open_input_route(void){
  mixer_want_input=1;mixer_open_after=now_ms();
- fprintf(stderr,"ROUTE_HANDOVER inject_back\n");
- phone_native_inject_button(0x6b,1);phone_native_inject_button(0x6b,0);
+ fprintf(stderr,"ROUTE_HANDOVER inject_sample\n");
+ phone_native_inject_button(0x31,0); /* the held Shift would make it Shift+Sample (Input Config again) */
+ phone_native_inject_button(0x06,1);phone_native_inject_button(0x06,0);
 }
 /* ROUTE row "MIDI In >": close the Mixer and open the stock Input Config (Shift+Sample), which then hosts MIDI In. */
 void phone_native_open_midi_in(void){
@@ -3277,7 +3278,6 @@ static int settings_pad_visible(void){
 #endif
 #ifdef MPC_REAR_ROUTING
     if(rear_ui_pad_owns())return 0;
-    if(rear_ui_input_config_visible())return 1;
 #endif
     return music_ui_pad_settings_visible();
 }

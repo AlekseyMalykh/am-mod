@@ -1049,7 +1049,7 @@ static void route_row(const struct mixer_view_state*s,unsigned row,char*lab,unsi
         if(point)snprintf(val,valn,"Track %c",'A'+track);else snprintf(val,valn,"--");break;
     case 4:snprintf(lab,labn,"Record FX");snprintf(val,valn,"%s",wet?"Wet":"Dry");break;
     case 5:{unsigned m=input_fx_mode?input_fx_mode():1;int src=rear_native_source?rear_native_source():-1;snprintf(lab,labn,"Source");
-        snprintf(val,valn,"%s",m==2?"Synth":src==0?"Mic":src==1?"Rear":src==2?"USB":src==4?"Resample":"Mic / USB");break;}
+        snprintf(val,valn,"%s",m==2?"Synth":src==0?"Mic":src==1?"Rear":src==2?"USB":src==4?"Resample":"?");if(m!=2&&src!=0&&src!=1&&src!=2&&src!=4)snprintf(val,valn,"Src #%d",src);break;}
     case 8:snprintf(lab,labn,"MIDI In >");val[0]=0;break;
     case 7:{float db;snprintf(lab,labn,"Threshold");if(rear_native_threshold&&rear_native_threshold(&db))snprintf(val,valn,"%.0f dB",(double)db);else snprintf(val,valn,"--");break;}
     default:{unsigned mode=rear_setting?rear_setting(0,REAR_MODE):0;if(mode>REAR_MIX)mode=0;
@@ -1067,18 +1067,31 @@ static void input_route_rows(const struct mixer_view_state*s,const struct resamp
         text(p,"Input routing",92,37,152,21,15,WHITE,0);
         text(p,rear?"Rear":"Mic / USB",245,38,64,19,10,GREY,1);
     }
-    unsigned rows=mixer_view_input_rows(rear);int pitch=rows>8?15:rows>7?17:19,rh=pitch-1;
-    for(unsigned i=0;i<rows;++i){
+    unsigned rows=mixer_view_input_rows(rear);
+    const unsigned vis=6;const int pitch=23,rh=22;
+    unsigned top=0;
+    if(rows>vis){int t=(int)s->cursor-(int)vis/2;if(t<0)t=0;if(t>(int)(rows-vis))t=(int)(rows-vis);top=(unsigned)t;}
+    unsigned shown_rows=rows<vis?rows:vis;
+    int rw=rows>vis?224:231;
+    for(unsigned n=0;n<shown_rows;++n){
+        unsigned i=top+n;
         char lab[24],val[24],shown[32];
         unsigned id=mixer_view_input_row(i,rear);
         route_row(s,id,lab,sizeof lab,val,sizeof val);
-        int y=60+(int)i*pitch,on=i==s->cursor,edit=on&&s->input_edit,locked=id==3&&point==0;
-        rect(p,85,y,231,rh,on?SELECTED:PANEL);
+        int y=60+(int)n*pitch,on=i==s->cursor,edit=on&&s->input_edit,locked=id==3&&point==0;
+        rect(p,85,y,rw,rh,on?SELECTED:PANEL);
         if(on)rect(p,85,y,2,rh,AMBER);
-        if(edit)rect(p,85,y+rh-1,231,1,AMBER);
-        text(p,lab,92,y,100,rh,rows>8?12:13,locked?GREY:on?AMBER:WHITE,0);
+        if(edit)rect(p,85,y+rh-1,rw,1,AMBER);
+        text(p,lab,92,y,100,rh,13,locked?GREY:on?AMBER:WHITE,0);
         if(edit)snprintf(shown,sizeof shown,"< %s >",val);else snprintf(shown,sizeof shown,"%s",val);
-        text(p,shown,196,y,114,18,13,locked?GREY:on?AMBER:WHITE,1);
+        text(p,shown,196,y,rw-86,rh,13,locked?GREY:on?AMBER:WHITE,1);
+    }
+    if(rows>vis){ /* scroll bar */
+        int th=(int)shown_rows*pitch-1,ty=60;
+        rect(p,312,ty,4,th,0xff262626u);
+        int bh=th*(int)vis/(int)rows;if(bh<8)bh=8;
+        int by=ty+(th-bh)*(int)top/(int)(rows-vis);
+        rect(p,312,by,4,bh,AMBER);
     }
 }
 void mixer_view_context(const struct mixer_view_state*s,const struct resample_painter*p)
