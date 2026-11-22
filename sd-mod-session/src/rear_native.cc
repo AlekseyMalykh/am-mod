@@ -484,7 +484,8 @@ extern "C" void rear_native_tick(int visible) {
         s->recorder=find_recorder(s->copy);
         if(!s->properties_input&&s->recorder&&FIELD(s->recorder,0,uintptr_t)==image+0x6d8de80)s->properties_input=FIELD(s->recorder,0xc0,void *);
         s->loader=lookup(s->services,image+0x6e08dd0);
-        std::fprintf(stderr,"REAR_BIND properties=%u recorder=%u loader=%u queue=%u\n",s->properties_input!=nullptr,s->recorder!=nullptr,s->loader!=nullptr,s->queue!=nullptr);
+        std::fprintf(stderr,"REAR_BIND properties=%u recorder=%u loader=%u queue=%u props_addr=%p image=%p\n",s->properties_input!=nullptr,s->recorder!=nullptr,s->loader!=nullptr,s->queue!=nullptr,s->properties_input,(void*)image);
+        if(FILE*f=std::fopen("/tmp/am_props.txt","w")){std::fprintf(f,"props=%p image=%p\n",s->properties_input,(void*)image);std::fclose(f);}
     }
     if(!s->recorder&&visible)s->recorder=find_recorder(s->copy);
     void *properties = s->properties_input;
@@ -543,6 +544,25 @@ extern "C" int rear_native_start(unsigned overwrite) {
 extern "C" int rear_native_busy() { auto *s = session.load(); return s && s->busy.load(); }
 extern "C" int rear_native_source() { auto *s = session.load(); return s ? s->source.load() : -1; }
 extern "C" int rear_native_threshold(float *db) { auto *s = session.load(); if(!s||!s->properties_input||!db) return 0; float v = FIELD(s->properties_input,0x44,float); if(!std::isfinite(v)||v<-120.f||v>6.f) return 0; *db=v; return 1; }
+/* Stock Input Config setters, found with hardware watchpoints in the lab: Property<int>::set(obj=props+0x8, source)
+ * 1563370 and Property<float>::set(obj=props+0x28, dB) 13bbb20; both notify the stock UI/observers. Fail closed. */
+extern "C" int rear_native_source_set(int v) {
+    auto *s=session.load();
+    if(!s||!s->live.load()||!s->properties_input||s->busy.load()||(v!=0&&v!=1&&v!=2&&v!=4))return 0;
+    if(FIELD((void*)(image+0x1563370),0,uint32_t)!=0xd503233fu)return 0;
+    int cur=FIELD(s->properties_input,0x24,int);if(cur<0||cur>7)return 0;
+    if(cur!=v)native<void(*)(void *,int)>(0x1563370)(static_cast<char *>(s->properties_input)+0x8,v);
+    return 1;
+}
+extern "C" int rear_native_threshold_set(float db) {
+    auto *s=session.load();
+    if(!s||!s->live.load()||!s->properties_input||!std::isfinite(db))return 0;
+    db=std::fmin(0.f,std::fmax(-60.f,db));
+    if(FIELD((void*)(image+0x13bbb20),0,uint32_t)!=0xd503233fu)return 0;
+    float cur=FIELD(s->properties_input,0x44,float);if(!std::isfinite(cur)||cur<-120.f||cur>6.f)return 0;
+    if(cur!=db)native<void(*)(void *,float)>(0x13bbb20)(static_cast<char *>(s->properties_input)+0x28,db);
+    return 1;
+}
 extern "C" int rear_native_monitor() { auto *s = session.load(); return s ? s->monitor.load() : 0; }
 extern "C" int rear_native_monitor_set(unsigned value) {
     auto *s=session.load();

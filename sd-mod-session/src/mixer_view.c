@@ -1053,7 +1053,7 @@ static void route_row(const struct mixer_view_state*s,unsigned row,char*lab,unsi
         if(point)snprintf(val,valn,"Track %c",'A'+track);else snprintf(val,valn,"--");break;
     case 4:snprintf(lab,labn,"Record FX");snprintf(val,valn,"%s",wet?"Wet":"Dry");break;
     case 5:{unsigned m=input_fx_mode?input_fx_mode():1;int src=rear_native_source?rear_native_source():-1;snprintf(lab,labn,"Source");
-        snprintf(val,valn,"%s",m==0?"Clean":m==2?"Synth":src==0?"Mic":src==1?"Rear":src==2?"USB":src==4?"Resample":"Mic / USB");break;}
+        snprintf(val,valn,"%s",m==2?"Synth":src==0?"Mic":src==1?"Rear":src==2?"USB":src==4?"Resample":"Mic / USB");break;}
     case 7:{float db;snprintf(lab,labn,"Threshold");if(rear_native_threshold&&rear_native_threshold(&db))snprintf(val,valn,"%.0f dB",(double)db);else snprintf(val,valn,"--");break;}
     default:{unsigned mode=rear_setting?rear_setting(0,REAR_MODE):0;if(mode>REAR_MIX)mode=0;
         snprintf(lab,labn,"Rear mode");snprintf(val,valn,"%s",modes[mode]);}

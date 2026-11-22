@@ -72,6 +72,9 @@ static struct mixer_channel*selected(struct mixer_control*c){return c->view.mast
 extern unsigned music_rec_get(unsigned field) __attribute__((weak));
 extern int music_rec_set(unsigned field,unsigned value) __attribute__((weak));
 extern int rear_native_monitor_set(unsigned value) __attribute__((weak));
+extern int rear_native_source_set(int) __attribute__((weak));
+extern int rear_native_threshold_set(float) __attribute__((weak));
+extern int rear_native_threshold(float*) __attribute__((weak));
 static unsigned input_rows(void){return rear_native_source&&rear_native_source()==1?8u:7u;}
 #define INPUT_PAGE(c) ((c)->view.master==2&&(c)->view.page==MIXER_KNOB_FX&&!(c)->catalog&&!(c)->view.fx_parameters&&!(c)->view.fx_delete)
 static void pickup(struct mixer_control*c){c->pickup=0;c->last_fader_valid=0;}
@@ -802,7 +805,11 @@ static void move_fader(struct mixer_control*c,unsigned value)
 const char*mixer_input_row_apply(unsigned row,int delta,int mode,unsigned value)
 {
     if(row==0)return NULL; /* Tuner: display only */
-    if(row==7)return "Threshold: Shift+B2 stock screen";
+    if(row==7){
+        float cur=-40.f;if(!rear_native_threshold||!rear_native_threshold(&cur)||!rear_native_threshold_set)return "Threshold: not available";
+        float next=mode==2?-40.f:mode==1?-60.f+(float)value*60.f/127.f:cur+(float)delta;
+        return rear_native_threshold_set(next)?NULL:"Threshold: not available";
+    }
     if(row==3&&music_rec_get&&music_rec_get(0)==0)return "Record track: set Record via to Track";
     if(row==1){
         if(mode==2)return NULL;
@@ -817,12 +824,19 @@ const char*mixer_input_row_apply(unsigned row,int delta,int mode,unsigned value)
         else{int v=(int)cur+delta;next=(unsigned)(v<0?0:v>(int)n-1?(int)n-1:v);}
         music_rec_set(f,next);
     }else if(row==5){
-        if(!input_fx_set_mode||!input_fx_mode)return NULL;
-        unsigned cur=input_fx_mode(),next;
-        if(mode==2)next=1;
-        else if(mode==1)next=value*3/128;
-        else{int v=(int)cur+delta;next=(unsigned)(v<0?0:v>2?2:v);}
-        input_fx_set_mode(next);
+        /* Source: Mic, Rear, USB, Resample (stock Input Config) and Synth, in one list. */
+        if(!input_fx_set_mode||!input_fx_mode||!rear_native_source)return NULL;
+        static const int native_src[4]={0,1,2,4};
+        int src=rear_native_source(),fxm=(int)input_fx_mode(),cur=-1;
+        if(fxm==2)cur=4;else for(int i=0;i<4;++i)if(native_src[i]==src)cur=i;
+        if(cur<0)cur=0;
+        int next=mode==2?0:mode==1?(int)(value*5/128):cur+delta;
+        next=next<0?0:next>4?4:next;
+        if(next==4){input_fx_set_mode(2);}
+        else{
+            if(!rear_native_source_set||!rear_native_source_set(native_src[next]))return "Source: stop recording first";
+            if(fxm==2)input_fx_set_mode(1);
+        }
     }else if(mode==0&&rear_setting&&rear_set_setting&&rear_native_source&&rear_native_source()==1){
         if(rear_native_busy&&rear_native_busy())return "Stop recording to change mode";
         int m=(int)rear_setting(0,REAR_MODE)+delta;m=m<1?1:m>4?4:m;

@@ -226,7 +226,7 @@ static void route_paint(void*g){
   label(g,lab,12,y,150,17,14,sel?0xffffc247:0xffffffff);
   char shown[40];if(sel&&route_edit)snprintf(shown,sizeof shown,"< %s >",val);else snprintf(shown,sizeof shown,"%s",val);
   label(g,shown,166,y,146,17,14,sel?0xffffc247:0xffffffff);}
- label(g,route_msg?route_msg:"DATA: edit   B2: FX   Shift+B2: stock screen",8,32+(int)rows*18+3,304,15,11,route_msg?0xffffc247:0xff999999);
+ label(g,route_msg?route_msg:"DATA: edit   B2: FX   Shift+B2: stock",8,32+(int)rows*18+3,304,15,11,route_msg?0xffffc247:0xff999999);
  {char lab[24]="",val[24]="";if(mixer_view_route_text)mixer_view_route_text(route_order[route_cursor],lab,sizeof lab,val,sizeof val);knob(g,0,lab,val);}
 }
 static void map_paint(void*g,unsigned which){
@@ -320,7 +320,7 @@ int am_midi_ui_button(void*e){
   route_msg=NULL;
   if(code==0x0e){atomic_store(&page,5);notice[0]=0;edit=0;am_midi_learn(0,0);}
   else if(code==0x0d){if(music_ui_shift_active()){route_stock=input_host;input_host=NULL;route_on=0;atomic_store(&page,0);atomic_store(&visible,0);if(root==route_stock)root=NULL;}else if(phone_native_open_input_fx)phone_native_open_input_fx();}
-  else if(code==0x6f){unsigned id=route_order[route_cursor];if(id==0||id==7||id==3){route_edit=0;route_msg=id==7?"Threshold: Shift+B2 stock screen":NULL;}else route_edit=!route_edit;}
+  else if(code==0x6f){unsigned id=route_order[route_cursor];if(id==0||id==3){route_edit=0;}else route_edit=!route_edit;}
   repaint();return 1;}
  if(!which){atomic_store(&page,1);row=0;}
  else if(code==0x0c){
