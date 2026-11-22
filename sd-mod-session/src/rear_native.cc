@@ -25,6 +25,7 @@ extern "C" int am_synth_active(void) __attribute__((weak));
 extern "C" unsigned am_synth_param_get(unsigned) __attribute__((weak));
 extern "C" int am_synth_direct_out(void) __attribute__((weak));
 extern "C" unsigned input_fx_mode(void) __attribute__((weak));
+extern "C" void input_fx_set_mode(unsigned) __attribute__((weak));
 extern "C" int am_synth_mic_muted(void) __attribute__((weak));
 extern "C" void am_synth_render_add(float *,float *,unsigned) __attribute__((weak));
 extern "C" void pad_source_layer_sample(void *,int,uintptr_t *,uintptr_t);
@@ -38,6 +39,8 @@ struct Session;
 std::atomic<Session *> session{nullptr};
 std::atomic<unsigned> input_active{0}, monitor_active{0};
 std::atomic<float> main_gain{0.f};
+std::atomic<float> synth_main_gain{1.f}; /* master volume for the synth's direct output (unknown reads as full) */
+float synth_current_gain = 1.f;
 float current_main_gain = 0.f;
 float raw[2][8192];
 float monitoring[2][8192],mixed_input[2][8192];
@@ -344,8 +347,10 @@ extern "C" void *rear_native_process(void *thread, void *position, void *buffer,
         /* Synth is heard even when the input is not monitored: add it to the output buffer like the monitor path does. */
         float **op = FIELD(buffer,0x10,float **);
         if (op && FIELD(buffer,0,int) >= 2 && op[0] && op[1]) {
+            float target = synth_main_gain.load(std::memory_order_relaxed);
             for (int n = 0; n < synth_direct; ++n) {
-                float g = 1.0f;
+                synth_current_gain += (target - synth_current_gain) * .004525f;
+                float g = synth_current_gain;
                 op[0][n] += synth_keep[0][n] * g; op[1][n] += synth_keep[1][n] * g;
             }
             FIELD(buffer,0x128,unsigned char) = 0;
@@ -485,6 +490,9 @@ extern "C" void rear_native_tick(int visible) {
     void *properties = s->properties_input;
     if (!properties) return;
     int source = FIELD(properties,0x24,int), monitor = FIELD(properties,0x98,int);
+    {static int last_source = -2; /* choosing Mic/Rear/USB/Resample in Input Config takes the Input track off the synth */
+     if (last_source != -2 && last_source != source && input_fx_mode && input_fx_set_mode && input_fx_mode() == 2) input_fx_set_mode(1);
+     last_source = source;}
     s->source.store(source); s->monitor.store(monitor);
     bool rear = source == 1;
     bool enabled = rear_setting(0,REAR_ENABLED) != 0;
@@ -504,6 +512,7 @@ extern "C" void rear_native_tick(int visible) {
     }
     input_active.store(rear,std::memory_order_release);
     bool custom_monitor = rear && have_monitor && enabled && (monitor==2||(monitor==1&&visible));
+    {float gm = workflow_main_output_gain(); synth_main_gain.store(gm < 0.f ? 1.f : gm, std::memory_order_relaxed);}
     if (custom_monitor) main_gain.store(std::fmax(0.f, workflow_main_output_gain()), std::memory_order_relaxed);
     monitor_active.store(custom_monitor,std::memory_order_release);
     unsigned state = rear_record_state();
