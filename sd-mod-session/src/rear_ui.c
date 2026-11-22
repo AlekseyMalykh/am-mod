@@ -8,9 +8,10 @@
 #include "resample_view.h"
 extern void am_midi_ui_open_input(void*) __attribute__((weak));
 extern int am_midi_ui_input_host(void*) __attribute__((weak));
-extern int am_midi_ui_route_wants(void*) __attribute__((weak));
-extern void am_midi_ui_open_route(void*) __attribute__((weak));
+extern int am_midi_ui_input_opened(void*) __attribute__((weak));
+extern int am_midi_ui_route_take(void) __attribute__((weak));
 extern void am_midi_ui_input_gone(void) __attribute__((weak));
+extern void phone_native_open_input_route(void) __attribute__((weak));
 extern void am_midi_ui_paint(void*,void*) __attribute__((weak));
 extern void am_midi_ui_destroyed(void*) __attribute__((weak));
 #include <stdatomic.h>
@@ -152,7 +153,7 @@ static void paint(void *p,void *g){
     unsigned kind=FIELD(p,0,uintptr_t)==image+0x6e22970?1:0;
     rear_ui_wake();roots[kind]=p;atomic_store(&dead[kind],0);
     if(!visible(p)||music_ui_repeat_active()||music_ui_knob_fx_active())return;
-    if(!kind&&am_midi_ui_route_wants&&am_midi_ui_open_route&&am_midi_ui_route_wants(p))am_midi_ui_open_route(p);
+    if(!kind&&am_midi_ui_input_opened)am_midi_ui_input_opened(p);
     if(!kind&&am_midi_ui_input_host&&am_midi_ui_input_host(p)&&am_midi_ui_paint){am_midi_ui_paint(p,g);return;}
     if(kind&&mixer_view_tuner&&atomic_load(&tuner_open)){
         const struct resample_painter painter={g,tuner_rect,tuner_text};
@@ -264,6 +265,7 @@ int rear_ui_tick(void){
     for(unsigned i=0;i<2;++i){if(atomic_exchange(&dead[i],0)){roots[i]=NULL;close_panel();}if(visible(roots[i]))visible_mask|=1u<<i;}
     atomic_store(&visible_roots,visible_mask);
     if(!(visible_mask&1)&&am_midi_ui_input_gone)am_midi_ui_input_gone();
+    if((visible_mask&1)&&am_midi_ui_route_take&&am_midi_ui_route_take()&&phone_native_open_input_route)phone_native_open_input_route();
     if(!(visible_mask&2))atomic_store(&tuner_open,0);
     rear_native_tick((visible_mask&2)!=0);
     {static int shown;uint64_t until=atomic_load(&play_notice_until);int active=until&&now_ms_ui()<until;if(shown&&!active)repaint();shown=active;}

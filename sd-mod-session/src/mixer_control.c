@@ -75,7 +75,9 @@ extern int rear_native_monitor_set(unsigned value) __attribute__((weak));
 extern int rear_native_source_set(int) __attribute__((weak));
 extern int rear_native_threshold_set(float) __attribute__((weak));
 extern int rear_native_threshold(float*) __attribute__((weak));
-static unsigned input_rows(void){return rear_native_source&&rear_native_source()==1?8u:7u;}
+static int input_rear(void){return rear_native_source&&rear_native_source()==1;}
+static unsigned input_rows(void){return mixer_view_input_rows(input_rear());}
+extern void phone_native_open_midi_in(void) __attribute__((weak));
 #define INPUT_PAGE(c) ((c)->view.master==2&&(c)->view.page==MIXER_KNOB_FX&&!(c)->catalog&&!(c)->view.fx_parameters&&!(c)->view.fx_delete)
 static void pickup(struct mixer_control*c){c->pickup=0;c->last_fader_valid=0;}
 static void changed(struct mixer_control*c){c->dirty=1;c->message="";}
@@ -384,11 +386,11 @@ static void route_open_key(struct mixer_control*c)
 }
 /* Shift+Knob FX (Am MOD): select the Track that carries this sound (Master when
  * it has none) and open its FX page. */
-/* Input Config (Am MOD) B2: open the Mixer straight on the Input FX tab. */
-int mixer_control_show_input_fx(struct mixer_control*c)
+/* Input Config (Am MOD): open the Mixer straight on the Input track, tab 1 FX or 2 ROUTE. */
+int mixer_control_show_input(struct mixer_control*c,unsigned tab)
 {
     if(!c||!c->active)return 0;
-    c->view.master=2;c->view.selected=0;c->held_tracks=0;clear_fx_page(c);c->view.input_tab=1;c->view.input_edit=0;c->view.input_tuner=0;
+    c->view.master=2;c->view.selected=0;c->held_tracks=0;clear_fx_page(c);c->view.input_tab=tab==2?2u:1u;c->view.cursor=0;c->view.input_edit=0;c->view.input_tuner=0;
     c->view.page=MIXER_KNOB_FX;c->temporary=2;c->view.fx_slot=0;open_fx(c);return 1;
 }
 int mixer_control_focus_sound_fx(struct mixer_control*c,unsigned sound)
@@ -597,8 +599,10 @@ int mixer_control_button(struct mixer_control*c,enum mixer_action action,int dow
     }else if(INPUT_PAGE(c)&&c->view.input_tab!=1&&action==MIXER_SELECT){
         /* ROUTE: DATA click selects the row for editing, a second click accepts. */
         if(c->view.input_tab==2){
-            if(c->view.cursor==0)c->view.input_tuner=1;
-            else if(c->view.cursor==3&&music_rec_get&&music_rec_get(0)==0)c->message="Record track: set Record via to Track";
+            unsigned id=mixer_view_input_row(c->view.cursor,input_rear());
+            if(id==0)c->view.input_tuner=1;
+            else if(id==8){if(phone_native_open_midi_in)phone_native_open_midi_in();}
+            else if(id==3&&music_rec_get&&music_rec_get(0)==0)c->message="Record track: set Record via to Track";
             else c->view.input_edit^=1u;
         }
     }else if(action==MIXER_B1){
@@ -851,19 +855,15 @@ static void input_row_change(struct mixer_control*c,unsigned row,int delta,int m
 static int input_record_control(struct mixer_control*c,unsigned cc,unsigned value,int reset,int shift){
     if(c->view.master!=2||c->view.page!=MIXER_KNOB_FX||c->catalog||c->view.fx_parameters||c->view.fx_delete||cc<0x10||cc>0x12)return 0;
     if(c->view.input_tab!=2)return 0; /* FX tab: ordinary effect knobs */
-    if(cc==0x10&&c->view.cursor<7){input_row_change(c,mixer_view_input_row(c->view.cursor),0,reset?2:1,value);if(mixer_view_input_row(c->view.cursor)!=3)c->message="";return 1;}
-    if(cc==0x11&&!(rear_native_source&&rear_native_source()==1)){ /* Mic/USB: K2 is the Input Pan */
-        set_pan(&c->desired.input.mix,reset||value==64?0:((float)value-64)/(value<64?64:63));changed(c);return 1;
+    if(cc==0x12){input_row_change(c,5,0,reset?2:1,value);c->message="";return 1;} /* K3 Source */
+    if(!input_rear()){
+        if(cc==0x10){set_pan(&c->desired.input.mix,reset||value==64?0:((float)value-64)/(value<64?64:63));changed(c);}
+        else{input_row_change(c,7,0,reset?2:1,value);c->message="";} /* K2 Threshold */
+        return 1;
     }
-    if(!rear_setting||!rear_set_setting||!rear_native_source||rear_native_source()!=1){c->message="Record controls: select Rear";return 1;}
-    if(cc==0x10){
-        if(reset)return 1;
-        if(rear_native_busy&&rear_native_busy()){c->message="Stop recording to change mode";return 1;}
-        if(rear_native_clear)rear_native_clear();
-        if(!rear_set_setting(0,REAR_MODE,1+value*4/128))c->message="Stop recording to change mode";
-        else c->message="Sample Record > Routing to record";
-    }else{
-        unsigned ch=cc-0x11,field=shift?REAR_LEVEL:REAR_PAN;
+    if(!rear_setting||!rear_set_setting){c->message="Record controls: select Rear";return 1;}
+    {
+        unsigned ch=cc-0x10,field=shift?REAR_LEVEL:REAR_PAN;
         unsigned v=reset?(shift?100:(ch?100:0)):value*101/128;
         rear_set_setting(ch,field,v);c->message="";
     }
@@ -942,7 +942,7 @@ static int fx_cc(struct mixer_control*c,unsigned cc,unsigned value)
     if(INPUT_PAGE(c)&&c->view.input_tab!=1&&cc==0x64){
         if(c->view.input_tab==2){
             int delta=value>64?(int)value-128:value==64?0:(int)value;
-            if(c->view.input_edit){if(delta)input_row_change(c,mixer_view_input_row(c->view.cursor),delta>0?1:-1,0,0);}
+            if(c->view.input_edit){if(delta)input_row_change(c,mixer_view_input_row(c->view.cursor,input_rear()),delta>0?1:-1,0,0);}
             else{
                 int n=(int)c->view.cursor+(delta>0?1:delta<0?-1:0),last=(int)input_rows()-1;
                 c->view.cursor=(unsigned)(n<0?0:n>last?last:n);

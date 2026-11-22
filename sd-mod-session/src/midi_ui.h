@@ -15,7 +15,8 @@ void am_midi_ui_pad_hit(unsigned pad);
 /* UI-owner embedding in Shift+Sample Input Config; settings remain shared. */
 void am_midi_ui_open_input(void *host);
 int am_midi_ui_input_host(void *host);
-int am_midi_ui_route_wants(void *host); /* Am MOD: replace Input Config by the Input ROUTE list */
-void am_midi_ui_open_route(void *host);
+int am_midi_ui_input_opened(void *host); /* Am MOD: stock Input Config painted; 1 if MIDI In now hosts it */
+int am_midi_ui_route_take(void);        /* UI owner: 1 once, when Input Config should hand over to the Mixer ROUTE tab */
+void am_midi_ui_request_midi_in(void);   /* next Input Config opens on MIDI In */
 void am_midi_ui_input_gone(void);
 #endif

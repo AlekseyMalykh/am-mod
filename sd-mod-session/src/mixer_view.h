@@ -59,8 +59,12 @@ static inline int mixer_view_synth_slot(unsigned page,unsigned knob,unsigned shi
     return page<5&&knob<3&&shift<2?slot[page][knob][shift]:-1;
 }
 /* 16 Levels colour roles per layout (as the project Lights page): Mono/Piano: Original; Scale: Tonic, Scale, Other, Original; Degrees: I, Key notes, IV, V, Original */
-/* Input ROUTE tab order (as the stock Input Config: Source, Monitor, Threshold), then ours; ids as route_row */
-static inline unsigned mixer_view_input_row(unsigned pos){static const unsigned char o[8]={5,1,7,0,2,3,4,6};return o[pos&7u];}
+/* Input ROUTE tab: stock order (Source, Monitor, Threshold), then ours; ids as route_row. 8 Mic/USB/Resample, 9 Rear rows, MIDI In last. */
+static inline unsigned mixer_view_input_rows(int rear){return rear?9u:8u;}
+static inline unsigned mixer_view_input_row(unsigned pos,int rear){
+    static const unsigned char n[8]={5,1,7,0,2,3,4,8},r[9]={5,1,7,0,2,3,4,6,8};
+    return rear?r[pos%9u]:n[pos&7u];
+}
 static inline unsigned mixer_view_synth_roles(unsigned layout){static const unsigned char n[4]={1,1,4,5};return n[layout%4];}
 /* index into synth_cols for role r of a layout */
 static inline unsigned mixer_view_synth_field(unsigned layout,unsigned r)

@@ -826,7 +826,7 @@ static int mixer_replay_entry(void)
 static void mixer_fx_combo_tick(void);
 static unsigned char mixer_entry_template[16];
 static uint64_t mixer_open_after; /* UI owner: entry waiting for Sample */
-static int mixer_want_input_fx;                /* UI owner: open on the Input FX tab */
+static int mixer_want_input;                   /* UI owner: open on the Input track, ROUTE tab */
 static int mixer_focus_sound=-1;               /* UI owner: open on this sound's Track FX */
 static void mixer_open_from_entry(struct mixer_control *control);
 static void mixer_tick_ui(void)
@@ -943,7 +943,7 @@ static void mixer_open_from_entry(struct mixer_control *control)
     int bank = step_native_browser_bank(-1);
     if (bank >= 0 && bank < 8) mixer_control_presence(control,0,0,(unsigned)bank);
     if (mixer_focus_sound >= 0) {mixer_control_focus_sound_fx(control,(unsigned)mixer_focus_sound);mixer_focus_sound = -1;}
-    if (mixer_want_input_fx) {mixer_want_input_fx = 0;mixer_control_show_input_fx(control);}
+    if (mixer_want_input) {mixer_want_input = 0;mixer_control_show_input(control,2);}
     /* The stock KNOB FX overlay (shade over the knobs) must not stay over
      * the Mixer: toggle it closed with one stock KNOB FX press. */
     if (music_ui_knob_fx_active()) {
@@ -952,11 +952,19 @@ static void mixer_open_from_entry(struct mixer_control *control)
     }
     note_native_repaint_sample();
 }
-/* Input Config (Am MOD) B2: leave the stock screen with its Back press, then open the Mixer Input FX tab on Sample. */
 void phone_native_inject_button(unsigned code,unsigned down);
-void phone_native_open_input_fx(void){
- mixer_want_input_fx=1;mixer_open_after=now_ms();
+extern void am_midi_ui_request_midi_in(void) __attribute__((weak));
+/* Am MOD: the stock Input Config is replaced by the Mixer Input ROUTE tab. Leave it with its own Back press,
+ * then open the Mixer on Sample. */
+void phone_native_open_input_route(void){
+ mixer_want_input=1;mixer_open_after=now_ms();
  phone_native_inject_button(0x6b,1);phone_native_inject_button(0x6b,0);
+}
+/* ROUTE row "MIDI In >": close the Mixer and open the stock Input Config (Shift+Sample), which then hosts MIDI In. */
+void phone_native_open_midi_in(void){
+ if(!am_midi_ui_request_midi_in)return;
+ am_midi_ui_request_midi_in();mixer_close_ui();
+ phone_native_inject_button(0x31,1);phone_native_inject_button(0x06,1);phone_native_inject_button(0x06,0);phone_native_inject_button(0x31,0);
 }
 static void mixer_takeover_settings(struct mixer_control*c){
  unsigned modes[3]={2,2,2};

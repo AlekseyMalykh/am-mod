@@ -49,7 +49,7 @@ uint64_t mixer_control_ticket(const struct mixer_control*);
 int mixer_control_button(struct mixer_control*,enum mixer_action,int down,uint64_t ticket);
 int mixer_control_pad(struct mixer_control*,unsigned pad,int down,uint64_t ticket);
 int mixer_control_focus_sound_fx(struct mixer_control*,unsigned sound);
-int mixer_control_show_input_fx(struct mixer_control*);
+int mixer_control_show_input(struct mixer_control*,unsigned tab); /* 1 FX, 2 ROUTE */
 const char*mixer_input_row_apply(unsigned row,int delta,int mode,unsigned value); /* ROUTE row ids as mixer_view; returns a hint or NULL */
 /* Native settings: 0 Pickup, 1 Scaled, 2 Jump. */
 void mixer_control_takeover(struct mixer_control*,unsigned parameter,unsigned fx,unsigned fader);
