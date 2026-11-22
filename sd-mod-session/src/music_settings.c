@@ -23,6 +23,9 @@
 #include <ctype.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <time.h>
+extern unsigned am_synth_param_get(unsigned) __attribute__((weak));
+extern void am_synth_param_set(unsigned,unsigned) __attribute__((weak));
 #define MOD_DEFAULT ((UINT64_C(0xdcba9876543210)<<5)|1u|(2u<<3))
 #define TAIL_SHIFT 61
 #define TAIL_MASK (UINT64_C(7)<<TAIL_SHIFT)
@@ -299,6 +302,7 @@ int music_lighting_preferences_open(const char *directory){
  atomic_store(&relation_colours,rel_colours);atomic_store(&led_vivid,vivid);
  music_mod_settings_restore(value);return 1;
 }
+static void global_load(void);
 void music_lighting_preferences_init(void){
  int fd=open("/run/mpc-trial-app/storage-meta/save-path",O_RDONLY|O_CLOEXEC|O_NOFOLLOW);if(fd<0)return;
  char path[4096]={0};ssize_t n=read(fd,path,sizeof(path)-16);close(fd);
@@ -306,6 +310,7 @@ void music_lighting_preferences_init(void){
  while(n&&path[n-1]=='\n')path[--n]=0;
  if(strncmp(path,"/media/",7)||strstr(path,"/../")||n+10>=(ssize_t)sizeof(path))return;
  memcpy(path+n,"/Projects",10);music_lighting_preferences_open(path);
+ global_load();
 }
 static int save_preference(const char*name,const void*data,size_t size){
  if(lighting_directory<0)return 1;
@@ -322,6 +327,74 @@ static int save_preference(const char*name,const void*data,size_t size){
  if(!ok){unlinkat(lighting_directory,temp,0);return 0;}
  fsync(lighting_directory);
  return 1;
+}
+/* Card-wide defaults kept next to .am-mod-settings in the shared Projects folder: the MIDI map (maps and
+ * buttons) and the Synth parameters. A project that carries its own MIDI map keeps it; every other project
+ * starts from these, and editing either one updates them. */
+#ifndef AM_MIDI_PAYLOAD
+#define AM_MIDI_PAYLOAD 4736u
+#endif
+#define SYNTH_GLOBAL_PARAMS 22u
+#define SYNTH_GLOBAL_TEXT 200u
+static char synth_last[SYNTH_GLOBAL_TEXT];
+#ifdef MPC_MIDI_TOOLS
+static char midi_last[AM_MIDI_PAYLOAD],midi_global[AM_MIDI_PAYLOAD];
+#endif
+static int global_read(const char*name,char*buf,size_t cap){
+ if(lighting_directory<0)return 0;
+ int fd=openat(lighting_directory,name,O_RDONLY|O_CLOEXEC|O_NOFOLLOW|O_NONBLOCK);if(fd<0)return 0;
+ struct stat st;ssize_t n=-1;
+ if(!fstat(fd,&st)&&S_ISREG(st.st_mode)&&st.st_size>0&&(size_t)st.st_size<cap)n=read(fd,buf,cap-1);
+ close(fd);if(n<=0)return 0;
+ buf[n]=0;return 1;
+}
+static void synth_text(char*out,size_t cap){
+ size_t at=(size_t)snprintf(out,cap,"AMSY1");
+ for(unsigned i=0;i<SYNTH_GLOBAL_PARAMS&&at<cap;++i)at+=(size_t)snprintf(out+at,cap-at," %u",am_synth_param_get(i));
+}
+static void global_load(void){
+ char text[AM_MIDI_PAYLOAD>SYNTH_GLOBAL_TEXT?AM_MIDI_PAYLOAD:SYNTH_GLOBAL_TEXT];
+#ifdef MPC_MIDI_TOOLS
+ if(global_read(".am-mod-midi",text,AM_MIDI_PAYLOAD)){
+  if(am_midi_restore(text)){memcpy(midi_global,text,strlen(text)+1);memcpy(midi_last,text,strlen(text)+1);}
+  else am_midi_restore(NULL);
+ }else{am_midi_encode(midi_last,sizeof midi_last);}
+#endif
+ if(am_synth_param_set&&am_synth_param_get){
+  if(global_read(".am-mod-synth",text,SYNTH_GLOBAL_TEXT)&&!strncmp(text,"AMSY1",5)){
+   const char*p=text+5;
+   for(unsigned i=0;i<SYNTH_GLOBAL_PARAMS;++i){char*end;unsigned long v=strtoul(p,&end,10);if(end==p)break;am_synth_param_set(i,(unsigned)v);p=end;}
+  }
+  synth_text(synth_last,sizeof synth_last);
+ }
+}
+const char*music_global_midi_text(void){
+#ifdef MPC_MIDI_TOOLS
+ return midi_global[0]?midi_global:NULL;
+#else
+ return NULL;
+#endif
+}
+void music_global_midi_baseline(void){
+#ifdef MPC_MIDI_TOOLS
+ am_midi_encode(midi_last,sizeof midi_last);
+#endif
+}
+/* UI thread: write the card defaults when they changed (at most every 1.5 s unless forced). */
+void music_global_sync(int force){
+ static unsigned long long last_ms;struct timespec t;clock_gettime(CLOCK_MONOTONIC,&t);
+ unsigned long long now=(unsigned long long)t.tv_sec*1000ull+(unsigned long long)t.tv_nsec/1000000ull;
+ if(!force&&now-last_ms<1500ull)return;
+ last_ms=now;
+#ifdef MPC_MIDI_TOOLS
+ {static char text[AM_MIDI_PAYLOAD];
+  if(am_midi_encode(text,sizeof text)>0&&strcmp(text,midi_last)&&music_lighting_preferences_durable()
+     &&save_preference(".am-mod-midi",text,strlen(text))){memcpy(midi_last,text,strlen(text)+1);memcpy(midi_global,text,strlen(text)+1);}}
+#endif
+ if(am_synth_param_get&&music_lighting_preferences_durable()){
+  char text[SYNTH_GLOBAL_TEXT];synth_text(text,sizeof text);
+  if(strcmp(text,synth_last)&&save_preference(".am-mod-synth",text,strlen(text)))memcpy(synth_last,text,strlen(text)+1);
+ }
 }
 int music_palette_apply(const struct music_palette_edit edits[MUSIC_PALETTE_SLOTS],unsigned mask){
  if(!mask)return 1;

@@ -7,6 +7,10 @@ static void*test_context;
 void*note_native_context(void){return test_context;}
 static unsigned test_shift;
 int music_ui_shift_active(void){return test_shift;}
+unsigned am_synth_param_get(unsigned i){(void)i;return 0;}
+void music_global_sync(int w){(void)w;}
+void am_synth_note(unsigned n,unsigned v,int on){(void)n;(void)v;(void)on;}
+void am_synth_param_set(unsigned i,unsigned v){(void)i;(void)v;}
 static void button(unsigned code,unsigned down){unsigned char e[16]={0};e[8]=(uint8_t)code;e[9]=(uint8_t)down;assert(am_midi_ui_button(e));}
 static void tap(unsigned code){button(code,1);button(code,0);}
 static void knob_input(unsigned code,unsigned value,unsigned shift){unsigned char e[16]={0};e[8]=(uint8_t)code;e[9]=(uint8_t)value;assert(am_midi_ui_control(e,shift));}
@@ -51,13 +55,13 @@ int main(void){
  am_midi_ui_open_input(context);assert(am_midi_ui_input_host(context)&&am_midi_ui_active()&&atomic_load(&page)==5);
  knob_input(0x10,8,0);assert(mode_channel==2);mode_assign_pad(17);
  struct am_midi_mode mode;am_midi_mode_get(&mode);assert(mode.pad[1]==18&&mode.mode==AM_MIDI_MODE_CHANNELS);
- tap(0x0e);am_midi_mode_get(&mode);assert(mode.mode==AM_MIDI_MODE_SELECTED&&mode.pad[1]==18);
+ tap(0x6f);am_midi_mode_get(&mode);assert(mode.mode==AM_MIDI_MODE_SELECTED&&mode.pad[1]==18);
  knob_input(0x10,8,0);knob_input(0x12,48,0);mode_assign_pad(31);
  am_midi_mode_get(&mode);assert(mode.mode==AM_MIDI_MODE_SELECTED&&mode.channel==1&&mode.root==48&&mode.pad[1]==18);
  knob_input(0x64,127,0);am_midi_mode_get(&mode);assert(!mode.channel);
- tap(0x0e);am_midi_mode_get(&mode);assert(mode.mode==AM_MIDI_MODE_DRUM&&mode.pad[1]==18);
+ tap(0x6f);tap(0x6f);am_midi_mode_get(&mode);assert(mode.mode==AM_MIDI_MODE_DRUM&&mode.pad[1]==18);
  knob_input(0x10,8,0);am_midi_mode_get(&mode);assert(mode.mode==AM_MIDI_MODE_DRUM); /* browsing must not reactivate saved channels */
- tap(0x0e);am_midi_mode_get(&mode);assert(mode.mode==AM_MIDI_MODE_CHANNELS&&mode.pad[1]==18);
+ tap(0x6f);am_midi_mode_get(&mode);assert(mode.mode==AM_MIDI_MODE_CHANNELS&&mode.pad[1]==18);
  tap(0x0d);assert(atomic_load(&page)==3);knob_input(0x10,17,0);tap(0x0d);assert(am_midi_learn_active());
  tap(0x0c);assert(atomic_load(&page)==5&&!am_midi_learn_active()&&am_midi_ui_input_host(context));
  button(0x0c,1);assert(!am_midi_ui_input_host(context)&&!am_midi_ui_active()&&am_midi_ui_owns(0x0c,1));

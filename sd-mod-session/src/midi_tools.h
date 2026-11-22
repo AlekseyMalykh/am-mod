@@ -39,9 +39,10 @@ unsigned am_midi_held_notes(void);
  * MIDI message after a hardware button was chosen; the stream thread queues
  * presses that the UI thread replays through the native button path. */
 #define AM_MIDI_BUTTON_SLOTS 16
-struct am_midi_button { uint8_t port,channel,kind,number,code,mport,mchannel,mkind,mnumber; }; /* m*: optional modifier source (combo -> MPC Shift+button) */
+struct am_midi_button { uint8_t port,channel,kind,number,code,mport,mchannel,mkind,mnumber,mshift; }; /* m*: optional modifier source (combo -> MPC Shift+button) */
 int am_midi_button_get(unsigned slot,struct am_midi_button*);
 void am_midi_button_learn(unsigned code,int on);
+void am_midi_button_learn_shift(int on); /* the MPC button was picked with Shift held: a device combo then sends Shift+button, otherwise the plain button */
 unsigned am_midi_button_learning(void);
 void am_midi_button_clear(void);
 void am_midi_button_remove(unsigned code); /* delete the assignment(s) of one button/knob code */

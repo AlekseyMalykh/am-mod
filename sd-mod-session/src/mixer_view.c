@@ -1321,8 +1321,10 @@ static void synth_adsr_mini(const struct resample_painter*p,int x0,int y0,int w,
         rect(p,x0+i,y0+h-hh,1,hh,selected?AMBER:0xff806018u);
     }
 }
+extern void music_global_sync(int) __attribute__((weak));
 void mixer_view_synth(const struct mixer_view_state*s,const struct resample_painter*p)
 {
+    if(music_global_sync)music_global_sync(0);
     unsigned page=s->synth_cursor%5;
     rect(p,0,0,320,240,BLACK);
     rect(p,2,2,102,26,0xff242424u);text(p,"Back",2,2,102,25,13,WHITE,1);

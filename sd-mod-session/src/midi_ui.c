@@ -57,7 +57,7 @@ void am_midi_ui_tick(void*p){
   if(FN(0x112fd50,int(*)(void*))(input_host)&&!FN(0x112f6b0,int(*)(void*))(input_host))p=input_host;
   else {am_midi_ui_destroyed(input_host);input_host=NULL;}
  }
- root=p;atomic_store(&visible,p!=NULL);if(!p){atomic_store(&page,0);am_midi_learn(0,0);}am_midi_learn_tick();am_midi_diagnostic_tick();
+ root=p;atomic_store(&visible,p!=NULL);if(!p){atomic_store(&page,0);am_midi_learn(0,0);}am_midi_learn_tick();am_midi_diagnostic_tick();music_global_sync(0);
  {unsigned c,d;while(am_midi_button_take(&c,&d)){if(p&&atomic_load(&page)==6)continue;if(c&0x80u){if(phone_native_inject_controller)phone_native_inject_controller(c&0x7fu,d);}else if(phone_native_inject_button){unsigned sh=c&0x200u;c&=0x1ffu;if(sh&&d)phone_native_inject_button(0x31,1);phone_native_inject_button(c,d);if(sh&&d)phone_native_inject_button(0x31,0);} /* Shift is only a tap: held MIDI key must not hold MPC Shift */}}
  {unsigned hit=atomic_exchange(&pad_hit,0);if(hit&&atomic_load(&page)>=3&&atomic_load(&page)<=5){pad=hit-1;notice[0]=0;if(atomic_load(&page)==5)mode_assign_pad(pad);repaint();}}
  /* Only copied program note numbers leave the UI owner. No native pointer is
@@ -125,13 +125,13 @@ static void map_read(unsigned which,struct am_midi_map *m,unsigned *enabled){
 static void pad_name(char*s,size_t n,unsigned v){if(!v)snprintf(s,n,"-");else snprintf(s,n,"%c%02u",'A'+(v-1)/16,(v-1)%16+1);}
 static void mode_paint(void*g){
  struct am_midi_mode m;am_midi_mode_get(&m);unsigned sel=mode_channel-1;
- heads(g,"Back","Map / Learn",music_ui_shift_active()?"Clear":"Mode");
+ heads(g,"Back","Map / Learn",music_ui_shift_active()?"Clear":"Buttons");
  char title[48];snprintf(title,sizeof title,"MIDI Input: %s",m.mode==AM_MIDI_MODE_SELECTED?"Selected pad":m.mode==AM_MIDI_MODE_CHANNELS?"Channels":m.mode==AM_MIDI_MODE_INSTRUMENT?"Instrument":"Drum map");centre(g,title,4,31,312,20,15,0xffffc247);
  if(m.mode==AM_MIDI_MODE_INSTRUMENT){
   centre(g,"Play the Synth instrument",8,72,304,24,17,0xffffffff);
   centre(g,"Keys do not trigger pads",8,102,304,20,13,0xffaaaaaa);
   centre(g,"Channel All or 1-16. Sound: Mixer pad 13.",8,139,304,30,11,0xff999999);
-  label(g,"B3: mode   Shift+B3: clear input settings",8,184,304,12,10,0xff999999);
+  label(g,"DATA press: mode   B3: buttons   Shift+B3: clear",8,184,304,12,10,0xff999999);
   char ch[12];if(m.channel)snprintf(ch,sizeof ch,"%u",m.channel);else snprintf(ch,sizeof ch,"All");
   knob(g,0,"Channel",ch);knob(g,1,"Role","Synth");knob(g,2,"","");return;
  }
@@ -139,7 +139,7 @@ static void mode_paint(void*g){
   centre(g,"Play the selected MPC pad",8,72,304,24,17,0xffffffff);
   centre(g,"Tune / 16 Levels from your keyboard",8,102,304,20,13,0xffaaaaaa);
   centre(g,"Select another pad on the MPC to change sound.",8,139,304,30,11,0xff999999);
-  label(g,"B3: mode   Shift+B3: clear input settings",8,184,304,12,10,0xff999999);
+  label(g,"DATA press: mode   B3: buttons   Shift+B3: clear",8,184,304,12,10,0xff999999);
   char ch[12],r[12];if(m.channel)snprintf(ch,sizeof ch,"%u",m.channel);else snprintf(ch,sizeof ch,"All");snprintf(r,sizeof r,"%u",m.root);
   knob(g,0,"Channel",ch);knob(g,1,"Role","Tune");knob(g,2,"Root",r);return;
  }
@@ -152,7 +152,7 @@ static void mode_paint(void*g){
   label(g,c,12,y,40,16,13,col);label(g,m.pad[k]?p:"All pads",70,y,90,16,13,col);
   label(g,!m.pad[k]?"Stock drum map":m.kind[k]==AM_MIDI_KEY_CHOP?"Chop (16 keys)":m.kind[k]==AM_MIDI_KEY_SYNTH?"Synth":"Tune (16 Levels)",170,y,140,16,13,col);
  }
- label(g,"Tap pad: assign channel   B3: input mode",8,184,304,12,10,0xff999999);
+ label(g,"Tap pad: channel   DATA press: mode   B3: buttons",8,184,304,12,10,0xff999999);
  char a[24],b[24],c2[24];snprintf(a,sizeof a,"%u",mode_channel);
  snprintf(b,sizeof b,"%s",!m.pad[sel]?"Drum":m.kind[sel]==AM_MIDI_KEY_CHOP?"Chop":m.kind[sel]==AM_MIDI_KEY_SYNTH?"Synth":"Tune");
  snprintf(c2,sizeof c2,"%s",music_ui_shift_active()?"Root":"Pad");
@@ -184,6 +184,7 @@ static void button_name(char*s,size_t n,unsigned code){
  else if(code==0x50)snprintf(s,n,"Rec");else if(code==0x51)snprintf(s,n,"Stop");else if(code==0x52)snprintf(s,n,"Play");else snprintf(s,n,"Button %02x",code);
 }
 static unsigned bsel,bpick;
+static void blearn(unsigned code){am_midi_button_learn_shift(music_ui_shift_active());am_midi_button_learn(code,1);}
 static unsigned button_used(unsigned*idx){unsigned n=0;for(unsigned i=0;i<AM_MIDI_BUTTON_SLOTS;++i){struct am_midi_button b;am_midi_button_get(i,&b);if(b.kind)idx[n++]=i;}return n;}
 static void button_paint(void*g){
  unsigned learning=am_midi_button_learning(),idx[AM_MIDI_BUTTON_SLOTS],n=button_used(idx);char nm[48];
@@ -193,7 +194,7 @@ static void button_paint(void*g){
  unsigned shown=0,rows=learning?6:7,first=bsel>=rows?bsel-rows+1:0;
  if(learning){button_name(nm,sizeof nm,learning-1);rect(g,4,70,312,16,0xff302412);label(g,nm,12,70,120,16,13,0xffffc247);label(g,"waiting...",140,70,170,16,13,0xffffc247);++shown;}
  for(unsigned k=first;k<n&&shown<7;++k){struct am_midi_button b;am_midi_button_get(idx[k],&b);if(learning&&(unsigned)b.code+1u==learning)continue;
-  char src[48],chan[8];int y=70+(int)shown*16;button_name(nm,sizeof nm,b.code);if(b.mkind){char t[64];snprintf(t,sizeof t,"Shift+%s",nm);memcpy(nm,t,sizeof nm-1);nm[sizeof nm-1]=0;}
+  char src[48],chan[8];int y=70+(int)shown*16;button_name(nm,sizeof nm,b.code);if(b.mkind&&b.mshift){char t[64];snprintf(t,sizeof t,"Shift+%s",nm);memcpy(nm,t,sizeof nm-1);nm[sizeof nm-1]=0;}
   if(b.channel)snprintf(chan,sizeof chan,"%u",b.channel);else snprintf(chan,sizeof chan,"All");
   if(b.mkind)snprintf(src,sizeof src,"%s %u + %s %u",b.mkind==1?"N":"CC",b.mnumber,b.kind==1?"N":"CC",b.number);else snprintf(src,sizeof src,"%s %u  ch %s  %s",b.kind==1?"Note":"CC",b.number,chan,b.port?am_midi_port_name(b.port):"Any");
   int sel=!learning&&!bpick&&k==bsel;if(sel)rect(g,4,y,312,16,0xff302412);
@@ -290,13 +291,15 @@ int am_midi_ui_button(void*e){
  else if(which==7){if(code==0x0e){synth_test=1;am_synth_note(60,100,1);}else if(code==0x6f)edit=!edit;}
  else if(which==6){
   unsigned l=am_midi_button_learning(),idx[AM_MIDI_BUTTON_SLOTS],n=button_used(idx);
-  if(bpick){bpick=0;if(code!=0x0d)am_midi_button_learn(code,1);}
-  else if(l){if(code==0x0d)am_midi_button_learn(0,0);else if(code!=0x0e)am_midi_button_learn(code,1);}
+  if(bpick){bpick=0;if(code!=0x0d)blearn(code);}
+  else if(l){if(code==0x0d)am_midi_button_learn(0,0);else if(code!=0x0e)blearn(code);}
   else if(code==0x0e)bpick=1;
   else if(code==0x0d){if(music_ui_shift_active())am_midi_button_clear();else if(n){struct am_midi_button b;am_midi_button_get(idx[bsel<n?bsel:n-1],&b);am_midi_button_remove(b.code);}}
-  else if(code!=0x0c&&code!=0x6f)am_midi_button_learn(code,1);
+  else if(code!=0x0c&&code!=0x6f)blearn(code);
  }
- else if(which==5){if(code==0x0d){atomic_store(&page,3);edit=0;}else if(code==0x0e){struct am_midi_mode m;am_midi_mode_get(&m);if(music_ui_shift_active()){memset(&m,0,sizeof m);m.root=60;}else m.mode=m.mode==AM_MIDI_MODE_DRUM?AM_MIDI_MODE_CHANNELS:m.mode==AM_MIDI_MODE_CHANNELS?AM_MIDI_MODE_SELECTED:m.mode==AM_MIDI_MODE_SELECTED?AM_MIDI_MODE_INSTRUMENT:AM_MIDI_MODE_DRUM;am_midi_mode_set(&m);}}
+ else if(which==5){if(code==0x0d){atomic_store(&page,3);edit=0;}
+  else if(code==0x0e&&!music_ui_shift_active()){atomic_store(&page,6);bpick=0;notice[0]=0;} /* B3: MIDI Buttons (Back returns here) */
+  else if(code==0x0e||code==0x6f){struct am_midi_mode m;am_midi_mode_get(&m);if(code==0x0e){memset(&m,0,sizeof m);m.root=60;}else m.mode=m.mode==AM_MIDI_MODE_DRUM?AM_MIDI_MODE_CHANNELS:m.mode==AM_MIDI_MODE_CHANNELS?AM_MIDI_MODE_SELECTED:m.mode==AM_MIDI_MODE_SELECTED?AM_MIDI_MODE_INSTRUMENT:AM_MIDI_MODE_DRUM;am_midi_mode_set(&m);}}
  else if(which>=3&&which!=7){if(code==0x0e||code==0x6f)edit=!edit;else if(code==0x0d){if(which==3)am_midi_learn(pad,!am_midi_learn_active());else if(map_layer){struct am_midi_map m;am_midi_layer_get(pad,&m,NULL);am_midi_layer_set(pad,&m,0);}else{struct am_midi_map m;am_midi_map_get(pad,&m);m.out_kind=m.out_port=m.out_channel=m.out_number=0;am_midi_map_set(pad,&m);}}else if(code==0x36||code==0x37)pad=clamp((int)pad+(code==0x36?1:-1),127);}
  repaint();return 1;
 }

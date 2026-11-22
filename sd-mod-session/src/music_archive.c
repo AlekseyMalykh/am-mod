@@ -169,7 +169,8 @@ int music_archive_read(void *data,void *json,int (*original)(void*,void*))
         if (pending && loading_seen) music_replace(pending);
         else music_reset();
 #ifdef MPC_MIDI_TOOLS
-        if(!am_midi_restore(*pending_midi?pending_midi:NULL)){am_midi_reset();report("INVALID_MIDI_MAP_RESET");}
+        if(!am_midi_restore(*pending_midi?pending_midi:music_global_midi_text())){am_midi_reset();report("INVALID_MIDI_MAP_RESET");}
+        music_global_midi_baseline();
 #endif
         if(pending_settings.valid)music_mod_settings_restore(pending_settings.display);
 #ifdef MPC_COMPRESSOR

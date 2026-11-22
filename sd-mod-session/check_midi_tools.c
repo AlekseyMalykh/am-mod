@@ -82,18 +82,18 @@ int main(void){
  am_midi_reset();
  {struct am_midi_message cc={3,{0xb0,20,127}},ccoff={3,{0xb0,20,0}},note={3,{0x90,40,100}},noteoff={3,{0x80,40,0}};unsigned code=0,down=9;char saved[AM_MIDI_PAYLOAD];
   am_midi_button_learn(0x52,1);assert(am_midi_button_learning()==0x53);
-  am_midi_observe(AM_MIDI_IN,AM_MIDI_USB,&cc);am_midi_learn_tick();assert(!am_midi_button_learning());
+  am_midi_observe(AM_MIDI_IN,AM_MIDI_USB,&cc);am_midi_learn_tick();am_midi_observe(AM_MIDI_IN,AM_MIDI_USB,&ccoff);am_midi_learn_tick();assert(!am_midi_button_learning());
   struct am_midi_router br={0};
   assert(!am_midi_translate(&br,AM_MIDI_IN,AM_MIDI_USB,&cc,&b)&&am_midi_button_take(&code,&down)&&code==0x52&&down==1);
   assert(!am_midi_translate(&br,AM_MIDI_IN,AM_MIDI_USB,&ccoff,&b)&&am_midi_button_take(&code,&down)&&code==0x52&&down==0&&!am_midi_button_take(&code,&down));
-  am_midi_button_learn(0x51,1);am_midi_observe(AM_MIDI_IN,AM_MIDI_EXTERNAL,&note);am_midi_learn_tick();
+  am_midi_button_learn(0x51,1);am_midi_observe(AM_MIDI_IN,AM_MIDI_EXTERNAL,&note);am_midi_learn_tick();am_midi_observe(AM_MIDI_IN,AM_MIDI_EXTERNAL,&noteoff);am_midi_learn_tick();
   assert(!am_midi_translate(&br,AM_MIDI_IN,AM_MIDI_EXTERNAL,&note,&b)&&am_midi_button_take(&code,&down)&&code==0x51&&down==1);
   assert(!am_midi_translate(&br,AM_MIDI_IN,AM_MIDI_EXTERNAL,&noteoff,&b)&&am_midi_button_take(&code,&down)&&code==0x51&&down==0);
-  am_midi_button_learn(0x50,1);am_midi_observe(AM_MIDI_IN,AM_MIDI_USB,&cc);am_midi_learn_tick(); /* same source: moves to Rec, Play loses it */
+  am_midi_button_learn(0x50,1);am_midi_observe(AM_MIDI_IN,AM_MIDI_USB,&cc);am_midi_learn_tick();am_midi_observe(AM_MIDI_IN,AM_MIDI_USB,&ccoff);am_midi_learn_tick(); /* same source: moves to Rec, Play loses it */
   assert(!am_midi_translate(&br,AM_MIDI_IN,AM_MIDI_USB,&cc,&b)&&am_midi_button_take(&code,&down)&&code==0x50&&!am_midi_button_take(&code,&down));
   int n=am_midi_encode(saved,sizeof saved);assert(n>0&&n<=(int)AM_MIDI_PAYLOAD&&!memcmp(saved,"AMM5 ",5));
   am_midi_reset();assert(am_midi_encode(saved+0,sizeof saved)==2063);
-  am_midi_button_learn(0x52,1);am_midi_observe(AM_MIDI_IN,AM_MIDI_USB,&cc);am_midi_learn_tick();assert(am_midi_encode(saved,sizeof saved)==4599);
+  am_midi_button_learn(0x52,1);am_midi_observe(AM_MIDI_IN,AM_MIDI_USB,&cc);am_midi_learn_tick();am_midi_observe(AM_MIDI_IN,AM_MIDI_USB,&ccoff);am_midi_learn_tick();assert(am_midi_encode(saved,sizeof saved)==4599);
   am_midi_reset();assert(am_midi_restore(saved));
   assert(!am_midi_translate(&br,AM_MIDI_IN,AM_MIDI_USB,&cc,&b)&&am_midi_button_take(&code,&down)&&code==0x52);
   saved[5+2216*2]='f';assert(!am_midi_restore(saved)); /* corrupt CRC rejected */

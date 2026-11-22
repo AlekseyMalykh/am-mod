@@ -3,6 +3,7 @@
 #include "phone_input.h"
 #include "rear_audio.h"
 extern unsigned am_synth_param_get(unsigned) __attribute__((weak));
+extern void music_global_sync(int) __attribute__((weak));
 extern void am_synth_param_set(unsigned,unsigned) __attribute__((weak));
 extern void am_synth_note(unsigned,unsigned,int) __attribute__((weak));
 extern void am_synth_fader(unsigned) __attribute__((weak));
@@ -420,7 +421,7 @@ int mixer_control_button(struct mixer_control*c,enum mixer_action action,int dow
     if(!down)return 1;
     c->owned_buttons|=bit;c->message="";
     if(!c->naming&&c->view.synth_page){
-        if(action==MIXER_B1){synth_release_all(c);c->view.synth_page=0;}
+        if(action==MIXER_B1){synth_release_all(c);c->view.synth_page=0;if(music_global_sync)music_global_sync(1);}
         else if(action==MIXER_B3&&am_synth_note){
             /* Hold the last 16 Levels note played (C4 if none yet); with Hold on, B3 moves it to a newer note, otherwise releases. */
             unsigned want=c->synth_last?c->synth_last:60u;

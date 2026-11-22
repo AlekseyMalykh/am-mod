@@ -2246,7 +2246,7 @@ static unsigned char controller_template[16];static _Atomic int controller_templ
 static void controller(void *event)
 {
     {unsigned cc0=FIELD(event,8,unsigned char);
-     if(!atomic_load(&controller_template_ready)&&(cc0==0x10||cc0==0x11||cc0==0x12||cc0==0x64)){memcpy(controller_template,event,16);atomic_store(&controller_template_ready,1);}}
+     if(!atomic_load(&controller_template_ready)&&(cc0==0x10||cc0==0x11||cc0==0x12||cc0==0x14||cc0==0x64)){memcpy(controller_template,event,16);atomic_store(&controller_template_ready,1);}}
 #ifdef MPC_CHORDS
     { static _Atomic unsigned raw_reports;
       unsigned cc=FIELD(event,8,unsigned char),v=FIELD(event,9,unsigned char);
@@ -2322,7 +2322,7 @@ static void controller(void *event)
 /* MIDI controller -> native knob / data encoder: same replay as buttons, value in byte 9. */
 void phone_native_inject_controller(unsigned code,unsigned value){
     unsigned char event[16]={0};
-    if(code!=0x10&&code!=0x11&&code!=0x12&&code!=0x64)return;
+    if(code!=0x10&&code!=0x11&&code!=0x12&&code!=0x14&&code!=0x64)return;
     if(atomic_load(&controller_template_ready))memcpy(event,controller_template,16);
     event[8]=(unsigned char)code;event[9]=(unsigned char)(value&127);
     controller(event);

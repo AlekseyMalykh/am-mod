@@ -54,6 +54,9 @@ uint32_t music_led_correct(uint32_t rgb);
 int music_pad_lighting_mode(void);
 int music_set_pad_lighting_mode(unsigned mode); /* UI owner; durable when SD available */
 void music_lighting_preferences_init(void);
+const char *music_global_midi_text(void); /* card-wide MIDI map default, NULL when none */
+void music_global_midi_baseline(void);    /* after a load: the current map is not an edit */
+void music_global_sync(int force);        /* UI thread: persist changed MIDI map / Synth defaults */
 int music_lighting_preferences_open(const char *directory); /* caller provides owned settings directory */
 int music_lighting_preferences_durable(void);
 /* Historical settings word keeps its stable permutation encoding. New service
