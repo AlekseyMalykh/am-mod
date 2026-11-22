@@ -15,6 +15,7 @@ int rear_native_start(unsigned overwrite_mask);
 int rear_native_busy(void);
 int rear_native_source(void);
 int rear_native_monitor(void);
+int rear_native_threshold(float*db); /* stock Input Config Threshold (dB); 0 if not available */
 void rear_native_monitor_on(void);
 /* Recorder monitor switch: 0 Off, 1 Auto, 2 On. Returns 0 when no recorder session is live. */
 int rear_native_monitor_set(unsigned value);

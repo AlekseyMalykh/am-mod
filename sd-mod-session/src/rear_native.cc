@@ -542,6 +542,7 @@ extern "C" int rear_native_start(unsigned overwrite) {
 }
 extern "C" int rear_native_busy() { auto *s = session.load(); return s && s->busy.load(); }
 extern "C" int rear_native_source() { auto *s = session.load(); return s ? s->source.load() : -1; }
+extern "C" int rear_native_threshold(float *db) { auto *s = session.load(); if(!s||!s->properties_input||!db) return 0; float v = FIELD(s->properties_input,0x44,float); if(!std::isfinite(v)||v<-120.f||v>6.f) return 0; *db=v; return 1; }
 extern "C" int rear_native_monitor() { auto *s = session.load(); return s ? s->monitor.load() : 0; }
 extern "C" int rear_native_monitor_set(unsigned value) {
     auto *s=session.load();

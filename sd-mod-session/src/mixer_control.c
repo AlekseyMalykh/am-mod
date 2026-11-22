@@ -72,7 +72,7 @@ static struct mixer_channel*selected(struct mixer_control*c){return c->view.mast
 extern unsigned music_rec_get(unsigned field) __attribute__((weak));
 extern int music_rec_set(unsigned field,unsigned value) __attribute__((weak));
 extern int rear_native_monitor_set(unsigned value) __attribute__((weak));
-static unsigned input_rows(void){return rear_native_source&&rear_native_source()==1?7u:6u;}
+static unsigned input_rows(void){return rear_native_source&&rear_native_source()==1?8u:7u;}
 #define INPUT_PAGE(c) ((c)->view.master==2&&(c)->view.page==MIXER_KNOB_FX&&!(c)->catalog&&!(c)->view.fx_parameters&&!(c)->view.fx_delete)
 static void pickup(struct mixer_control*c){c->pickup=0;c->last_fader_valid=0;}
 static void changed(struct mixer_control*c){c->dirty=1;c->message="";}
@@ -795,6 +795,7 @@ static void move_fader(struct mixer_control*c,unsigned value)
 static void input_row_change(struct mixer_control*c,unsigned row,int delta,int mode,unsigned value)
 {
     if(row==0)return; /* Tuner: display only */
+    if(row==7){c->message="Threshold: change in stock Input Config";return;}
     if(row==3&&music_rec_get&&music_rec_get(0)==0){c->message="Record track: set Record via to Track";return;}
     if(row==1){
         if(mode==2)return;
@@ -827,7 +828,7 @@ static void input_row_change(struct mixer_control*c,unsigned row,int delta,int m
 static int input_record_control(struct mixer_control*c,unsigned cc,unsigned value,int reset,int shift){
     if(c->view.master!=2||c->view.page!=MIXER_KNOB_FX||c->catalog||c->view.fx_parameters||c->view.fx_delete||cc<0x10||cc>0x12)return 0;
     if(c->view.input_tab!=2)return 0; /* FX tab: ordinary effect knobs */
-    if(cc==0x10&&c->view.cursor<6){input_row_change(c,c->view.cursor,0,reset?2:1,value);if(c->view.cursor!=3)c->message="";return 1;}
+    if(cc==0x10&&c->view.cursor<7){input_row_change(c,mixer_view_input_row(c->view.cursor),0,reset?2:1,value);if(mixer_view_input_row(c->view.cursor)!=3)c->message="";return 1;}
     if(cc==0x11&&!(rear_native_source&&rear_native_source()==1)){ /* Mic/USB: K2 is the Input Pan */
         set_pan(&c->desired.input.mix,reset||value==64?0:((float)value-64)/(value<64?64:63));changed(c);return 1;
     }
@@ -918,7 +919,7 @@ static int fx_cc(struct mixer_control*c,unsigned cc,unsigned value)
     if(INPUT_PAGE(c)&&c->view.input_tab!=1&&cc==0x64){
         if(c->view.input_tab==2){
             int delta=value>64?(int)value-128:value==64?0:(int)value;
-            if(c->view.input_edit){if(delta)input_row_change(c,c->view.cursor,delta>0?1:-1,0,0);}
+            if(c->view.input_edit){if(delta)input_row_change(c,mixer_view_input_row(c->view.cursor),delta>0?1:-1,0,0);}
             else{
                 int n=(int)c->view.cursor+(delta>0?1:delta<0?-1:0),last=(int)input_rows()-1;
                 c->view.cursor=(unsigned)(n<0?0:n>last?last:n);
