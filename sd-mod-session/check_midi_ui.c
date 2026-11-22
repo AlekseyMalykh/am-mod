@@ -66,7 +66,7 @@ int main(void){
  tap(0x0c);assert(atomic_load(&page)==5&&!am_midi_learn_active()&&am_midi_ui_input_host(context));
  button(0x0c,1);assert(!am_midi_ui_input_host(context)&&!am_midi_ui_active()&&am_midi_ui_owns(0x0c,1));
  button(0x0c,0);am_midi_mode_get(&mode);assert(mode.pad[1]==18);
- am_midi_ui_open_input(context);test_shift=1;tap(0x0e);test_shift=0;
+ am_midi_ui_open_input(context);test_shift=1;tap(0x0d);test_shift=0;
  am_midi_mode_get(&mode);assert(mode.mode==AM_MIDI_MODE_DRUM&&mode.root==60&&!mode.pad[1]&&!mode.channel);
  am_midi_ui_open_input(context);am_midi_ui_destroyed(context);assert(!input_host&&!am_midi_ui_active());
  puts("PASS production MIDI UI handlers: menu, filters, maps, Learn, paired releases, shared Input Config channel/map settings and Back/destroy lifecycle");return 0;
