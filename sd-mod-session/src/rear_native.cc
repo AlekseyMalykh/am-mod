@@ -551,6 +551,15 @@ extern "C" int rear_native_source_set(int v) {
     if(cur!=v)native<void(*)(void *,int)>(0x1563370)(static_cast<char *>(s->properties_input)+0x8,v);
     return 1;
 }
+/* Synth as the Input source: it is mixed into the Input stream, which the recorder only reads on Mic, Rear or USB.
+ * One action for every way of choosing it (K1, Mixer ROUTE, 16 Levels keyboard): off Resample, then Synth mode.
+ * Returns 0 while a recording holds the source. */
+extern "C" int rear_native_use_synth(void) {
+    int cur = rear_native_source();
+    if (cur != 0 && cur != 1 && cur != 2 && cur != 6 && cur != 7 && !rear_native_source_set(0)) return 0;
+    if (input_fx_set_mode) input_fx_set_mode(2);
+    return 1;
+}
 extern "C" int rear_native_threshold_set(float db) {
     auto *s=session.load();
     if(!s||!s->live.load()||!s->properties_input||!std::isfinite(db))return 0;

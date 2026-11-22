@@ -5,20 +5,23 @@
 #include "music_settings.h"
 extern unsigned input_fx_mode(void) __attribute__((weak));
 extern void input_fx_set_mode(unsigned) __attribute__((weak));
+extern int rear_native_use_synth(void) __attribute__((weak));
 #include <math.h>
 #include <stdatomic.h>
 #include <string.h>
 #define VOICES 8
 #define RATE 44100.0f
 enum { ENV_OFF, ENV_ATTACK, ENV_DECAY, ENV_SUSTAIN, ENV_RELEASE };
-struct voice { unsigned note,env;float phase[4],inc,ginc,level,velocity,lp[2],svf_low[2],svf_band[2];unsigned long age; };
+struct voice { unsigned note,env,fst;float phase[4],phase2[4],subph,fl,inc,ginc,level,velocity,lp[2],svf_low[2],svf_band[2];unsigned long age; };
+static unsigned noise_state=22222u;
 static float last_inc;
 static struct voice voices[VOICES];
 static unsigned long clock_age;
 static _Atomic unsigned mic_on,fader_mode,direct_out=1;static _Atomic int used; /* used: a note was played; the MPC microphone is then muted unless Mic is On */
 static _Atomic unsigned wave,cutoff=100,attack=2,decay=40,sustain=90,release_cc=40,gain=100,midi_channel=15;
 static _Atomic unsigned filt_type,reso,env_amt,lfo_rate=40,lfo_depth,lfo_target,unison,detune=30,spread=64,glide,velsens=127; /* Filter/LFO and Voices pages */
-static _Atomic unsigned *const params[AM_SYNTH_PARAMS]={&wave,&cutoff,&attack,&decay,&sustain,&release_cc,&gain,&midi_channel,&mic_on,&fader_mode,&direct_out,&filt_type,&reso,&env_amt,&lfo_rate,&lfo_depth,&lfo_target,&unison,&detune,&spread,&glide,&velsens};
+static _Atomic unsigned osc2_wave,osc2_mix,osc2_semi=64,sub_level,noise_level,drive,osc2_fine=64,bend_range=21,f_att=2,f_dec=40,f_sus=90,f_rel=40,keytrack,lfo_shape; /* params 22..35 */
+static _Atomic unsigned *const params[AM_SYNTH_PARAMS]={&wave,&cutoff,&attack,&decay,&sustain,&release_cc,&gain,&midi_channel,&mic_on,&fader_mode,&direct_out,&filt_type,&reso,&env_amt,&lfo_rate,&lfo_depth,&lfo_target,&unison,&detune,&spread,&glide,&velsens,&osc2_wave,&osc2_mix,&osc2_semi,&sub_level,&noise_level,&drive,&osc2_fine,&bend_range,&f_att,&f_dec,&f_sus,&f_rel,&keytrack,&lfo_shape};
 static _Atomic int active_voices;
 static _Atomic float st_peak,st_env_level,st_bend,st_mod;static _Atomic unsigned st_env_stage,st_voices,st_notes[4]; /* for the Mixer illustration */
 static float lfo2_phase;static float bend_semitones,mod_depth,lfo_phase; /* audio thread only: pitch wheel +-2 semitones, mod wheel -> vibrato */
@@ -53,7 +56,8 @@ static void start(unsigned note,unsigned velocity){
  struct voice *pick=&voices[0];
  for(unsigned i=0;i<VOICES;++i){struct voice *v=&voices[i];if(v->env==ENV_OFF){pick=v;break;}if(v->age<pick->age)pick=v;}
  memset(pick,0,sizeof *pick);pick->note=note;pick->env=ENV_ATTACK;pick->inc=freq(note)/RATE;pick->ginc=(atomic_load(&glide)&&last_inc>0.0f)?last_inc:pick->inc;last_inc=pick->inc;
- for(unsigned k=0;k<4;++k)pick->phase[k]=(float)k*0.173f; /* spread the unison phases */
+ for(unsigned k=0;k<4;++k){pick->phase[k]=(float)k*0.173f;pick->phase2[k]=(float)k*0.173f+0.31f;} /* spread the unison phases */
+pick->fst=ENV_ATTACK;
 pick->velocity=(float)velocity/127.0f;pick->age=++clock_age;
 }
 static void stop(unsigned note){for(unsigned i=0;i<VOICES;++i)if(voices[i].env!=ENV_OFF&&voices[i].env!=ENV_RELEASE&&voices[i].note==note)voices[i].env=ENV_RELEASE;}
@@ -69,6 +73,8 @@ static void drain(void){
  }
  atomic_store_explicit(&event_tail,t,memory_order_release);
 }
+static float lfo_wave(unsigned shape,float x){x-=floorf(x);return shape==0?sinf(6.2831853f*x):shape==1?(x<0.5f?4.0f*x-1.0f:3.0f-4.0f*x):shape==2?(x<0.5f?1.0f:-1.0f):1.0f-2.0f*x;}
+static float osc_wave(unsigned w,float ph){return w==0?sinf(6.2831853f*ph):w==1?2.0f*ph-1.0f:w==2?(ph<0.5f?1.0f:-1.0f):(ph<0.5f?4.0f*ph-1.0f:3.0f-4.0f*ph);}
 static float seconds(unsigned cc,float low,float high){float x=(float)cc/127.0f;return low*powf(high/low,x);}
 void am_synth_render_add(float *left,float *right,unsigned frames){
  drain();
@@ -80,11 +86,17 @@ void am_synth_render_add(float *left,float *right,unsigned frames){
  float lrate=0.1f*powf(200.0f,(float)atomic_load(&lfo_rate)/127.0f),ldepth=(float)atomic_load(&lfo_depth)/127.0f;unsigned ltarget=atomic_load(&lfo_target)%3;
  unsigned nuni=atomic_load(&unison)%4+1;float det=(float)atomic_load(&detune)/127.0f*50.0f,spr=(float)atomic_load(&spread)/127.0f;
  unsigned gl=atomic_load(&glide);float gcoef=gl?1.0f/(RATE*seconds(gl,0.005f,1.0f)*0.35f):1.0f;float vs=(float)atomic_load(&velsens)/127.0f;
+ unsigned w2=atomic_load(&osc2_wave)%4;float mix2=(float)atomic_load(&osc2_mix)/127.0f,subl=(float)atomic_load(&sub_level)/127.0f*0.8f,noisel=(float)atomic_load(&noise_level)/127.0f*0.5f;
+ float r2=powf(2.0f,((float)(((int)atomic_load(&osc2_semi)*24+63)/127-12)+((float)atomic_load(&osc2_fine)-64.0f)*50.0f/64.0f/100.0f)/12.0f);
+ float dr=(float)atomic_load(&drive)/127.0f,gdr=1.0f+dr*8.0f,invg=1.0f/sqrtf(gdr);
+ float brange=(float)((atomic_load(&bend_range)*12u+63u)/127u);
+ float fatt=1.0f/(RATE*seconds(atomic_load(&f_att),0.002f,2.0f)),fdec=1.0f/(RATE*seconds(atomic_load(&f_dec),0.01f,3.0f)),frel=1.0f/(RATE*seconds(atomic_load(&f_rel),0.01f,4.0f)),fsus=(float)atomic_load(&f_sus)/127.0f;
+ float kt=(float)atomic_load(&keytrack)/127.0f;unsigned lshape=atomic_load(&lfo_shape)%4;
  float unorm=1.0f/sqrtf((float)nuni);float uo[4],gL[4],gR[4];
  for(unsigned k=0;k<nuni;++k){float t=nuni>1?((float)k/(float)(nuni-1))*2.0f-1.0f:0.0f;uo[k]=powf(2.0f,t*det/1200.0f);
   float pan=t*spr;float ang=(pan+1.0f)*0.78539816f;gL[k]=cosf(ang)*1.41421356f;gR[k]=sinf(ang)*1.41421356f;}
  float lfo_ph=lfo2_phase;
- int alive=0;float bend=powf(2.0f,bend_semitones/12.0f);
+ int alive=0;float bend=powf(2.0f,bend_semitones*0.5f*brange/12.0f);
  for(unsigned i=0;i<VOICES;++i){struct voice *v=&voices[i];if(v->env==ENV_OFF)continue;alive=1;
   for(unsigned f=0;f<frames;++f){
    switch(v->env){
@@ -94,17 +106,30 @@ void am_synth_render_add(float *left,float *right,unsigned frames){
     default:break;
    }
    if(v->env==ENV_OFF)break;
+   if(v->env==ENV_RELEASE)v->fst=ENV_RELEASE;
+   switch(v->fst){
+    case ENV_ATTACK:v->fl+=fatt;if(v->fl>=1.0f){v->fl=1.0f;v->fst=ENV_DECAY;}break;
+    case ENV_DECAY:v->fl-=fdec;if(v->fl<=fsus){v->fl=fsus;v->fst=ENV_SUSTAIN;}break;
+    case ENV_RELEASE:v->fl-=frel;if(v->fl<0.0f)v->fl=0.0f;break;
+    default:break;
+   }
    float vib=mod_depth>0.0f?mod_depth*0.03f*sinf(6.2831853f*(lfo_phase+(float)f*5.5f/RATE)):0.0f;
-   float lv=ldepth>0.0f?sinf(6.2831853f*(lfo_ph+(float)f*lrate/RATE)):0.0f;
+   float lv=ldepth>0.0f?lfo_wave(lshape,lfo_ph+(float)f*lrate/RATE):0.0f;
    v->ginc+=(v->inc-v->ginc)*gcoef;
    float pm=ltarget==0&&ldepth>0.0f?powf(2.0f,lv*ldepth*2.0f/12.0f):1.0f; /* LFO > pitch: up to +-2 semitones */
    float s=0.0f,sl=0.0f,sr=0.0f;
    for(unsigned k=0;k<nuni;++k){
     v->phase[k]+=v->ginc*bend*pm*uo[k]*(1.0f+vib);if(v->phase[k]>=1.0f)v->phase[k]-=1.0f;
     float ph=v->phase[k];
-    float o=w==0?sinf(6.2831853f*ph):w==1?2.0f*ph-1.0f:w==2?(ph<0.5f?1.0f:-1.0f):(ph<0.5f?4.0f*ph-1.0f:3.0f-4.0f*ph);
+    float o=osc_wave(w,ph);
+    if(mix2>0.0f){v->phase2[k]+=v->ginc*bend*pm*uo[k]*r2*(1.0f+vib);if(v->phase2[k]>=1.0f)v->phase2[k]-=(float)(int)v->phase2[k];o=(o+mix2*osc_wave(w2,v->phase2[k]))/(1.0f+mix2);}
     s+=o*unorm;sl+=o*unorm*gL[k];sr+=o*unorm*gR[k];}
-   float cm=cut+eamt*v->level*(1.0f-cut);if(ltarget==1)cm+=lv*ldepth*0.5f;if(cm<0.0f)cm=0.0f;if(cm>1.0f)cm=1.0f;
+   if(subl>0.0f||noisel>0.0f){
+    float sb=0.0f,nz=0.0f;
+    if(subl>0.0f){v->subph+=v->ginc*bend*pm*0.5f*(1.0f+vib);if(v->subph>=1.0f)v->subph-=1.0f;sb=sinf(6.2831853f*v->subph)*subl;}
+    if(noisel>0.0f){noise_state=noise_state*1664525u+1013904223u;nz=((float)(int)noise_state/2147483648.0f)*noisel;}
+    sl+=sb+nz;sr+=sb+nz;}
+   float cm=cut+eamt*v->fl*(1.0f-cut)+kt*((float)v->note-60.0f)/60.0f*0.5f;if(ltarget==1)cm+=lv*ldepth*0.5f;if(cm<0.0f)cm=0.0f;if(cm>1.0f)cm=1.0f;
    float in2[2]={sl,sr},o2[2];
    float coefficient=0.02f+0.98f*cm*cm,fc=40.0f*powf(250.0f,cm);if(fc>RATE*0.2f)fc=RATE*0.2f;
    float g=2.0f*sinf(3.14159265f*fc/RATE),q=2.0f-1.6f*res,rcomp=1.0f/(1.0f+1.2f*res); /* resonance is capped and level-compensated */
@@ -116,6 +141,7 @@ void am_synth_render_add(float *left,float *right,unsigned frames){
      o2[ch]=rcomp*(ftype==0?v->svf_low[ch]:ftype==1?high:v->svf_band[ch]*(0.5f+res));}
    }
    float fl=o2[0],fr=o2[1];(void)s;
+   if(dr>0.0f){fl=tanhf(fl*gdr)*invg;fr=tanhf(fr*gdr)*invg;}
    float amp=ltarget==2&&ldepth>0.0f?1.0f-ldepth*(0.5f+0.5f*lv):1.0f;
    float vel=1.0f-vs+vs*v->velocity;
    float gain_v=v->level*vel*out*amp;
@@ -134,7 +160,7 @@ void am_synth_render_add(float *left,float *right,unsigned frames){
  atomic_store_explicit(&active_voices,alive,memory_order_release);
 }
 unsigned am_synth_param_get(unsigned index){return index<AM_SYNTH_PARAMS?atomic_load(params[index]):0;}
-void am_synth_param_set(unsigned index,unsigned value){if(index<AM_SYNTH_PARAMS)atomic_store(params[index],index==0?value%4:index==7?value%16:index==8?value%2:index==9?value%3:index==10?value%2:index==11||index==16?value%3:index==17?value%4:value>127?127:value);}
+void am_synth_param_set(unsigned index,unsigned value){if(index<AM_SYNTH_PARAMS)atomic_store(params[index],index==0?value%4:index==7?value%16:index==8?value%2:index==9?value%3:index==10?value%2:index==11||index==16?value%3:index==17?value%4:index==22||index==35?value%4:value>127?127:value);}
 int am_synth_direct_out(void){return atomic_load(&direct_out)!=0;}
 
 /* The microphone is muted only while the synth is being played (10 s after the last note), so the mic works again by itself. */
@@ -148,7 +174,7 @@ extern uint32_t music_light_colour_rgb(unsigned) __attribute__((weak));
 /* 16 Levels of the synth = the project's own engine (music_settings.c): same colours, roles, layouts.
  * Key (tonic) and scale stay; Transpose moves the pads along the notes (Degrees: scale steps, others: semitones)
  * and the lights follow the notes. layout 0 Mono 1 Piano 2 Scale 3 Degrees; scale 0 Project, 1..8 = project scales. */
-static _Atomic unsigned cfg_root,cfg_transpose=24,cfg_layout,cfg_scale,cfg_octave=3;
+static _Atomic unsigned cfg_root,cfg_transpose=24,cfg_layout=2,cfg_scale,cfg_octave=3;
 static unsigned char cfg_cols[6]={5,1,10,4,8,3}; /* project colour slots: tonic, scale, other, original, V, IV */
 uint64_t am_synth_pad_info(unsigned pad,unsigned*note_out){
  if(pad>=16||!music_light_snapshot)return 0;
@@ -213,7 +239,8 @@ void am_synth_pad(unsigned pad,int down){
 }
 void am_synth_keys_set(int on){
  atomic_store(&keys_on,on?1:0);
- if(on&&input_fx_set_mode&&input_fx_mode&&input_fx_mode()!=2)input_fx_set_mode(2); /* pad keyboard = play the synth through the Input track */
+ if(on&&input_fx_mode&&input_fx_mode()!=2){ /* pad keyboard = play the synth through the Input track */
+  if(rear_native_use_synth)rear_native_use_synth();else if(input_fx_set_mode)input_fx_set_mode(2);}
  if(!on){
   for(unsigned i=0;i<16;++i){if(atomic_load(&pad_mask)&(1u<<i))am_synth_pad(i,0);}
  }

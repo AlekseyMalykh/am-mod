@@ -51,12 +51,30 @@ struct mixer_view_state {
     unsigned synth_hold,synth_hold_note,synth_page,synth_shift,synth_cursor,synth_keys,synth_layout,synth_root,synth_scale,synth_octave; /* synth_keys: 16 Levels keyboard on pads */ /* trial synth window (Mixer pad 13) */
     double rate;
 };
+/* Loop + pad: synth modules sit on pads 13-16 (bottom row) and 9 (0-based 12..15, 8); -1 for other pads.
+ * Modules: 0 Tone, 1 Envelope, 2 Keys, 3 Filter + LFO, 4 Voices. A module owns one or two K pages (see mixer_view_synth_slot). */
+#define MIXER_SYNTH_PAGES 9u
+#define MIXER_SYNTH_KEYS_PAGE 4u
+static inline int mixer_view_synth_pad_page(unsigned pad){return pad>=12&&pad<16?(int)pad-12:pad==8?4:-1;}
+static inline unsigned mixer_view_synth_module(unsigned page){static const unsigned char m[MIXER_SYNTH_PAGES]={0,0,1,1,2,3,3,4,4};return m[page%MIXER_SYNTH_PAGES];}
+static inline unsigned mixer_view_synth_first_page(unsigned module){static const unsigned char f[5]={0,2,4,5,7};return f[module%5u];}
+/* the other page of the same module (Keys has one) */
+static inline unsigned mixer_view_synth_sibling(unsigned page){static const unsigned char n[MIXER_SYNTH_PAGES]={1,0,3,2,4,6,5,8,7};return n[page%MIXER_SYNTH_PAGES];}
 /* synth param id (0-9), key setting (10-16) or Filter/LFO/Voices id (17-27 = engine param id-6) on a K knob, -1 none */
 static inline int mixer_view_synth_slot(unsigned page,unsigned knob,unsigned shift)
 {
-    static const signed char slot[5][3][2]={{{0,1},{6,8},{7,9}},{{2,3},{4,5},{6,-1}},{{10,14},{11,16},{12,15}},
-        {{17,20},{18,21},{19,22}},{{23,26},{24,27},{25,-1}}}; /* 3 Filter + LFO, 4 Voices */
-    return page<5&&knob<3&&shift<2?slot[page][knob][shift]:-1;
+    /* ids: 0-9 synth, 10-16 keys, 17-27 filter/lfo/voices, 28-41 oscillators/filter env/extras. Often-used on the knob, rarely-used on Shift. */
+    static const signed char slot[MIXER_SYNTH_PAGES][3][2]={
+        {{0,28},{29,30},{31,34}},      /* 0 Osc: Wave|Osc2 Wave, Osc2 Mix|Osc2 Semi, Sub|Osc2 Fine */
+        {{6,33},{32,-1},{35,-1}},      /* 1 Mix: Level|Drive, Noise, Bend range */
+        {{2,3},{4,5},{27,-1}},         /* 2 Amp env: Attack|Decay, Sustain|Release, Velocity */
+        {{36,37},{38,39},{19,-1}},     /* 3 Filter env: Attack|Decay, Sustain|Release, Env > Cutoff */
+        {{10,14},{11,16},{12,15}},     /* 4 Keys: Layout|Transpose, Key|Role, Scale|Colour */
+        {{1,17},{18,-1},{40,-1}},      /* 5 Filter: Cutoff|Type, Resonance, Key track */
+        {{20,41},{21,-1},{22,-1}},     /* 6 LFO: Rate|Shape, Depth, Target */
+        {{23,24},{25,-1},{26,-1}},     /* 7 Voices: Unison|Detune, Spread, Glide */
+        {{7,8},{9,-1},{-1,-1}}};       /* 8 Setup: MIDI channel|Mic, Fader */
+    return page<MIXER_SYNTH_PAGES&&knob<3&&shift<2?slot[page][knob][shift]:-1;
 }
 /* 16 Levels colour roles per layout (as the project Lights page): Mono/Piano: Original; Scale: Tonic, Scale, Other, Original; Degrees: I, Key notes, IV, V, Original */
 /* Input ROUTE tab: stock order (Source, Monitor, Threshold), then ours; ids as route_row. 8 Mic/USB/Resample, 9 Rear rows, MIDI In last. */

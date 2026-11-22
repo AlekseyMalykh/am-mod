@@ -20,6 +20,8 @@ extern int rear_set_setting(unsigned,unsigned,unsigned) __attribute__((weak));
 extern int rear_native_source(void) __attribute__((weak));
 extern unsigned input_fx_mode(void) __attribute__((weak));
 extern void input_fx_set_mode(unsigned) __attribute__((weak));
+extern int rear_native_use_synth(void) __attribute__((weak));
+extern void am_synth_keys_get_cfg(unsigned*,unsigned*,unsigned*,unsigned*,unsigned*,unsigned char*) __attribute__((weak));
 extern int rear_native_busy(void) __attribute__((weak));
 extern void rear_native_clear(void) __attribute__((weak));
 #include <time.h>
@@ -101,7 +103,7 @@ struct mixer_control*mixer_control_create(const struct mixer_control_ops*ops,dou
     if(!ops||!ops->submit||!isfinite(rate)||rate<8000||rate>192000)return NULL;
     struct mixer_control*c=calloc(1,sizeof(*c));if(!c)return NULL;
     c->takeover_mode[0]=c->takeover_mode[1]=c->takeover_mode[2]=2;
-    c->ops=*ops;c->rate=rate;c->ticket=1;c->view.selected=1;c->message="";c->view.synth_octave=3;c->view.synth_transpose=24;c->view.synth_root=c->view.synth_scale=0;mixer_view_synth_defaults(&c->view);
+    c->ops=*ops;c->rate=rate;c->ticket=1;c->view.selected=1;c->message="";c->view.synth_octave=3;c->view.synth_transpose=24;c->view.synth_root=c->view.synth_scale=0;c->view.synth_layout=2;mixer_view_synth_defaults(&c->view);
     mixer_defaults(&c->model);c->desired=c->model;return c;
 }
 void mixer_control_destroy(struct mixer_control*c){free(c);}
@@ -153,8 +155,8 @@ static void synth_set_slot(struct mixer_control*c,int id,unsigned value){
         if(!am_synth_param_set)return;
         unsigned v=id==0?value*4/128:id==7?value*16/128:id==8?value*2/128:id==9?value*3/128:value;
         am_synth_param_set((unsigned)id,v);
-    }else if(id>=17&&id<=27){
-        if(am_synth_param_set){unsigned v=id==17||id==22?value*3/128:id==23?value*4/128:value;am_synth_param_set((unsigned)id-6u,v);}
+    }else if(id>=17&&id<=41){
+        if(am_synth_param_set){unsigned v=id==17||id==22?value*3/128:id==23||id==28||id==41?value*4/128:value;am_synth_param_set((unsigned)id-6u,v);}
         return;
     }else if(id==10){c->view.synth_layout=value*4/128;if(c->view.synth_role>=mixer_view_synth_roles(c->view.synth_layout))c->view.synth_role=0;}
     else if(id==11)c->view.synth_root=value*13/128;
@@ -171,9 +173,9 @@ static void synth_reset(struct mixer_control*c,unsigned cc,int shift){
     int id=mixer_view_synth_slot(c->view.synth_cursor,cc-0x10,shift?1:0);
     if(id<0)return;
     if(id<10){static const unsigned char def[10]={0,100,2,40,90,40,100,15,0,0};if(am_synth_param_set)am_synth_param_set((unsigned)id,def[id]);return;}
-    if(id>=17){static const unsigned char def[11]={0,0,0,40,0,0,0,30,64,0,127};if(am_synth_param_set&&id<=27)am_synth_param_set((unsigned)id-6u,def[id-17]);return;}
+    if(id>=17){static const unsigned char def[25]={0,0,0,40,0,0,0,30,64,0,127,0,0,64,0,0,0,64,21,2,40,90,40,0,0};if(am_synth_param_set&&id<=41)am_synth_param_set((unsigned)id-6u,def[id-17]);return;}
     static const unsigned char colours[6]={5,1,10,4,8,3};
-    if(id==10){c->view.synth_layout=0;c->view.synth_role=0;}
+    if(id==10){c->view.synth_layout=2;c->view.synth_role=0;}
     else if(id==11)c->view.synth_root=0;
     else if(id==12)c->view.synth_scale=0;
     else if(id==13)c->view.synth_octave=3;
@@ -182,14 +184,20 @@ static void synth_reset(struct mixer_control*c,unsigned cc,int shift){
     else if(id==16)c->view.synth_role=0;
     if(am_synth_keys_cfg)am_synth_keys_cfg(c->view.synth_layout,c->view.synth_root,c->view.synth_scale,c->view.synth_octave,c->view.synth_transpose,c->view.synth_cols);
 }
+/* Open synth module 0..4: Keys remembers the page it came from (B2 returns there). */
+static void synth_goto_module(struct mixer_control*c,unsigned module){
+    unsigned cur=c->view.synth_cursor;
+    if(module==2){if(cur!=MIXER_SYNTH_KEYS_PAGE)c->view.synth_prev=cur;c->view.synth_cursor=MIXER_SYNTH_KEYS_PAGE;}
+    else c->view.synth_cursor=mixer_view_synth_first_page(module);
+}
 static void synth_control(struct mixer_control*c,unsigned cc,unsigned value){
     if(cc==0x14){if(am_synth_fader)am_synth_fader(value);return;}
     if(cc>=0x10&&cc<=0x12)synth_set_slot(c,mixer_view_synth_slot(c->view.synth_cursor,cc-0x10,c->shift?1:0),value);
     else if(cc==0x64){int d=value>64?(int)value-128:value==64?0:(int)value;if(d){
-        if(c->view.synth_cursor!=2){ /* DATA walks Tone, Envelope, Filter + LFO, Voices (Keys has its own B2 page) */
-            static const unsigned char order[4]={0,1,3,4};unsigned at=0;
-            for(unsigned i=0;i<4;++i)if(order[i]==c->view.synth_cursor)at=i;
-            int m=(int)at+(d>0?1:-1);c->view.synth_cursor=order[m<0?0:m>3?3:(unsigned)m];}
+        { /* encoder turns the pages of the open module (Keys has one; +/- change the module) */
+            unsigned cur=c->view.synth_cursor,first=mixer_view_synth_first_page(mixer_view_synth_module(cur));
+            unsigned count=mixer_view_synth_sibling(first)!=first?2u:1u;
+            int m=(int)(cur-first)+(d>0?1:-1);c->view.synth_cursor=first+(unsigned)(m<0?0:m>=(int)count?(int)count-1:m);}
     }}
 }
 void mixer_control_close(struct mixer_control*c)
@@ -443,7 +451,10 @@ int mixer_control_button(struct mixer_control*c,enum mixer_action action,int dow
             else if(c->synth_hold){am_synth_note(c->synth_hold_note,0,0);c->synth_hold=0;}
             else{c->synth_hold_note=(uint8_t)want;c->synth_hold=1;am_synth_note(want,100,1);}
         }
-        else if(action==MIXER_B2){if(c->view.synth_cursor==2)c->view.synth_cursor=c->view.synth_prev!=2&&c->view.synth_prev<5?c->view.synth_prev:0;else{c->view.synth_prev=c->view.synth_cursor;c->view.synth_cursor=2;}}
+        else if(action==MIXER_B2){if(c->view.synth_cursor==MIXER_SYNTH_KEYS_PAGE)c->view.synth_cursor=c->view.synth_prev!=MIXER_SYNTH_KEYS_PAGE&&c->view.synth_prev<MIXER_SYNTH_PAGES?c->view.synth_prev:0;else{c->view.synth_prev=c->view.synth_cursor;c->view.synth_cursor=MIXER_SYNTH_KEYS_PAGE;}}
+        else if(action==MIXER_BANK_NEXT||action==MIXER_BANK_PREVIOUS){
+            int m=(int)mixer_view_synth_module(c->view.synth_cursor)+(action==MIXER_BANK_NEXT?1:-1);
+            if(m>=0&&m<5)synth_goto_module(c,(unsigned)m);}
         else if(action==MIXER_LEVELS){synth_release_all(c);c->view.synth_keys^=1;if(am_synth_keys_set)am_synth_keys_set(c->view.synth_keys);}
         return 1;
     }
@@ -695,10 +706,10 @@ int mixer_control_pad(struct mixer_control*c,unsigned pad,int down,uint64_t tick
     if(ticket!=c->ticket)return 1;
     if(!down)return 1;
     c->owned_pads|=bit;
-    if(c->view.synth_page&&!c->naming&&c->view.synth_pick){if(pad<5){if(pad==2&&c->view.synth_cursor!=2)c->view.synth_prev=c->view.synth_cursor;c->view.synth_cursor=pad;}return 1;}
+    if(c->view.synth_page&&!c->naming&&c->view.synth_pick){int pg=mixer_view_synth_pad_page(pad);if(pg>=0)synth_goto_module(c,(unsigned)pg);return 1;}
     if(c->view.synth_page&&!c->naming&&pad!=12&&!c->view.synth_keys){synth_release_all(c);c->view.synth_page=0;} /* pads navigate to other entities */
     if(c->view.synth_page&&!c->naming){if(c->view.synth_keys&&am_synth_note){unsigned n=synth_key_note(c,pad);c->synth_pad_note[pad]=(uint8_t)n;c->synth_last=(uint8_t)n;am_synth_note(n,100,1);c->synth_notes|=bit;}return 1;}
-    if(pad==12&&!c->naming&&!c->view.fx_delete&&(c->view.page==MIXER_OVERVIEW||c->view.page==MIXER_KNOB_FX)&&am_synth_note){c->view.synth_page=1;c->view.synth_cursor=0;c->view.synth_keys=am_synth_keys_get?(unsigned)am_synth_keys_get():0;if(am_synth_keys_cfg)am_synth_keys_cfg(c->view.synth_layout,c->view.synth_root,c->view.synth_scale,c->view.synth_octave,c->view.synth_transpose,c->view.synth_cols);c->owned_pads&=~bit;return 1;}
+    if(pad==12&&!c->naming&&!c->view.fx_delete&&(c->view.page==MIXER_OVERVIEW||c->view.page==MIXER_KNOB_FX)&&am_synth_note){c->view.synth_page=1;c->view.synth_cursor=0;{unsigned l,r,sc,o,t;if(am_synth_keys_get_cfg){am_synth_keys_get_cfg(&l,&r,&sc,&o,&t,NULL);c->view.synth_layout=l%4;c->view.synth_root=r;c->view.synth_scale=sc;c->view.synth_octave=o;c->view.synth_transpose=t;}} /* Record's K knobs may have changed them */c->view.synth_keys=am_synth_keys_get?(unsigned)am_synth_keys_get():0;if(am_synth_keys_cfg)am_synth_keys_cfg(c->view.synth_layout,c->view.synth_root,c->view.synth_scale,c->view.synth_octave,c->view.synth_transpose,c->view.synth_cols);c->owned_pads&=~bit;return 1;}
     if(c->naming){c->name.shift=c->shift;phone_pad(&c->name,pad+1,1,name_time());return 1;}
     int fx_pad=pad>=8&&pad<8+MIXER_FX_SLOTS;
     if(pad==14&&!c->view.fx_delete&&
@@ -808,6 +819,7 @@ static void move_fader(struct mixer_control*c,unsigned value)
 }
 /* ROUTE rows: 0 Tuner, 1 Monitor, 2 Record via, 3 Record track, 4 Record FX, 5 Rear mode.
  * mode 0: delta steps, 1: absolute knob value, 2: reset to default. */
+int mixer_control_synth_input(void){return input_fx_mode&&input_fx_mode()==2;}
 const char*mixer_input_row_apply(unsigned row,int delta,int mode,unsigned value)
 {
     if(row==0)return NULL; /* Tuner: display only */
@@ -838,7 +850,7 @@ const char*mixer_input_row_apply(unsigned row,int delta,int mode,unsigned value)
         if(cur<0)cur=0;
         int next=mode==2?0:mode==1?(int)(value*5/128):cur+delta;
         next=next<0?0:next>4?4:next;
-        if(next==4){input_fx_set_mode(2);}
+        if(next==4){if(!rear_native_use_synth||!rear_native_use_synth())return "Source: stop recording first";}
         else{
             int want=native_src[next];if(want==2&&(src==6||src==7))want=src; /* keep the USB L/R choice */
             if(!rear_native_source_set||!rear_native_source_set(want))return "Source: stop recording first";

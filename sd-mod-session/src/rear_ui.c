@@ -37,6 +37,12 @@ extern void mixer_view_tuner(const struct resample_painter*) __attribute__((weak
 extern const char*mixer_input_row_apply(unsigned,int,int,unsigned) __attribute__((weak));
 extern void mixer_view_route_text(unsigned,char*,unsigned,char*,unsigned) __attribute__((weak));
 extern unsigned input_fx_mode(void) __attribute__((weak));
+extern int am_synth_keys_get(void) __attribute__((weak));
+extern void am_synth_keys_get_cfg(unsigned*,unsigned*,unsigned*,unsigned*,unsigned*,unsigned char*) __attribute__((weak));
+extern void am_synth_keys_cfg(unsigned,unsigned,unsigned,unsigned,unsigned,const unsigned char*) __attribute__((weak));
+extern void mixer_view_synth_cfg_text(unsigned,unsigned,unsigned,unsigned,unsigned,char*,unsigned,char*,unsigned) __attribute__((weak));
+/* Sample Record with the synth keyboard on (16 Levels): K1 Layout / Shift Key, K3 Octave / Shift Scale. */
+static int synth_keys_knobs(void){return am_synth_keys_get&&am_synth_keys_get()&&am_synth_keys_get_cfg&&am_synth_keys_cfg;}
 static int knob_focus=-1;
 static _Atomic unsigned waiting_right;
 static _Atomic unsigned selected_mask;
@@ -179,9 +185,14 @@ static void paint(void *p,void *g){
             else text(g,"To Seq",107,routing?1:8,105,routing?20:22,14,on?REAR_AMBER:0xffffffffu);
             if(on)rect(g,107+105/2-22,routing?22:31,44,2,REAR_AMBER);
             if(routing)text(g,"Shift+B2 Routing",107,24,105,11,9,0xffbbbbbb);
-            if(mixer_view_route_text){
+            if(synth_keys_knobs()&&mixer_view_synth_cfg_text){
+                unsigned l,r,sc,o,t,shifted=music_ui_shift_active()!=0;char lab[24],val[24];
+                am_synth_keys_get_cfg(&l,&r,&sc,&o,&t,NULL);
+                mixer_view_synth_cfg_text(shifted?11:10,l,r,sc,o,lab,sizeof lab,val,sizeof val);panel(g,0,lab,val,1,shifted,0,0);
+                mixer_view_synth_cfg_text(shifted?12:13,l,r,sc,o,lab,sizeof lab,val,sizeof val);panel(g,2,lab,val,1,shifted,0,0);
+            }else if(mixer_view_route_text){
                 char lab[24],val[24];unsigned src=(unsigned)rear_native_source(),shifted=music_ui_shift_active()!=0;
-                int has_mode=src==1||src==2||src==6||src==7;
+                int has_mode=src==2||src==6||src==7;
                 mixer_view_route_text(shifted&&has_mode?6:5,lab,sizeof lab,val,sizeof val);
                 panel(g,0,lab,val,has_mode,shifted&&has_mode,0,0);
             }
@@ -296,6 +307,8 @@ int rear_ui_tick(void){
         }
         last_status=status;
     }
+    {static int last_keys=-1;int keys=synth_keys_knobs()?1:0;if(keys!=last_keys){last_keys=keys;if(visible_mask&2)repaint();}} /* K panels switch between Source and the synth keyboard settings */
+    {static int last_shift=-1;int sh=music_ui_shift_active()!=0;if(sh!=last_shift){last_shift=sh;if(visible_mask&2)repaint();}} /* Shift badge and the shifted K1/K3 values follow the button */
     static int last_monitor=-1;
     int monitor=rear_native_monitor();
     if(monitor!=last_monitor){last_monitor=monitor;if(visible_mask&2)repaint();}
@@ -316,6 +329,7 @@ int rear_ui_tick(void){
 }
 
 int rear_ui_owns(unsigned kind,unsigned code){
+    if(kind==1&&(code==0x12&&synth_keys_knobs()&&(atomic_load(&visible_roots)&2)&&!atomic_load(&open_panel)&&!music_ui_repeat_active()&&!music_ui_knob_fx_active()))return 1;
     if(kind==1&&code==0x10&&(atomic_load(&visible_roots)&2)&&!atomic_load(&open_panel)&&mixer_input_row_apply&&!music_ui_repeat_active()&&!music_ui_knob_fx_active())return 1; /* Sample Record: K1 = input Source */
     if(kind==1)return atomic_load(&open_panel)&&atomic_load(&visible_roots)&&code!=0x13&&!music_ui_repeat_active()&&!music_ui_knob_fx_active();
     if(kind!=2)return 0;
@@ -385,13 +399,24 @@ int rear_ui_control_at(void *event,unsigned shift){
     unsigned cc=FIELD(event,8,unsigned char),value=FIELD(event,9,unsigned char);
     if(!rear_ui_owns(1,cc))return 0;
     if(cc==0x13)return 0;
+    if((cc==0x10||cc==0x12)&&!atomic_load(&open_panel)&&synth_keys_knobs()){
+        unsigned l,r,sc,o,t;unsigned char cols[16]={0};
+        am_synth_keys_get_cfg(&l,&r,&sc,&o,&t,cols);
+        if(cc==0x10){if(shift)r=value*13/128;else l=value*4/128;}
+        else{if(shift)sc=value*9/128;else o=value*8/128;}
+        am_synth_keys_cfg(l,r,sc,o,t,cols);knob_focus=cc==0x10?0:2;repaint();return 1;
+    }
     if(cc==0x10&&!atomic_load(&open_panel)&&mixer_input_row_apply){
         /* Sample Record K1: input Source (Mic, Rear, USB, Resample, Synth); Shift+K1: Rear mode / USB mode. */
         unsigned src=(unsigned)rear_native_source();
         if(shift){
-            if(src==1){if(!rear_native_busy()){unsigned m=1+adjusted(value,3);if(m!=rear_setting(0,REAR_MODE)){rear_native_clear();rear_set_setting(0,REAR_MODE,m);}}}
-            else if(src==2||src==6||src==7)mixer_input_row_apply(6,0,1,value);
-        }else mixer_input_row_apply(5,0,1,value);
+            if(src==2||src==6||src==7)mixer_input_row_apply(6,0,1,value); /* Rear mode stays on Shift+B2 (its pad choice lives there) */
+        }else{
+            unsigned before=src;
+            mixer_input_row_apply(5,0,1,value);
+            /* Leaving Rear: drop its pad targets and panel so no pad stays selected. */
+            if(before==1&&rear_native_source()!=1){cancel_choice();rear_native_clear();if(atomic_load(&open_panel))close_panel();}
+        }
         knob_focus=0;repaint();return 1;
     }
     if(confirm||(rear_native_busy()&&cc==0x10))return 1;

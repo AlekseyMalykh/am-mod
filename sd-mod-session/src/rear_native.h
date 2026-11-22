@@ -19,6 +19,7 @@ int rear_native_threshold(float*db); /* stock Input Config Threshold (dB); 0 if 
 void rear_native_monitor_on(void);
 /* Recorder monitor switch: 0 Off, 1 Auto, 2 On. Returns 0 when no recorder session is live. */
 int rear_native_monitor_set(unsigned value);
+int rear_native_use_synth(void);                /* Synth as Input source: off Resample, then Synth mode; 0 while recording */
 int rear_native_source_set(int source);      /* stock Input Config Source: 0 Mic, 1 Rear, 2 USB, 4 Resample */
 int rear_native_threshold_set(float db);     /* stock Input Config Threshold, clamped -60..0 dB */
 void rear_native_stop(void);

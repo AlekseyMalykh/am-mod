@@ -419,6 +419,7 @@ static struct mixer_session *mixer_ui_session;
 static _Atomic unsigned mixer_flush_request;
 static struct mixer_entry mixer_entry;
 static uint64_t mixer_binding;
+static void synth_keys_button_refresh(void);
 static _Atomic uint64_t mixer_route, mixer_pending;
 static _Atomic int mixer_stock_pads; /* Input ROUTE page: pads stay the Sample screen's (stock input + lights) */
 static _Atomic unsigned mixer_input_fault, mixer_project_invalidated;
@@ -610,7 +611,7 @@ static void mixer_publish_route(void)
     else if ((state & MIXER_OPEN) && view.project && !mixer_view_sound_pads(&view)) {
         for (unsigned i=0;i<16;++i) {
             uint64_t light = 0;
-            if (view.synth_page && view.synth_pick) { atomic_store(&mixer_select_lights[i], i<5 ? pad_light(synth_palette[0], view.synth_cursor==i ? .95f : .35f) : (uint64_t)0); continue; } /* Loop: page pads */
+            if (view.synth_page && view.synth_pick) { atomic_store(&mixer_select_lights[i], mixer_view_synth_pad_page(i)>=0 ? pad_light(synth_palette[0], (int)mixer_view_synth_module(view.synth_cursor)==mixer_view_synth_pad_page(i) ? .95f : .35f) : (uint64_t)0); continue; } /* Loop: page pads */
             if (view.synth_page && view.synth_keys) {
                 atomic_store(&mixer_select_lights[i], am_synth_pad_info?am_synth_pad_info((unsigned)i,0):(uint64_t)0); continue;
             } /* keyboard lights follow the 16 Levels layout and colour roles */
@@ -1399,6 +1400,7 @@ static void tick(void *unused)
 #endif
     unsigned tail=tail_mode();
     atomic_store(&tail_layout,tail);workflow_tail_tick(tail!=0);
+    {static int last_synth=-1;int now=(mixer_control_synth_input())?1:0;if(now!=last_synth){last_synth=now;synth_keys_button_refresh();}} /* 16 Levels on Sample Record follows Synth */
     send_step_lights();send_record_light();mixer_button_sync();
     music_lighting_tick();
     if(action_batch)atomic_fetch_sub(&ui_dispatching,1);
@@ -2579,8 +2581,8 @@ static void buttons(void *event)
 #endif
     /* 16 Levels on the Sample Record screen toggles the synth pad keyboard (no MIDI keyboard needed). */
     if(native_code==0x28&&am_synth_keys_set&&am_synth_keys_get&&rear_mic_screen_visible&&rear_mic_screen_visible()){
-        if(native_down){am_synth_keys_set(!am_synth_keys_get());synth_keys_button_refresh();}
-        return;
+        if(native_down&&mixer_control_synth_input()){am_synth_keys_set(!am_synth_keys_get());synth_keys_button_refresh();}
+        return; /* without Synth as the source the button does nothing on Sample Record */
     }
     if(tuner_button(native_code,native_down))return;
     if(seqmute_button(native_code,native_down))return;
@@ -3820,7 +3822,7 @@ static void synth_keys_button_refresh(void)
     uintptr_t s=atomic_load(&button_sender);
     if(!s)return;
     unsigned v=atomic_load(&native_button_lights[0x28]);
-    if(synth_keys_on_screen())v=2;
+    if(rear_mic_screen_visible&&rear_mic_screen_visible())v=(mixer_control_synth_input())?(synth_keys_on_screen()?2u:1u):0u;
     ORIG(H_BUTTON_LIGHT,void(*)(void*,unsigned,unsigned))((void*)s,v,0x28);
 }
 static void button_light(void *s,unsigned value,unsigned code)
@@ -3841,7 +3843,8 @@ static void button_light(void *s,unsigned value,unsigned code)
             if(code!=TAP_TEMPO_BUTTON&&logged<200){++logged;fprintf(stderr,"MIXER_BUTTON_LIGHT code=%02x native=%u sent=%u\n",code,before,value);}
         }
     }
-    if(code==0x28&&synth_keys_on_screen())value=2; /* 16 Levels lit while the synth keyboard is on */
+    if(code==0x28&&rear_mic_screen_visible&&rear_mic_screen_visible()) /* Sample Record: lit only with Synth as the source (bright while its keyboard is on) */
+        value=(mixer_control_synth_input())?(synth_keys_on_screen()?2u:1u):0u;
     ORIG(H_BUTTON_LIGHT,void(*)(void*,unsigned,unsigned))(s,value,code);
 }
 static void send_record_light(void)

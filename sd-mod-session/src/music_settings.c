@@ -334,7 +334,7 @@ static int save_preference(const char*name,const void*data,size_t size){
 #ifndef AM_MIDI_PAYLOAD
 #define AM_MIDI_PAYLOAD 4736u
 #endif
-#define SYNTH_GLOBAL_PARAMS 22u
+#define SYNTH_GLOBAL_PARAMS 36u
 #define SYNTH_GLOBAL_TEXT 200u
 static char synth_last[SYNTH_GLOBAL_TEXT];
 #ifdef MPC_MIDI_TOOLS
