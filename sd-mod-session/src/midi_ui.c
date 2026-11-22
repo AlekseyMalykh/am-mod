@@ -75,10 +75,11 @@ static unsigned synth_cursor,synth_test;
 static void synth_value(char*s,size_t n,unsigned i){unsigned v=am_synth_param_get(i);if(i==0)snprintf(s,n,"%s",synth_waves[v%4]);else if(i==7)snprintf(s,n,"%u",v+1);else if(i==8)snprintf(s,n,"%s",v?"On":"Off");else if(i==9)snprintf(s,n,"%s",v==1?"Mod":v==2?"Pitch":"Off");else if(i==10)snprintf(s,n,"%s",v?"On":"Off");else snprintf(s,n,"%u",v);}
 static void synth_paint(void*g){
  heads(g,"Back","",synth_test?"Playing":"Test C4");centre(g,"Synth",4,31,312,22,16,0xffffc247);
- for(unsigned i=0;i<11u;++i){int y=52+(int)i*15;char v[16];synth_value(v,sizeof v,i);
+ unsigned top=synth_cursor>7u?synth_cursor-7u:0; /* 8 rows fit above the hint and knobs: the list scrolls with the cursor */
+ for(unsigned i=top;i<11u&&i<top+8u;++i){int y=52+(int)(i-top)*15;char v[16];synth_value(v,sizeof v,i);
   if(i==synth_cursor)rect(g,4,y,312,16,0xff302412);
   label(g,synth_names[i],12,y,140,16,13,i==synth_cursor?0xffffc247:0xffffffff);label(g,v,170,y,140,16,13,i==synth_cursor?0xffffc247:0xffffffff);}
- label(g,"DATA: row / change   B3: hold to play",8,186,304,12,10,0xff999999);
+ label(g,"DATA: row / change   B3: hold to play",8,174,304,12,10,0xff999999);
  char a[16],b[16],c[16];
  if(music_ui_shift_active()){synth_value(a,sizeof a,2);synth_value(b,sizeof b,3);synth_value(c,sizeof c,5);knob(g,0,"Attack",a);knob(g,1,"Decay",b);knob(g,2,"Release",c);}
  else{synth_value(a,sizeof a,0);synth_value(b,sizeof b,1);synth_value(c,sizeof c,6);knob(g,0,"Wave",a);knob(g,1,"Cutoff",b);knob(g,2,"Level",c);}
@@ -234,6 +235,7 @@ void am_midi_ui_paint(void*p,void*g){
  knob(g,0,"Direction",direction==1?"IN":direction==2?"OUT":"Both");knob(g,1,"Port",port?am_midi_port_name(port):"All");char c[20];snprintf(c,sizeof c,"%u",channel);knob(g,2,music_ui_shift_active()?"Channel":"Message",music_ui_shift_active()?(channel?c:"All"):filters[type]);
 }
 int am_midi_ui_owns(unsigned code,int button){
+ if(button&&input_host&&code>=0x6bu&&code<=0x6du)code-=0x5fu; /* Input Config reports B1-B3 as 0x6b-0x6d */
  if(button&&code<112&&held[code])return 1;
  if(!atomic_load(&visible))return 0;
  if(!atomic_load(&page))return button&&code==0x0d;
@@ -270,6 +272,7 @@ int am_midi_ui_control(void*e,unsigned shift){
 int am_midi_ui_button(void*e){
  unsigned code=F(e,8,uint8_t),down=F(e,9,uint8_t)!=0;
  if(code>=112)return 0;
+ if(input_host&&code>=0x6bu&&code<=0x6du)code-=0x5fu; /* Input Config reports B1-B3 as 0x6b-0x6d */
  if(held[code]){if(!down){if(code==0x0e&&synth_test){synth_test=0;am_synth_note(60,0,0);}held[code]=0;if(held_count)--held_count;}return 1;}
  if(!atomic_load(&visible))return 0;
  unsigned which=atomic_load(&page);

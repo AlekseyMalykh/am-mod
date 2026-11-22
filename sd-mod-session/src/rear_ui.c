@@ -307,7 +307,7 @@ int rear_ui_owns(unsigned kind,unsigned code){
     if(music_ui_repeat_active()||music_ui_knob_fx_active())return 0;
     if(!atomic_load(&visible_roots))return 0;
     unsigned panel=atomic_load(&open_panel);
-    if(!panel&&(atomic_load(&visible_roots)&1)&&am_midi_ui_open_input&&(code==0x0e||code==0x6d))return 1;
+    if(!panel&&(atomic_load(&visible_roots)&1)&&am_midi_ui_open_input&&!(am_midi_ui_input_host&&am_midi_ui_input_host(roots[0]))&&(code==0x0e||code==0x6d))return 1;
     if(atomic_load(&tuner_open)&&(atomic_load(&visible_roots)&2))return code==0x0c||code==0x0d||code==0x0e||code==0x6b||code==0x6c||code==0x6d;
     if(!panel&&mixer_view_tuner&&(atomic_load(&visible_roots)&2)&&(code==0x0e||code==0x6d))return 1;
     if(code==0x0d||code==0x6c)return panel||(atomic_load(&visible_roots)&2)||(rear_native_source()==1&&music_ui_shift_active());
@@ -324,7 +324,7 @@ int rear_ui_button(void *event){
         }
     }
     if(!down){held[code]=0;return code!=0x51;}if(held[code])return code!=0x51;held[code]=1;
-    if(!atomic_load(&open_panel)&&(atomic_load(&visible_roots)&1)&&am_midi_ui_open_input&&(code==0x0e||code==0x6d)){
+    if(!atomic_load(&open_panel)&&(atomic_load(&visible_roots)&1)&&am_midi_ui_open_input&&!(am_midi_ui_input_host&&am_midi_ui_input_host(roots[0]))&&(code==0x0e||code==0x6d)){
         am_midi_ui_open_input(roots[0]);return 1;
     }
     if(atomic_load(&tuner_open)){atomic_store(&tuner_open,0);repaint();return 1;}
