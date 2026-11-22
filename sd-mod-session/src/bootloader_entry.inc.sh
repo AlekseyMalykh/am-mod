@@ -9,10 +9,26 @@ fi
 
 
 
-# Diagnostic: the boot menu keeps its journal in RAM only. Copy it beside our logs a few times
-# so a failed hand-off can be read from the card (read-only for the menu, nothing is written to it).
+# D.S.B Boot (sampleboot.inplace): its "ok" write goes to this folder's own hs-boot.state, because the bind of this
+# folder over autorun/ also shows in the menu's view of autorun/. The card's real state keeps "pending=" and counts
+# a crash on every start, until two make Stock the default. Once the menu has written its "ok" here, carry that
+# state to the real file through a plain bind of the card root (its submounts are not copied). Everything is logged.
+# The menu's journal (RAM only) is copied beside it for the same reason.
 if [ -r /run/hs-boot/boot.log ]; then
-    setsid sh -c 'for t in 20 20 30 40 50; do sleep $t; cp /run/hs-boot/boot.log "$1/dsb-boot.log" 2>/dev/null; done' sh "$DIR" </dev/null >/dev/null 2>&1 &
+    setsid sh -c '
+D="$1"; S="${D%/autorun}"; L="$D/dsb-state-fix.log"
+for t in 20 20 30; do sleep $t; cp /run/hs-boot/boot.log "$D/dsb-boot.log" 2>/dev/null; done
+[ -f "$D/hs-boot.state" ] || { echo "$(date -u +%FT%TZ) no own state" >> "$L"; exit 0; }
+grep -q "^pending=$" "$D/hs-boot.state" || { echo "$(date -u +%FT%TZ) own state not ok: $(tr "\n" " " < "$D/hs-boot.state")" >> "$L"; exit 0; }
+r=$(mktemp -d /run/am-sdroot-XXXXXX) || exit 0
+if mount --bind "$S" "$r" 2>/dev/null; then
+    if [ -f "$r/autorun/hs-boot.state" ] && grep -q "^pending=." "$r/autorun/hs-boot.state"; then
+        echo "$(date -u +%FT%TZ) real state before: $(tr "\n" " " < "$r/autorun/hs-boot.state")" >> "$L"
+        cp "$D/hs-boot.state" "$r/autorun/hs-boot.state" && echo "$(date -u +%FT%TZ) real state replaced by: $(tr "\n" " " < "$D/hs-boot.state")" >> "$L"
+    else echo "$(date -u +%FT%TZ) real state not pending or missing" >> "$L"; fi
+    umount "$r" 2>/dev/null
+else echo "$(date -u +%FT%TZ) bind of $S failed" >> "$L"; fi
+rmdir "$r" 2>/dev/null' sh "$DIR" </dev/null >/dev/null 2>&1 &
 fi
 
 am_entry_lock=/run/am-mod-entry-bootstrap

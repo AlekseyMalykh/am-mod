@@ -892,8 +892,9 @@ static void track_fx(const struct mixer_view_state*s,const struct resample_paint
     else if(!(s->master==2&&s->input_tab==2))text(p,s->master==2?(input_fx_status?input_fx_status():"Input FX: Mic / USB / Rear"):s->master&&s->comp.visible?"S = Sample compressor (Shift+Pad 5)":"Pad 15: Input FX  /  9–12: FX",89,174,222,20,10,GREY,0);
     if(s->master==2&&s->input_tab==2){
         int rear=rear_setting&&rear_native_source&&rear_native_source()==1;
+        int kind=rear?1:(rear_native_source&&(rear_native_source()==2||rear_native_source()==6||rear_native_source()==7))?2:0;
         char sv[24],sl[24];route_row(s,5,sl,sizeof sl,sv,sizeof sv);
-        int src=rear_native_source?rear_native_source():-1,idx=(input_fx_mode&&input_fx_mode()==2)?4:src==0?0:src==1?1:src==2?2:src==4?3:-1;
+        int src=rear_native_source?rear_native_source():-1,idx=(input_fx_mode&&input_fx_mode()==2)?4:src==0?0:src==1?1:(src==2||src==6||src==7)?2:src==4?3:-1;
         if(!rear){ /* Mic / USB / Resample: K1 Pan, K2 Threshold, K3 Source */
             char pv[24],tv[24],tl[24];pan(pv,sizeof pv,s->project->input.mix.pan);
             knob_cell(p,0,"Pan",pv,0,0);knob_scale(p,0,(s->project->input.mix.pan+1)*.5,1);
@@ -909,7 +910,7 @@ static void track_fx(const struct mixer_view_state*s,const struct resample_paint
             knob_cell(p,ch,label,value,0,s->shifted?2:1);
             knob_scale(p,ch,n/100.,!s->shifted);
         }
-        knob_cell(p,2,"Source",sv,s->input_edit!=0&&mixer_view_input_row(s->cursor<mixer_view_input_rows(rear)?s->cursor:0,rear)==5,0);
+        knob_cell(p,2,"Source",sv,s->input_edit!=0&&mixer_view_input_row(s->cursor<mixer_view_input_rows(kind)?s->cursor:0,kind)==5,0);
         if(idx>=0)knob_steps(p,2,idx,5,AMBER);
         return;
     }
@@ -1049,10 +1050,12 @@ static void route_row(const struct mixer_view_state*s,unsigned row,char*lab,unsi
         if(point)snprintf(val,valn,"Track %c",'A'+track);else snprintf(val,valn,"--");break;
     case 4:snprintf(lab,labn,"Record FX");snprintf(val,valn,"%s",wet?"Wet":"Dry");break;
     case 5:{unsigned m=input_fx_mode?input_fx_mode():1;int src=rear_native_source?rear_native_source():-1;snprintf(lab,labn,"Source");
-        snprintf(val,valn,"%s",m==2?"Synth":src==0?"Mic":src==1?"Rear":src==2?"USB":src==4?"Resample":"?");if(m!=2&&src!=0&&src!=1&&src!=2&&src!=4)snprintf(val,valn,"Src #%d",src);break;}
+        snprintf(val,valn,"%s",m==2?"Synth":src==0?"Mic":src==1?"Rear":(src==2||src==6||src==7)?"USB":src==4?"Resample":"?");if(m!=2&&src!=0&&src!=1&&src!=2&&src!=4&&src!=6&&src!=7)snprintf(val,valn,"Src #%d",src);break;}
     case 8:snprintf(lab,labn,"MIDI In >");val[0]=0;break;
     case 7:{float db;snprintf(lab,labn,"Threshold");if(rear_native_threshold&&rear_native_threshold(&db))snprintf(val,valn,"%.0f dB",(double)db);else snprintf(val,valn,"--");break;}
-    default:{unsigned mode=rear_setting?rear_setting(0,REAR_MODE):0;if(mode>REAR_MIX)mode=0;
+    default:{int us=rear_native_source?rear_native_source():-1;
+        if(us==2||us==6||us==7){snprintf(lab,labn,"USB mode");snprintf(val,valn,"%s",us==6?"Left":us==7?"Right":"Stereo");break;}
+        unsigned mode=rear_setting?rear_setting(0,REAR_MODE):0;if(mode>REAR_MIX)mode=0;
         snprintf(lab,labn,"Rear mode");snprintf(val,valn,"%s",modes[mode]);}
     }
 }
@@ -1067,7 +1070,8 @@ static void input_route_rows(const struct mixer_view_state*s,const struct resamp
         text(p,"Input routing",92,37,152,21,15,WHITE,0);
         text(p,rear?"Rear":"Mic / USB",245,38,64,19,10,GREY,1);
     }
-    unsigned rows=mixer_view_input_rows(rear);
+    int kind=rear?1:(rear_native_source&&(rear_native_source()==2||rear_native_source()==6||rear_native_source()==7))?2:0;
+    unsigned rows=mixer_view_input_rows(kind);
     const unsigned vis=6;const int pitch=23,rh=22;
     unsigned top=0;
     if(rows>vis){int t=(int)s->cursor-(int)vis/2;if(t<0)t=0;if(t>(int)(rows-vis))t=(int)(rows-vis);top=(unsigned)t;}
@@ -1076,7 +1080,7 @@ static void input_route_rows(const struct mixer_view_state*s,const struct resamp
     for(unsigned n=0;n<shown_rows;++n){
         unsigned i=top+n;
         char lab[24],val[24],shown[32];
-        unsigned id=mixer_view_input_row(i,rear);
+        unsigned id=mixer_view_input_row(i,kind);
         route_row(s,id,lab,sizeof lab,val,sizeof val);
         int y=60+(int)n*pitch,on=i==s->cursor,edit=on&&s->input_edit,locked=id==3&&point==0;
         rect(p,85,y,rw,rh,on?SELECTED:PANEL);

@@ -76,7 +76,9 @@ extern int rear_native_source_set(int) __attribute__((weak));
 extern int rear_native_threshold_set(float) __attribute__((weak));
 extern int rear_native_threshold(float*) __attribute__((weak));
 static int input_rear(void){return rear_native_source&&rear_native_source()==1;}
-static unsigned input_rows(void){return mixer_view_input_rows(input_rear());}
+/* 0 Mic/Resample, 1 Rear, 2 USB (stereo, L, R): kinds 1 and 2 have a mode row. */
+static int input_kind(void){int v=rear_native_source?rear_native_source():-1;return v==1?1:(v==2||v==6||v==7)?2:0;}
+static unsigned input_rows(void){return mixer_view_input_rows(input_kind());}
 extern void phone_native_open_midi_in(void) __attribute__((weak));
 #define INPUT_PAGE(c) ((c)->view.master==2&&(c)->view.page==MIXER_KNOB_FX&&!(c)->catalog&&!(c)->view.fx_parameters&&!(c)->view.fx_delete)
 static void pickup(struct mixer_control*c){c->pickup=0;c->last_fader_valid=0;}
@@ -599,7 +601,7 @@ int mixer_control_button(struct mixer_control*c,enum mixer_action action,int dow
     }else if(INPUT_PAGE(c)&&c->view.input_tab!=1&&action==MIXER_SELECT){
         /* ROUTE: DATA click selects the row for editing, a second click accepts. */
         if(c->view.input_tab==2){
-            unsigned id=mixer_view_input_row(c->view.cursor,input_rear());
+            unsigned id=mixer_view_input_row(c->view.cursor,input_kind());
             if(id==0)c->view.input_tuner=1;
             else if(id==8){if(phone_native_open_midi_in)phone_native_open_midi_in();}
             else if(id==3&&music_rec_get&&music_rec_get(0)==0)c->message="Record track: set Record via to Track";
@@ -832,15 +834,22 @@ const char*mixer_input_row_apply(unsigned row,int delta,int mode,unsigned value)
         if(!input_fx_set_mode||!input_fx_mode||!rear_native_source)return NULL;
         static const int native_src[4]={0,1,2,4};
         int src=rear_native_source(),fxm=(int)input_fx_mode(),cur=-1;
-        if(fxm==2)cur=4;else for(int i=0;i<4;++i)if(native_src[i]==src)cur=i;
+        if(fxm==2)cur=4;else if(src==6||src==7)cur=2;else for(int i=0;i<4;++i)if(native_src[i]==src)cur=i;
         if(cur<0)cur=0;
         int next=mode==2?0:mode==1?(int)(value*5/128):cur+delta;
         next=next<0?0:next>4?4:next;
         if(next==4){input_fx_set_mode(2);}
         else{
-            if(!rear_native_source_set||!rear_native_source_set(native_src[next]))return "Source: stop recording first";
+            int want=native_src[next];if(want==2&&(src==6||src==7))want=src; /* keep the USB L/R choice */
+            if(!rear_native_source_set||!rear_native_source_set(want))return "Source: stop recording first";
             if(fxm==2)input_fx_set_mode(1);
         }
+    }else if(row==6&&rear_native_source&&input_kind()==2){
+        /* USB mode: stereo (2), left (6), right (7). */
+        static const int usb[3]={2,6,7};
+        int src=rear_native_source(),cur=src==6?1:src==7?2:0;
+        int next=mode==2?0:mode==1?(int)(value*3/128):cur+delta;next=next<0?0:next>2?2:next;
+        if(!rear_native_source_set||!rear_native_source_set(usb[next]))return "USB mode: stop recording first";
     }else if(mode==0&&rear_setting&&rear_set_setting&&rear_native_source&&rear_native_source()==1){
         if(rear_native_busy&&rear_native_busy())return "Stop recording to change mode";
         int m=(int)rear_setting(0,REAR_MODE)+delta;m=m<1?1:m>4?4:m;
@@ -942,7 +951,7 @@ static int fx_cc(struct mixer_control*c,unsigned cc,unsigned value)
     if(INPUT_PAGE(c)&&c->view.input_tab!=1&&cc==0x64){
         if(c->view.input_tab==2){
             int delta=value>64?(int)value-128:value==64?0:(int)value;
-            if(c->view.input_edit){if(delta)input_row_change(c,mixer_view_input_row(c->view.cursor,input_rear()),delta>0?1:-1,0,0);}
+            if(c->view.input_edit){if(delta)input_row_change(c,mixer_view_input_row(c->view.cursor,input_kind()),delta>0?1:-1,0,0);}
             else{
                 int n=(int)c->view.cursor+(delta>0?1:delta<0?-1:0),last=(int)input_rows()-1;
                 c->view.cursor=(unsigned)(n<0?0:n>last?last:n);

@@ -548,7 +548,7 @@ extern "C" int rear_native_threshold(float *db) { auto *s = session.load(); if(!
  * 1563370 and Property<float>::set(obj=props+0x28, dB) 13bbb20; both notify the stock UI/observers. Fail closed. */
 extern "C" int rear_native_source_set(int v) {
     auto *s=session.load();
-    if(!s||!s->live.load()||!s->properties_input||s->busy.load()||(v!=0&&v!=1&&v!=2&&v!=4))return 0;
+    if(!s||!s->live.load()||!s->properties_input||s->busy.load()||(v!=0&&v!=1&&v!=2&&v!=4&&v!=6&&v!=7))return 0;
     if(FIELD((void*)(image+0x1563370),0,uint32_t)!=0xd503233fu)return 0;
     int cur=FIELD(s->properties_input,0x24,int);if(cur<0||cur>7)return 0;
     if(cur!=v)native<void(*)(void *,int)>(0x1563370)(static_cast<char *>(s->properties_input)+0x8,v);

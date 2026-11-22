@@ -826,6 +826,7 @@ static int mixer_replay_entry(void)
 static void mixer_fx_combo_tick(void);
 static unsigned char mixer_entry_template[16];
 static uint64_t mixer_open_after; /* UI owner: entry waiting for Sample */
+static _Atomic int route_intercept_off; /* set while the mod itself presses Shift+Sample (MIDI In) */
 static int mixer_want_input;                   /* UI owner: open on the Input track, ROUTE tab */
 static int mixer_focus_sound=-1;               /* UI owner: open on this sound's Track FX */
 static void mixer_open_from_entry(struct mixer_control *control);
@@ -957,16 +958,21 @@ extern void am_midi_ui_request_midi_in(void) __attribute__((weak));
 /* Am MOD: the stock Input Config is replaced by the Mixer Input ROUTE tab. Leave it with its own Back press,
  * then open the Mixer on Sample. */
 void phone_native_open_input_route(void){
+ struct mixer_control*c=mixer_ui_session?mixer_session_control(mixer_ui_session):NULL;
+ if(c&&mixer_control_active(c)){mixer_control_show_input(c,2);return;} /* Mixer already open: switch its page */
  mixer_want_input=1;mixer_open_after=now_ms();
+ if(note_native_sample_visible())return; /* Sample screen is up: the tick opens the Mixer on it */
  fprintf(stderr,"ROUTE_HANDOVER inject_sample\n");
- phone_native_inject_button(0x31,0); /* the held Shift would make it Shift+Sample (Input Config again) */
+ phone_native_inject_button(0x31,0); /* the held Shift would make it Shift+Sample (Input Config) */
  phone_native_inject_button(0x06,1);phone_native_inject_button(0x06,0);
 }
 /* ROUTE row "MIDI In >": close the Mixer and open the stock Input Config (Shift+Sample), which then hosts MIDI In. */
 void phone_native_open_midi_in(void){
  if(!am_midi_ui_request_midi_in)return;
  am_midi_ui_request_midi_in();mixer_close_ui();
+ atomic_store(&route_intercept_off,1);
  phone_native_inject_button(0x31,1);phone_native_inject_button(0x06,1);phone_native_inject_button(0x06,0);phone_native_inject_button(0x31,0);
+ atomic_store(&route_intercept_off,0);
 }
 static void mixer_takeover_settings(struct mixer_control*c){
  unsigned modes[3]={2,2,2};
@@ -2584,6 +2590,13 @@ static void buttons(void *event)
     if(native_code==0x51&&native_down){pthread_mutex_lock(&stop_template_mutex);memcpy(stop_template,event,16);stop_template_ready=1;pthread_mutex_unlock(&stop_template_mutex);}
 #ifdef MPC_KNOB_RESET
     knob_reset_button(native_code,native_down);
+#endif
+#ifdef MPC_MIXER_LIVE
+    /* Am MOD: Shift+Sample opens the Mixer Input ROUTE page; the stock Input Config is never shown. */
+    if(native_code==6&&native_down&&!atomic_load(&route_intercept_off)&&atomic_load(&native_buttons_down[0x31])&&music_fx_mode_active&&music_fx_mode_active()==1&&
+       mixer_ui_session&&mixer_session_status(mixer_ui_session)==1&&!mixer_ui_blocked()){
+        phone_native_open_input_route();return;
+    }
 #endif
 #ifdef MPC_MIXER_LIVE
     if ((native_code == 6 || native_code == 7) && (mixer_mode_forwarded & (1u << native_code))) {
