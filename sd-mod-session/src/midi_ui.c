@@ -56,6 +56,7 @@ void am_midi_ui_open_input(void*p){
  am_midi_learn(0,0);repaint();
 }
 int am_midi_ui_input_opened(void*p){ /* called from the stock Input Config paint */
+ {static void*seen;if(p&&p!=seen){seen=p;fprintf(stderr,"ROUTE_HOOK paint p=%p mode=%d host=%d req=%d\n",p,music_fx_mode_active?(int)music_fx_mode_active():-1,p==input_host,(int)atomic_load(&midi_in_requested));}}
  if(!p||p==input_host||!music_fx_mode_active||music_fx_mode_active()!=1)return 0;
  if(atomic_exchange(&midi_in_requested,0)){
   route_stock=NULL;input_host=root=p;atomic_store(&visible,1);atomic_store(&page,5);notice[0]=0;edit=0;am_midi_learn(0,0);return 1;

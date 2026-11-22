@@ -943,7 +943,7 @@ static void mixer_open_from_entry(struct mixer_control *control)
     int bank = step_native_browser_bank(-1);
     if (bank >= 0 && bank < 8) mixer_control_presence(control,0,0,(unsigned)bank);
     if (mixer_focus_sound >= 0) {mixer_control_focus_sound_fx(control,(unsigned)mixer_focus_sound);mixer_focus_sound = -1;}
-    if (mixer_want_input) {mixer_want_input = 0;mixer_control_show_input(control,2);}
+    if (mixer_want_input) {mixer_want_input = 0;fprintf(stderr,"ROUTE_MIXER_OPEN input route\n");mixer_control_show_input(control,2);}
     /* The stock KNOB FX overlay (shade over the knobs) must not stay over
      * the Mixer: toggle it closed with one stock KNOB FX press. */
     if (music_ui_knob_fx_active()) {
@@ -958,6 +958,7 @@ extern void am_midi_ui_request_midi_in(void) __attribute__((weak));
  * then open the Mixer on Sample. */
 void phone_native_open_input_route(void){
  mixer_want_input=1;mixer_open_after=now_ms();
+ fprintf(stderr,"ROUTE_HANDOVER inject_back\n");
  phone_native_inject_button(0x6b,1);phone_native_inject_button(0x6b,0);
 }
 /* ROUTE row "MIDI In >": close the Mixer and open the stock Input Config (Shift+Sample), which then hosts MIDI In. */

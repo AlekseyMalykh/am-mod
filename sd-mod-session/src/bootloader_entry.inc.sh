@@ -9,6 +9,12 @@ fi
 
 
 
+# Diagnostic: the boot menu keeps its journal in RAM only. Copy it beside our logs a few times
+# so a failed hand-off can be read from the card (read-only for the menu, nothing is written to it).
+if [ -r /run/hs-boot/boot.log ]; then
+    setsid sh -c 'for t in 20 20 30 40 50; do sleep $t; cp /run/hs-boot/boot.log "$1/dsb-boot.log" 2>/dev/null; done' sh "$DIR" </dev/null >/dev/null 2>&1 &
+fi
+
 am_entry_lock=/run/am-mod-entry-bootstrap
 if ! mkdir "$am_entry_lock" 2>/dev/null; then
     # Starting clean stock invokes its SD runner again. The first entry still
