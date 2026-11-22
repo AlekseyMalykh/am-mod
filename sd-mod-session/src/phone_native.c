@@ -608,7 +608,7 @@ static void mixer_publish_route(void)
     else if ((state & MIXER_OPEN) && view.project && !mixer_view_sound_pads(&view)) {
         for (unsigned i=0;i<16;++i) {
             uint64_t light = 0;
-            if (view.synth_page && view.synth_pick) { atomic_store(&mixer_select_lights[i], i<3 ? pad_light(synth_palette[0], view.synth_cursor==i ? .95f : .35f) : (uint64_t)0); continue; } /* Loop: page pads */
+            if (view.synth_page && view.synth_pick) { atomic_store(&mixer_select_lights[i], i<5 ? pad_light(synth_palette[0], view.synth_cursor==i ? .95f : .35f) : (uint64_t)0); continue; } /* Loop: page pads */
             if (view.synth_page && view.synth_keys) {
                 atomic_store(&mixer_select_lights[i], am_synth_pad_info?am_synth_pad_info((unsigned)i,0):(uint64_t)0); continue;
             } /* keyboard lights follow the 16 Levels layout and colour roles */
