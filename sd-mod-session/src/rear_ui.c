@@ -85,6 +85,7 @@ static void repaint(void){for(unsigned i=0;i<2;++i)if(roots[i]&&!atomic_load(&de
 extern unsigned step_native_transport_playing(void) __attribute__((weak));
 static _Atomic uint64_t play_notice_until;
 static uint64_t now_ms_ui(void){struct timespec t;clock_gettime(CLOCK_MONOTONIC,&t);return (uint64_t)t.tv_sec*1000+(uint64_t)t.tv_nsec/1000000;}
+static _Atomic uint64_t k2_until;
 static int to_seq_needs_play(void){return atomic_load(&to_seq)&&!(step_native_transport_playing&&step_native_transport_playing());}
 static void play_notice(void){atomic_store(&play_notice_until,now_ms_ui()+2500);repaint();}
 static void rect(void *g,int x,int y,int w,int h,uint32_t colour){FN(0x102d5e0,void(*)(void*,uint32_t))(g,colour);FN(0x102e000,void(*)(void*,int,int,int,int))(g,x,y,w,h);}
@@ -308,6 +309,7 @@ int rear_ui_tick(void){
         last_status=status;
     }
     {static int last_keys=-1;int keys=synth_keys_knobs()?1:0;if(keys!=last_keys){last_keys=keys;if(visible_mask&2)repaint();}} /* K panels switch between Source and the synth keyboard settings */
+    {static int k2_busy;uint64_t until=atomic_load(&k2_until);int now=until&&now_ms_ui()<until;if((now||k2_busy)&&(visible_mask&2))repaint();k2_busy=now;}
     {static int last_shift=-1;int sh=music_ui_shift_active()!=0;if(sh!=last_shift){last_shift=sh;if(visible_mask&2)repaint();}} /* Shift badge and the shifted K1/K3 values follow the button */
     static int last_monitor=-1;
     int monitor=rear_native_monitor();
@@ -329,6 +331,7 @@ int rear_ui_tick(void){
 }
 
 int rear_ui_owns(unsigned kind,unsigned code){
+    if(kind==1&&code==0x11&&(atomic_load(&visible_roots)&2))atomic_store(&k2_until,now_ms_ui()+500); /* K2 (Free/Seq) is the stock's: repaint the screen while it turns so the switch redraws */
     if(kind==1&&(code==0x12&&synth_keys_knobs()&&(atomic_load(&visible_roots)&2)&&!atomic_load(&open_panel)&&!music_ui_repeat_active()&&!music_ui_knob_fx_active()))return 1;
     if(kind==1&&code==0x10&&(atomic_load(&visible_roots)&2)&&!atomic_load(&open_panel)&&mixer_input_row_apply&&!music_ui_repeat_active()&&!music_ui_knob_fx_active())return 1; /* Sample Record: K1 = input Source */
     if(kind==1)return atomic_load(&open_panel)&&atomic_load(&visible_roots)&&code!=0x13&&!music_ui_repeat_active()&&!music_ui_knob_fx_active();

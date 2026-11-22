@@ -1450,36 +1450,36 @@ void mixer_view_synth(const struct mixer_view_state*s,const struct resample_pain
     static const char*const mods[5]={"Tone","Envelope","Keys","Filter + LFO","Voices"};
     static const char*const pages[MIXER_SYNTH_PAGES]={"Oscillators","Mix","Amp","Filter","16 Levels","Filter","LFO","Voices","Setup"};
     static const unsigned char big_art[MIXER_SYNTH_PAGES]={0,0,1,5,2,3,3,4,4};
-    rect(p,4,32,152,128,0xff141414u);
-    synth_art(s,p,big_art[page],4,32,152,128,&live,playing,1,1);
+    rect(p,4,32,132,160,0xff141414u);
+    synth_art(s,p,big_art[page],4,32,132,160,&live,playing,1,1);
     {char t[48];unsigned two=mixer_view_synth_sibling(page)!=page;
-     snprintf(t,sizeof t,"%s: %s%s",mods[mod],pages[page],two?(page==mixer_view_synth_first_page(mod)?"  1/2":"  2/2"):"");text(p,t,8,33,112,11,10,GREY,0);
-     if(page==0){char info[24];snprintf(info,sizeof info,"Voices %u",live.voices);text(p,info,108,33,44,11,10,GREY,1);}}
-    /* thumbnails mirror the pads: bottom row = pads 13-16 (Tone, Envelope, Keys, Filter), Voices above the first (pad 9) */
+     snprintf(t,sizeof t,"%s: %s%s",mods[mod],pages[page],two?(page==mixer_view_synth_first_page(mod)?"  1/2":"  2/2"):"");text(p,t,8,33,124,11,10,GREY,0);
+     if(page==0){char info[24];snprintf(info,sizeof info,"Voices %u",live.voices);text(p,info,84,177,48,11,10,GREY,1);}}
+    /* thumbnails mirror the pads: top row = pads 13-16 (Tone, Envelope, Keys, Filter), Voices below the first (pad 9) */
     for(unsigned m=0;m<5;++m){
-        unsigned col=m==4?0u:m,row=m==4?0u:1u;
-        int cx=160+(int)col*39,cy=32+(int)row*66,sel=m==mod;
-        rect(p,cx,cy,37,64,sel?0xff4a3a10u:0xff1c1c1cu);
-        synth_art(s,p,m,cx,cy,37,50,&live,playing,sel,0);
-        if(sel)rect(p,cx,cy,37,2,AMBER);
+        unsigned col=m==4?0u:m,row=m==4?1u:0u;
+        int cx=140+(int)col*44,cy=32+(int)row*82,sel=m==mod;
+        rect(p,cx,cy,42,78,sel?0xff4a3a10u:0xff1c1c1cu);
+        synth_art(s,p,m,cx,cy,42,62,&live,playing,sel,0);
+        if(sel)rect(p,cx,cy,42,2,AMBER);
         static const char*const shortn[5]={"Tone","Env","Keys","Filter","Voices"};
         char t[24];snprintf(t,sizeof t,"%u %s",m+1,shortn[m]);
-        text(p,t,cx+1,cy+51,35,11,9,sel?AMBER:WHITE,0);
+        text(p,t,cx+1,cy+64,40,12,10,sel?AMBER:WHITE,0);
     }
-    text(p,s->synth_pick?"Pads 13-16, 9: modules":"Loop+pad / +/-: module  DATA: page  B2: 16 Levels",8,163,304,11,10,s->synth_pick?AMBER:GREY,0);
-    /* bottom: both rows of every knob (direct above, Shift below); the row that the Shift button selects is lit */
+    text(p,"Loop+pad or +/-:",190,122,126,12,10,GREY,0);text(p,"module",190,134,126,12,10,GREY,0);
+    text(p,"DATA: pages",190,150,126,12,10,GREY,0);text(p,"B2: 16 Levels",190,166,126,12,10,GREY,0);
+    /* bottom: one row of K panels as everywhere; Shift shows the hidden parameter of each knob */
     for(unsigned k=0;k<3;++k){
-        int x=(int)k*106,w=k==2?105:102;
-        for(unsigned r=0;r<2;++r){
-            int id=mixer_view_synth_slot(page,k,r),y=176+(int)r*32,act=(s->synth_shift?1u:0u)==r;
-            char nn[24],vv[16];synth_text(s,id,nn,sizeof nn,vv,sizeof vv);
-            rect(p,x+2,y,w,30,act?0xff2a2410u:0xff181818u);
-            if(act)rect(p,x+2,y,w,1,AMBER);
-            text(p,id>=0&&nn[0]?nn:"-",x+4,y+1,w-4,11,10,act?GREY:0xff606060u,1);
-            text(p,vv,x+4,y+11,w-4,14,13,act?AMBER:GREY,1);
-            rect(p,x+8,y+26,w-12,3,0xff383838u);
-            int fw=(int)(synth_frac(s,id)*(float)(w-12));if(fw>0&&id>=0)rect(p,x+8,y+26,fw,3,act?AMBER:0xff7a6228u);
-        }
+        int x=(int)k*106,w=k==2?108:106;
+        int idd=mixer_view_synth_slot(page,k,0),ids=mixer_view_synth_slot(page,k,1);
+        int id=s->synth_shift?ids:idd;
+        char nn[24],vv[16];synth_text(s,id,nn,sizeof nn,vv,sizeof vv);
+        rect(p,x+2,198,w-4,40,0xff202020u);rect(p,x+2,198,w-4,1,s->synth_shift&&ids>=0?0xffff4747u:LINE);
+        text(p,id>=0&&nn[0]?nn:"",x+4,200,ids>=0?w-22:w-8,12,strlen(nn)>14?9:strlen(nn)>11?10:12,GREY,1);
+        if(ids>=0)SHIFT_BADGE_COLOURED(p->rect,p->user,x+94,200,s->synth_shift?0xffff4747u:WHITE);
+        text(p,id>=0?vv:"-",x+4,214,w-8,19,16,id>=0?AMBER:GREY,1);
+        rect(p,x+8,236,w-16,2,0xff383838u);
+        int fw=(int)(synth_frac(s,id)*(float)(w-16));if(fw>0&&id>=0)rect(p,x+8,236,fw,2,AMBER);
     }
 }
 void mixer_view_paint(const struct mixer_view_state*s,const struct resample_painter*p)
