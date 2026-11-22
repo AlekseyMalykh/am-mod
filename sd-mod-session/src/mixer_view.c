@@ -1309,17 +1309,96 @@ static float synth_frac(const struct mixer_view_state*s,int id)
         default:return id<0?0.0f:(float)v/127.0f;
     }
 }
-static void synth_adsr_mini(const struct resample_painter*p,int x0,int y0,int w,int h,int selected)
+static void synth_line(const struct resample_painter*p,int x,int y0,int y1,uint32_t col){int a=y0<y1?y0:y1,b=y0<y1?y1:y0;rect(p,x,a,2,b-a+2,col);} /* connected 2 px line segment */
+/* Synth module art: the same painter draws the big module (top left) and the thumbnails (right). */
+static unsigned synth_pv(int id){return am_synth_param_get&&synth_pidx(id)>=0?am_synth_param_get((unsigned)synth_pidx(id)):0;}
+static void synth_art_tone(const struct mixer_view_state*s,const struct resample_painter*p,int x,int y,int w,int h,const struct synth_live*live,int playing,int on)
+{
+    unsigned wv=am_synth_param_get?am_synth_param_get(0):0,cut=am_synth_param_get?am_synth_param_get(1):100;
+    float amp=0.15f+0.85f*(live->peak*5.0f>1.0f?1.0f:live->peak*5.0f);
+    float phase=(float)(s->now_ms%1000u)/1000.0f*(1.0f+live->bend*0.5f);
+    float wob=live->mod*0.05f*sinf((float)(s->now_ms%1000u)/1000.0f*6.2831853f*5.5f);
+    int mid=y+h/2,cols=w/4;if(cols<8)cols=8;int cw=w/cols;if(cw<1)cw=1;
+    rect(p,x+2,mid,w-4,1,0xff303030u);
+    int prev=mid;
+    for(int i=0;i<cols;++i){
+        float ph=(float)i/(float)cols*2.0f+phase+wob;ph-=(float)(int)ph;if(ph<0.0f)ph+=1.0f;
+        float v=synth_wave_at(wv,ph);
+        int yy=mid-(int)(v*(float)(h/2-3)*amp*(0.35f+0.65f*(float)cut/127.0f));
+        synth_line(p,x+2+i*cw,i?prev:yy,yy,on?(playing?AMBER:0xff806018u):0xff604810u);prev=yy;
+    }
+}
+static void synth_art_env(const struct resample_painter*p,int x,int y,int w,int h,int on)
 {
     unsigned a=am_synth_param_get?am_synth_param_get(2):0,d=am_synth_param_get?am_synth_param_get(3):0,su=am_synth_param_get?am_synth_param_get(4):0,r=am_synth_param_get?am_synth_param_get(5):0;
-    float wa=4.0f+(float)a/127.0f*14.0f,wd=4.0f+(float)d/127.0f*14.0f,ws=14.0f,wr=4.0f+(float)r/127.0f*14.0f,tot=wa+wd+ws+wr;
-    float sus=(float)su/127.0f;
-    for(int i=0;i<w;++i){
-        float t=(float)i/(float)w*tot,y;
-        if(t<wa)y=t/wa;else if(t<wa+wd)y=1.0f-(1.0f-sus)*(t-wa)/wd;else if(t<wa+wd+ws)y=sus;else y=sus*(1.0f-(t-wa-wd-ws)/wr);
-        int hh=(int)(y*(float)h);if(hh<1)hh=1;
-        rect(p,x0+i,y0+h-hh,1,hh,selected?AMBER:0xff806018u);
+    float wa=4.0f+(float)a/127.0f*14.0f,wd=4.0f+(float)d/127.0f*14.0f,ws=14.0f,wr=4.0f+(float)r/127.0f*14.0f,tot=wa+wd+ws+wr,sus=(float)su/127.0f;
+    int iw=w-6,ih=h-6;
+    int prev=y+3+ih;
+    for(int i=0;i<iw;++i){
+        float t=(float)i/(float)iw*tot,v;
+        if(t<wa)v=t/wa;else if(t<wa+wd)v=1.0f-(1.0f-sus)*(t-wa)/wd;else if(t<wa+wd+ws)v=sus;else v=sus*(1.0f-(t-wa-wd-ws)/wr);
+        int yy=y+3+ih-(int)(v*(float)ih);
+        synth_line(p,x+3+i,i?prev:yy,yy,on?AMBER:0xff604810u);prev=yy;
     }
+}
+static void synth_art_filter(const struct mixer_view_state*s,const struct resample_painter*p,int x,int y,int w,int h,int on,int big)
+{
+    unsigned type=synth_pv(17)%3,cut=am_synth_param_get?am_synth_param_get(1):100,res=synth_pv(18),depth=synth_pv(21);
+    float fc=0.08f+0.84f*(float)cut/127.0f,q=0.6f+(float)res/127.0f*5.0f;
+    int ch=big?h*2/3:h-4,iw=w-6;
+    int prev=y+2+ch;
+    for(int i=0;i<iw;++i){
+        float f=0.02f+0.98f*(float)i/(float)iw,r=f/fc,r2=r*r;
+        float den=sqrtf((1.0f-r2)*(1.0f-r2)+r2/(q*q));if(den<0.05f)den=0.05f;
+        float m=type==0?1.0f/den:type==2?r2/den:r/(q*den);
+        m*=0.55f;if(m>1.0f)m=1.0f;
+        int yy=y+2+ch-(int)(m*(float)(ch-2));
+        synth_line(p,x+3+i,i?prev:yy,yy,on?AMBER:0xff604810u);prev=yy;
+    }
+    if(big){ /* LFO strip */
+        float rate=(float)synth_pv(20)/127.0f*4.0f+0.3f,ph0=(float)(s->now_ms%4000u)/1000.0f*rate;
+        int base=y+ch+4,lh=h-ch-6;
+        rect(p,x+3,base+lh/2,iw,1,0xff303030u);
+        int lp=base+lh/2;
+        for(int i=0;i<iw;++i){
+            float v=sinf(6.2831853f*(ph0+(float)i/(float)iw*rate*1.5f))*(float)depth/127.0f;
+            int yy=base+lh/2-(int)(v*(float)(lh/2));synth_line(p,x+3+i,i?lp:yy,yy,on?0xffd0a040u:0xff604810u);lp=yy;
+        }
+    }
+}
+static void synth_art_voices(const struct resample_painter*p,int x,int y,int w,int h,int on)
+{
+    unsigned n=synth_pv(23)%4+1,det=synth_pv(24),spr=synth_pv(25);
+    int cx=x+w/2,mid=y+h/2;
+    for(unsigned u=0;u<n;++u){
+        float pos=n>1?((float)u/(float)(n-1)-0.5f):0.0f;
+        int px=cx+(int)(pos*(float)spr/127.0f*(float)(w-14));
+        int hh=(int)((float)(h-8)*(0.55f+0.45f*(1.0f-(float)det/127.0f*(float)((u*37)%5)/4.0f)));
+        rect(p,px-2,mid-hh/2,5,hh,on?AMBER:0xff604810u);
+    }
+}
+static void synth_art_keys(const struct resample_painter*p,int x,int y,int w,int h,const struct synth_live*live,int playing,int big)
+{
+    static const char*const nm[12]={"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
+    int cw=(w-10)/4,chh=(h-10)/4;
+    for(unsigned row=0;row<4;++row)for(unsigned col=0;col<4;++col){
+        unsigned pad=(3-row)*4+col,note=pad;uint64_t lt=am_synth_pad_info?am_synth_pad_info(pad,&note):0;
+        int cx=x+2+(int)col*(cw+2),cy=y+2+(int)row*(chh+2);
+        int on=playing&&((live->notes[note>>5]>>(note&31))&1u);
+        float br;{uint32_t bb=(uint32_t)(lt>>32);memcpy(&br,&bb,sizeof br);}
+        br=br*1.4f+0.05f;if(br>1.0f)br=1.0f;
+        uint32_t rc=(uint32_t)lt,lr=(unsigned)((rc>>16)&255u)*br,lg=(unsigned)((rc>>8)&255u)*br,lb=(unsigned)(rc&255u)*br;
+        rect(p,cx,cy,cw,chh,on?AMBER:(0xff000000u|lr<<16|lg<<8|lb));
+        if(big){char n[16];snprintf(n,sizeof n,"%s%d",nm[note%12],(int)(note/12)-1);text(p,n,cx,cy,cw,chh-1,11,on?BLACK:WHITE,1);}
+    }
+}
+static void synth_art(const struct mixer_view_state*s,const struct resample_painter*p,unsigned pg,int x,int y,int w,int h,const struct synth_live*live,int playing,int on,int big)
+{
+    if(pg==0)synth_art_tone(s,p,x,y,w,h,live,playing,on);
+    else if(pg==1)synth_art_env(p,x,y,w,h,on);
+    else if(pg==2)synth_art_keys(p,x,y,w,h,live,playing,big);
+    else if(pg==3)synth_art_filter(s,p,x,y,w,h,on,big);
+    else synth_art_voices(p,x,y,w,h,on);
 }
 extern void music_global_sync(int) __attribute__((weak));
 void mixer_view_synth(const struct mixer_view_state*s,const struct resample_painter*p)
@@ -1334,52 +1413,19 @@ void mixer_view_synth(const struct mixer_view_state*s,const struct resample_pain
         unsigned n=s->synth_hold_note;snprintf(hold,sizeof(hold),"Hold %s%d",nn[n%12],(int)(n/12)-1);}
     rect(p,214,2,104,26,s->synth_hold?0xff4a3a10u:0xff242424u);text(p,hold,214,2,104,25,13,s->synth_hold?AMBER:WHITE,1);}
     struct synth_live live;int playing=am_synth_peek&&am_synth_peek(&live);if(!playing)memset(&live,0,sizeof live);
-    /* top left: oscilloscope (Keys page: the 16 Levels pad grid) */
+    /* top left: the open module, expanded (graphs, pads); top right: thumbnails in pad order (Loop + pad opens one) */
+    static const char*const mods[5]={"Tone","Envelope","Keys","Filter + LFO","Voices"};
     rect(p,4,32,152,96,0xff141414u);
-    if(page!=2){
-        unsigned w=am_synth_param_get?am_synth_param_get(0):0,cut=am_synth_param_get?am_synth_param_get(1):100;
-        float amp=0.15f+0.85f*(live.peak*5.0f>1.0f?1.0f:live.peak*5.0f);
-        float phase=(float)(s->now_ms%1000u)/1000.0f*(1.0f+live.bend*0.5f);
-        float wob=live.mod*0.05f*sinf((float)(s->now_ms%1000u)/1000.0f*6.2831853f*5.5f);
-        rect(p,6,80,148,1,0xff303030u);
-        for(unsigned i=0;i<36;++i){
-            float ph=(float)i/18.0f+phase+wob;ph-=(float)(int)ph;if(ph<0.0f)ph+=1.0f;
-            float x=synth_wave_at(w,ph);
-            int h=(int)(x*42.0f*amp*(0.35f+0.65f*(float)cut/127.0f));
-            uint32_t col=playing?AMBER:0xff806018u;
-            if(h>=0)rect(p,6+(int)i*4,80-h,3,h+1,col);else rect(p,6+(int)i*4,80,3,-h+1,col);
-        }
-        char info[24];snprintf(info,sizeof info,"Voices %u",live.voices);text(p,info,8,33,70,11,10,GREY,0);
-    }else{
-        static const char*const nm[12]={"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
-        for(unsigned row=0;row<4;++row)for(unsigned col=0;col<4;++col){
-            unsigned pad=(3-row)*4+col;char n[16];
-            unsigned note=pad;uint64_t lt=am_synth_pad_info?am_synth_pad_info(pad,&note):0;
-            snprintf(n,sizeof n,"%s%d",nm[note%12],(int)(note/12)-1);
-            int cx=6+(int)col*37,cy=35+(int)row*23;
-            int on=playing&&((live.notes[note>>5]>>(note&31))&1u);
-            float br;{uint32_t bb=(uint32_t)(lt>>32);memcpy(&br,&bb,sizeof br);}
-            br=br*1.4f+0.05f;if(br>1.0f)br=1.0f;
-            uint32_t rc=(uint32_t)lt,lr=(unsigned)((rc>>16)&255u)*br,lg=(unsigned)((rc>>8)&255u)*br,lb=(unsigned)(rc&255u)*br;
-            rect(p,cx,cy,35,21,on?AMBER:(0xff000000u|lr<<16|lg<<8|lb));text(p,n,cx,cy,35,20,11,on?BLACK:WHITE,1);
-        }
-    }
-    /* top right: module scheme (pages): Tone, Envelope, Filter + LFO, Voices, Keys */
-    static const char*const mods[5]={"Tone","Envelope","Filter + LFO","Voices","Keys"};
-    static const unsigned char order[5]={0,1,3,4,2};
+    synth_art(s,p,page,4,32,152,96,&live,playing,1,1);
+    {char t[40];snprintf(t,sizeof t,"%u %s",page+1,mods[page]);text(p,t,8,33,100,11,10,GREY,0);
+     if(page==0){char info[24];snprintf(info,sizeof info,"Voices %u",live.voices);text(p,info,100,33,52,11,10,GREY,1);}}
     for(unsigned m=0;m<5;++m){
-        unsigned pg=order[m];int y=32+(int)m*19,sel=pg==page;
-        char sum[64],a1[24],b1[24],c1[24],d1[24],e1[24],f1[24];sum[0]=0;
-        if(pg==0){synth_text(s,0,a1,sizeof a1,b1,sizeof b1);snprintf(sum,sizeof sum,"%s  Cut %u",b1,am_synth_param_get?am_synth_param_get(1):0);}
-        else if(pg==3){synth_text(s,17,a1,sizeof a1,b1,sizeof b1);synth_text(s,22,c1,sizeof c1,d1,sizeof d1);synth_text(s,21,e1,sizeof e1,f1,sizeof f1);
-            snprintf(sum,sizeof sum,"%.4s  %s %s",b1,d1,f1);}
-        else if(pg==4){synth_text(s,23,a1,sizeof a1,b1,sizeof b1);synth_text(s,24,c1,sizeof c1,d1,sizeof d1);snprintf(sum,sizeof sum,"%s  %s",b1,d1);}
-        else if(pg==2){char sl[24],sv[24],l[24],lv[24],r[24],rv[24];synth_text(s,10,l,sizeof l,lv,sizeof lv);synth_text(s,11,r,sizeof r,rv,sizeof rv);synth_text(s,12,sl,sizeof sl,sv,sizeof sv);snprintf(sum,sizeof sum,"%.5s %s %.5s",lv,rv,sv);}
-        rect(p,164,y,152,17,sel?0xff4a3a10u:0xff1c1c1cu);
-        if(sel)rect(p,164,y,3,17,AMBER);
-        text(p,mods[m],170,y+1,74,15,11,sel?AMBER:WHITE,0);
-        if(pg==1)synth_adsr_mini(p,246,y+3,64,11,sel);
-        else text(p,sum,246,y+2,68,13,9,GREY,0);
+        int cx=164+(int)(m%3)*52,cy=32+(int)(m/3)*50,sel=m==page;
+        rect(p,cx,cy,48,46,sel?0xff4a3a10u:0xff1c1c1cu);
+        synth_art(s,p,m,cx,cy,48,34,&live,playing,sel,0);
+        if(sel)rect(p,cx,cy,48,2,AMBER);
+        char t[24];snprintf(t,sizeof t,"%u %s",m+1,m==3?"Filter":mods[m]);
+        text(p,t,cx+2,cy+34,44,11,9,sel?AMBER:WHITE,0);
     }
     text(p,s->synth_pick?"Pads 1-5: Tone/Env/Keys/Filter/Voices":"Loop: pages   B2: 16 Levels setup   DATA: page",8,131,304,11,10,s->synth_pick?AMBER:GREY,0);
     /* bottom: knobs of the selected page, direct + Shift */
