@@ -1,5 +1,9 @@
 #ifndef AM_SYNTH_H
 #define AM_SYNTH_H
+#include <stdint.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 /* Minimal polyphonic synth (trial). Notes on the synth MIDI channel (default 16) play it; the output is added to the
  * shared input chain so Input FX, monitoring and recording treat it as an input source.
  * CC on channel 16: 70 wave (0 sine, 1 saw, 2 square, 3 triangle), 71 cutoff, 72 release,
@@ -10,7 +14,15 @@ void am_synth_note(unsigned note,unsigned velocity,int on);
  * bounded multiple-producer queue; the audio consumer never blocks. */
 int am_synth_try_note(unsigned note,unsigned velocity,int on);
 #ifdef MPC_PAD_MIDI_RECORDING_TRIAL
-void am_synth_force_note_off(unsigned note); /* bounded overflow/rollback safety; all voices at this pitch */
+void am_synth_force_note_off(unsigned note); /* overflow/rollback safety for legacy voices at this pitch */
+/* Sequencer ownership primitive, not a project/event ID. Accepted On changes
+ * *out only on success. Retry an unaccepted Off; reset invalidates all owned
+ * handles and pending Ons on the next audio buffer, without stopping legacy
+ * pad/MIDI voices. Never persist these runtime handles in XPJ. */
+struct am_synth_handle {uint64_t id;unsigned epoch;};
+int am_synth_owned_on(unsigned note,unsigned velocity,struct am_synth_handle*out);
+int am_synth_owned_off(struct am_synth_handle handle);
+int am_synth_owned_reset(void);
 #endif
 void am_synth_cc(unsigned cc,unsigned value);
 void am_synth_midi(const unsigned char *data,unsigned size); /* raw message, channel 16 only */
@@ -33,4 +45,7 @@ int am_synth_mic_muted(void); /* synth in use and Mic param Off: the input callb
 unsigned am_synth_param_get(unsigned index);
 void am_synth_param_set(unsigned index,unsigned value);
 void am_synth_render_add(float *left,float *right,unsigned frames);
+#ifdef __cplusplus
+}
+#endif
 #endif
