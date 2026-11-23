@@ -43,6 +43,7 @@ struct am_synth_state{float peak,env_level,bend,mod;unsigned env_stage,voices;un
 int am_synth_peek(struct am_synth_state*out); /* live state for the Mixer illustration; 0 when the synth is idle */
 int am_synth_mic_muted(void); /* synth in use and Mic param Off: the input callback silences the microphone */
 unsigned am_synth_param_get(unsigned index);
+int am_synth_param_value_valid(unsigned index,unsigned value);
 void am_synth_param_set(unsigned index,unsigned value);
 void am_synth_render_add(float *left,float *right,unsigned frames);
 #ifdef __cplusplus

@@ -6,6 +6,9 @@ struct live_note {
  unsigned used,released,sound,layer,route_count;uint64_t id;uintptr_t track,key_owner;unsigned key;
  struct am_midi_event source;uint16_t mask;unsigned char choices[16];
  struct live_route routes[4];
+#ifdef MPC_SYNTH_NATIVE_PLAYBACK_TRIAL
+ struct am_synth_sequence_voice synth;uint64_t synth_stop,synth_generation;unsigned synth_handled;
+#endif
 };
 static struct live_note live[LIVE_COUNT];
 static _Thread_local struct live_note *live_event,*live_release;
@@ -14,6 +17,12 @@ static _Thread_local unsigned live_blocked,release_scope,release_note;
 static _Thread_local uintptr_t release_track;
 static _Thread_local struct {uintptr_t owner;unsigned key,layer;} live_key,live_key_stack[8];
 static _Thread_local unsigned live_key_depth;
+#ifdef MPC_SYNTH_NATIVE_PLAYBACK_TRIAL
+static void synth_finish(struct live_note*);
+static void synth_scope_tick(void);
+static void *synth_instrument_on(void*,uint64_t,int,void*,const void*);
+static void synth_instrument_end(void*,int);
+#endif
 void am_midi_native_key_begin(void *owner,unsigned key,unsigned layer){
  if(live_key_depth<8)live_key_stack[live_key_depth]=live_key;
  ++live_key_depth;live_key.owner=live_key_depth<=8&&key<16?(uintptr_t)owner:0;live_key.key=key;live_key.layer=layer;
@@ -31,20 +40,39 @@ static void (*native_send)(void*,void*);
 static void (*native_filter)(void*,void*,int);
 static void (*native_port_queue)(void*,const void*);
 static struct live_note *live_start(const struct am_midi_context *context,const struct step_event *source){
- for(unsigned i=0;i<LIVE_COUNT;++i)if(!live[i].used||live[i].released){
+#ifdef MPC_SYNTH_NATIVE_PLAYBACK_TRIAL
+ synth_scope_tick();
+#endif
+ for(unsigned i=0;i<LIVE_COUNT;++i)if(!live[i].used||(live[i].released
+#ifdef MPC_SYNTH_NATIVE_PLAYBACK_TRIAL
+    &&!live[i].synth_handled
+#endif
+    )){
   struct live_note *n=live+i;
   memset(n,0,sizeof *n);n->used=1;n->track=context->track_id;
   n->source=context->event;n->sound=context->sound;
   memcpy(&n->mask,source->data+4,2);memcpy(n->choices,source->data+6,16);
   n->key_owner=live_key.owner;n->key=live_key.key;
+#ifdef MPC_SYNTH_NATIVE_PLAYBACK_TRIAL
+  n->synth_stop=am_synth_route_stop_serial();
+  n->synth_generation=am_synth_archive_generation();
+#endif
   n->layer=!!n->mask||(n->key_owner&&live_key.layer);return n;
  }
  return NULL;
 }
 static struct live_note *live_repeat(const struct live_note *source){
- for(unsigned i=0;i<LIVE_COUNT;++i)if(!live[i].used||live[i].released){
+ for(unsigned i=0;i<LIVE_COUNT;++i)if(!live[i].used||(live[i].released
+#ifdef MPC_SYNTH_NATIVE_PLAYBACK_TRIAL
+    &&!live[i].synth_handled
+#endif
+    )){
   struct live_note *n=live+i;if(n==source)continue;
-  *n=*source;n->id=0;n->released=0;n->route_count=0;memset(n->routes,0,sizeof n->routes);return n;
+  *n=*source;n->id=0;n->released=0;n->route_count=0;memset(n->routes,0,sizeof n->routes);
+#ifdef MPC_SYNTH_NATIVE_PLAYBACK_TRIAL
+  memset(&n->synth,0,sizeof n->synth);n->synth_handled=0;
+#endif
+  return n;
  }
  return NULL;
 }
@@ -88,7 +116,11 @@ static void live_off_route(struct live_note *n,struct live_route *r,uint64_t off
  native_off(r->owner,offset,r->route,r->channel,r->note);live_command=previous;r->released=1;
 }
 static void live_finish(struct live_note *n,uint64_t offset){
- if(!n||n->released)return;
+ if(!n)return;
+#ifdef MPC_SYNTH_NATIVE_PLAYBACK_TRIAL
+ synth_finish(n);
+#endif
+ if(n->released)return;
  for(unsigned j=0;j<n->route_count;++j)live_off_route(n,n->routes+j,offset);
  n->released=1;
 }
@@ -112,7 +144,12 @@ static void live_off(void *owner,uint64_t offset,int route,unsigned channel,unsi
   if(n->route_count){
    unsigned pending=0;
    for(unsigned j=0;j<n->route_count;++j)pending|=!n->routes[j].released;
-   if(!pending)n->released=1;
+   if(!pending){
+#ifdef MPC_SYNTH_NATIVE_PLAYBACK_TRIAL
+    synth_finish(n);
+#endif
+    n->released=1;
+   }
   }
  }
  if(!owned)native_off(owner,offset,route,channel,note);
@@ -143,14 +180,24 @@ static void live_release_note(void *engine,uint64_t offset,void *track,unsigned 
   const struct step_event *entry=live_scheduled;
   struct am_midi_event value;
   if(entry&&am_midi_event_copy(entry,(am_midi_choice_get)(image+0x27e4230),AM_MIDI_EVENT_NOTE_ON,&value))
-   for(unsigned i=0;i<LIVE_COUNT;++i)if(live[i].used&&live[i].track==(uintptr_t)track&&live_same(&live[i].source,&value)){match=live+i;break;}
+   for(unsigned i=0;i<LIVE_COUNT;++i)if(live[i].used&&live[i].track==(uintptr_t)track&&live_same(&live[i].source,&value)){
+#ifdef MPC_SYNTH_NATIVE_PLAYBACK_TRIAL
+    if(!match||live[i].id<match->id)match=live+i;
+#else
+    match=live+i;break;
+#endif
+   }
  }
  live_release=match;
  native_release(engine,offset,track,note,tag,channel,kind,scheduled);
  if(match){live_finish(match,offset);live_forget(match);}
  else if(!live_scheduled){
   for(unsigned i=0;i<LIVE_COUNT;++i)if(live[i].used&&live[i].track==(uintptr_t)track&&live[i].source.source_note==(note&255)){
-   live_finish(live+i,offset);live_forget(live+i);
+   live_finish(live+i,offset);
+#ifdef MPC_SYNTH_NATIVE_PLAYBACK_TRIAL
+   if(!live[i].synth_handled)
+#endif
+    live_forget(live+i);
   }
  }
  live_release=previous;
@@ -163,6 +210,9 @@ static void live_scheduled_release(void *engine,uint64_t offset,void *track,unsi
  ((void(*)(void*,uint64_t,void*,unsigned,unsigned,unsigned,unsigned,unsigned))(image+0x2118460))(engine,offset,track,note,tag,channel,kind,flags);
  live_scheduled=previous;
 }
+#ifdef MPC_SYNTH_NATIVE_PLAYBACK_TRIAL
+#include "synth_live.inc"
+#endif
 void am_midi_native_release_choice(void *track,unsigned source,unsigned choice){
  if(!image||!track||source>=128)return;
  const unsigned char *program;memcpy(&program,(char*)track+0xbb8,sizeof program);if(!program)return;

@@ -434,7 +434,7 @@ int mixer_control_button(struct mixer_control*c,enum mixer_action action,int dow
         if(!down&&(c->owned_buttons&bit)){c->owned_buttons&=~bit;return 1;}
         if(down&&c->shift&&c->active&&c->view.synth_page&&c->view.synth_keys&&!c->naming){
             synth_release_all(c);int state=workflow_synth_record_toggle();
-            c->message=state>0?"MIDI trial: empty A16":state==0?"MIDI trial off":"A16 must be empty";
+            c->message=state>0?"MIDI trial: empty A16":state==0?"MIDI trial off":state==-2?"Synth data read-only":state==-3?"Synth binding unavailable":"A16 must be empty";
             c->owned_buttons|=bit;return 1;
         }
 #endif

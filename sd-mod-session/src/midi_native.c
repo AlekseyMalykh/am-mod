@@ -2,6 +2,12 @@
 #include "midi_native.h"
 #include "midi_context.h"
 #include "midi_wire.h"
+#ifdef MPC_SYNTH_NATIVE_PLAYBACK_TRIAL
+#include "synth_accept_native.h"
+#include "synth_archive.h"
+#include "synth_sequence.h"
+#include "synth_route.h"
+#endif
 #include <stdio.h>
 #include <string.h>
 #include <sys/mman.h>
@@ -70,7 +76,11 @@ static void event(void *track,uint64_t offset,const struct step_event *incoming,
  live_event=am_midi_context_snapshot(&value)?live_start(&value,source):NULL;
  live_blocked=!live_event&&am_midi_context_snapshot(&value);
  if(!emulated)original(track,offset,source,output);
- if(live_event&&!live_event->route_count)live_forget(live_event);
+ if(live_event&&!live_event->route_count
+#ifdef MPC_SYNTH_NATIVE_PLAYBACK_TRIAL
+    &&!live_event->synth_handled
+#endif
+   )live_forget(live_event);
  live_event=previous;live_blocked=blocked;am_midi_context_end(&frame);
 }
 struct hook {uintptr_t offset,callback;uint32_t expected[4];void **saved;};
@@ -138,5 +148,8 @@ int am_midi_native_install(uintptr_t base){
  image=base;
  for(unsigned i=0;i<sizeof hooks/sizeof *hooks;++i)if(!install_hook(base,hooks+i))_exit(121);
  if(!install_scheduled_call(base))_exit(121);
+#ifdef MPC_SYNTH_NATIVE_PLAYBACK_TRIAL
+ if(!am_synth_accept_native_install(base,synth_instrument_on,synth_instrument_end))_exit(121);
+#endif
  fprintf(stderr,"AM_MIDI_NATIVE SOURCE_CONTEXT_INSTALLED LIVE_LAYERS_INSTALLED\n");return 1;
 }

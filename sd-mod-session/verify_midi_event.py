@@ -1,13 +1,14 @@
 """Run real firmware event factory and packed modifiers against the new snapshot."""
 from pathlib import Path
-import hashlib,json,subprocess
+import argparse,hashlib,json,os,subprocess
 R=Path(__file__).resolve().parent;O=R/'build/midi-events';O.mkdir(parents=True,exist_ok=True)
 proof=O/'snapshot-verification.json'
 proof.unlink(missing_ok=True)
 sources=['check_midi_wire.c','check_midi_live_native.c','src/midi_wire.c','src/midi_wire.h','src/midi_live.inc','src/midi_tools.c','src/midi_tools.h','src/midi_route.c','src/midi_route.h','src/midi_event.c','src/midi_event.h','src/midi_context.c','src/midi_context.h','src/midi_native.c','src/midi_native.h','src/midi_voice.c','src/midi_voice.h','check_midi_context.c','check_midi_context_native.c','check_midi_voice.c','check_midi_event_native.c','check_midi_backend_native.c','check_fx_native.c','verify_midi_event.py']
 digest=lambda p:hashlib.sha256((R/p).read_bytes()).hexdigest()
 before={p:digest(p) for p in sources}
-stock=R.parent/'extracted_v1.3.0/partitions/part3/usr/bin/MPC Sample'
+parser=argparse.ArgumentParser();parser.add_argument('--stock',default=os.environ.get('MPC_STOCK_APP'));args=parser.parse_args()
+stock=Path(args.stock).resolve() if args.stock else R.parent/'extracted_v1.3.0/partitions/part3/usr/bin/MPC Sample'
 assert hashlib.sha256(stock.read_bytes()).hexdigest()=='b6584cba76e416e432ad202509099d34373dc2c3d6a8fb625f5678bf0193b508'
 for mode,flags in [('normal',[]),('ubsan',['-fsanitize=undefined','-static-libubsan','-fno-sanitize-recover=all'])]:
     target=O/('native-'+mode)

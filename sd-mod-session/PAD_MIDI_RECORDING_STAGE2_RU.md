@@ -1,5 +1,7 @@
 # Native Engine, XPJ и аппаратный путь Synth Keys
 
+Актуальное продолжение: [привязка Synth и native playback trial](SYNTH_NATIVE_PLAYBACK_TRIAL_RU.md). Это изолированные тесты нового исходного кода; приведённая здесь полная VM-библиотека остаётся прежним checkpoint.
+
 Следующее изменение после проверки этого этапа: [ядро приёма событий Synth и владение голосами](SYNTH_SEQUENCE_CORE_RU.md). Проверенная здесь полная VM-библиотека относится к прежнему checkpoint; новый приёмник пока не включён в native playback.
 
 Работа ведётся только в `codex/pad-midi-recording`. Это opt-in прототип, не release для физической карты.

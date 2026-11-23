@@ -276,7 +276,9 @@ void am_synth_render_add(float *left,float *right,unsigned frames){
  atomic_store_explicit(&active_voices,alive,memory_order_release);
 }
 unsigned am_synth_param_get(unsigned index){return index<AM_SYNTH_PARAMS?atomic_load(params[index]):0;}
-void am_synth_param_set(unsigned index,unsigned value){if(index<AM_SYNTH_PARAMS)atomic_store(params[index],index==0?value%4:index==7?value%16:index==8?value%2:index==9?value%3:index==10?value%2:index==11||index==16?value%3:index==17?value%4:index==22||index==35?value%4:value>127?127:value);}
+static unsigned param_value(unsigned index,unsigned value){return index==0?value%4:index==7?value%16:index==8?value%2:index==9?value%3:index==10?value%2:index==11||index==16?value%3:index==17?value%4:index==22||index==35?value%4:value>127?127:value;}
+int am_synth_param_value_valid(unsigned index,unsigned value){return index<AM_SYNTH_PARAMS&&value==param_value(index,value);}
+void am_synth_param_set(unsigned index,unsigned value){if(index<AM_SYNTH_PARAMS)atomic_store(params[index],param_value(index,value));}
 int am_synth_direct_out(void){return atomic_load(&direct_out)!=0;}
 
 /* The microphone is muted only while the synth is being played (10 s after the last note), so the mic works again by itself. */

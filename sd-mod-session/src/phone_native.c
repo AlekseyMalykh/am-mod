@@ -1,6 +1,12 @@
 #define _GNU_SOURCE
 #include "phone_input.h"
 #include "phone_events.h"
+#ifdef MPC_PAD_MIDI_RECORDING_TRIAL
+#include "synth_archive.h"
+#ifdef MPC_SYNTH_NATIVE_PLAYBACK_TRIAL
+#include "synth_route.h"
+#endif
+#endif
 #ifdef MPC_SAMPLE_LIVE_TUNER
 #include "sample_live_tuner.h"
 #endif
@@ -1345,7 +1351,11 @@ static void tick(void *unused)
     levels_state_tick();
 #ifdef MPC_PAD_MIDI_RECORDING_TRIAL
     {static unsigned synth_stop_was;unsigned synth_stop=atomic_load(&synth_record_stop_serial);
-     if(synth_stop!=synth_stop_was)workflow_synth_record_stop();
+     if(synth_stop!=synth_stop_was){workflow_synth_record_stop();
+#ifdef MPC_SYNTH_NATIVE_PLAYBACK_TRIAL
+      am_synth_route_stop();
+#endif
+     }
      synth_stop_was=synth_stop;}
 #endif
     int note_running=note_native_tick();
@@ -1779,7 +1789,7 @@ static void sixteen_process(void *properties,int pad,void *event)
 }
 static void music_save_base(void *p,void *a)
 { music_archive_save(p,a,ORIG(H_MUSIC_SAVE,void(*)(void*,void*))); }
-static void music_save(void *p,void *a)
+static void music_save_mixer(void *p,void *a)
 {
 #ifdef MPC_MIXER_ARCHIVE
     mixer_archive_save(p,a,music_save_base);
@@ -1787,9 +1797,17 @@ static void music_save(void *p,void *a)
     music_save_base(p,a);
 #endif
 }
+static void music_save(void *p,void *a)
+{
+#ifdef MPC_PAD_MIDI_RECORDING_TRIAL
+    am_synth_archive_save(p,a,music_save_mixer);
+#else
+    music_save_mixer(p,a);
+#endif
+}
 static void music_load_base(void *p,void *a)
 { music_archive_load(p,a,ORIG(H_MUSIC_LOAD,void(*)(void*,void*))); }
-static void music_load(void *p,void *a)
+static void music_load_mixer(void *p,void *a)
 {
 #ifdef MPC_REAR_ROUTING
     rear_native_project_changed();
@@ -1806,9 +1824,18 @@ static void music_load(void *p,void *a)
     music_load_base(p,a);
 #endif
 }
+static void music_load(void *p,void *a)
+{
+#ifdef MPC_PAD_MIDI_RECORDING_TRIAL
+    am_synth_owned_reset();
+    am_synth_archive_load(p,a,music_load_mixer);
+#else
+    music_load_mixer(p,a);
+#endif
+}
 static int music_read_base(void *p,void *j)
 { return music_archive_read(p,j,ORIG(H_MUSIC_READ,int(*)(void*,void*))); }
-static int music_read(void *p,void *j)
+static int music_read_mixer(void *p,void *j)
 {
 #ifdef MPC_REAR_ROUTING
     rear_native_project_changed();
@@ -1826,6 +1853,15 @@ static int music_read(void *p,void *j)
 #endif
     if (result) step_native_project_changed();
     return result;
+}
+static int music_read(void *p,void *j)
+{
+#ifdef MPC_PAD_MIDI_RECORDING_TRIAL
+    am_synth_owned_reset();
+    return am_synth_archive_read(p,j,music_read_mixer);
+#else
+    return music_read_mixer(p,j);
+#endif
 }
 static void music_key(void *p,void *a,const void *pair)
 { music_archive_key(p,a,pair,ORIG(H_MUSIC_KEY,void(*)(void*,void*,const void*))); }
@@ -1848,6 +1884,10 @@ static void new_project(void *p,int *choice)
 #endif
     if (confirmed) {
         music_reset();
+#ifdef MPC_PAD_MIDI_RECORDING_TRIAL
+        am_synth_owned_reset();
+        am_synth_archive_reset();
+#endif
 #ifdef MPC_MIXER_ARCHIVE
         mixer_archive_reset();
 #endif
@@ -3914,6 +3954,9 @@ static void load(void)
     knob_reset_init(base);
 #endif
     music_reset(); music_lighting_preferences_init(); music_archive_init(base); music_ui_init(base);
+#ifdef MPC_PAD_MIDI_RECORDING_TRIAL
+    am_synth_archive_init(base);
+#endif
 #ifdef MPC_MIXER_ARCHIVE
     mixer_archive_init(base);
 #endif
