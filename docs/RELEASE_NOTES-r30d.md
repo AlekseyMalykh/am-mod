@@ -1,10 +1,18 @@
-# Am MOD r30d beta1 — synth, Input ROUTE, bootloader exit
+# Am MOD r30d beta2 — synth, Input ROUTE, bootloader exit
 
-> **BETA — r30d-beta1.** Compatibility with other mods and boot menus (Stock, SampQOL, D.S.B, SampleBoot, mpc-boot-thingy) is still being tested. Back up your projects and card first. Items marked *pending* passed host/emulator checks but still need a check on a physical MPC.
+> **BETA — r30d-beta2.** Compatibility with other mods and boot menus (Stock, SampQOL, D.S.B, SampleBoot, mpc-boot-thingy) is still being tested. Back up your projects and card first. Items marked *pending* passed host/emulator checks but still need a check on a physical MPC.
 
 For **Akai MPC Sample stock firmware 1.3.0.12**. This release continues r30c-beta1; installed firmware is never rewritten.
 
 ![Synth modules](media/r30d/synth-modules-en.png)
+
+## Fixes in beta2
+
+- **USB inputs** (USB, USB L, USB R) now go through the Input track: Input FX, fader, pan and mute apply to them. USB was mislabelled as a different input before, and its signal arrives on a native channel pair the mod did not process.
+- **Input list order:** Source, Mode, Monitor, Threshold, Record via, Record track, Record FX, Tuner, MIDI In. **Monitor** has Off / Auto / On for every source and enables Rear monitoring from the Mixer. Record track shows "-" for Master and Input.
+- **Pan on K1 of the FX chain** for tracks, the Input track and Master (Pad Bank + K1 resets it to centre). On the Input ROUTE tab K1 = Pan, K2 = Threshold, K3 = Source for every source, Rear included; the L/R pan and level of the Rear channels stay in Rear Routing.
+- **Rear mode:** the Mode row for Rear starts in **Stereo** (listed first, the default when you choose Rear) and offers Rear L, Rear R, L+R Split and L+R Mix. The monitor follows the mode: Rear L plays the left jack only, Rear R the right one, the others both. The MPC's physical output-level panel shows the Rear signal.
+- D.S.B: the record label under AM Mod now shows the current version.
 
 ## Synth (Mixer pad 13)
 

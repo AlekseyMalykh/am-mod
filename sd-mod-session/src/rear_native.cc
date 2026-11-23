@@ -513,6 +513,8 @@ extern "C" void rear_native_tick(int visible) {
     {float gm = workflow_main_output_gain(); synth_main_gain.store(gm < 0.f ? 1.f : gm, std::memory_order_relaxed);}
     if (custom_monitor) main_gain.store(std::fmax(0.f, workflow_main_output_gain()), std::memory_order_relaxed);
     monitor_active.store(custom_monitor,std::memory_order_release);
+    {static int last_log=-1;int key=(source&7)|((monitor&3)<<3)|(enabled?32:0)|(custom_monitor?64:0)|(have_monitor?128:0)|(visible?256:0);
+     if(key!=last_log){last_log=key;std::fprintf(stderr,"REAR_MONITOR source=%d monitor=%d enabled=%d have_native_monitor=%d visible=%d custom=%d suppress_native=%d\n",source,monitor,enabled?1:0,have_monitor?1:0,visible?1:0,custom_monitor?1:0,(rear&&enabled)?1:0);}}
     unsigned state = rear_record_state();
     if (s->phase.load(std::memory_order_acquire)==2) {
         if ((source != 1 || !model(s)) && state >= REAR_PREPARING && state <= REAR_FINISHING) rear_record_cancel();
@@ -545,7 +547,7 @@ extern "C" int rear_native_threshold(float *db) { auto *s = session.load(); if(!
  * 1563370 and Property<float>::set(obj=props+0x28, dB) 13bbb20; both notify the stock UI/observers. Fail closed. */
 extern "C" int rear_native_source_set(int v) {
     auto *s=session.load();
-    if(!s||!s->live.load()||!s->properties_input||s->busy.load()||(v!=0&&v!=1&&v!=2&&v!=4&&v!=6&&v!=7))return 0;
+    if(!s||!s->live.load()||!s->properties_input||s->busy.load()||(v!=0&&v!=1&&v!=4&&v!=5&&v!=6&&v!=7))return 0;
     if(FIELD((void*)(image+0x1563370),0,uint32_t)!=0xd503233fu)return 0;
     int cur=FIELD(s->properties_input,0x24,int);if(cur<0||cur>7)return 0;
     if(cur!=v)native<void(*)(void *,int)>(0x1563370)(static_cast<char *>(s->properties_input)+0x8,v);
@@ -556,7 +558,7 @@ extern "C" int rear_native_source_set(int v) {
  * Returns 0 while a recording holds the source. */
 extern "C" int rear_native_use_synth(void) {
     int cur = rear_native_source();
-    if (cur != 0 && cur != 1 && cur != 2 && cur != 6 && cur != 7 && !rear_native_source_set(0)) return 0;
+    if (cur != 0 && cur != 1 && cur != 5 && cur != 6 && cur != 7 && !rear_native_source_set(0)) return 0;
     if (input_fx_set_mode) input_fx_set_mode(2);
     return 1;
 }

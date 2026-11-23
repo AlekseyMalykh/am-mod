@@ -1,10 +1,18 @@
-# Am MOD r30d beta1 — sintetizador, Input ROUTE, salida al cargador
+# Am MOD r30d beta2 — sintetizador, Input ROUTE, salida al cargador
 
-> **BETA — r30d-beta1.** La compatibilidad con otros mods y menús de arranque (Stock, SampQOL, D.S.B, SampleBoot, mpc-boot-thingy) sigue en pruebas. Haz copia de seguridad de tus proyectos y de la tarjeta. Lo marcado como *pendiente* pasó las pruebas en host/emulador, pero aún falta probarlo en un MPC real.
+> **BETA — r30d-beta2.** La compatibilidad con otros mods y menús de arranque (Stock, SampQOL, D.S.B, SampleBoot, mpc-boot-thingy) sigue en pruebas. Haz copia de seguridad de tus proyectos y de la tarjeta. Lo marcado como *pendiente* pasó las pruebas en host/emulador, pero aún falta probarlo en un MPC real.
 
 Para el **Akai MPC Sample con firmware original 1.3.0.12**. Esta versión continúa r30c-beta1; el firmware instalado no se reescribe.
 
 ![Módulos del sintetizador](media/r30d/synth-modules-es.png)
+
+## Correcciones en beta2
+
+- Las **entradas USB** (USB, USB L, USB R) ahora pasan por la pista Input: se les aplican Input FX, fader, pan y mute. Antes USB estaba etiquetado como otra entrada y su señal llega en un par de canales que el mod no procesaba.
+- **Orden de la lista Input:** Source, Mode, Monitor, Threshold, Record via, Record track, Record FX, Tuner, MIDI In. **Monitor** ofrece Off / Auto / On para cualquier fuente y activa el monitoreo de Rear desde el Mixer. Record track muestra «-» para Master e Input.
+- **Pan en K1 de la cadena FX** para pistas, la pista Input y Master (Pad Bank + K1 lo lleva al centro). En la pestaña ROUTE de Input, K1 = Pan, K2 = Threshold y K3 = Source para cualquier fuente, incluido Rear; el pan y el nivel de los canales de Rear siguen en Rear Routing.
+- **Modo Rear:** la fila Mode de Rear empieza en **Stereo** (primera opción y valor por defecto al elegir Rear) y ofrece Rear L, Rear R, L+R Split y L+R Mix. El monitor sigue el modo: Rear L reproduce solo la entrada izquierda, Rear R solo la derecha, el resto ambas. El panel físico de nivel de salida del MPC muestra la señal de Rear.
+- D.S.B: la etiqueta del registro de AM Mod muestra la versión actual.
 
 ## Sintetizador (pad 13 del mezclador)
 

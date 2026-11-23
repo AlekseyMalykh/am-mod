@@ -1,5 +1,16 @@
 # Changelog
 
+## r30d-beta2 — beta
+
+Fixes on top of r30d-beta1:
+
+- USB, USB L and USB R go through the Input track (Input FX, fader, pan, mute); the USB source was mislabelled.
+- Input list order: Source, Mode, Monitor, Threshold, Record via, Record track, Record FX, Tuner, MIDI In; Monitor Off / Auto / On for all sources; Record track "-" for Master and Input.
+- K1 = Pan on the FX chain for tracks, Input and Master; Input ROUTE K1 = Pan, K2 = Threshold, K3 = Source for every source including Rear.
+- Rear Mode starts in Stereo (default, first option); the monitor follows the mode (Rear L left only, Rear R right only); the MPC output-level panel shows Rear.
+- D.S.B record label shows the current version.
+- Log diagnostics: `REAR_MONITOR`, `INPUT_FX_PAIRS`.
+
 ## r30d-beta1 — beta
 
 **Beta:** compatibility with other mods and boot menus (Stock, SampQOL, D.S.B, SampleBoot, mpc-boot-thingy) still needs testing; the items below were finished after the last full device check and await hardware verification.

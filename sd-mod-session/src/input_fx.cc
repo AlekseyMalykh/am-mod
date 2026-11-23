@@ -212,12 +212,32 @@ extern "C" int input_fx_audio(void*buffer,unsigned rate){
  float**data;std::memcpy(&data,(char*)buffer+16,sizeof data);
  if(channels<1||channels>64||frames<1||frames>8192||!data||!data[0]||(channels>1&&!data[1]))return 0;
  seen_rate.store(rate,std::memory_order_release);
+ int ib=0;{int us=rear_native_source?rear_native_source():-1;if((us==5||us==6||us==7)&&channels>=4&&data[2]&&data[3])ib=2;} /* USB arrives on native pair 2/3, not 0/1 */
  {static unsigned calls;if(calls<3&&++calls)std::fprintf(stderr,"INPUT_FX audio call=%u channels=%d frames=%d lane0=%d mode=%d\n",calls,channels,frames,(int)lanes[0].active.load(),music_fx_mode_active?(int)music_fx_mode_active():-1);}
+ {   /* Diagnostic: which channel pair of the native input buffer carries the signal, per source (USB fader report). */
+  static float cpeak[8];static unsigned ccalls,clogs,csilent;
+  int cn=channels<8?channels:8;
+  if(*((unsigned char*)buffer+0x128)&1){++csilent;}
+  else{
+   for(int c=0;c<cn;++c){
+    float m=cpeak[c];
+    if(data[c]){for(int n=0;n<frames;++n){float v=data[c][n];if(std::isfinite(v)&&std::fabs(v)>m)m=std::fabs(v);}}
+    cpeak[c]=m;
+   }
+  }
+  if(++ccalls>=256){
+   ccalls=0;float mx=0;
+   for(int c=0;c<cn;++c){if(cpeak[c]>mx){mx=cpeak[c];}}
+   if((mx>.001f||csilent<256)&&clogs<300){++clogs;std::fprintf(stderr,"INPUT_FX_PAIRS src=%d channels=%d fader=%.3f/%.3f lane0=%d mode=%u silent=%u/256 peaks=%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f\n",rear_native_source?rear_native_source():-1,channels,(double)gain_input[0].load(),(double)gain_input[1].load(),(int)lanes[0].active.load(),in_mode.load(),csilent,(double)cpeak[0],(double)cpeak[1],(double)cpeak[2],(double)cpeak[3],(double)cpeak[4],(double)cpeak[5],(double)cpeak[6],(double)cpeak[7]);}
+   for(int c=0;c<8;++c){cpeak[c]=0;}
+   csilent=0;
+  }
+ }
  {   /* Input level for the Mixer strip: raw peak of the selected input, slow release. */
   bool silent_in=*((unsigned char*)buffer+0x128)&1;
   float pl=0,pr=0;
   if(!silent_in)for(int n=0;n<frames;++n){
-   float l=data[0][n],r=data[channels>1?1:0][n];
+   float l=data[ib][n],r=data[ib+(channels>ib+1?1:0)][n];
    if(std::isfinite(l))pl=std::max(pl,std::fabs(l));
    if(std::isfinite(r))pr=std::max(pr,std::fabs(r));
   }
@@ -228,7 +248,7 @@ extern "C" int input_fx_audio(void*buffer,unsigned rate){
   bool silent_in=*((unsigned char*)buffer+0x128)&1;
   unsigned w=tune_write.load(std::memory_order_relaxed);
   for(int n=0;n<frames;++n){
-   float l=data[0][n],r=data[channels>1?1:0][n];
+   float l=data[ib][n],r=data[ib+(channels>ib+1?1:0)][n];
    tune_ring[(w+(unsigned)n)&8191]=silent_in||!std::isfinite(l)||!std::isfinite(r)?0.f:(l+r)*.5f;
   }
   tune_write.store(w+(unsigned)frames,std::memory_order_release);
@@ -242,7 +262,7 @@ extern "C" int input_fx_audio(void*buffer,unsigned rate){
  if(processing.test_and_set(std::memory_order_acquire))return 0;
  bool clear=*((unsigned char*)buffer+0x128)&1;
  for(int n=0;n<frames;++n)for(unsigned ch=0;ch<2;++ch){
-  float sample=clear?0.f:data[channels==1?0:ch][n];if(!std::isfinite(sample))sample=0;
+  float sample=clear?0.f:data[channels==1?0:ib+ch][n];if(!std::isfinite(sample))sample=0;
   original[n*2+ch]=pcm[n*2+ch]=sample;
  }
  uint64_t versions[3]={lanes[0].published.load(std::memory_order_acquire),lanes[1].published.load(std::memory_order_acquire),lanes[2].published.load(std::memory_order_acquire)};
@@ -273,15 +293,15 @@ extern "C" int input_fx_audio(void*buffer,unsigned rate){
  }
  bool valid=true;for(int n=0;n<frames*2;++n)if(!std::isfinite(pcm[n])){valid=false;break;}
  if(!valid){std::memcpy(pcm,original,(size_t)frames*2*sizeof(float));state.store(3,std::memory_order_release);}
- if(clear)for(int ch=2;ch<channels;++ch)if(data[ch])std::memset(data[ch],0,(size_t)frames*sizeof(float));
+ if(clear)for(int ch=0;ch<channels;++ch)if((ch<ib||ch>=ib+2)&&data[ch])std::memset(data[ch],0,(size_t)frames*sizeof(float));
  bool silent=true;
  for(int n=0;n<frames;++n){
   if(channels==1){data[0][n]=(pcm[n*2]+pcm[n*2+1])*.5f;silent&=data[0][n]==0;}
-  else for(unsigned ch=0;ch<2;++ch){data[ch][n]=pcm[n*2+ch];silent&=data[ch][n]==0;}
+  else for(unsigned ch=0;ch<2;++ch){data[ib+ch][n]=pcm[n*2+ch];silent&=data[ib+ch][n]==0;}
  }
  /* Additional native channel pairs are left intact. Do not mark a buffer
   * silent when another pair carries data. */
- for(int ch=2;ch<channels&&silent;++ch)if(data[ch])for(int n=0;n<frames&&silent;++n)silent&=data[ch][n]==0;
+ for(int ch=0;ch<channels&&silent;++ch)if((ch<ib||ch>=ib+2)&&data[ch])for(int n=0;n<frames&&silent;++n)silent&=data[ch][n]==0;
  *((unsigned char*)buffer+0x128)=silent?1:0;
  lane_done(lanes[0],versions[0]);
  if(track_used)lane_done(lanes[1],versions[1]);

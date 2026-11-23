@@ -1,4 +1,4 @@
-# Установка и обновление Am MOD r30d-beta1
+# Установка и обновление Am MOD r30d-beta2
 
 [Главная](../README.ru.md) · [Руководство](USER_GUIDE.ru.md) · [English](INSTALL.md) · [Español](INSTALL.es.md)
 
@@ -6,18 +6,18 @@
 
 Нужен **Akai MPC Sample** с прошивкой **1.3.0.12** (на экране 1.3.0). Другие модели MPC и прошивки не поддерживаются. Скопируйте всю карту в резервную копию: прежде всего `MPC-Sample`, проекты, сэмплы и настройки. Рекомендуется exFAT. FAT32 экспериментален и не хранит файлы от 4 ГиБ. Имя тома — латиница/цифры без пробелов, например `MPC`.
 
-Мод запускает копию приложения в RAM и не перепрошивает устройство. В кандидате r30d-beta1 **проекты, сэмплы и аудиоэкспорты Internal постоянно хранятся во внутренней памяти**; остальные системные данные остаются изолированными. Штатная K3 выбирает Internal/External в окнах Save/Export. У старых SD-only пакетов сохраняются прежние ограничения. Штатная прошивка и старые моды могут потерять новые поля при пересохранении проекта; работайте с отдельной копией.
+Мод запускает копию приложения в RAM и не перепрошивает устройство. В кандидате r30d-beta2 **проекты, сэмплы и аудиоэкспорты Internal постоянно хранятся во внутренней памяти**; остальные системные данные остаются изолированными. Штатная K3 выбирает Internal/External в окнах Save/Export. У старых SD-only пакетов сохраняются прежние ограничения. Штатная прошивка и старые моды могут потерять новые поля при пересохранении проекта; работайте с отдельной копией.
 
 ![Три варианта установки](media/r30c/install-ru.png)
 
 ## Рекомендуется: установщик 1.4.0
 
-1. Скачайте `am-mod-r30d-beta1.zip`, `MPC-Sample-Mod-Installer.exe` и `SHA256SUMS.txt` со [страницы r30d-beta1](https://github.com/AlekseyMalykh/am-mod/releases/tag/r30d-beta1). Для установщика ZIP распаковывать не нужно.
+1. Скачайте `am-mod-r30d-beta2.zip`, `MPC-Sample-Mod-Installer.exe` и `SHA256SUMS.txt` со [страницы r30d-beta2](https://github.com/AlekseyMalykh/am-mod/releases/tag/r30d-beta2). Для установщика ZIP распаковывать не нужно.
 2. Сохраните текущий проект в External. Подключите карту через картридер или Project → SD Card Access. Для первой установки используйте штатное окно USB-накопителя или картридер.
 3. Запустите установщик, выберите ZIP мода, обновите список карт и проверьте диск, имя и размер выбранной карты. Нажмите Install.
 4. Установщик проверит пакет, распознает структуру ниже, сохранит предыдущий autorun в `~/AM-Mod-Backups/`, скопирует и сверит файлы. Это копия autorun, не проектов. Не отсоединяйте устройство во время записи.
 5. Безопасно извлеките диск в ОС компьютера. В SD-окне AM Mod — B3 Disconnect, затем B3 Return; в штатной прошивке следуйте её инструкции отключения.
-6. Выключите и включите MPC: копирование обновления не меняет уже запущенное приложение в RAM. В меню загрузчика выберите AM Mod. Проверьте r30d-beta1 в **Project → Mod Settings → About**.
+6. Выключите и включите MPC: копирование обновления не меняет уже запущенное приложение в RAM. В меню загрузчика выберите AM Mod. Проверьте r30d-beta2 в **Project → Mod Settings → About**.
 
 | Карта | Куда устанавливается AM | Что сохраняется |
 |---|---|---|
@@ -35,8 +35,8 @@
 
 ```bash
 python3 installer/mpc_mod_installer.py cards
-python3 installer/mpc_mod_installer.py install am-mod-r30d-beta1.zip --card /Volumes/MPC --dry-run
-python3 installer/mpc_mod_installer.py install am-mod-r30d-beta1.zip --card /Volumes/MPC
+python3 installer/mpc_mod_installer.py install am-mod-r30d-beta2.zip --card /Volumes/MPC --dry-run
+python3 installer/mpc_mod_installer.py install am-mod-r30d-beta2.zip --card /Volumes/MPC
 python3 installer/mpc_mod_installer.py status --card /Volumes/MPC
 ```
 

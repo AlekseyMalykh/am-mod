@@ -201,7 +201,7 @@ static void paint(void *p,void *g){
                 mixer_view_synth_cfg_text(shifted?15:12,l,r,sc,t,rec_role,cols,lab,sizeof lab,val,sizeof val);panel(g,2,lab,val,1,shifted,0,0);
             }else if(mixer_view_route_text){
                 char lab[24],val[24];unsigned src=(unsigned)rear_native_source(),shifted=music_ui_shift_active()!=0;
-                int has_mode=src==2||src==6||src==7;
+                int has_mode=src==5||src==6||src==7;
                 mixer_view_route_text(shifted&&has_mode?6:5,lab,sizeof lab,val,sizeof val);
                 panel(g,0,lab,val,has_mode,shifted&&has_mode,0,0);
             }
@@ -425,7 +425,7 @@ int rear_ui_control_at(void *event,unsigned shift){
         /* Sample Record K1: input Source (Mic, Rear, USB, Resample, Synth); Shift+K1: Rear mode / USB mode. */
         unsigned src=(unsigned)rear_native_source();
         if(shift){
-            if(src==2||src==6||src==7)mixer_input_row_apply(6,0,1,value); /* Rear mode stays on Shift+B2 (its pad choice lives there) */
+            if(src==5||src==6||src==7)mixer_input_row_apply(6,0,1,value); /* Rear mode stays on Shift+B2 (its pad choice lives there) */
         }else{
             unsigned before=src;
             mixer_input_row_apply(5,0,1,value);

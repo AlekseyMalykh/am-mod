@@ -1,10 +1,10 @@
-# Am MOD r30d beta1
+# Am MOD r30d beta2
 
 **A mixer, built-in synth, illustrated effects, Piano Roll and MIDI tools for Akai MPC Sample.**
 
-**English** · [Русский](README.ru.md) · [Español](README.es.md) · [Download r30d beta1](https://github.com/AlekseyMalykh/am-mod/releases/tag/r30d-beta1)
+**English** · [Русский](README.ru.md) · [Español](README.es.md) · [Download r30d beta2](https://github.com/AlekseyMalykh/am-mod/releases/tag/r30d-beta2)
 
-> **BETA — r30d-beta1.** This is a beta release. **Compatibility with other mods and boot menus (Stock, SampQOL, D.S.B, SampleBoot, mpc-boot-thingy) still requires testing** — do not use it on the only copy of important projects; back up first. Please report problems.
+> **BETA — r30d-beta2.** This is a beta release. **Compatibility with other mods and boot menus (Stock, SampQOL, D.S.B, SampleBoot, mpc-boot-thingy) still requires testing** — do not use it on the only copy of important projects; back up first. Please report problems.
 
 Am MOD starts from an SD card on firmware **1.3.0.12**. The application runs in RAM; the installed firmware is not flashed. Start without the mod card to use stock firmware.
 
@@ -26,7 +26,7 @@ Am MOD starts from an SD card on firmware **1.3.0.12**. The application runs in 
 ## Install and start
 
 1. Back up your projects, samples and card settings. **Beta:** compatibility with other mods and boot menus still needs testing — keep a copy of your projects and your previous card setup.
-2. Download `am-mod-r30d-beta1.zip` and `MPC-Sample-Mod-Installer.exe` from the release above. On macOS/Linux use the Python installer.
+2. Download `am-mod-r30d-beta2.zip` and `MPC-Sample-Mod-Installer.exe` from the release above. On macOS/Linux use the Python installer.
 3. Connect the card through a reader or SD Card Access, select the ZIP and card, then Install. The installer detects the boot layout; do not replace the root autorun folder of a boot-menu card manually.
 4. Safely eject the drive, leave SD Card Access, and power the MPC off and on. On a boot-menu card choose **AM Mod**. **Project → Mod Settings → About** shows the version.
 

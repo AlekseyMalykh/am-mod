@@ -75,12 +75,12 @@ static struct mixer_channel*selected(struct mixer_control*c){return c->view.mast
 extern unsigned music_rec_get(unsigned field) __attribute__((weak));
 extern int music_rec_set(unsigned field,unsigned value) __attribute__((weak));
 extern int rear_native_monitor_set(unsigned value) __attribute__((weak));
+extern int rear_native_monitor(void) __attribute__((weak));
 extern int rear_native_source_set(int) __attribute__((weak));
 extern int rear_native_threshold_set(float) __attribute__((weak));
 extern int rear_native_threshold(float*) __attribute__((weak));
-static int input_rear(void){return rear_native_source&&rear_native_source()==1;}
 /* 0 Mic/Resample, 1 Rear, 2 USB (stereo, L, R): kinds 1 and 2 have a mode row. */
-static int input_kind(void){int v=rear_native_source?rear_native_source():-1;return v==1?1:(v==2||v==6||v==7)?2:0;}
+static int input_kind(void){int v=rear_native_source?rear_native_source():-1;return v==1?1:(v==5||v==6||v==7)?2:0;}
 static unsigned input_rows(void){return mixer_view_input_rows(input_kind());}
 extern void phone_native_open_midi_in(void) __attribute__((weak));
 #define INPUT_PAGE(c) ((c)->view.master==2&&(c)->view.page==MIXER_KNOB_FX&&!(c)->catalog&&!(c)->view.fx_parameters&&!(c)->view.fx_delete)
@@ -616,7 +616,7 @@ int mixer_control_button(struct mixer_control*c,enum mixer_action action,int dow
             unsigned id=mixer_view_input_row(c->view.cursor,input_kind());
             if(id==0)c->view.input_tuner=1;
             else if(id==8){if(phone_native_open_midi_in)phone_native_open_midi_in();}
-            else if(id==3&&music_rec_get&&music_rec_get(0)==0)c->message="Record track: set Record via to Track";
+            else if(id==3&&music_rec_get&&music_rec_get(0)!=1)c->message="Record track: set Record via to Track";
             else c->view.input_edit^=1u;
         }
     }else if(action==MIXER_B1){
@@ -822,6 +822,19 @@ static void move_fader(struct mixer_control*c,unsigned value)
 /* ROUTE rows: 0 Tuner, 1 Monitor, 2 Record via, 3 Record track, 4 Record FX, 5 Rear mode.
  * mode 0: delta steps, 1: absolute knob value, 2: reset to default. */
 int mixer_control_synth_input(void){return input_fx_mode&&input_fx_mode()==2;}
+/* Rear monitoring with Pan/Level runs through the mod's own Rear path, which needs Rear enabled and both channels
+ * monitored (set by Rear Routing before). The Mixer controls must switch it on, or only the stock monitor plays. */
+static void rear_custom_monitor_on(void){
+    if(!rear_native_source||rear_native_source()!=1||!rear_setting||!rear_set_setting)return;
+    rear_set_setting(0,REAR_ENABLED,1);
+    {   /* Monitor follows the Rear mode: Rear L hears the left jack only, Rear R the right one, the rest both. */
+        unsigned m=rear_setting(0,REAR_MODE);
+        for(unsigned ch=0;ch<2;++ch){
+            unsigned want=m==REAR_LEFT?ch==0:m==REAR_RIGHT?ch==1:1;
+            if(rear_setting(ch,REAR_MONITOR)!=want)rear_set_setting(ch,REAR_MONITOR,want);
+        }
+    }
+}
 const char*mixer_input_row_apply(unsigned row,int delta,int mode,unsigned value)
 {
     if(row==0)return NULL; /* Tuner: display only */
@@ -830,11 +843,14 @@ const char*mixer_input_row_apply(unsigned row,int delta,int mode,unsigned value)
         float next=mode==2?-40.f:mode==1?-60.f+(float)value*60.f/127.f:cur+(float)delta;
         return rear_native_threshold_set(next)?NULL:"Threshold: not available";
     }
-    if(row==3&&music_rec_get&&music_rec_get(0)==0)return "Record track: set Record via to Track";
+    if(row==3&&music_rec_get&&music_rec_get(0)!=1)return "Record track: set Record via to Track";
     if(row==1){
         if(mode==2)return NULL;
-        int on=mode==1?value>=64:delta>0;
-        if(!rear_native_monitor_set||!rear_native_monitor_set(on?2u:0u))return "Monitor: open Sample Record";
+        /* Off / Auto / On, for every source including Rear. */
+        int cur=rear_native_monitor?rear_native_monitor():0;if(cur<0||cur>2)cur=0;
+        int next=mode==1?(int)(value*3/128):cur+delta;next=next<0?0:next>2?2:next;
+        if(!rear_native_monitor_set||!rear_native_monitor_set((unsigned)next))return "Monitor: open Sample Record";
+        if(next>0)rear_custom_monitor_on();
     }else if(row<5){
         unsigned f=row-2,n=f==0?3u:f==1?8u:2u;
         if(!music_rec_set||!music_rec_get)return NULL;
@@ -846,7 +862,7 @@ const char*mixer_input_row_apply(unsigned row,int delta,int mode,unsigned value)
     }else if(row==5){
         /* Source: Mic, Rear, USB, Resample (stock Input Config) and Synth, in one list. */
         if(!input_fx_set_mode||!input_fx_mode||!rear_native_source)return NULL;
-        static const int native_src[4]={0,1,2,4};
+        static const int native_src[4]={0,1,5,4};
         int src=rear_native_source(),fxm=(int)input_fx_mode(),cur=-1;
         if(fxm==2)cur=4;else if(src==6||src==7)cur=2;else for(int i=0;i<4;++i)if(native_src[i]==src)cur=i;
         if(cur<0)cur=0;
@@ -854,42 +870,48 @@ const char*mixer_input_row_apply(unsigned row,int delta,int mode,unsigned value)
         next=next<0?0:next>4?4:next;
         if(next==4){if(!rear_native_use_synth||!rear_native_use_synth())return "Source: stop recording first";}
         else{
-            int want=native_src[next];if(want==2&&(src==6||src==7))want=src; /* keep the USB L/R choice */
+            int want=native_src[next];if(want==5&&(src==6||src==7))want=src; /* keep the USB L/R choice */
             if(!rear_native_source_set||!rear_native_source_set(want))return "Source: stop recording first";
             if(fxm==2)input_fx_set_mode(1);
+            if(want==1){
+                /* Choosing Rear starts in Stereo mode. */
+                if(src!=1&&rear_setting&&rear_set_setting&&rear_setting(0,REAR_MODE)!=REAR_STEREO&&!(rear_native_busy&&rear_native_busy()))
+                    rear_set_setting(0,REAR_MODE,REAR_STEREO);
+                rear_custom_monitor_on();
+            }
         }
     }else if(row==6&&rear_native_source&&input_kind()==2){
-        /* USB mode: stereo (2), left (6), right (7). */
-        static const int usb[3]={2,6,7};
+        /* USB mode: stereo (5), left (6), right (7). Stock list: 0 Mic, 1 Rear, 2 Rear L, 3 Rear R, 4 Resample, 5 USB, 6 USB L, 7 USB R. */
+        static const int usb[3]={5,6,7};
         int src=rear_native_source(),cur=src==6?1:src==7?2:0;
         int next=mode==2?0:mode==1?(int)(value*3/128):cur+delta;next=next<0?0:next>2?2:next;
         if(!rear_native_source_set||!rear_native_source_set(usb[next]))return "USB mode: stop recording first";
-    }else if(mode==0&&rear_setting&&rear_set_setting&&rear_native_source&&rear_native_source()==1){
-        if(rear_native_busy&&rear_native_busy())return "Stop recording to change mode";
-        int m=(int)rear_setting(0,REAR_MODE)+delta;m=m<1?1:m>4?4:m;
-        if(rear_native_clear)rear_native_clear();
-        rear_set_setting(0,REAR_MODE,(unsigned)m);
+    }else if(row==6&&rear_setting&&rear_set_setting&&rear_native_source&&rear_native_source()==1){
+        /* Rear mode: Stereo (0, first), Rear L, Rear R, L+R Split, L+R Mix. */
+        int cur=(int)rear_setting(0,REAR_MODE);if(cur<0||cur>4)cur=0;
+        int m=mode==2?0:mode==1?(int)(value*5/128):cur+delta;m=m<0?0:m>4?4:m;
+        if(m!=cur){
+            if(rear_native_busy&&rear_native_busy())return "Stop recording to change mode";
+            if(rear_native_clear)rear_native_clear();
+            rear_set_setting(0,REAR_MODE,(unsigned)m);
+            if(rear_native_monitor&&rear_native_monitor()>0)rear_custom_monitor_on();
+        }
     }
     return NULL;
 }
-static void input_row_change(struct mixer_control*c,unsigned row,int delta,int mode,unsigned value){const char*m=mixer_input_row_apply(row,delta,mode,value);if(m)c->message=m;}
+static void input_row_change(struct mixer_control*c,unsigned row,int delta,int mode,unsigned value){
+    const char*m=mixer_input_row_apply(row,delta,mode,value);if(m)c->message=m;}
 /* These are the same saved controls as Rear Routing. Encoder and FX
  * catalogue/parameter pages retain their ordinary effect navigation. */
 static int input_record_control(struct mixer_control*c,unsigned cc,unsigned value,int reset,int shift){
     if(c->view.master!=2||c->view.page!=MIXER_KNOB_FX||c->catalog||c->view.fx_parameters||c->view.fx_delete||cc<0x10||cc>0x12)return 0;
     if(c->view.input_tab!=2)return 0; /* FX tab: ordinary effect knobs */
     if(cc==0x12){input_row_change(c,5,0,reset?2:1,value);c->message="";return 1;} /* K3 Source */
-    if(!input_rear()){
-        if(cc==0x10){set_pan(&c->desired.input.mix,reset||value==64?0:((float)value-64)/(value<64?64:63));changed(c);}
-        else{input_row_change(c,7,0,reset?2:1,value);c->message="";} /* K2 Threshold */
-        return 1;
-    }
-    if(!rear_setting||!rear_set_setting){c->message="Record controls: select Rear";return 1;}
-    {
-        unsigned ch=cc-0x10,field=shift?REAR_LEVEL:REAR_PAN;
-        unsigned v=reset?(shift?100:(ch?100:0)):value*101/128;
-        rear_set_setting(ch,field,v);c->message="";
-    }
+    /* Same layout for every source, Rear included: K1 = Input track Pan, K2 = Threshold.
+     * Rear's own L/R pan and level stay in Rear Routing. */
+    (void)shift;
+    if(cc==0x10){set_pan(&c->desired.input.mix,reset||value==64?0:((float)value-64)/(value<64?64:63));changed(c);}
+    else{input_row_change(c,7,0,reset?2:1,value);c->message="";} /* K2 Threshold */
     return 1;
 }
 static int effect_parameter_index(const struct mixer_control*c,const struct fx_catalog_entry*entry,
@@ -936,6 +958,10 @@ int mixer_control_reset(struct mixer_control*c,unsigned cc,int shift,uint64_t ti
     if(c->view.synth_page){synth_reset(c,cc,shift);return 1;}
     if(INPUT_PAGE(c)&&cc==0x14){c->desired.input.mix.level_db=0;changed(c);return 1;}
     if(input_record_control(c,cc,0,1,shift))return 1;
+    if(cc==0x10&&c->view.page==MIXER_KNOB_FX&&!c->catalog&&!c->view.fx_parameters){
+        if(c->view.master==2){set_pan(&c->desired.input.mix,0);changed(c);}else each(c,set_pan,0);
+        return 1;
+    }
     if(c->view.page==MIXER_KNOB_FX&&cc>=0x10&&cc<=0x12){
         if(c->view.fx_parameters&&comp_pinned(c)){if(comp_available()&&comp_ops->reset)comp_ops->reset(shift?1u:0u,cc-0x10);return 1;}
         reset_fx_parameter(c,cc-0x10,shift);return 1;
@@ -1006,6 +1032,12 @@ static int fx_cc(struct mixer_control*c,unsigned cc,unsigned value)
             const struct fx_stage*stage=ch->fx.stage+c->view.fx_slot;
             select_fx_page(c,stage,delta,stage->kind==FX_STAGE_EQ);
         }
+        return 1;
+    }
+    if(cc==0x10&&!c->catalog&&!c->view.fx_parameters&&c->view.page==MIXER_KNOB_FX){
+        /* FX chain: K1 = Pan of the selected channel, as on the Mixer page (also Input and Master). */
+        float pan=value==64?0:((float)value-64)/(value<64?64:63);
+        if(c->view.master==2){set_pan(&c->desired.input.mix,pan);changed(c);}else each(c,set_pan,pan);
         return 1;
     }
     if(!one(c)){c->message="Select one Track";return 1;}

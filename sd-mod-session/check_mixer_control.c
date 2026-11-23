@@ -380,7 +380,7 @@ static void input_controls(void){
  cc(c,0x10,127);cc(c,0x11,0);cc(c,0x12,127);assert(rear_values[0][4]==4&&rear_values[0][2]==0&&rear_values[1][2]==100);
  mixer_control_button(c,MIXER_SHIFT,1,t);cc(c,0x11,64);cc(c,0x12,32);mixer_control_button(c,MIXER_SHIFT,0,t);assert(rear_values[0][1]==50&&rear_values[1][1]==25);
  rear_busy=1;cc(c,0x10,0);assert(rear_values[0][4]==4);rear_busy=0;
- rear_source=0;cc(c,0x11,127);assert(rear_values[0][2]==0);rear_source=2;cc(c,0x10,0);assert(rear_values[0][4]==4);rear_source=1;
+ rear_source=0;cc(c,0x11,127);assert(rear_values[0][2]==0);rear_source=5;cc(c,0x10,0);assert(rear_values[0][4]==4);rear_source=1;
  assert(mixer_control_reset(c,0x11,0,t)&&mixer_control_reset(c,0x12,1,t));assert(rear_values[0][2]==0&&rear_values[1][1]==100);
 
  button(c,MIXER_B2);assert(view(c).input_tab==1);button(c,MIXER_SELECT);cc(c,0x10,0);assert(rear_values[0][4]==4);button(c,MIXER_SELECT);ack(c);assert(accepted.input.fx.count==1&&!accepted.master.fx.count&&!accepted.track[0].fx.count);

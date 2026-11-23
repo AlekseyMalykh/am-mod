@@ -1,10 +1,10 @@
-# Am MOD r30d beta1
+# Am MOD r30d beta2
 
 **Mezclador, sintetizador integrado, efectos ilustrados, Piano Roll y herramientas MIDI para Akai MPC Sample.**
 
-[English](README.md) · [Русский](README.ru.md) · **Español** · [Descargar r30d beta1](https://github.com/AlekseyMalykh/am-mod/releases/tag/r30d-beta1)
+[English](README.md) · [Русский](README.ru.md) · **Español** · [Descargar r30d beta2](https://github.com/AlekseyMalykh/am-mod/releases/tag/r30d-beta2)
 
-> **BETA — r30d-beta1.** Esta es una versión beta. **Aún falta probar la compatibilidad con otros mods y menús de arranque (Stock, SampQOL, D.S.B, SampleBoot, mpc-boot-thingy)**: no la uses con la única copia de proyectos importantes; haz antes una copia de seguridad. Por favor, informa de los problemas.
+> **BETA — r30d-beta2.** Esta es una versión beta. **Aún falta probar la compatibilidad con otros mods y menús de arranque (Stock, SampQOL, D.S.B, SampleBoot, mpc-boot-thingy)**: no la uses con la única copia de proyectos importantes; haz antes una copia de seguridad. Por favor, informa de los problemas.
 
 Am MOD arranca desde una tarjeta SD con el firmware **1.3.0.12**. La aplicación se ejecuta en RAM; el firmware instalado no se reescribe. Para usar el firmware original, arranca sin la tarjeta del mod.
 
@@ -26,7 +26,7 @@ Am MOD arranca desde una tarjeta SD con el firmware **1.3.0.12**. La aplicación
 ## Instalar y arrancar
 
 1. Haz una copia de proyectos, samples y ajustes de la tarjeta. **Beta:** la compatibilidad con otros mods y menús de arranque aún debe probarse; conserva una copia de tus proyectos y de la configuración anterior.
-2. Descarga `am-mod-r30d-beta1.zip` y `MPC-Sample-Mod-Installer.exe` del enlace anterior. En macOS/Linux usa el instalador Python.
+2. Descarga `am-mod-r30d-beta2.zip` y `MPC-Sample-Mod-Installer.exe` del enlace anterior. En macOS/Linux usa el instalador Python.
 3. Conecta la tarjeta con un lector o SD Card Access, elige el ZIP y la tarjeta y pulsa Install. El instalador detecta la disposición de arranque; no reemplaces a mano la carpeta autorun raíz de una tarjeta con menú de arranque.
 4. Expulsa la unidad con seguridad, sal de SD Card Access y reinicia el MPC. En una tarjeta con menú de arranque elige **AM Mod**. **Project → Mod Settings → About** muestra la versión.
 
