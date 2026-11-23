@@ -2,18 +2,24 @@
 #define BATCH_DISPATCH_MAIN piano_queue_setup_main
 #include "check_batch_dispatch.c"
 static unsigned char piano_track[0xc00],piano_slots[16][0xc0];
-static unsigned piano_on,piano_off,piano_last;static struct step_event piano_notes[16];
-static unsigned piano_choices[16];
+#ifndef PIANO_INPUT_FIXTURE_CAPACITY
+#define PIANO_INPUT_FIXTURE_CAPACITY 16
+#endif
+static unsigned piano_on,piano_off,piano_last;static struct step_event piano_notes[PIANO_INPUT_FIXTURE_CAPACITY];
+static unsigned piano_choices[PIANO_INPUT_FIXTURE_CAPACITY];
 void poly_record_release_event(void *engine,void *track,unsigned source,unsigned choice,int last){
- assert(worker_active&&engine==preview_engine&&track==piano_track&&source==2&&piano_off<16);
+ assert(worker_active&&engine==preview_engine&&track==piano_track&&source==2&&piano_off<PIANO_INPUT_FIXTURE_CAPACITY);
  piano_choices[piano_off++]=choice;piano_last+=(unsigned)last;
 }
 static void piano_receive(void*engine,int64_t source,const struct step_event*note,unsigned mask){
- assert(worker_active&&engine==preview_engine&&!source&&mask==0x7ffffffa&&note->data[32]==2&&piano_on<16);
+ assert(worker_active&&engine==preview_engine&&!source&&mask==0x7ffffffa&&note->data[32]==2&&piano_on<PIANO_INPUT_FIXTURE_CAPACITY);
  piano_notes[piano_on++]=*note;
 }
 static void piano_drain(void*q,uint64_t*reader){worker_active=1;for(unsigned i=0;i<100&&FIELD(context,0x50,unsigned);++i)FN(0x2b59200,void(*)(void*,uint64_t*))(q,reader);worker_active=0;assert(!FIELD(context,0x50,unsigned));}
-int main(int argc,char**argv){
+#ifndef PIANO_INPUT_TEST_MAIN
+#define PIANO_INPUT_TEST_MAIN main
+#endif
+int PIANO_INPUT_TEST_MAIN(int argc,char**argv){
  assert(!piano_queue_setup_main(argc,argv));phase="Piano Roll live native input";
  stub(0x211b090,piano_receive);__builtin___clear_cache((char*)base,(char*)(base+0x7500000));
  FIELD(context,0x78,void*)=things;FIELD(things,0xb8,void*)=program;

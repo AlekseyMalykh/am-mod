@@ -28,11 +28,19 @@ static float lfo2_phase;static float bend_semitones,mod_depth,lfo_phase; /* audi
 /* MIDI thread pushes, audio thread pops: single producer, single consumer. */
 #define QUEUE 64u
 static _Atomic unsigned event_queue[QUEUE];static _Atomic unsigned event_head,event_tail;
-static void push(unsigned value){unsigned h=atomic_load_explicit(&event_head,memory_order_relaxed);
- if(h-atomic_load_explicit(&event_tail,memory_order_acquire)>=QUEUE)return;
- atomic_store_explicit(&event_queue[h%QUEUE],value,memory_order_relaxed);atomic_store_explicit(&event_head,h+1,memory_order_release);}
+static int try_push(unsigned value,unsigned reserve){unsigned h=atomic_load_explicit(&event_head,memory_order_relaxed);
+ if(h-atomic_load_explicit(&event_tail,memory_order_acquire)>=QUEUE-reserve)return 0;
+ atomic_store_explicit(&event_queue[h%QUEUE],value,memory_order_relaxed);atomic_store_explicit(&event_head,h+1,memory_order_release);return 1;}
+static void push(unsigned value){(void)try_push(value,0);}
 static unsigned long long now_ms(void){struct timespec t;clock_gettime(CLOCK_MONOTONIC,&t);return (unsigned long long)t.tv_sec*1000ull+(unsigned long long)t.tv_nsec/1000000ull;}
 static _Atomic unsigned long long last_note_ms;
+int am_synth_try_note(unsigned note,unsigned velocity,int on){
+ if(note>127||velocity>127)return 0;
+ unsigned down=on&&velocity;
+ if(!try_push((down?1u:0u)<<16|(velocity&127)<<8|note,down?16u:0u))return 0;
+ if(down){if(input_fx_set_mode&&input_fx_mode&&input_fx_mode()!=2)input_fx_set_mode(2);atomic_store(&used,1);atomic_store(&last_note_ms,now_ms());}
+ return 1;
+}
 void am_synth_note(unsigned note,unsigned velocity,int on){if(note>127)return;if(on&&velocity){if(input_fx_set_mode&&input_fx_mode&&input_fx_mode()!=2)input_fx_set_mode(2); /* playing the synth selects it as the Input track input */atomic_store(&used,1);atomic_store(&last_note_ms,now_ms());}push((on&&velocity?1u:0u)<<16|(velocity&127)<<8|note);}
 void am_synth_cc(unsigned cc,unsigned value){push(2u<<16|(value&127)<<8|(cc&127));}
 void am_synth_midi(const unsigned char *d,unsigned n){

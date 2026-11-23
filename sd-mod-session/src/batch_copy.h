@@ -37,6 +37,18 @@ unsigned batch_event_preview_status(void);
 unsigned batch_event_preview_pending(void);
 int batch_piano_input(uintptr_t base,void *context,void *program,const void *event,unsigned key);
 int batch_piano_input_stop(uintptr_t base,void *context);
+#ifdef MPC_PAD_MIDI_RECORDING_TRIAL
+/* Isolated session-only Synth recording prototype. Not enabled in release
+ * builds. Explicit empty carrier and native Tune event; occurrence is a
+ * nonzero input gesture ID captured on Down and reused on Up. Only one music
+ * worker may produce Synth commands during this trial. No playback binding
+ * or project serialization is created by these calls. Stop uses the existing
+ * batch_piano_input_stop; the caller must stop before replacing its context. */
+int batch_piano_synth_input(uintptr_t base,void *context,void *program,
+                           const void *event,unsigned key,uint64_t occurrence);
+unsigned batch_piano_synth_faults(void); /* asynchronous rejected Downs */
+unsigned batch_piano_synth_held(void); /* music-worker snapshot; retry failed releases before closing */
+#endif
 /* Chops are independent native Extract results, not pad Trim aliases.
  * slices[i] is a zero-based source slice index, copied before dispatch. */
 int batch_chop_begin(uintptr_t base,void *context,void *services,unsigned source,
