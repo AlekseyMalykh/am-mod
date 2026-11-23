@@ -1,6 +1,6 @@
-# Known limitations and status — r30d-beta2
+# Known limitations and status — r30d-beta3
 
-> **r30d-beta2:** beta status. Compatibility with other mods and boot menus (Stock, SampQOL, D.S.B, SampleBoot, mpc-boot-thingy) requires testing; a tester reported a freeze when launching from SampleBoot. New in this beta and pending hardware checks: synth modules/takeover, Input ROUTE, Piano Roll area selection, exit to bootloader. Sample Record To Seq may not play the recorded take in the sequence. Known open items: stock Save overwrite warning for same-named projects; "Original location unknown" after a project was last edited under another mod; Pad Bank knob reset not on every native screen.
+> **r30d-beta3:** beta status. Compatibility with other mods and boot menus (Stock, SampQOL, D.S.B, SampleBoot, mpc-boot-thingy) requires testing; a tester reported a freeze when launching from SampleBoot. New in this beta and pending hardware checks: synth modules/takeover, Input ROUTE, Piano Roll area selection, exit to bootloader. Sample Record To Seq may not play the recorded take in the sequence. Known open items: stock Save overwrite warning for same-named projects; "Original location unknown" after a project was last edited under another mod; Pad Bank knob reset not on every native screen.
 
 Updated **17 November 2026**. [Release notes](RELEASE_NOTES-r30b.md) · [USB guide](USB_GUIDE.md) · [Feedback](FEEDBACK.md).
 
@@ -93,6 +93,6 @@ Special thanks to **Leusha** for careful, detailed testing: BUG-01…BUG-07 and 
 ## USB transfer mode is unavailable while the mod runs
 Am MOD runs the application in an isolated copy that has no access to raw storage devices, so the MPC's USB transfer mode does not expose the SD card to a computer. Use a card reader to copy files. To get USB transfer back, power off, remove the `autorun` folder from the SD card and start the MPC again: it boots as stock. Projects and samples are not affected. (Found by a tester; the cause is derived from the code, not yet confirmed on hardware.)
 
-## Open in r30d-beta2
+## Open in r30d-beta3
 
 - **D.S.B remembers no "last started" system:** the mod resets `last=` in D.S.B's state on every start on purpose, so a normal Am MOD session is not counted as a crash. D.S.B therefore does not offer the last system first.

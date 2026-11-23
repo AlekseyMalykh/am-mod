@@ -1,10 +1,16 @@
-# Am MOD r30d beta2 — synth, Input ROUTE, bootloader exit
+# Am MOD r30d beta3 — synth, Input ROUTE, bootloader exit
 
-> **BETA — r30d-beta2.** Compatibility with other mods and boot menus (Stock, SampQOL, D.S.B, SampleBoot, mpc-boot-thingy) is still being tested. Back up your projects and card first. Items marked *pending* passed host/emulator checks but still need a check on a physical MPC.
+> **BETA — r30d-beta3.** Compatibility with other mods and boot menus (Stock, SampQOL, D.S.B, SampleBoot, mpc-boot-thingy) is still being tested. Back up your projects and card first. Items marked *pending* passed host/emulator checks but still need a check on a physical MPC.
 
 For **Akai MPC Sample stock firmware 1.3.0.12**. This release continues r30c-beta1; installed firmware is never rewritten.
 
 ![Synth modules](media/r30d/synth-modules-en.png)
+
+## Fixes in beta3
+
+- **SampleBoot:** Am MOD installs to `autorun/mods/AM-Mod/` and starts from the SampleBoot menu. **Exit to bootloader** (Mod Settings → About) now returns to the **SampleBoot menu**, as it does for D.S.B. Checked on a physical MPC.
+- **Boot menu art:** the Am MOD logo appears in the SampleBoot carousel (`sampleboot.png`) and on the D.S.B record (`dsb-record.png`); SampleBoot shows the name “Am MOD”.
+- **Installer 1.5.0** detects SampleBoot and installs into the right folder. If SampleBoot's `ROOT_FILES` setting shows a card-root file such as `mpcqol.conf` inside `mods/`, Am MOD refuses to start (its sandbox check rejects a writable file from the card); the installer warns, and the fix is `ROOT_FILES=""` in `autorun/sampleboot/sampleboot.conf` (SampQOL then does not see its card-root settings).
 
 ## Fixes in beta2
 

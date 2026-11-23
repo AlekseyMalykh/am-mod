@@ -1,5 +1,13 @@
 # Changelog
 
+## r30d-beta3 — beta
+
+Fixes on top of r30d-beta2:
+
+- SampleBoot support: Am MOD installs into `autorun/mods/AM-Mod/` (with `sampleboot.inplace`), starts from the SampleBoot menu, and **Exit to bootloader returns to the SampleBoot menu** (verified on a physical MPC). Installer 1.5.0 detects SampleBoot, warns when SampleBoot's `ROOT_FILES` would mount a writable card-root file such as `mpcqol.conf` into `mods/` (Am MOD's sandbox check refuses to start then), and never edits SampleBoot's files.
+- Boot menu art: `sampleboot.png` + `sampleboot.txt` for SampleBoot and `dsb-record.png` for D.S.B (the Am MOD logo), installed with the mod.
+- D.S.B behaviour is unchanged.
+
 ## r30d-beta2 — beta
 
 Fixes on top of r30d-beta1:

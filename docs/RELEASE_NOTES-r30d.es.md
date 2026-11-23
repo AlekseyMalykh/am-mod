@@ -1,10 +1,16 @@
-# Am MOD r30d beta2 — sintetizador, Input ROUTE, salida al cargador
+# Am MOD r30d beta3 — sintetizador, Input ROUTE, salida al cargador
 
-> **BETA — r30d-beta2.** La compatibilidad con otros mods y menús de arranque (Stock, SampQOL, D.S.B, SampleBoot, mpc-boot-thingy) sigue en pruebas. Haz copia de seguridad de tus proyectos y de la tarjeta. Lo marcado como *pendiente* pasó las pruebas en host/emulador, pero aún falta probarlo en un MPC real.
+> **BETA — r30d-beta3.** La compatibilidad con otros mods y menús de arranque (Stock, SampQOL, D.S.B, SampleBoot, mpc-boot-thingy) sigue en pruebas. Haz copia de seguridad de tus proyectos y de la tarjeta. Lo marcado como *pendiente* pasó las pruebas en host/emulador, pero aún falta probarlo en un MPC real.
 
 Para el **Akai MPC Sample con firmware original 1.3.0.12**. Esta versión continúa r30c-beta1; el firmware instalado no se reescribe.
 
 ![Módulos del sintetizador](media/r30d/synth-modules-es.png)
+
+## Correcciones en beta3
+
+- **SampleBoot:** Am MOD se instala en `autorun/mods/AM-Mod/` y arranca desde el menú de SampleBoot. **Exit to bootloader** (Mod Settings → About) ahora vuelve al **menú de SampleBoot**, igual que con D.S.B. Comprobado en un MPC físico.
+- **Imágenes del menú de arranque:** el logotipo de Am MOD en el carrusel de SampleBoot (`sampleboot.png`) y en el disco de D.S.B (`dsb-record.png`); SampleBoot muestra el nombre «Am MOD».
+- **Instalador 1.5.0** detecta SampleBoot e instala en la carpeta correcta. Si el ajuste `ROOT_FILES` de SampleBoot muestra en `mods/` un archivo de la raíz de la tarjeta, como `mpcqol.conf`, Am MOD no arranca (su comprobación del sandbox rechaza un archivo escribible de la tarjeta); el instalador avisa y la solución es `ROOT_FILES=""` en `autorun/sampleboot/sampleboot.conf` (SampQOL deja de ver sus ajustes de la raíz).
 
 ## Correcciones en beta2
 

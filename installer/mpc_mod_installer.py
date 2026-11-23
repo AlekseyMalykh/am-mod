@@ -44,7 +44,7 @@ import webbrowser
 import zipfile
 from pathlib import Path, PurePosixPath
 
-__version__ = "1.4.0"
+__version__ = "1.5.0"
 REPO = "AlekseyMalykh/am-mod"
 GITHUB_URL = f"https://github.com/{REPO}"
 VERSION_FILE = "MPC_MOD_VERSION.json"
@@ -56,6 +56,7 @@ AUTORUN = "autorun"
 BOOT_MARK = "autorun/system/mpc-boot-thingy.mark"
 APP_DIR = "autorun/apps/am-mod"
 DSB_DIR = "autorun/os/AM-Mod"
+SAMPLEBOOT_DIR = "autorun/mods/AM-Mod"
 APP_ENTRY = "title=AM Mod\nrun=autorun/autorun.sh\ntakeover=1\n"
 ENTRY_ORDER = ("mod-launcher.sh", "autorun.sh", "autorun.json", "autorun.check")
 REQUIRED = {"autorun.json", "autorun.sh", "autorun.check", "mod-launcher.sh"}
@@ -599,16 +600,46 @@ def has_dsb_boot(root: Path) -> bool:
     return True
 
 
+def has_sampleboot(root: Path) -> bool:
+    """SampleBoot (github.com/pxcm/SampleBoot): its autorun.sh carries a SAMPLEBOOT marker and
+    autorun/sampleboot/ holds its start script and menu program."""
+    a = Path(root) / AUTORUN
+    entry = a / "autorun.sh"
+    parts = [a / "sampleboot/sampleboot.sh", a / "sampleboot/sampleboot-ui"]
+    found = entry.is_file() and not entry.is_symlink() and b"SAMPLEBOOT" in entry.read_bytes()[:4096]
+    if not found and not any(p.exists() or p.is_symlink() for p in parts):
+        return False
+    # A partial or redirected SampleBoot tree must not be mistaken for a plain card.
+    if not found or not all(p.is_file() and not p.is_symlink() for p in parts):
+        raise InstallError("SampleBoot markers are incomplete or redirected; restore its boot menu first. Nothing was written.")
+    return True
+
+
+def sampleboot_root_files(root: Path) -> list[str]:
+    """Card-root settings files SampleBoot would show inside mods/ (ROOT_FILES) that exist on this card."""
+    conf = Path(root) / AUTORUN / "sampleboot/sampleboot.conf"
+    names = ["mpcqol.conf"]
+    try:
+        for line in conf.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = line.split("#", 1)[0].strip()
+            if line.startswith("ROOT_FILES="):
+                names = line.split("=", 1)[1].strip().strip("\"'").split()
+    except OSError:
+        pass
+    return [n for n in names if (Path(root) / n).is_file()]
+
+
 def installation_mode(root: Path) -> str:
-    dsb, thingy = has_dsb_boot(root), has_boot_thingy(root)
-    if dsb and thingy:
-        raise InstallError("Both D.S.B Boot and Boot Thingy markers are present; choose one boot menu first. Nothing was written.")
-    return "dsb-boot" if dsb else "boot-thingy-app" if thingy else "direct"
+    dsb, thingy, sampleboot = has_dsb_boot(root), has_boot_thingy(root), has_sampleboot(root)
+    if sum((dsb, thingy, sampleboot)) > 1:
+        raise InstallError("More than one boot menu (D.S.B Boot, Boot Thingy, SampleBoot) is present; choose one first. Nothing was written.")
+    return "dsb-boot" if dsb else "sampleboot" if sampleboot else "boot-thingy-app" if thingy else "direct"
 
 
 def payload_dir(root: Path, app_mode=False) -> Path:
     mode = "boot-thingy-app" if app_mode is True else app_mode
-    relative = DSB_DIR if mode == "dsb-boot" else APP_DIR + "/autorun" if mode == "boot-thingy-app" else AUTORUN
+    relative = (DSB_DIR if mode == "dsb-boot" else SAMPLEBOOT_DIR if mode == "sampleboot"
+                else APP_DIR + "/autorun" if mode == "boot-thingy-app" else AUTORUN)
     target, card = Path(root) / relative, Path(root).resolve()
     cursor = target
     while cursor != Path(root):
@@ -638,11 +669,21 @@ def install(pkg: Package, card: Card, log=print, dry_run: bool = False) -> dict:
     mode = installation_mode(root)
     app_mode = mode == "boot-thingy-app"
     dsb_mode = mode == "dsb-boot"
+    sb_mode = mode == "sampleboot"
     a = payload_dir(root, mode)
     if dsb_mode:
         if "sampleboot.inplace" not in pkg.files or b"BOOTLOADER_START_CLEAN_STOCK" not in pkg.files["autorun.sh"]:
             raise InstallError("This AM package has no D.S.B-compatible entry. Select the updated package; nothing was written.")
         log(f"D.S.B Boot found: install AM Mod into {DSB_DIR}; boot menu and other systems are preserved.")
+    if sb_mode:
+        if "sampleboot.inplace" not in pkg.files or b"BOOTLOADER_START_CLEAN_STOCK" not in pkg.files["autorun.sh"]:
+            raise InstallError("This AM package has no SampleBoot-compatible entry. Select the updated package; nothing was written.")
+        log(f"SampleBoot found: install AM Mod into {SAMPLEBOOT_DIR}; boot menu and other systems are preserved.")
+        clash = sampleboot_root_files(root)
+        if clash:
+            log(f"Warning: SampleBoot is set to show {', '.join(clash)} from the card root inside mods/. "
+                "AM Mod refuses to start with a writable file from the card there. "
+                'Set ROOT_FILES="" in autorun/sampleboot/sampleboot.conf (SampQOL then does not see its root settings).')
     if app_mode:
         log("mpc-boot-thingy found on the card: AM Mod is installed as a boot-menu app "
             f"({APP_DIR}); the boot menu itself is not changed. Choose AM Mod in the boot menu to start it.")
@@ -678,6 +719,10 @@ def install(pkg: Package, card: Card, log=print, dry_run: bool = False) -> dict:
         label = f"AM Mod\n{pkg.revision}\n".encode("utf-8")
         _write(a / "dsb-record.txt", label)
         managed["dsb-record.txt"] = label
+    if sb_mode:
+        label = pkg.files.get("sampleboot.txt", b"Am MOD\n")
+        _write(a / "sampleboot.txt", label)
+        managed["sampleboot.txt"] = label
     info = {
         "revision": pkg.revision,
         "package": pkg.name,
@@ -689,7 +734,7 @@ def install(pkg: Package, card: Card, log=print, dry_run: bool = False) -> dict:
     }
     if mode != "direct":
         info["mode"] = mode
-        info["app_dir"] = DSB_DIR if dsb_mode else APP_DIR
+        info["app_dir"] = DSB_DIR if dsb_mode else SAMPLEBOOT_DIR if sb_mode else APP_DIR
     _write(root / VERSION_FILE, (json.dumps(info, indent=2, ensure_ascii=False) + "\n").encode("utf-8"))
     _sync(root)
     log("Verifying...")
@@ -740,7 +785,7 @@ def status(card: Card, log=print) -> None:
     bad = [n for n, h in info.get("payload_sha256", {}).items()
            if not (base / n).is_file() or file_sha256(base / n) != h]
     log(f"{card.root}: {info.get('revision')} installed {info.get('installed_at')}; "
-        + ("(D.S.B Boot) " if info.get("mode") == "dsb-boot" else "(boot-menu app) " if info.get("mode") == "boot-thingy-app" else "")
+        + ("(D.S.B Boot) " if info.get("mode") == "dsb-boot" else "(SampleBoot) " if info.get("mode") == "sampleboot" else "(boot-menu app) " if info.get("mode") == "boot-thingy-app" else "")
         + ("all files intact." if not bad else f"{len(bad)} files changed or missing: {', '.join(bad[:5])}"))
 
 
@@ -1034,6 +1079,9 @@ def gui() -> None:
         if mode == "dsb-boot":
             question = (f"Установить {p.revision} в {target}?\n\nD.S.B Boot и остальные системы сохранятся. Текущая autorun/ будет сохранена на компьютере." if state["lang"] == "ru" else
                         f"Install {p.revision} into {target}?\n\nD.S.B Boot and other systems are preserved. Current autorun/ is backed up on this computer.")
+        if mode == "sampleboot":
+            question = (f"Установить {p.revision} в {target}?\n\nSampleBoot и остальные системы сохранятся. Текущая autorun/ будет сохранена на компьютере." if state["lang"] == "ru" else
+                        f"Install {p.revision} into {target}?\n\nSampleBoot and other systems are preserved. Current autorun/ is backed up on this computer.")
         if has_boot_thingy(c.root):
             question += ("\n\nНайден mpc-boot-thingy: мод будет установлен как приложение меню загрузки "
                          "(autorun/apps/am-mod), меню не изменится." if state["lang"] == "ru" else

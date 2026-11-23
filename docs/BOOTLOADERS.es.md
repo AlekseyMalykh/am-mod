@@ -13,9 +13,9 @@ Am MOD ejecuta una copia de la aplicación desde la tarjeta SD y nunca flashea e
 | Tarjeta normal | `autorun/` | automático al encender | vuelve al firmware original |
 | **D.S.B Boot** (Henry Skillz) | `autorun/os/AM-Mod/` con `sampleboot.inplace` | elige **AM-Mod** en el menú de D.S.B | **vuelve al menú de D.S.B** |
 | mpc-boot-thingy | `autorun/apps/am-mod/autorun/` con `boot.entry` en la carpeta superior | elige **AM Mod** | vuelve al firmware original |
-| SampleBoot | se respeta el marcador `sampleboot.inplace` | elige la entrada | vuelve al firmware original; *prueba en dispositivo pendiente* |
+| **SampleBoot** (pxcm) | `autorun/mods/AM-Mod/` con `sampleboot.inplace` | elige **Am MOD** en el menú de SampleBoot | **vuelve al menú de SampleBoot** |
 
-El instalador 1.4.0 detecta la disposición y escribe en la carpeta correcta. Nunca sustituye la carpeta `autorun` raíz del menú de arranque. Usa exFAT y una etiqueta de volumen ASCII.
+El instalador 1.5.0 detecta la disposición y escribe en la carpeta correcta. Nunca sustituye la carpeta `autorun` raíz del menú de arranque. Usa exFAT y una etiqueta de volumen ASCII.
 
 ## Salir al cargador
 
@@ -24,7 +24,8 @@ El instalador 1.4.0 detecta la disposición y escribe en la carpeta correcta. Nu
 3. Pulsa **B3** para confirmar (**B1** cancela).
 4. Am MOD guarda una copia del proyecto actual en la tarjeta como **`Projects/Mod-Exit-Last`** (sustituye a la anterior), detiene la copia de la aplicación y vuelca la tarjeta.
 5. Si la tarjeta contiene el menú D.S.B, Am MOD marca este arranque como **correcto** en el archivo de estado de D.S.B (no se cuenta ningún fallo y el mod no se inicia de nuevo automáticamente) y **reinicia en el menú de D.S.B**. Elige otro sistema, o Am MOD otra vez.
-6. Si no hay D.S.B, el MPC arranca el firmware original.
+6. Si la tarjeta tiene SampleBoot, Am MOD reinicia y SampleBoot muestra su menú (no guarda ninguna elección, basta reiniciar).
+7. Si no hay menú de arranque, el MPC arranca el firmware original.
 
 Apagar y encender funciona como siempre; Exit to bootloader es la forma rápida de cambiar de sistema sin tocar el botón de encendido. **Idea de arranque rápido:** elige AM Mod una vez para que la tarjeta lo inicie directamente y usa Exit to bootloader cuando quieras otro sistema.
 
@@ -44,8 +45,9 @@ Al informar de un problema de arranque, adjunta estos archivos e indica el menú
 
 ## Límites
 
-- Exit to bootloader entrega el control solo a **D.S.B**. Volver a SampleBoot o mpc-boot-thingy desde el mod no está implementado; una convención común de «un sistema puede volver al cargador» requeriría un acuerdo con los autores de esos proyectos.
-- La compatibilidad con SampleBoot (un probador informó de un bloqueo al iniciar desde su menú, mientras que el mod funciona solo) y con mpc-boot-thingy sigue en pruebas.
+- Exit to bootloader entrega el control a **D.S.B** y **SampleBoot**. Volver a mpc-boot-thingy desde el mod no está implementado; una convención común de «un sistema puede volver al cargador» requeriría un acuerdo con el autor de ese proyecto.
+- SampleBoot: si su ajuste `ROOT_FILES` muestra en `mods/` un archivo de la raíz de la tarjeta (por defecto `mpcqol.conf`, si existe), la comprobación del sandbox de Am MOD impide el arranque. Pon `ROOT_FILES=""` en `autorun/sampleboot/sampleboot.conf`; SampQOL deja de ver sus ajustes de la raíz.
+- La compatibilidad con mpc-boot-thingy sigue en pruebas.
 - D.S.B muestra el nombre de la carpeta (**AM-Mod**), no la grafía del producto.
 - En una tarjeta normal, el firmware original no tiene menú de cargador; para usar el original con una tarjeta de menú de arranque elige su entrada Stock o retira la tarjeta.
 

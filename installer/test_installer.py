@@ -281,6 +281,64 @@ class InstallerTest(unittest.TestCase):
         backup.assert_not_called()
         self.assertFalse(list(outside.iterdir()))
 
+    def sampleboot_card(self, root_conf=False):
+        a = self.card / "autorun"
+        (a / "sampleboot").mkdir(parents=True, exist_ok=True)
+        (a / "autorun.sh").write_bytes(b"#!/bin/sh\n# SAMPLEBOOT\nexec sh sampleboot/sampleboot.sh\n")
+        (a / "sampleboot/sampleboot.sh").write_bytes(b"sampleboot script sentinel")
+        (a / "sampleboot/sampleboot-ui").write_bytes(b"ui sentinel")
+        (a / "sampleboot/sampleboot.conf").write_text('ROOT_FILES="mpcqol.conf"\n')
+        (a / "mods/SampQOL").mkdir(parents=True)
+        (a / "mods/SampQOL/autorun.sh").write_bytes(b"SampQOL sentinel")
+        if root_conf:
+            (self.card / "mpcqol.conf").write_text("x=1\n")
+        return {p.relative_to(self.card): p.read_bytes() for p in a.rglob("*") if p.is_file()}
+
+    def test_sampleboot_install_status_remove_preserves_boot_and_other_systems(self):
+        boot = self.sampleboot_card()
+        pkg = self.dsb_package()
+        info = m.install(pkg, self.card_obj(), self.log.append)
+        self.assertEqual(info["mode"], "sampleboot")
+        target = self.card / m.SAMPLEBOOT_DIR
+        self.assertEqual((target / "payload.bin").read_bytes(), pkg.files["payload.bin"])
+        self.assertTrue((target / "sampleboot.inplace").is_file())
+        self.assertEqual((target / "sampleboot.txt").read_bytes(), b"Am MOD\n")
+        m.status(self.card_obj(), self.log.append)
+        self.assertIn("(SampleBoot)", self.log[-1])
+        self.assertIn("all files intact", self.log[-1])
+        m.install(pkg, self.card_obj(), self.log.append)
+        m.remove(self.card_obj(), self.log.append)
+        self.assertFalse(target.exists())
+        for name, data in boot.items():
+            self.assertEqual((self.card / name).read_bytes(), data)
+
+    def test_sampleboot_warns_about_card_root_settings_file(self):
+        self.sampleboot_card(root_conf=True)
+        m.install(self.dsb_package(), self.card_obj(), self.log.append)
+        self.assertTrue(any("mpcqol.conf" in line and "ROOT_FILES" in line for line in self.log))
+
+    def test_sampleboot_without_marker_is_not_mistaken_and_old_package_refused(self):
+        boot = self.sampleboot_card()
+        with patch.object(m, "backup_card") as backup, self.assertRaises(m.InstallError):
+            m.install(m.Package(make_package(), "old.zip"), self.card_obj(), self.log.append)
+        backup.assert_not_called()
+        self.assertFalse((self.card / m.SAMPLEBOOT_DIR).exists())
+        (self.card / "autorun/sampleboot/sampleboot-ui").unlink()
+        with patch.object(m, "backup_card") as backup, self.assertRaises(m.InstallError):
+            m.install(self.dsb_package(), self.card_obj(), self.log.append)
+        backup.assert_not_called()
+
+    def test_two_boot_menus_are_refused(self):
+        self.dsb_card()
+        a = self.card / "autorun"
+        (a / "sampleboot").mkdir(exist_ok=True)
+        (a / "sampleboot/sampleboot.sh").write_bytes(b"x")
+        (a / "sampleboot/sampleboot-ui").write_bytes(b"x")
+        (a / "autorun.sh").write_bytes(b"HSBOOT_DIR # SAMPLEBOOT")
+        with patch.object(m, "backup_card") as backup, self.assertRaises(m.InstallError):
+            m.install(self.dsb_package(), self.card_obj(), self.log.append)
+        backup.assert_not_called()
+
     def test_rejects_system_disk(self):
         with self.assertRaises(m.InstallError):
             m.check_card(m.Card(Path(Path.home().anchor)), self.log.append)

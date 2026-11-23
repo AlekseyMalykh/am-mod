@@ -1,10 +1,10 @@
-# Am MOD r30d beta2
+# Am MOD r30d beta3
 
 **Микшер, встроенный синтезатор, иллюстрированные эффекты, пианоролл и MIDI-инструменты для Akai MPC Sample.**
 
-[English](README.md) · **Русский** · [Español](README.es.md) · [Скачать r30d beta2](https://github.com/AlekseyMalykh/am-mod/releases/tag/r30d-beta2)
+[English](README.md) · **Русский** · [Español](README.es.md) · [Скачать r30d beta3](https://github.com/AlekseyMalykh/am-mod/releases/tag/r30d-beta3)
 
-> **БЕТА — r30d-beta2.** Это бета-релиз. **Совместимость с другими модами и загрузочными меню (Stock, SampQOL, D.S.B, SampleBoot, mpc-boot-thingy) ещё требует тестирования** — не используйте его на единственной копии важных проектов, сначала сделайте резервную копию. Пожалуйста, сообщайте о проблемах.
+> **БЕТА — r30d-beta3.** Это бета-релиз. **Совместимость с другими модами и загрузочными меню (Stock, SampQOL, D.S.B, SampleBoot, mpc-boot-thingy) ещё требует тестирования** — не используйте его на единственной копии важных проектов, сначала сделайте резервную копию. Пожалуйста, сообщайте о проблемах.
 
 Am MOD запускается с SD-карты на прошивке **1.3.0.12**. Приложение работает в ОЗУ, установленная прошивка не перепрошивается. Чтобы вернуться к штатной прошивке, запустите MPC без карты мода.
 
@@ -19,14 +19,14 @@ Am MOD запускается с SD-карты на прошивке **1.3.0.12*
 - **Выход в загрузчик:** *Mod Settings → About* сохраняет копию проекта и возвращает в меню **D.S.B** (или в штатную прошивку, если его нет). «Старт OK» от D.S.B теперь переносится на карту, поэтому удачный сеанс больше не считается сбоем. [Загрузочные меню](docs/BOOTLOADERS.ru.md).
 - **Эффекты Henry Skillz** (HS Saturator, HS Bass Focus, HS Heat) с собственной графикой; страница MIDI Buttons и исправления Shift контроллера; поиск в браузере **Find**.
 - **Layout и Transpose16 поменяны местами:** K1 = Transpose16, Shift+K1 = Layout в Tune, Keys синта и Sample Record.
-- Из r30c: пианоролл, MIDI-инструменты, импорт PGM/XPM, Sequence Pad Mutes, Sample Swap, палитра на 32 слота, Internal/External, установщик **1.4.0** для обычной карты, **mpc-boot-thingy** и **D.S.B Boot**.
+- Из r30c: пианоролл, MIDI-инструменты, импорт PGM/XPM, Sequence Pad Mutes, Sample Swap, палитра на 32 слота, Internal/External, установщик **1.5.0** для обычной карты, **mpc-boot-thingy**, **D.S.B Boot** и **SampleBoot**.
 
 [Изменения](docs/RELEASE_NOTES-r30d.ru.md) · [Установка](docs/INSTALL.ru.md) · [Руководство](docs/USER_GUIDE.ru.md) · [Синтезатор](docs/SYNTH_GUIDE.ru.md) · [Загрузочные меню](docs/BOOTLOADERS.ru.md)
 
 ## Установка и запуск
 
 1. Скопируйте проекты, сэмплы и настройки карты. **Бета:** совместимость с другими модами и загрузочными меню ещё требует тестирования — сохраните копию проектов и прежней настройки карты.
-2. Скачайте `am-mod-r30d-beta2.zip` и `MPC-Sample-Mod-Installer.exe` по ссылке выше. На macOS/Linux используйте Python-установщик.
+2. Скачайте `am-mod-r30d-beta3.zip` и `MPC-Sample-Mod-Installer.exe` по ссылке выше. На macOS/Linux используйте Python-установщик.
 3. Подключите карту через картридер или SD Card Access, выберите ZIP и карту, нажмите Install. Установщик сам определяет раскладку загрузки; не заменяйте вручную корневую папку autorun карты с загрузочным меню.
 4. Безопасно извлеките диск, выйдите из SD Card Access и перезагрузите MPC. На карте с загрузочным меню выберите **AM Mod**. **Project → Mod Settings → About** показывает версию.
 
