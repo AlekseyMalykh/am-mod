@@ -221,6 +221,9 @@ static _Atomic unsigned bank_pad_owned;
 #endif
 static _Atomic unsigned native_shift_requested,native_mute_mode;
 static _Atomic unsigned tail_layout,tail_pads,stop_requested;
+#ifdef MPC_PAD_MIDI_RECORDING_TRIAL
+static _Atomic unsigned synth_record_stop_serial;
+#endif
 static void observe_mute_indicator(unsigned value){
  /* Shift uses the Mute LED as a secondary-function hint. Update on actual
   * LED notifications, never sample a stale hint at the next UI tick. */
@@ -899,7 +902,7 @@ static void mixer_pad_ui(const struct phone_event *e, struct mixer_control *cont
             mixer_forward_pad(raw);
             mixer_native_pads |= bit;
         }
-    } else if (!mixer_control_pad(control,e->pad,e->down,mixer_control_ticket(control)) && e->down && !suppress) {
+    } else if (!mixer_control_pad_velocity(control,e->pad,e->down,e->midi[2]&127u,mixer_control_ticket(control)) && e->down && !suppress) {
         mixer_forward_pad(raw);
         mixer_native_pads |= bit;
     }
@@ -1340,6 +1343,11 @@ static void tick(void *unused)
     power_control_tick();
 #endif
     levels_state_tick();
+#ifdef MPC_PAD_MIDI_RECORDING_TRIAL
+    {static unsigned synth_stop_was;unsigned synth_stop=atomic_load(&synth_record_stop_serial);
+     if(synth_stop!=synth_stop_was)workflow_synth_record_stop();
+     synth_stop_was=synth_stop;}
+#endif
     int note_running=note_native_tick();
     note_native_mix_shift_tick();
     int music_running=music_ui_tick();
@@ -2576,6 +2584,9 @@ static void buttons(void *event)
         atomic_store(&step_confirm_forwarded,0);
     }
     if(native_code==0x51)atomic_store(&stop_requested,native_down);
+#ifdef MPC_PAD_MIDI_RECORDING_TRIAL
+    if(native_code==0x51&&native_down)atomic_fetch_add(&synth_record_stop_serial,1);
+#endif
 #ifdef MPC_MIXER_LIVE
     if(mixer_sample_button(native_code,native_down))return;
 #endif

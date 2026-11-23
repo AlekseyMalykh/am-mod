@@ -28,7 +28,8 @@ static std::atomic<uint64_t> piano_input_epoch{1};
 #ifdef MPC_PAD_MIDI_RECORDING_TRIAL
 /* Music worker only. The existing Synth API releases all voices of a pitch;
  * shared pitch gates therefore sound once and release on the final owner.
- * No other UI/MIDI producer may play this Synth during the isolated trial. */
+ * The trial Synth queue also accepts UI/MIDI producers; these gate counts
+ * cover only the recording worker's keys (the Synth still releases by pitch). */
 static unsigned piano_synth_gates[128];
 static std::atomic<unsigned> piano_synth_faults{0};
 static std::atomic<unsigned> piano_synth_held_count{0};
@@ -106,7 +107,7 @@ static void run_piano_input(void *data)noexcept{
 #ifdef MPC_PAD_MIDI_RECORDING_TRIAL
     struct SynthStart {
      unsigned pitch;bool active;
-     ~SynthStart(){if(active)(void)am_synth_try_note(pitch,0,0);}
+     ~SynthStart(){if(active&&!am_synth_try_note(pitch,0,0))am_synth_force_note_off(pitch);}
     } started{synth_pitch,false};
     if(s->synth&&!piano_synth_gates[synth_pitch]){
      if(!am_synth_try_note(synth_pitch,synth_event.velocity,1)){

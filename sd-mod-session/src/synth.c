@@ -25,12 +25,43 @@ static _Atomic unsigned *const params[AM_SYNTH_PARAMS]={&wave,&cutoff,&attack,&d
 static _Atomic int active_voices;
 static _Atomic float st_peak,st_env_level,st_bend,st_mod;static _Atomic unsigned st_env_stage,st_voices,st_notes[4]; /* for the Mixer illustration */
 static float lfo2_phase;static float bend_semitones,mod_depth,lfo_phase; /* audio thread only: pitch wheel +-2 semitones, mod wheel -> vibrato */
-/* MIDI thread pushes, audio thread pops: single producer, single consumer. */
+/* Trial: UI, MIDI and native music worker can produce concurrently. The
+ * audio consumer never waits for a producer which has reserved a slot. */
 #define QUEUE 64u
-static _Atomic unsigned event_queue[QUEUE];static _Atomic unsigned event_head,event_tail;
+static _Atomic unsigned event_head,event_tail;
+#ifdef MPC_PAD_MIDI_RECORDING_TRIAL
+struct synth_queue_slot {_Atomic unsigned sequence;unsigned value;};
+#define Q8(n) {n,0},{n+1,0},{n+2,0},{n+3,0},{n+4,0},{n+5,0},{n+6,0},{n+7,0}
+static struct synth_queue_slot event_queue[QUEUE]={Q8(0),Q8(8),Q8(16),Q8(24),Q8(32),Q8(40),Q8(48),Q8(56)};
+static _Atomic unsigned forced_off[4];
+void am_synth_force_note_off(unsigned note){if(note<128)atomic_fetch_or_explicit(&forced_off[note/32],1u<<(note%32),memory_order_release);}
+#undef Q8
+static int try_push(unsigned value,unsigned reserve){
+ unsigned h=atomic_load_explicit(&event_head,memory_order_relaxed);
+ for(unsigned attempts=0;attempts<64;++attempts){
+  if(h-atomic_load_explicit(&event_tail,memory_order_acquire)>=QUEUE-reserve)return 0;
+  struct synth_queue_slot*s=event_queue+h%QUEUE;
+  if(atomic_load_explicit(&s->sequence,memory_order_acquire)!=h){h=atomic_load_explicit(&event_head,memory_order_relaxed);continue;}
+  if(!atomic_compare_exchange_weak_explicit(&event_head,&h,h+1,memory_order_relaxed,memory_order_relaxed))continue;
+  s->value=value;atomic_store_explicit(&s->sequence,h+1,memory_order_release);return 1;
+ }
+ return 0;
+}
+static int pop_event(unsigned*out){
+ unsigned t=atomic_load_explicit(&event_tail,memory_order_relaxed);struct synth_queue_slot*s=event_queue+t%QUEUE;
+ if(atomic_load_explicit(&s->sequence,memory_order_acquire)!=t+1)return 0;
+ *out=s->value;atomic_store_explicit(&s->sequence,t+QUEUE,memory_order_release);
+ atomic_store_explicit(&event_tail,t+1,memory_order_release);return 1;
+}
+#else
+static _Atomic unsigned event_queue[QUEUE];
 static int try_push(unsigned value,unsigned reserve){unsigned h=atomic_load_explicit(&event_head,memory_order_relaxed);
  if(h-atomic_load_explicit(&event_tail,memory_order_acquire)>=QUEUE-reserve)return 0;
  atomic_store_explicit(&event_queue[h%QUEUE],value,memory_order_relaxed);atomic_store_explicit(&event_head,h+1,memory_order_release);return 1;}
+static int pop_event(unsigned*out){unsigned t=atomic_load_explicit(&event_tail,memory_order_relaxed);
+ if(t==atomic_load_explicit(&event_head,memory_order_acquire))return 0;
+ *out=atomic_load_explicit(&event_queue[t%QUEUE],memory_order_relaxed);atomic_store_explicit(&event_tail,t+1,memory_order_release);return 1;}
+#endif
 static void push(unsigned value){(void)try_push(value,0);}
 static unsigned long long now_ms(void){struct timespec t;clock_gettime(CLOCK_MONOTONIC,&t);return (unsigned long long)t.tv_sec*1000ull+(unsigned long long)t.tv_nsec/1000000ull;}
 static _Atomic unsigned long long last_note_ms;
@@ -41,7 +72,13 @@ int am_synth_try_note(unsigned note,unsigned velocity,int on){
  if(down){if(input_fx_set_mode&&input_fx_mode&&input_fx_mode()!=2)input_fx_set_mode(2);atomic_store(&used,1);atomic_store(&last_note_ms,now_ms());}
  return 1;
 }
-void am_synth_note(unsigned note,unsigned velocity,int on){if(note>127)return;if(on&&velocity){if(input_fx_set_mode&&input_fx_mode&&input_fx_mode()!=2)input_fx_set_mode(2); /* playing the synth selects it as the Input track input */atomic_store(&used,1);atomic_store(&last_note_ms,now_ms());}push((on&&velocity?1u:0u)<<16|(velocity&127)<<8|note);}
+void am_synth_note(unsigned note,unsigned velocity,int on){if(note>127)return;if(on&&velocity){if(input_fx_set_mode&&input_fx_mode&&input_fx_mode()!=2)input_fx_set_mode(2); /* playing the synth selects it as the Input track input */atomic_store(&used,1);atomic_store(&last_note_ms,now_ms());}
+#ifdef MPC_PAD_MIDI_RECORDING_TRIAL
+ if(!try_push((on&&velocity?1u:0u)<<16|(velocity&127)<<8|note,0)&&!(on&&velocity))am_synth_force_note_off(note);
+#else
+ push((on&&velocity?1u:0u)<<16|(velocity&127)<<8|note);
+#endif
+}
 void am_synth_cc(unsigned cc,unsigned value){push(2u<<16|(value&127)<<8|(cc&127));}
 void am_synth_midi(const unsigned char *d,unsigned n){
  if(!d||n<2||(d[0]&0x0f)!=atomic_load(&midi_channel))return;
@@ -70,8 +107,8 @@ pick->velocity=(float)velocity/127.0f;pick->age=++clock_age;
 }
 static void stop(unsigned note){for(unsigned i=0;i<VOICES;++i)if(voices[i].env!=ENV_OFF&&voices[i].env!=ENV_RELEASE&&voices[i].note==note)voices[i].env=ENV_RELEASE;}
 static void drain(void){
- unsigned t=atomic_load_explicit(&event_tail,memory_order_relaxed),h=atomic_load_explicit(&event_head,memory_order_acquire);
- for(;t!=h;++t){unsigned e=atomic_load_explicit(&event_queue[t%QUEUE],memory_order_relaxed),kind=e>>16,b=(e>>8)&127,a=e&127;
+ unsigned e,budget=QUEUE;
+ while(budget--&&pop_event(&e)){unsigned kind=e>>16,b=(e>>8)&127,a=e&127;
   if(kind==1)start(a,b);else if(kind==0)stop(a);
   else if(kind==3)bend_semitones=((float)((b<<7)|a)-8192.0f)/8192.0f*2.0f;
   else switch(a){case 70:atomic_store(&wave,b%4);break;case 71:atomic_store(&cutoff,b);break;case 72:atomic_store(&release_cc,b);break;
@@ -79,7 +116,15 @@ static void drain(void){
    case 1:mod_depth=(float)b/127.0f;break;
    case 123:case 120:for(unsigned i=0;i<VOICES;++i)if(voices[i].env!=ENV_OFF)voices[i].env=ENV_RELEASE;break;}
  }
- atomic_store_explicit(&event_tail,t,memory_order_release);
+#ifdef MPC_PAD_MIDI_RECORDING_TRIAL
+ for(unsigned word=0;word<4;++word){unsigned mask=atomic_exchange_explicit(&forced_off[word],0,memory_order_acq_rel);
+  for(unsigned bit=0;bit<32;++bit)if(mask&(1u<<bit))stop(word*32+bit);
+  /* Keep a failed Off armed until all earlier reserved commands have been
+   * drained, including an On behind a temporarily unpublished producer. */
+  if(mask&&atomic_load_explicit(&event_head,memory_order_acquire)!=atomic_load_explicit(&event_tail,memory_order_acquire))
+   atomic_fetch_or_explicit(&forced_off[word],mask,memory_order_release);
+ }
+#endif
 }
 static float lfo_wave(unsigned shape,float x){x-=floorf(x);return shape==0?sinf(6.2831853f*x):shape==1?(x<0.5f?4.0f*x-1.0f:3.0f-4.0f*x):shape==2?(x<0.5f?1.0f:-1.0f):1.0f-2.0f*x;}
 static float osc_wave(unsigned w,float ph){return w==0?sinf(6.2831853f*ph):w==1?2.0f*ph-1.0f:w==2?(ph<0.5f?1.0f:-1.0f):(ph<0.5f?4.0f*ph-1.0f:3.0f-4.0f*ph);}

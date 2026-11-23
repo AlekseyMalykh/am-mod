@@ -10,6 +10,9 @@ int mixer_input_action(unsigned code, enum mixer_action *mapped)
     case 0x2b:action=MIXER_MUTE;break;
     case 0x28:action=MIXER_LEVELS;break;
     case 0x4a:action=MIXER_LOOP;break;
+#ifdef MPC_PAD_MIDI_RECORDING_TRIAL
+    case 0x50:action=MIXER_RECORD;break;
+#endif
     case 0x0c:action=MIXER_B1;break;
     case 0x0d:action=MIXER_B2;break;
     case 0x0e:action=MIXER_B3;break;

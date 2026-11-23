@@ -672,7 +672,16 @@ static void*audition_program(void){return volume_service?FIELD(volume_service,0x
 #ifdef MPC_PROGRAM_IMPORT
 #include "program_import_ui.inc"
 #endif
+#ifdef MPC_PAD_MIDI_VM_PROBE
+#include "pad_midi_vm_probe.inc"
+#endif
 int workflow_tick(void){
+#ifdef MPC_PAD_MIDI_RECORDING_TRIAL
+ workflow_synth_record_tick();
+#endif
+#ifdef MPC_PAD_MIDI_VM_PROBE
+ pad_midi_vm_probe_tick();
+#endif
 #ifdef MPC_PROGRAM_IMPORT
  program_tick();
 #endif
@@ -1120,7 +1129,11 @@ int workflow_copy_mode_id(void){
  void*c=(void*)atomic_load(&copy_context),*mode=c?FIELD(c,0x98,void*):NULL;return mode?FIELD(mode,0x80,int):-1;
 }
 void workflow_copy_context(void*p,void*services){atomic_store(&copy_services,(uintptr_t)services);atomic_store(&copy_context,(uintptr_t)p);}
-void workflow_copy_context_dead(void*p){uintptr_t expected=(uintptr_t)p;if(atomic_compare_exchange_strong(&copy_context,&expected,0))atomic_store(&copy_services,0);}
+void workflow_copy_context_dead(void*p){
+#ifdef MPC_PAD_MIDI_RECORDING_TRIAL
+ if((void*)atomic_load(&copy_context)==p)workflow_synth_record_stop();
+#endif
+ uintptr_t expected=(uintptr_t)p;if(atomic_compare_exchange_strong(&copy_context,&expected,0))atomic_store(&copy_services,0);}
 static void pad_name(unsigned n,char*out,size_t cap){snprintf(out,cap,"%c%02u",'A'+n/16,n%16+1);}
 static void batch_close(void){if(batch_job||batch_leaving)return;preview_stop();batch=batch_confirm=chop_export=0;chop_host=0;batch_message[0]=0;batch_copy_hold_native_exit(0);atomic_fetch_add(&palette_generation,1);atomic_store(&custom,0);atomic_fetch_add(&epoch,1);repaint(batch_surface());}
 /* Do not only hide the overlay: native CopyPadMode owns the musical pads.
@@ -1149,6 +1162,9 @@ static void*current_program(void){
  if(v!=base+0x6d8cd88&&v!=base+0x6e0dfd8)return NULL;
  void*t=FIELD(c,0x78,void*);return t?FIELD(t,0xb8,void*):NULL;
 }
+#ifdef MPC_PAD_MIDI_RECORDING_TRIAL
+#include "synth_pad_record.inc"
+#endif
 int workflow_mono_open(void*root){
  if(mono||batch||search||!root||FIELD(root,0,uintptr_t)!=base+0x6e212a0)return 0;
  unsigned pad;if(!note_native_pad_index(&pad)||pad>=128)return 0;

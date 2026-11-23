@@ -40,8 +40,8 @@ int batch_piano_input_stop(uintptr_t base,void *context);
 #ifdef MPC_PAD_MIDI_RECORDING_TRIAL
 /* Isolated session-only Synth recording prototype. Not enabled in release
  * builds. Explicit empty carrier and native Tune event; occurrence is a
- * nonzero input gesture ID captured on Down and reused on Up. Only one music
- * worker may produce Synth commands during this trial. No playback binding
+ * nonzero input gesture ID captured on Down and reused on Up. Gate ownership
+ * stays on one music worker; trial Synth command transport is MPSC. No playback binding
  * or project serialization is created by these calls. Stop uses the existing
  * batch_piano_input_stop; the caller must stop before replacing its context. */
 int batch_piano_synth_input(uintptr_t base,void *context,void *program,

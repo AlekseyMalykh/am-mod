@@ -29,6 +29,12 @@ void workflow_event_preview_stop(int cancel_pending);
 unsigned workflow_event_preview_pending(void);
 int workflow_piano_input(void *program,const void *event,unsigned key);
 void workflow_piano_input_stop(void);
+#ifdef MPC_PAD_MIDI_RECORDING_TRIAL
+int workflow_synth_record_toggle(void); /* explicit Synth Keys Shift+Record; empty A16 */
+int workflow_synth_pad(unsigned key,unsigned pitch,unsigned velocity,int down);
+void workflow_synth_record_stop(void);
+void workflow_synth_record_tick(void);
+#endif
 int workflow_tick(void);
 int workflow_startup_loading(void); /* UI-only; false while a native modal is active. */
 int workflow_active(void);

@@ -6,6 +6,11 @@ extern unsigned am_synth_param_get(unsigned) __attribute__((weak));
 extern void music_global_sync(int) __attribute__((weak));
 extern void am_synth_param_set(unsigned,unsigned) __attribute__((weak));
 extern void am_synth_note(unsigned,unsigned,int) __attribute__((weak));
+#ifdef MPC_PAD_MIDI_RECORDING_TRIAL
+extern int workflow_synth_record_toggle(void);
+extern int workflow_synth_pad(unsigned,unsigned,unsigned,int);
+extern void workflow_synth_record_stop(void);
+#endif
 extern void am_synth_fader(unsigned) __attribute__((weak));
 extern void am_synth_keys_cfg(unsigned,unsigned,unsigned,unsigned,unsigned,const unsigned char*) __attribute__((weak));
 extern uint64_t am_synth_pad_info(unsigned,unsigned*) __attribute__((weak));
@@ -46,6 +51,7 @@ struct mixer_control {
     uint64_t revision,epoch,ticket,submitted,present[2];
     double rate;
     unsigned synth_notes,synth_hold;uint8_t synth_pad_note[16],synth_hold_note,synth_last;
+    unsigned synth_input_velocity,synth_trial_notes;
     unsigned active,shift,owned_buttons,owned_pads,held_tracks,temporary,dirty,exit_requested,fx_editing;
     unsigned pickup,last_fader_valid,last_fader;
     float anchors[8];
@@ -147,6 +153,10 @@ static unsigned synth_key_note(const struct mixer_control*c,unsigned pad){
     unsigned n=60u+pad;(void)c;if(am_synth_pad_info)am_synth_pad_info(pad,&n);return n;
 }
 static void synth_release_all(struct mixer_control*c){
+#ifdef MPC_PAD_MIDI_RECORDING_TRIAL
+    workflow_synth_record_stop();
+    c->synth_trial_notes=0;
+#endif
     if(am_synth_note){for(unsigned i=0;i<16;++i)if(c->synth_notes&(1u<<i))am_synth_note(c->synth_pad_note[i],0,0);if(c->synth_hold)am_synth_note(c->synth_hold_note,0,0);}
     c->synth_notes=c->synth_hold=0;
 }
@@ -417,8 +427,19 @@ int mixer_control_focus_sound_fx(struct mixer_control*c,unsigned sound)
 }
 int mixer_control_button(struct mixer_control*c,enum mixer_action action,int down,uint64_t ticket)
 {
-    if(!c||(unsigned)action>MIXER_LOOP)return 0;
+    if(!c||(unsigned)action>MIXER_RECORD)return 0;
     unsigned bit=1u<<action;
+    if(action==MIXER_RECORD){
+#ifdef MPC_PAD_MIDI_RECORDING_TRIAL
+        if(!down&&(c->owned_buttons&bit)){c->owned_buttons&=~bit;return 1;}
+        if(down&&c->shift&&c->active&&c->view.synth_page&&c->view.synth_keys&&!c->naming){
+            synth_release_all(c);int state=workflow_synth_record_toggle();
+            c->message=state>0?"MIDI trial: empty A16":state==0?"MIDI trial off":"A16 must be empty";
+            c->owned_buttons|=bit;return 1;
+        }
+#endif
+        return 0;
+    }
     if((action==MIXER_LEVELS||action==MIXER_LOOP)&&!(c->active&&c->view.synth_page&&!c->naming)){if(action==MIXER_LOOP)c->view.synth_pick=0;return 0;} /* stock 16 Levels / Loop elsewhere */
     if(action==MIXER_LOOP){c->view.synth_pick=down!=0;return 1;}
     if(action==MIXER_SHIFT){
@@ -700,6 +721,9 @@ int mixer_control_pad(struct mixer_control*c,unsigned pad,int down,uint64_t tick
 {
     if(!c||pad>=16)return 0;
     unsigned bit=1u<<pad;
+#ifdef MPC_PAD_MIDI_RECORDING_TRIAL
+    if(!down&&(c->synth_trial_notes&bit)){workflow_synth_pad(pad,0,0,0);c->synth_trial_notes&=~bit;c->owned_pads&=~bit;return 1;}
+#endif
     if(!down&&(c->synth_notes&bit)){if(am_synth_note)am_synth_note(c->synth_pad_note[pad],0,0);c->synth_notes&=~bit;c->owned_pads&=~bit;return 1;}
     if(!down&&(c->owned_pads&bit)){if(c->naming)phone_pad(&c->name,pad+1,0,name_time());c->owned_pads&=~bit;if(pad<8)c->held_tracks&=~bit;return 1;}
     if(down&&(c->owned_pads&bit))return 1;
@@ -710,7 +734,11 @@ int mixer_control_pad(struct mixer_control*c,unsigned pad,int down,uint64_t tick
     if(c->view.synth_page&&!c->naming&&c->view.synth_pick){int pg=mixer_view_synth_pad_page(pad);if(pg>=0)synth_goto_module(c,(unsigned)pg);return 1;}
     if(c->view.synth_page&&!c->naming&&pad==13&&!c->view.synth_keys){c->owned_pads&=~bit;return 1;} /* unused pad: stay in the synth */
     if(c->view.synth_page&&!c->naming&&pad!=12&&!c->view.synth_keys){synth_release_all(c);c->view.synth_page=0;} /* pads navigate to other entities */
-    if(c->view.synth_page&&!c->naming){if(c->view.synth_keys&&am_synth_note){unsigned n=synth_key_note(c,pad);c->synth_pad_note[pad]=(uint8_t)n;c->synth_last=(uint8_t)n;am_synth_note(n,100,1);c->synth_notes|=bit;}return 1;}
+    if(c->view.synth_page&&!c->naming){if(c->view.synth_keys&&am_synth_note){unsigned n=synth_key_note(c,pad);c->synth_pad_note[pad]=(uint8_t)n;c->synth_last=(uint8_t)n;
+#ifdef MPC_PAD_MIDI_RECORDING_TRIAL
+        if(workflow_synth_pad(pad,n,c->synth_input_velocity?c->synth_input_velocity:100,1)){c->synth_trial_notes|=bit;return 1;}
+#endif
+        am_synth_note(n,100,1);c->synth_notes|=bit;}return 1;}
     if(pad==12&&!c->naming&&!c->view.fx_delete&&(c->view.page==MIXER_OVERVIEW||c->view.page==MIXER_KNOB_FX)&&am_synth_note){c->view.synth_page=1;c->view.synth_cursor=0;c->view.master=2;c->view.selected=0;c->held_tracks=0;{unsigned l,r,sc,o,t;if(am_synth_keys_get_cfg){am_synth_keys_get_cfg(&l,&r,&sc,&o,&t,NULL);c->view.synth_layout=l%4;c->view.synth_root=r;c->view.synth_scale=sc;c->view.synth_octave=o;c->view.synth_transpose=t;}} /* Record's K knobs may have changed them */c->view.synth_keys=am_synth_keys_get?(unsigned)am_synth_keys_get():0;if(am_synth_keys_cfg)am_synth_keys_cfg(c->view.synth_layout,c->view.synth_root,c->view.synth_scale,c->view.synth_octave,c->view.synth_transpose,c->view.synth_cols);c->owned_pads&=~bit;return 1;}
     if(c->naming){c->name.shift=c->shift;phone_pad(&c->name,pad+1,1,name_time());return 1;}
     int fx_pad=pad>=8&&pad<8+MIXER_FX_SLOTS;
@@ -1324,6 +1352,11 @@ void mixer_control_view(struct mixer_control*c,uint64_t now,struct mixer_view_st
 }
 const char*mixer_control_message(const struct mixer_control*c){return c?c->message:"";}
 
+int mixer_control_pad_velocity(struct mixer_control*c,unsigned pad,int down,unsigned velocity,uint64_t ticket){
+ if(!c)return 0;
+ c->synth_input_velocity=velocity>0&&velocity<=127?velocity:100;
+ int result=mixer_control_pad(c,pad,down,ticket);c->synth_input_velocity=0;return result;
+}
 int mixer_control_synth_state(const struct mixer_control*c,unsigned*keys,unsigned*pick)
 {
     if(!c||!c->active||!c->view.synth_page)return 0;

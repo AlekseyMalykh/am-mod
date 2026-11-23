@@ -6,9 +6,12 @@
  * 73 attack, 75 decay, 76 sustain, 7 level. */
 void am_synth_note(unsigned note,unsigned velocity,int on);
 /* Trial music-owner handoff. Nonzero means accepted by the bounded queue.
- * On reserves 16 command slots for matching releases. Requires exclusive
- * single-producer ownership, as does the original Synth queue. */
+ * On reserves 16 command slots for matching releases. Trial builds use a
+ * bounded multiple-producer queue; the audio consumer never blocks. */
 int am_synth_try_note(unsigned note,unsigned velocity,int on);
+#ifdef MPC_PAD_MIDI_RECORDING_TRIAL
+void am_synth_force_note_off(unsigned note); /* bounded overflow/rollback safety; all voices at this pitch */
+#endif
 void am_synth_cc(unsigned cc,unsigned value);
 void am_synth_midi(const unsigned char *data,unsigned size); /* raw message, channel 16 only */
 int am_synth_active(void);

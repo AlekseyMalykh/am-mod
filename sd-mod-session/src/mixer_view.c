@@ -1465,7 +1465,7 @@ void mixer_view_synth(const struct mixer_view_state*s,const struct resample_pain
     }
     text(p,"Loop+pad or +/-: module",8,150,304,12,10,GREY,0);
     text(p,"DATA: pages  Shift: hidden parameter",8,164,304,12,10,GREY,0);
-    text(p,"B2: 16 Levels keyboard",8,178,304,12,10,GREY,0);
+    text(p,s->message&&*s->message?s->message:"B2: 16 Levels keyboard",8,178,304,12,10,s->message&&*s->message?AMBER:GREY,0);
     /* bottom: one row of K panels as everywhere; Shift shows the hidden parameter of each knob */
     for(unsigned k=0;k<3;++k){
         int x=(int)k*106,w=k==2?108:106;

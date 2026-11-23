@@ -5,7 +5,7 @@
 extern "C" {
 #endif
 enum mixer_action {MIXER_B1,MIXER_B2,MIXER_B3,MIXER_PAD_FX,MIXER_KNOB,
-    MIXER_SELECT,MIXER_NATIVE_MODE,MIXER_SHIFT,MIXER_BANK,MIXER_BANK_NEXT,MIXER_BANK_PREVIOUS,MIXER_ERASE,MIXER_MUTE,MIXER_LEVELS,MIXER_LOOP};
+    MIXER_SELECT,MIXER_NATIVE_MODE,MIXER_SHIFT,MIXER_BANK,MIXER_BANK_NEXT,MIXER_BANK_PREVIOUS,MIXER_ERASE,MIXER_MUTE,MIXER_LEVELS,MIXER_LOOP,MIXER_RECORD};
 struct mixer_control;
 /* Transient state belongs exclusively to the UI owner. Input producers must
  * enqueue numeric events/tickets; they must never call this API concurrently.
@@ -48,6 +48,7 @@ uint64_t mixer_control_ticket(const struct mixer_control*);
  * observed but always forwarded as the native modifier. */
 int mixer_control_button(struct mixer_control*,enum mixer_action,int down,uint64_t ticket);
 int mixer_control_pad(struct mixer_control*,unsigned pad,int down,uint64_t ticket);
+int mixer_control_pad_velocity(struct mixer_control*,unsigned pad,int down,unsigned velocity,uint64_t ticket);
 int mixer_control_focus_sound_fx(struct mixer_control*,unsigned sound);
 int mixer_control_show_input(struct mixer_control*,unsigned tab); /* 1 FX, 2 ROUTE */
 int mixer_control_synth_input(void); /* 1 while Synth is the Input track's source */

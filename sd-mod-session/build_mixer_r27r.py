@@ -33,6 +33,10 @@ mixer = ['src/mixer_model.c', 'src/mixer_meters.c', 'src/fx_chain.c', 'src/fx_ow
          'src/midi_event.c', 'src/midi_context.c', 'src/midi_native.c', 'src/sample_live_tuner.cc','src/internal_storage.c']
 sources = list(dict.fromkeys(sources + mixer + ['src/piano_roll.c','src/midi_route.c','src/midi_voice.c','src/midi_wire.c','src/midi_file.c','src/midi_file_native.c','src/program_pgm.c','src/program_import.cc','src/program_manifest.cc']))
 pgm_probe = os.environ.get('AM_MOD_PGM_NATIVE_PROBE') == '1'
+pad_midi_trial = os.environ.get('AM_MOD_PAD_MIDI_RECORDING_TRIAL') == '1'
+pad_midi_probe = os.environ.get('AM_MOD_PAD_MIDI_VM_PROBE') == '1'
+assert not pad_midi_probe or pad_midi_trial, 'VM probe requires explicit trial build'
+if pad_midi_trial:sources += ['src/pad_midi_note.c']
 if pgm_probe:sources += ['src/program_native_probe.cc']
 sha = lambda b: hashlib.sha256(b).hexdigest()
 hashes = {s: sha((R / s).read_bytes()) for s in sources + ['build_mixer_r27r.py', 'build/phone_hooks.h', 'src/shift_badge.h', 'src/mod_build.h', 'src/spectrum_plot.h', 'src/screen_mirror_frame.h', 'src/usb_audio.h', 'src/fx_layout.inc', 'src/fx_visual.inc', 'src/fx_catalog.h', 'src/fx_amp_models.inc', 'src/piano_roll.h', 'src/piano_input.inc', 'src/poly_record.h', 'src/batch_copy.h', 'src/piano_roll_native.inc', 'src/midi_event.h', 'src/midi_context.h', 'src/midi_native.h', 'src/sample_live_tuner.h']}
@@ -50,6 +54,14 @@ common = ['-O2', '-g', '-fPIC', '-Wall', '-Wextra', '-Werror', '-Ibuild',
           '-DMPC_SAMPLE_LIVE_TUNER=1', '-DMPC_MIDI_TOOLS=1', '-DMPC_USB_AUDIO=1', '-DMPC_MIXER_ARCHIVE=1', '-DMPC_MIXER_LIVE=1', '-DMPC_MIXER_AUTOBIND=1', '-DMPC_SONG_UI=1',
           '-mbranch-protection=standard']
 if os.environ.get('AM_MOD_MIDI_EVENT_CONTEXT','1')!='0':common.append('-DMPC_MIDI_EVENTS=1')
+if pad_midi_trial:
+    common.append('-DMPC_PAD_MIDI_RECORDING_TRIAL=1')
+    hashes['src/pad_midi_note.h']=sha((R/'src/pad_midi_note.h').read_bytes())
+    for name in ('src/synth_pad_record.inc','src/synth.h','src/workflow_ui.h','src/mixer_control.h'):
+        hashes[name]=sha((R/name).read_bytes())
+if pad_midi_probe:
+    common.append('-DMPC_PAD_MIDI_VM_PROBE=1')
+    hashes['src/pad_midi_vm_probe.inc']=sha((R/'src/pad_midi_vm_probe.inc').read_bytes())
 if os.environ.get('AM_MOD_RECORD_DIAGNOSTICS')=='1':
     common.append('-DMPC_RECORD_DIAGNOSTICS=1')
     hashes['src/record_probe.inc']=sha((R/'src/record_probe.inc').read_bytes())
@@ -77,7 +89,7 @@ subprocess.run(['aarch64-linux-gnu-g++', '-shared', '-Wl,-z,noexecstack,-z,relro
 sysroot = os.environ.get('MPC_QEMU_SYSROOT', '/home/user/mpc-rootfs-user-20260808')
 bootstrap = Path(os.environ.get('AM_MOD_BOOTSTRAP_DIR', str(R / 'build/workspace-fix')))
 p = subprocess.run(['qemu-aarch64', '-L', sysroot, str(bootstrap / 'bootstrap'),
-                    str(R.parent / 'extracted_v1.3.0/partitions/part3/usr/bin/MPC Sample'),
+                    os.environ.get('MPC_STOCK_APP', str(R.parent / 'extracted_v1.3.0/partitions/part3/usr/bin/MPC Sample')),
                     str(library), str(bootstrap / 'bootstrap-patches.bin')],
                    capture_output=True, text=True, timeout=60)
 (O / 'bootstrap.log').write_text(p.stdout + p.stderr)
