@@ -44,7 +44,7 @@ import webbrowser
 import zipfile
 from pathlib import Path, PurePosixPath
 
-__version__ = "1.5.0"
+__version__ = "1.5.1"
 REPO = "AlekseyMalykh/am-mod"
 GITHUB_URL = f"https://github.com/{REPO}"
 VERSION_FILE = "MPC_MOD_VERSION.json"
@@ -281,11 +281,12 @@ def latest_release(log=print) -> Package:
 
 
 # Only launcher diagnostics and installer metadata are collected.
+# The journals live next to the mod: in autorun/ on a plain card, in its own folder under a boot menu.
+_JOURNALS = ("MPC_MOD_EVENTS.txt", "MPC_MOD_ENTRY.txt", "MPC_CLONE_TRIAL.txt", "MPC_CLONE_ALREADY_ATTEMPTED.txt")
 DIAGNOSTIC_FILES = (
-    VERSION_FILE,
-    "autorun/MPC_MOD_EVENTS.txt",
-    "autorun/MPC_CLONE_TRIAL.txt",
-    "autorun/MPC_CLONE_ALREADY_ATTEMPTED.txt",
+    (VERSION_FILE,)
+    + tuple(f"{d}/{n}" for d in (AUTORUN, DSB_DIR, SAMPLEBOOT_DIR, APP_DIR + "/autorun") for n in _JOURNALS)
+    + ("autorun/sampleboot/last-boot.log",)
 )
 MAX_LOG = 2 << 20
 
@@ -681,9 +682,10 @@ def install(pkg: Package, card: Card, log=print, dry_run: bool = False) -> dict:
         log(f"SampleBoot found: install AM Mod into {SAMPLEBOOT_DIR}; boot menu and other systems are preserved.")
         clash = sampleboot_root_files(root)
         if clash:
-            log(f"Warning: SampleBoot is set to show {', '.join(clash)} from the card root inside mods/. "
-                "AM Mod refuses to start with a writable file from the card there. "
-                'Set ROOT_FILES="" in autorun/sampleboot/sampleboot.conf (SampQOL then does not see its root settings).')
+            log(f"Note: SampleBoot is set to show {', '.join(clash)} from the card root inside mods/. "
+                "SampleBoot 1.0.3 or later does not do this for AM Mod and needs no change. "
+                "With an older SampleBoot, AM Mod refuses to start; set ROOT_FILES=\"\" in autorun/sampleboot/sampleboot.conf "
+                "(SampQOL then does not see its root settings) or update SampleBoot.")
     if app_mode:
         log("mpc-boot-thingy found on the card: AM Mod is installed as a boot-menu app "
             f"({APP_DIR}); the boot menu itself is not changed. Choose AM Mod in the boot menu to start it.")

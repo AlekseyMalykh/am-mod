@@ -15,7 +15,7 @@ Am MOD ejecuta una copia de la aplicación desde la tarjeta SD y nunca flashea e
 | mpc-boot-thingy | `autorun/apps/am-mod/autorun/` con `boot.entry` en la carpeta superior | elige **AM Mod** | vuelve al firmware original |
 | **SampleBoot** (pxcm) | `autorun/mods/AM-Mod/` con `sampleboot.inplace` | elige **Am MOD** en el menú de SampleBoot | **vuelve al menú de SampleBoot** |
 
-El instalador 1.5.0 detecta la disposición y escribe en la carpeta correcta. Nunca sustituye la carpeta `autorun` raíz del menú de arranque. Usa exFAT y una etiqueta de volumen ASCII.
+El instalador 1.5.1 detecta la disposición y escribe en la carpeta correcta. Nunca sustituye la carpeta `autorun` raíz del menú de arranque. Usa exFAT y una etiqueta de volumen ASCII.
 
 ## Salir al cargador
 
@@ -46,7 +46,7 @@ Al informar de un problema de arranque, adjunta estos archivos e indica el menú
 ## Límites
 
 - Exit to bootloader entrega el control a **D.S.B** y **SampleBoot**. Volver a mpc-boot-thingy desde el mod no está implementado; una convención común de «un sistema puede volver al cargador» requeriría un acuerdo con el autor de ese proyecto.
-- SampleBoot: si su ajuste `ROOT_FILES` muestra en `mods/` un archivo de la raíz de la tarjeta (por defecto `mpcqol.conf`, si existe), la comprobación del sandbox de Am MOD impide el arranque. Pon `ROOT_FILES=""` en `autorun/sampleboot/sampleboot.conf`; SampQOL deja de ver sus ajustes de la raíz.
+- SampleBoot **1.0.3 o posterior** no necesita ningún ajuste. En una versión anterior, si su ajuste `ROOT_FILES` muestra en `mods/` un archivo de la raíz de la tarjeta (por defecto `mpcqol.conf`, si existe), la comprobación del sandbox de Am MOD impide el arranque: actualiza SampleBoot o pon `ROOT_FILES=""` en `autorun/sampleboot/sampleboot.conf` (SampQOL deja de ver sus ajustes de la raíz).
 - La compatibilidad con mpc-boot-thingy sigue en pruebas.
 - D.S.B muestra el nombre de la carpeta (**AM-Mod**), no la grafía del producto.
 - En una tarjeta normal, el firmware original no tiene menú de cargador; para usar el original con una tarjeta de menú de arranque elige su entrada Stock o retira la tarjeta.

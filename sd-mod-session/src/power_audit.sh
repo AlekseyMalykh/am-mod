@@ -11,8 +11,12 @@ case "$DIR" in /media/*/autorun) ;; *) exit 1 ;; esac
 SD=${DIR%/autorun}
 [ "$(readlink -f "$SD")" = "$SD" ] || exit 1
 awk -v p="$SD" '$2==p && ($3=="exfat" || $3=="vfat") && $4 ~ /(^|,)rw(,|$)/ {n++} END {exit n!=1}' /proc/mounts || exit 1
-OUT="$SD/MPC_POWER_AUDIT.txt"
-TMP="$SD/.MPC_POWER_AUDIT.next"
+# Everything Am MOD writes at the card root lives in one folder, so several systems can share a card tidily.
+OUTDIR="$SD/AmMod"
+[ ! -L "$OUTDIR" ] || exit 1
+[ -d "$OUTDIR" ] || mkdir "$OUTDIR" || exit 1
+OUT="$OUTDIR/MPC_POWER_AUDIT.txt"
+TMP="$OUTDIR/.MPC_POWER_AUDIT.next"
 [ ! -L "$OUT" ] && [ ! -L "$TMP" ] || exit 1
 [ ! -e "$TMP" ] || exit 1
 set -C
@@ -62,5 +66,7 @@ bounded_read() {
 } >&3 2>&1
 exec 3>&-
 mv -f "$TMP" "$OUT" || exit 1
+# Reports of earlier releases were written to the card root; this file replaces them.
+[ -f "$SD/MPC_POWER_AUDIT.txt" ] && [ ! -L "$SD/MPC_POWER_AUDIT.txt" ] && rm -f "$SD/MPC_POWER_AUDIT.txt"
 trap - EXIT
 exit 0

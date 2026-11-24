@@ -1,5 +1,13 @@
 # Changelog
 
+## r30d-beta4 — beta
+
+Fixes on top of r30d-beta3:
+
+- Card root kept tidy: the power report `MPC_POWER_AUDIT.txt` and the status markers (silent `.wav` names for the stock Sample Browser) now live in one folder, `AmMod/` (`AmMod/MPC_POWER_AUDIT.txt`, `AmMod/Status/`), instead of `MPC_POWER_AUDIT.txt` and `MPC_TRIAL_STATUS/` at the card root. The first start removes the old report and the old marker names (user files in the old folder are never touched).
+- SampleBoot 1.0.3 or later no longer mounts card-root settings files such as `mpcqol.conf` into the mod's folder, so the `ROOT_FILES=""` workaround is only for older SampleBoot versions.
+- Installer 1.5.1: the SampleBoot note is now a hint for older versions only; bug-report logs are also collected from the boot-menu folders (`autorun/mods/AM-Mod`, `autorun/os/AM-Mod`) and SampleBoot's `last-boot.log`.
+
 ## r30d-beta3 — beta
 
 Fixes on top of r30d-beta2:
