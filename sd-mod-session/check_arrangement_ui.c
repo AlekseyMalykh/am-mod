@@ -41,10 +41,15 @@ int main(int argc,char**argv){
     action(0);struct pt_arrangement a;assert(pt_arr_info(&a)&&a.tracks==1);
     action(1);assert(arrange_menu==2);press(B3,0);assert(pt_arr_info(&a)&&a.clips==1&&arrange_selected);shot();
     phase="Chop inside pinned block, paired edges, shared history";
-    turn(DATA_ENCODER,4,0);assert(arrange_cursor==3840);press(0x4b,0);assert(pt_arr_info(&a)&&a.clips==2);shot();
-    struct pt_arr_clip right;assert(arrange_clip(arrange_selected,&right)&&right.start==3840&&right.offset==3840);
+    turn(DATA_ENCODER,3,0);assert(arrange_cursor==2880);shot();press(0x4b,0);assert(pt_arr_info(&a)&&a.clips==2);shot();
+    struct pt_arr_clip right,left;assert(arrange_clip(arrange_selected,&right)&&right.start==2880&&right.offset==2880&&right.length==4800);
+    assert(pt_arr_clip_at(0,&left)&&left.start==0&&left.length==2880&&left.offset==0&&left.length+right.length==7680&&left.pattern==right.pattern);
+    struct pt_entry source_pattern;struct pr_note unchanged_notes[2];
+    assert(pt_info(0,&source_pattern)&&source_pattern.length==7680&&source_pattern.count==2&&pt_notes(0,unchanged_notes,2,NULL)==2);
+    for(unsigned i=0;i<2;++i)assert(!memcmp(&unchanged_notes[i].event,&notes[i].event,sizeof(struct step_event)));
+    puts("CHOP_LENGTHS source=7680 left=2880 right=4800 right_offset=2880; source pattern unchanged");
     press(MINUS,1);assert(pt_arr_info(&a)&&a.clips==1);press(PLUS,1);assert(pt_arr_info(&a)&&a.clips==2);
-    press(B3,0);turn(DATA_ENCODER,124,0);assert(arrange_cursor==0);press(B3,0);action(7);assert(pt_arr_info(&a)&&a.clips==1);
+    press(B3,0);turn(DATA_ENCODER,125,0);assert(arrange_cursor==0);press(B3,0);action(7);assert(pt_arr_info(&a)&&a.clips==1);shot();
     phase="Copy reference to second track and non-destructive rejected overlap";
     action(2);action(0);assert(arrange_row==1);turn(DATA_ENCODER,8,0);action(3);assert(pt_arr_info(&a)&&a.clips==2&&pt_count()==1);shot();
     uint64_t revision=a.revision;action(3);assert(pt_arr_info(&a)&&a.revision==revision&&a.clips==2);press(B1,0);

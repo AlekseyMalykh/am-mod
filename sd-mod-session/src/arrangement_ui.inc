@@ -137,6 +137,11 @@ static void arrange_paint(void*g){
         if(!a.tracks){colour(g,0xffffffffu);text(g,"Actions > Add track",8,108,304,25,16);}
     }
     char status[96];snprintf(status,sizeof status,"q %.2f / Grid %.2f / %u blocks",1.+arrange_cursor/960.,arrange_grid/960.,a.clips);
+    struct pt_arr_clip selected_clip;struct pt_entry selected_pattern;
+    if(!arrange_menu&&arrange_target(&selected_clip)){
+        int index=pt_pattern_index(selected_clip.pattern);
+        if(index>=0&&pt_info((unsigned)index,&selected_pattern))snprintf(status,sizeof status,"q %.2f / Block %.2fq / Pattern %.2fq",1.+arrange_cursor/960.,selected_clip.length/960.,selected_pattern.length/960.);
+    }
     colour(g,0xffaaaaaau);text_at(g,status,6,199,308,15,11,0x21);
     colour(g,0xffffc247u);text_at(g,toast_until&&now_ms()<toast_until?toast:"DATA time / Fader track / Chop split",6,215,308,19,11,0x21);
 }
