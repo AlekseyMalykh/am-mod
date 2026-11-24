@@ -27,7 +27,10 @@ static void roll_draw_text(void*g,const uint64_t*s,int x,int y,int w,int h,int f
  if(!strcmp(t,"Follow On"))shift_follow=1;
  draw_text(g,s,x,y,w,h,flags,lines,scale);
 }
-int main(int argc,char**argv){
+#ifndef PIANO_ROLL_PROOF_MAIN
+#define PIANO_ROLL_PROOF_MAIN main
+#endif
+int PIANO_ROLL_PROOF_MAIN(int argc,char**argv){
  assert(argc==3);struct sigaction sa={.sa_sigaction=fault,.sa_flags=SA_SIGINFO};sigaction(SIGSEGV,&sa,NULL);sigaction(SIGILL,&sa,NULL);sigaction(SIGABRT,&sa,NULL);
  load_elf(argv[1],0x1800000000ULL);setup();phase="piano roll real native event tree and modifiers";
  unsigned char amber[192],native_rgb[12];usb_drive_amber_frame(amber);
@@ -54,7 +57,7 @@ int main(int argc,char**argv){
   event[9]=0;assert(step_native_button_at(event,0,milliseconds())==2);
   assert(!atomic_load(&piano_forwarded_buttons[code]));
  }
- roll_action=14;roll_action_run();assert(roll_editing&&roll.layer==PR_PADS);
+ roll_action=15;roll_action_run();assert(roll_editing&&roll.layer==PR_PADS);
  assert(roll_button(0x0c,0)==1&&!roll_editing); /* Pad-level length needs neither Orig Note nor chops. */
  assert(roll_button(0x0e,0)==1&&roll_editing); /* Selection exposes Edit directly on B3. */
  roll_button(0x0c,0);roll_button(0x0c,1);assert(roll.note_focus);
@@ -78,7 +81,7 @@ int main(int argc,char**argv){
  int64_t edit_span=roll.span;assert(roll_control(0x64,1,1)&&roll_editing&&roll.span<=edit_span);
  assert(roll_control(0x14,127,1)&&roll.row_height==38&&roll.plan.added_count);
  roll_button(0x0c,0);assert(!roll_editing);for(unsigned i=0;i<roll.count;++i)roll.notes[i].selected=0;
- unsigned auditions_before=audition_starts;roll_pad(0);
+ unsigned auditions_before=audition_starts;roll_pad(0,0);
  assert(audition_starts==auditions_before+1&&event_choice_value(&audition_event,0)==-1&&event_pad(&audition_event)==1);
  step_native_pad_release(0,step_native_ticket());assert(roll_audition==-1);
  roll_palette();uint64_t actual;assert(step_native_light(8,&actual));
@@ -98,7 +101,7 @@ int main(int argc,char**argv){
  for(unsigned i=0;i<roll.count;++i)if(roll.notes[i].sound==1)assert(roll.notes[i].tune==9&&roll.notes[i].slice==3);
  assert(roll_layer_open(PR_CHOP,1));pr_select_all(&roll);assert(pr_edit(&roll,0,1,0,0)&&pr_apply(&roll));assert(roll_refresh(1));
  roll_palette();assert(step_native_light(8,&actual)&&!actual);
- roll_pad(3);assert(event_choice_value(&audition_event,15)==4&&event_pad(&audition_event)==1);roll_pad_up(3);
+ roll_pad(3,0);assert(event_choice_value(&audition_event,15)==4&&event_pad(&audition_event)==1);roll_pad_up(3);
  for(unsigned i=0;i<roll.count;++i)if(roll.notes[i].sound==1)assert(roll.notes[i].tune==9&&roll.notes[i].slice==4);
  pr_view_layer(&roll,PR_PADS,0);pr_select_all(&roll);assert(pr_quantize(&roll,PR_SNAP_START));assert(roll_refresh(1));
  assert(pr_copy(&roll));pr_cursor(&roll,1920,0);assert(pr_paste(&roll));assert(roll_refresh(1)&&roll.count==6);
@@ -110,17 +113,17 @@ int main(int argc,char**argv){
  draw_file=fopen("/dev/null","w");assert(draw_file);
  /* Existing sequence state is visible; Mute changes only the cursor's pad. */
  FIELD(seq,0x480,int)=3;assert(music_sequence_pad_toggle(3,1)==1&&music_sequence_pad_toggle(9,0)==1);
- row_mute_marks=roll_sm_marks=0;roll_paint((void*)1);assert(row_mute_marks==1&&roll_sm_marks==1);
+ row_mute_marks=roll_sm_marks=0;roll_paint((void*)1);assert(row_mute_marks==1&&!roll_sm_marks);
  unsigned preserved_events=(unsigned)tree()->size;int native_edits=group_mute_calls;
  button(BUTTON_MUTE,1);button(BUTTON_MUTE,0);
  assert(music_sequence_pad_muted(3,0)&&music_sequence_pad_muted(3,1)&&music_sequence_pad_muted(9,0));
  assert(seq_mutes_current()==3&&seq_mutes_event_muted(&roll.notes[0].event));
- row_mute_marks=roll_sm_marks=0;roll_paint((void*)1);assert(row_mute_marks==2&&roll_sm_marks==1);
+ row_mute_marks=roll_sm_marks=0;roll_paint((void*)1);assert(row_mute_marks==2&&!roll_sm_marks);
  fclose(draw_file);char muted_trace[1024];snprintf(muted_trace,sizeof(muted_trace),"%s.muted.txt",argv[2]);
  draw_file=fopen(muted_trace,"w");assert(draw_file);roll_paint((void*)1);fclose(draw_file);
  draw_file=fopen("/dev/null","w");assert(draw_file);
  button(BUTTON_MUTE,1);button(BUTTON_MUTE,0);assert(!music_sequence_pad_muted(3,0));
- FIELD(seq,0x480,int)=9;row_mute_marks=roll_sm_marks=0;roll_paint((void*)1);assert(row_mute_marks==1&&roll_sm_marks==1);
+ FIELD(seq,0x480,int)=9;row_mute_marks=roll_sm_marks=0;roll_paint((void*)1);assert(row_mute_marks==1&&!roll_sm_marks);
  FIELD(seq,0x480,int)=3;assert(music_sequence_mutes_clear(3));
  row_mute_marks=roll_sm_marks=0;roll_paint((void*)1);assert(!row_mute_marks&&!roll_sm_marks);
  assert(tree()->size==preserved_events&&group_mute_calls==native_edits);
@@ -128,7 +131,7 @@ int main(int argc,char**argv){
  for(int mode=PR_TUNE;mode<=PR_CHOP;++mode){
   assert(roll_layer_open(mode,1));button(BUTTON_MUTE,1);button(BUTTON_MUTE,0);
   assert(music_sequence_pad_muted(3,1)&&!music_sequence_pad_muted(3,0));
-  row_mute_marks=roll_sm_marks=0;roll_paint((void*)1);assert(row_mute_marks>0&&roll_sm_marks==1);
+  row_mute_marks=roll_sm_marks=0;roll_paint((void*)1);assert(row_mute_marks>0&&!roll_sm_marks);
   button(BUTTON_MUTE,1);button(BUTTON_MUTE,0);assert(!music_sequence_pad_muted(3,1));
  }
  pr_view_layer(&roll,PR_PADS,0);pr_cursor(&roll,480,0);

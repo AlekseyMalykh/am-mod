@@ -21,6 +21,14 @@ static void roll_data_release(int shift){
  else if(!roll_editing&&!roll_actions){pr_select(&roll,shift);repaint();}
 }
 static int roll_row_pending(void);static void roll_row_execute(int);
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+#include "pattern_tools.h"
+static int roll_pattern_index=-1,roll_patterns_state,roll_patterns_pick,roll_patterns_action;
+static uint64_t roll_patterns_epoch;
+static int64_t roll_patterns_begin,roll_patterns_end;
+static void roll_patterns_open(void),roll_patterns_paint(void*);
+static int roll_patterns_button(unsigned,int),roll_patterns_control(unsigned,unsigned,int),roll_pattern_refresh(void);
+#endif
 static int roll_erase_held,roll_erase_used;static int roll_row_confirm=-1,roll_row_layer,roll_row_sound;static uint64_t roll_row_until;
 static void roll_layout_update(void);
 #ifdef MPC_MIDI_TOOLS
@@ -28,7 +36,11 @@ static int roll_midi_state;
 static void roll_midi_close(void),roll_midi_open(void),roll_midi_tick(void),roll_midi_paint(void*),roll_midi_pad(unsigned);
 static int roll_midi_button(unsigned),roll_midi_control(unsigned,unsigned);
 #endif
-static const char *const roll_action_names[]={"Copy","Cut","Paste","Delete","Select all","Select none","Snap starts","Snap ends","Snap both","Grid","Tune / Chop","Show target pad","Insert event","Undo: Shift -","Redo: Shift +","Move / Length / Velocity","Import MIDI","Export MIDI"};
+static const char *const roll_action_names[]={"Copy","Cut","Paste","Delete","Select all","Select none","Snap starts","Snap ends","Snap both","Grid","Tune / Chop","Show target pad","Insert event","Undo: Shift -","Redo: Shift +","Move / Length / Velocity","Import MIDI","Export MIDI"
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+,"Parts / Patterns"
+#endif
+};
 #define ROLL_ACTIONS_COUNT ((int)(sizeof(roll_action_names)/sizeof(roll_action_names[0])))
 static const char *roll_grid_name(void){return roll.grid==10?"Off / 1 tick":grid_names[roll.grid];}
 static int roll_sequence_index(void){
@@ -58,6 +70,9 @@ static int roll_sample_settings(int pad,int *chops,struct music_sample *settings
 }
 static int roll_sample_meta(int pad,int *chops){return roll_sample_settings(pad,chops,NULL,NULL);}
 static int roll_layer_open(int layer,int pad){
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+ if(roll_pattern_index>=0){roll_reference_note=60;roll.chop_count=128;roll_pad_page=0;pr_view_layer(&roll,layer,pad);roll_layout_update();return 1;}
+#endif
  int chops=0,original=roll_sample_meta(pad,&chops);
  if(layer==PR_TUNE&&original<0){say("Set Orig Note: Sample > Tune > Shift K1");return 0;}
  if(layer==PR_CHOP&&chops<2){say("Split this sample into chops first");return 0;}
@@ -66,6 +81,9 @@ static int roll_layer_open(int layer,int pad){
 }
 static void roll_layout_update(void){
  if(roll.layer==PR_PADS)return;
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+ if(roll_pattern_index>=0){int lo=roll.layer==PR_TUNE?108:0;lo+=roll_pad_page*16;for(int i=0;i<16;++i)roll_pad_rows[i]=lo+i;pr_layout_range(&roll,lo,lo+15);return;}
+#endif
  struct music_sample settings={0};int tuning=0;
  roll_sample_settings(roll.sound,NULL,&settings,&tuning);
  roll_tune_lights=music_light_snapshot(&settings,tuning);
@@ -116,6 +134,9 @@ static int roll_read(unsigned *out_count,uint64_t *revision,unsigned char loaded
  *out_count=count;*revision=h^(uint64_t)length;return 1;
 }
 static int roll_encode(void *user,const struct pr_note*n,struct step_event*out){
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+ if(roll_pattern_index>=0)return pt_encode((unsigned)roll_pattern_index,n,out);
+#endif
  (void)user;if(n->sound<0||n->sound>127||n->slice<0||n->slice>128||n->tune< -120||n->tune>120)return 0;
  struct step_event e=n->event;
  int old_sound=event_pad(&e);e.data[32]=(unsigned char)FN(0x157f800,int(*)(void*,int))(controller,n->sound);
@@ -128,6 +149,9 @@ static int roll_encode(void *user,const struct pr_note*n,struct step_event*out){
  *out=e;return 1;
 }
 static int roll_commit(void *user,const struct pr_plan *plan){
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+ if(roll_pattern_index>=0){(void)user;return pt_commit((unsigned)roll_pattern_index,plan);}
+#endif
  (void)user;
  if(!atomic_load(&piano_active)||roll_owner!=event_list||(step_native_transport_state()&4))return 0;
  unsigned count;uint64_t revision;
@@ -138,6 +162,9 @@ static int roll_commit(void *user,const struct pr_plan *plan){
  roll_last_scan=0;return 1;
 }
 static void roll_close(void){
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+ roll_pattern_index=-1;roll_patterns_state=0;
+#endif
  if(atomic_load(&piano_active)){workflow_piano_input_stop();roll_input_held=0;}
 #ifdef MPC_MIDI_TOOLS
  roll_midi_close();
@@ -150,6 +177,11 @@ static void roll_project_reset(void){roll_close();if(roll_ready)pr_reset(&roll);
 static int roll_refresh(int force){
  if(!atomic_load(&piano_active))return 0;
  if(!showing||roll_owner!=event_list){roll_close();return 0;}
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+ if((roll_pattern_index>=0||roll_patterns_state)&&roll_patterns_epoch!=pt_epoch()){roll_close();say("Project changed: reopen Patterns");return 0;}
+ if(roll_pattern_index>=0)return roll_pattern_refresh();
+ if(roll_patterns_state)return 1;
+#endif
 #ifdef MPC_MIDI_TOOLS
  roll_midi_tick();
 #endif
@@ -189,6 +221,9 @@ static void roll_error(int result,const char *ok){
 static unsigned roll_categories(int pad){unsigned flags=0;for(unsigned i=0;i<roll.count;++i)if(roll.notes[i].sound==pad)flags|=roll.notes[i].flags;return flags;}
 static void roll_enter(void){
  int pad=roll.layer==PR_PADS?roll.rows[roll.cursor_row]:roll.sound;
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+ if(roll_pattern_index>=0){roll_layer_open((roll_categories(pad)&2)?PR_CHOP:PR_TUNE,pad);roll_editing=0;repaint();return;}
+#endif
  unsigned flags=roll_categories(pad);int chops=0,original=roll_sample_meta(pad,&chops);
  int layer=original>=0&&(!(flags&1)||(flags&2))?PR_TUNE:chops>=2?PR_CHOP:PR_TUNE;
  if(roll_layer_open(layer,pad))roll_editing=0;
@@ -200,6 +235,9 @@ static void roll_edit_start(void){
  roll_fader_count=roll.row_count;memcpy(roll_fader_rows,roll.rows,(size_t)roll.row_count*sizeof(int));
  roll_editing=1;roll_delta_time=roll_delta_length=0;roll_delta_row=roll_delta_velocity=0;pr_cancel(&roll);
 }
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+#include "pattern_roll.inc"
+#endif
 static void roll_action_run(void){
  int action=roll_action;roll_actions=0;
  if(!roll_refresh(1))return;
@@ -219,6 +257,9 @@ static void roll_action_run(void){
  }else if(action==12){
   int pad=roll.layer==PR_PADS?roll.rows[roll.cursor_row]:roll.sound;
   unsigned note=(unsigned)FN(0x157f800,int(*)(void*,int))(controller,pad);
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+  if(roll_pattern_index>=0)note=(unsigned)pt_note_number((unsigned)roll_pattern_index,pad);
+#endif
   if(note>127){say("Destination pad has no native note");return;}
   struct step_event e=FN(0x27e54d0,struct step_event(*)(unsigned,int64_t,int64_t,unsigned,unsigned,float))(note,roll.cursor_tick,pr_grid_ticks(roll.grid),100,0,100.f/127.f);
   if(roll.layer==PR_TUNE)event_choice_set(&e,0,roll.rows[roll.cursor_row]-120);
@@ -226,9 +267,20 @@ static void roll_action_run(void){
   pr_cancel(&roll);roll.plan.title="Piano Roll Insert";roll.plan.revision=roll.revision;roll.plan.added[0]=e;roll.plan.added_count=1;
   roll_error(pr_apply(&roll),"Event inserted; Undo / Redo available");
  }else if(action==15)roll_edit_start();
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+ else if(action==18)roll_patterns_open();
+#endif
 #ifdef MPC_MIDI_TOOLS
- else if(action==16)roll_midi_open();
+ else if(action==16){
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+  if(roll_pattern_index>=0){say("Return to sequence for MIDI import");return;}
+#endif
+  roll_midi_open();
+ }
  else if(action==17){char path[512],error[96];void *things=FIELD(controller,0x248,void*);
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+  if(roll_pattern_index>=0){say("Copy pattern to sequence for MIDI export");return;}
+#endif
   if(step_native_transport_state()&4){say("Stop recording before MIDI export");return;}
   if(am_midi_file_export(base,am_midi_file_project(base),things,sequence,NULL,path,error)){char text[160];const char*name=strrchr(path,'/');snprintf(text,sizeof(text),"Saved %.60s",name?name+1:path);say(text);}
   else say(error);
@@ -238,6 +290,14 @@ static void roll_action_run(void){
 }
 static int roll_button(unsigned code,int event_shift){
  if(!atomic_load(&piano_active))return 0;
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+ if(roll_patterns_state)return roll_patterns_button(code,event_shift);
+ if(roll_pattern_index>=0){
+  if((code==BUTTON_MINUS||code==BUTTON_PLUS)&&event_shift){pr_cancel(&roll);roll_editing=roll_actions=0;if(!pt_history(code==BUTTON_MINUS?-1:1))say(pt_error());roll_refresh(1);return 1;}
+  if(code==0x0c&&!event_shift&&!roll_actions&&!roll_editing&&roll.layer==PR_PADS){roll_pattern_index=-1;pr_reset_view(&roll);roll_patterns_open();return 1;}
+  if(code==BUTTON_RECORD||code==BUTTON_MUTE||code==BUTTON_ERASE){say("Use Actions to edit pattern events");return 1;}
+ }
+#endif
  if(roll_row_pending()&&(code==0x0e||code==0x0c)){
   int value=roll_row_confirm;
   if(code==0x0e)roll_row_execute(value);else{roll_row_confirm=-1;say("Row delete cancelled");}
@@ -298,6 +358,9 @@ static int roll_button(unsigned code,int event_shift){
 }
 static int roll_control(unsigned cc,unsigned v,int event_shift){
  if(!atomic_load(&piano_active))return 0;
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+ if(roll_patterns_state)return roll_patterns_control(cc,v,event_shift);
+#endif
 #ifdef MPC_MIDI_TOOLS
  if(roll_midi_state)return roll_midi_control(cc,v);
 #endif
@@ -368,6 +431,13 @@ static int roll_near_note(int value){
  }return best;
 }
 static void roll_pad(unsigned pad,int pad_shift){
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+ if(roll_patterns_state)return;
+ if(roll_pattern_index>=0){
+  if(pad<16){int value=roll.layer==PR_PADS?browse_bank*16+(int)pad:roll_pad_rows[pad];if(roll.layer==PR_PADS&&value>=0&&value<128){roll.pinned[value]=1;pr_rows(&roll);}int row=pr_row_index(&roll,value);if(row>=0){pr_cursor(&roll,roll.cursor_tick,row);if(pad_shift)pr_select(&roll,1);}}
+  repaint();return;
+ }
+#endif
 #ifdef MPC_MIDI_TOOLS
  if(roll_midi_state){roll_midi_pad(pad);return;}
 #endif
@@ -410,6 +480,12 @@ static void roll_pad(unsigned pad,int pad_shift){
 }
 static void roll_pad_up(unsigned pad){if(pad<16&&(roll_input_held&(1u<<pad))){workflow_piano_input(NULL,NULL,pad);roll_input_held&=~(1u<<pad);}if(roll_audition>=0&&(unsigned)roll_audition==pad){workflow_event_preview_stop(0);roll_audition=-1;}}
 #define ROLL_DIM .22f /* pads with events elsewhere; pads at the cursor are brighter, selected ones white */
+static int roll_show_transport(void){
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+ if(roll_pattern_index>=0)return 0;
+#endif
+ return was_playing;
+}
 static void roll_palette(void){
  if(!atomic_load(&piano_active))return;
  atomic_store(&event_edit_mask,roll.layer==PR_TUNE?1u:roll.layer==PR_CHOP?2u:category_buttons(roll_categories(roll.rows[roll.cursor_row])));
@@ -427,7 +503,7 @@ static void roll_palette(void){
     selected=roll.rows[roll.cursor_row]==value;
    }
    if(near_note>=0){brightness=.85f;near_chosen=roll.notes[near_note].selected;}
-   if(was_playing)for(unsigned i=0;i<roll.count;++i){const struct pr_note *n=roll.notes+i;int row=roll.layer==PR_PADS?n->sound:pr_note_row(&roll,n);
+   if(roll_show_transport())for(unsigned i=0;i<roll.count;++i){const struct pr_note *n=roll.notes+i;int row=roll.layer==PR_PADS?n->sound:pr_note_row(&roll,n);
     if(row==value&&!(n->event.type&0x200)&&play_tick>=n->event.time&&play_tick<n->event.time+FIELD(&n->event,0x28,int64_t)){playing=1;break;}}
   }
   atomic_store(&lights[pad],playing?pad_light(PAD_PLAYHEAD,.95f):near_chosen?pad_light(0xffffffu,1.f):selected?pad_selection_light(hue?hue:PAD_SELECT,brightness,phase):pad_light(hue,brightness));
@@ -440,19 +516,33 @@ static void roll_rect(void*g,int x,int y,int w,int h,uint32_t ink){
  if(right>x&&bottom>y){colour(g,ink);rect(g,x,y,right-x,bottom-y);}
 }
 static void roll_paint(void*g){
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+ if(roll_patterns_state){roll_patterns_paint(g);return;}
+#endif
 #ifdef MPC_MIDI_TOOLS
  if(roll_midi_state){roll_midi_paint(g);return;}
 #endif
  colour(g,0xff000000);rect(g,0,0,320,240);
- colour(g,WHITE);text(g,roll_row_pending()?"Cancel":shift?(roll.note_focus?"Cursor":"Notes"):roll_actions?"Close":roll_editing?"Cancel":roll.layer==PR_PADS?(roll_source_steps?"Steps":"Events"):"Pad view",0,6,105,23,14);
+ const char*back_label=roll_row_pending()?"Cancel":shift?(roll.note_focus?"Cursor":"Notes"):roll_actions?"Close":roll_editing?"Cancel":roll.layer==PR_PADS?(roll_source_steps?"Steps":"Events"):"Pad view";
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+ if(roll_pattern_index>=0&&!shift&&!roll_editing&&!roll_actions&&roll.layer==PR_PADS)back_label="Patterns";
+#endif
+ colour(g,WHITE);text(g,back_label,0,6,105,23,14);
  colour(g,shift&&roll.follow?AMBER:WHITE);text(g,shift?(roll.follow?"Follow On":"Follow Off"):roll.range?"End range":"Select range",107,6,105,23,14);
  colour(g,AMBER);text(g,roll_row_pending()?"Do It!":shift?"Actions":roll_actions?"Choose":roll_editing?"Apply":roll.layer==PR_PADS&&!pr_selected(&roll)?"Open":"Edit",214,6,105,23,14);
  char title[80],pad[8];pad_name(roll.sound,pad);
  uint64_t sequence_muted[2];int has_seq_mutes=roll_sequence_mutes(sequence_muted);
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+ if(roll_pattern_index>=0){sequence_muted[0]=sequence_muted[1]=0;has_seq_mutes=0;}
+#endif
  /* Title: pad + its sample name (as in Sample/Steps), grid and selection on the right.
   * Row mutes are shown by the red "M" on the row itself, no extra SM badge here. */
  {int title_pad=roll.layer==PR_PADS?(roll.cursor_row>=0&&roll.cursor_row<roll.row_count?roll.rows[roll.cursor_row]:-1):roll.sound;
   char caption[64],sample[513];
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+  if(roll_pattern_index>=0){struct pt_entry e;pt_info((unsigned)roll_pattern_index,&e);strcpy(pad,"PAT");snprintf(sample,sizeof sample,"%s",e.name);}
+  else
+#endif
   if(title_pad>=0&&title_pad<128){pad_name(title_pad,pad);read_sample_for_pad(title_pad,sample);}
   else{strcpy(pad,"--");strcpy(sample,"Empty");}
   (void)has_seq_mutes;
@@ -507,7 +597,7 @@ static void roll_paint(void*g){
   roll_rect(g,x,y,right-x>2?right-x:2,2,AMBER);roll_rect(g,x,y+roll.row_height-5,right-x>2?right-x:2,2,AMBER);
  }
  int x=roll_x(roll.cursor_tick);roll_rect(g,x,70,1,120,AMBER);
- if(was_playing){x=roll_x(play_tick);roll_rect(g,x,70,1,120,WHITE);}
+ if(roll_show_transport()){x=roll_x(play_tick);roll_rect(g,x,70,1,120,WHITE);}
  if(roll.range){int xa=roll_x(roll.anchor_tick),xb=roll_x(roll.cursor_tick);if(xa>xb){int t=xa;xa=xb;xb=t;}
   int ya=roll_y(roll.anchor_row),yb=roll_y(roll.cursor_row);if(ya>yb){int t=ya;ya=yb;yb=t;}
   roll_rect(g,xa,ya,xb-xa+1,1,AMBER);roll_rect(g,xa,yb+roll.row_height-1,xb-xa+1,1,AMBER);
@@ -535,7 +625,11 @@ static void roll_paint(void*g){
    else if(t%960==0)snprintf(value,sizeof(value),"%+lld beat",(long long)(t/960));else snprintf(value,sizeof(value),"%+lld tick",(long long)t);}
   if(value[0]){text(g,labels[k],k*106,210,105,11,10);colour(g,AMBER);text(g,value,k*106,222,105,16,13);}
   else text(g,labels[k],k*106,212,105,20,12);}
- colour(g,AMBER);left_text(g,roll.range?"Range: DATA = time, Fader = rows":message[0]?message:roll.error[0]?roll.error:roll_editing?"DATA: Move | Fader: Rows | Shift: Zoom":roll.note_focus?"MUTE: Row | DATA: Notes | Click: Select":roll.follow?"MUTE: Row | Follow On | Shift B3: Actions":"MUTE: Row | B2: Range | Shift B3: Actions",4,199,308,9,9);
+ const char*footer=roll.range?"Range: DATA = time, Fader = rows":message[0]?message:roll.error[0]?roll.error:roll_editing?"DATA: Move | Fader: Rows | Shift: Zoom":roll.note_focus?"MUTE: Row | DATA: Notes | Click: Select":roll.follow?"MUTE: Row | Follow On | Shift B3: Actions":"MUTE: Row | B2: Range | Shift B3: Actions";
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+ if(roll_pattern_index>=0&&!message[0]&&!roll.error[0]&&!roll.range)footer="Pattern edit | Play: sequence | Shift B3: Actions";
+#endif
+ colour(g,AMBER);left_text(g,footer,4,199,308,9,9);
 }
 #ifdef MPC_MIDI_TOOLS
 #include "piano_roll_midi.inc"

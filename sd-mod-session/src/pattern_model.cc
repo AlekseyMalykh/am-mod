@@ -93,6 +93,22 @@ Result Pattern::replace(Id id,const step_event&event,std::uint64_t expected,am_m
     Result result=validate(event,length_,routes_[it->route],get);if(result!=Result::ok)return result;
     it->native=copy_note(event);++revision_;return Result::ok;
 }
+Result Pattern::restore(Id id,Id parent,std::uint64_t revision,std::int64_t length,
+ const std::vector<Route>&routes,const std::vector<PatternEvent>&events,am_midi_choice_get get,Pattern&out){
+    if(!id||parent==id||!revision)return Result::invalid;
+    if(events.size()>max_events)return Result::limit;
+    std::vector<InputEvent> input;input.reserve(events.size());std::set<Id> ids;
+    for(const auto&e:events){
+        if(!e.id||!ids.insert(e.id).second||bool(e.source_snapshot)!=bool(e.source_event))return Result::invalid;
+        InputEvent value;value.native=e.native;value.route=e.route;input.push_back(value);
+    }
+    std::shared_ptr<const Snapshot> checked;
+    Result result=Snapshot::capture(id,"pattern-values",revision,length,routes,input,get,checked);
+    if(result!=Result::ok)return result;
+    Pattern value;value.id_=id;value.parent_=parent;value.revision_=revision;value.length_=length;value.routes_=routes;value.events_=events;
+    for(unsigned i=0;i<events.size();++i)value.events_[i].native=checked->events()[i].native;
+    out=std::move(value);return Result::ok;
+}
 Result extract(const Parts&parts,Id part_id,std::int64_t begin,std::int64_t end,BoundaryPolicy policy,
  Id pattern_id,Pattern&out,ExtractionInfo&info){
     auto snapshot=parts.snapshot();

@@ -1,6 +1,9 @@
 #define _GNU_SOURCE
 #include "phone_input.h"
 #include "phone_events.h"
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+#include "pattern_tools.h"
+#endif
 #ifdef MPC_PAD_MIDI_RECORDING_TRIAL
 #include "synth_archive.h"
 #ifdef MPC_SYNTH_NATIVE_PLAYBACK_TRIAL
@@ -1793,12 +1796,19 @@ static void music_save_mixer(void *p,void *a)
     music_save_base(p,a);
 #endif
 }
-static void music_save(void *p,void *a)
+static void music_save_instruments(void *p,void *a)
 {
 #ifdef MPC_PAD_MIDI_RECORDING_TRIAL
     am_synth_archive_save(p,a,music_save_mixer);
 #else
     music_save_mixer(p,a);
+#endif
+}
+static void music_save(void*p,void*a){
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+    pt_archive_save(p,a,music_save_instruments);
+#else
+    music_save_instruments(p,a);
 #endif
 }
 static void music_load_base(void *p,void *a)
@@ -1820,13 +1830,20 @@ static void music_load_mixer(void *p,void *a)
     music_load_base(p,a);
 #endif
 }
-static void music_load(void *p,void *a)
+static void music_load_instruments(void *p,void *a)
 {
 #ifdef MPC_PAD_MIDI_RECORDING_TRIAL
     am_synth_owned_reset();
     am_synth_archive_load(p,a,music_load_mixer);
 #else
     music_load_mixer(p,a);
+#endif
+}
+static void music_load(void*p,void*a){
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+    pt_archive_load(p,a,music_load_instruments);
+#else
+    music_load_instruments(p,a);
 #endif
 }
 static int music_read_base(void *p,void *j)
@@ -1850,13 +1867,20 @@ static int music_read_mixer(void *p,void *j)
     if (result) step_native_project_changed();
     return result;
 }
-static int music_read(void *p,void *j)
+static int music_read_instruments(void *p,void *j)
 {
 #ifdef MPC_PAD_MIDI_RECORDING_TRIAL
     am_synth_owned_reset();
     return am_synth_archive_read(p,j,music_read_mixer);
 #else
     return music_read_mixer(p,j);
+#endif
+}
+static int music_read(void*p,void*j){
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+    return pt_archive_read(p,j,music_read_instruments);
+#else
+    return music_read_instruments(p,j);
 #endif
 }
 static void music_key(void *p,void *a,const void *pair)
@@ -1880,6 +1904,9 @@ static void new_project(void *p,int *choice)
 #endif
     if (confirmed) {
         music_reset();
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+        pt_reset();
+#endif
 #ifdef MPC_PAD_MIDI_RECORDING_TRIAL
         am_synth_owned_reset();
         am_synth_archive_reset();
@@ -3960,6 +3987,9 @@ static void load(void)
     knob_reset_init(base);
 #endif
     music_reset(); music_lighting_preferences_init(); music_archive_init(base); music_ui_init(base);
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+    pt_init(base);
+#endif
 #ifdef MPC_PAD_MIDI_RECORDING_TRIAL
     am_synth_archive_init(base);
 #endif

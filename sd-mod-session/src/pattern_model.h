@@ -8,12 +8,12 @@ extern "C" {
 #include "midi_event.h"
 }
 
-/* Preparatory, control-thread-only model. Not linked into the application.
+/* Control/UI-owner value model, linked by opt-in Pattern Tools only.
  * Native tag 3 is inline; no pointer/refcounted variant may enter this model.
  * These structs are NOT a disk format. IDs are caller-owned project identities,
  * not native tree pointers or mutable sequence indexes. Allocations may throw;
  * failure/exception preserves the old complete output. Callers must catch at
- * their command boundary. Do not call from render/event-dispatch callbacks. */
+ * their command boundary. Never call from audio/render/input producers. */
 namespace am_pattern {
 using Id=std::uint64_t;
 constexpr std::size_t max_events=32768,max_parts=128,max_routes=1024;
@@ -69,6 +69,9 @@ public:
     const std::vector<PatternEvent>&events()const{return events_;}
     static Result empty(Id,std::int64_t,Pattern&);
     static Result variation(const Pattern&,Id,Pattern&);
+    /* Validated value import for library/archive/editor transactions. */
+    static Result restore(Id,Id,std::uint64_t,std::int64_t,const std::vector<Route>&,
+        const std::vector<PatternEvent>&,am_midi_choice_get,Pattern&);
     Result replace(Id,const step_event&,std::uint64_t expected_revision,am_midi_choice_get);
 private:
     friend Result extract(const Parts&,Id,std::int64_t,std::int64_t,BoundaryPolicy,Id,Pattern&,struct ExtractionInfo&);

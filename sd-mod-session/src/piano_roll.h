@@ -3,6 +3,9 @@
 #include "step_native.h"
 #include <stddef.h>
 #include <stdint.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 #define PR_MAX_EVENTS 8192u
 enum pr_layer { PR_PADS, PR_TUNE, PR_CHOP };
 enum pr_snap { PR_SNAP_START, PR_SNAP_END, PR_SNAP_BOTH };
@@ -69,4 +72,7 @@ void pr_zoom(struct piano_roll*,int horizontal,int value);
 void pr_layout_range(struct piano_roll*,int low,int high);
 void pr_follow(struct piano_roll*,int64_t play_tick,int playing);
 int pr_browse(struct piano_roll*,int delta);
+#ifdef __cplusplus
+}
+#endif
 #endif
