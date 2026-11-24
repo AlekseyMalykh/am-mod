@@ -86,9 +86,11 @@ snapshot adapter, Save/Load, Undo/Redo или проигрывание этим 
 
 ## Следующие шаги
 
-1. Snapshot adapter по существующему обходу `batch_events.cc`: получать
-   связанный набор Sequence/Program/routes на штатном executor, проверять
-   revision и безопасное время жизни. Публиковать только immutable значения.
+1. Изолированный snapshot adapter `pattern_native.h/.cc` реализован и
+   проверен на штатных getter/tree/choice функциях в ARM QEMU, normal/UBSan.
+   Контракт и ограничения — `PATTERN_NATIVE_ADAPTER_RU.md`. Следующая часть:
+   настоящий owner/executor lease для связанного набора Sequence/Program/
+   routes, generation и безопасного времени жизни. Пока он в тесте fixture.
 2. Команды Insert/Delete/Copy/Paste с одним общим history boundary, совместимым
    с существующим редактором; затем adapter источника событий Piano Roll.
 3. Versioned codec и транзакционный archive до пользовательского сохранения.

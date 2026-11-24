@@ -460,7 +460,9 @@ Bus stems A–H/Master Direct сохраняют нынешний смысл. Mu
 
 Актуальный статус Stage 2 и ограничения пробного native Synth playback описаны в `SYNTH_NATIVE_PLAYBACK_TRIAL_RU.md`; исходный план выше не означает завершение всех этих шагов. Полная проверка текущего приложения и offline render ещё впереди.
 
-Stage 3a: реализованы изолированные `pattern_model.h/.cc` — immutable snapshot, Split by Pads/Mixer, exclusive Manual membership, Extract с явной onset/tail policy, независимая Variation и revision-guarded replace. Используется существующий native tag-3 decoder. Модель не включена в приложение, save format или playback. Проверки host/ASan/ARM/UBSan и точные ограничения — в `PATTERN_MODEL_STAGE3_RU.md`. Native snapshot adapter, общий history boundary и подключение Piano Roll остаются следующими шагами; сценарий B на устройстве ещё не готов.
+Stage 3a: реализованы изолированные `pattern_model.h/.cc` — immutable snapshot, Split by Pads/Mixer, exclusive Manual membership, Extract с явной onset/tail policy, независимая Variation и revision-guarded replace. Используется существующий native tag-3 decoder. Модель не включена в приложение, save format или playback. Проверки host/ASan/ARM/UBSan и точные ограничения — в `PATTERN_MODEL_STAGE3_RU.md`. Production подключение snapshot adapter, общий history boundary и подключение Piano Roll остаются следующими шагами; сценарий B на устройстве ещё не готов.
+
+Продолжение Stage 3a: добавлен `pattern_native.h/.cc` с настоящими native getters и bounded event-tree read. Он проверен в ARM QEMU normal/UBSan, включая 27 allocation failures. Native ownership/executor lease и routing snapshot пока fixtures; production подключение не выполнено. Подробности — `PATTERN_NATIVE_ADAPTER_RU.md`. Общий history boundary, Piano Roll, сохранение и сценарий B на устройстве по-прежнему впереди.
 
 ## Проверки и риски
 
