@@ -103,6 +103,7 @@ extern "C" int pt_notes(unsigned index,pr_note*out,unsigned capacity,unsigned ch
     return int(i);
 }catch(...){return -1;}}
 extern "C" int pt_note_number(unsigned index,int pad){try{auto s=snapshot();if(index>=s->library.entries.size())return -1;for(const auto&r:s->library.entries[index].pattern.routes())if(int(r.pad)==pad)return r.source_note;}catch(...){}return -1;}
+extern "C" int pt_pad_number(unsigned index,int note){try{auto s=snapshot();if(index>=s->library.entries.size())return -1;int pad=-1;for(const auto&r:s->library.entries[index].pattern.routes())if(int(r.source_note)==note){if(pad>=0&&pad!=int(r.pad))return -1;pad=r.pad;}return pad;}catch(...){return -1;}}
 extern "C" int pt_encode(unsigned index,const pr_note*n,step_event*out){
     if(!n||!out||n->tune< -120||n->tune>120||n->slice<0||n->slice>128)return 0;
     int note=pt_note_number(index,n->sound);if(note<0)return 0;step_event e=n->event;e.data[32]=note;

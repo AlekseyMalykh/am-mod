@@ -21,6 +21,7 @@ int pt_remove(unsigned);
 int pt_history(int direction);
 int pt_notes(unsigned,struct pr_note*,unsigned,unsigned char[128]);
 int pt_note_number(unsigned,int pad);
+int pt_pad_number(unsigned,int note);
 int pt_encode(unsigned,const struct pr_note*,struct step_event*);
 int pt_commit(unsigned,const struct pr_plan*);
 struct pt_arrangement {uint64_t revision;int64_t length;unsigned tracks,clips,read_only;};

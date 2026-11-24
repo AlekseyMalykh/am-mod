@@ -127,6 +127,9 @@ static struct phone_input state;
 static _Atomic unsigned consumed, passed;
 static uint64_t palette_pad_pairs[16];
 static _Atomic unsigned consumed_step,consumed_workflow;
+#if defined(MPC_SONG_UI) && defined(MPC_PATTERN_TOOLS_TRIAL)
+static _Atomic unsigned consumed_song_pattern;
+#endif
 /* Stock Shift+pad11 destination dialog in the Sequence window: 0 or the start time (ms). */
 extern int music_ui_sequence_visible_weak(void) __asm__("music_ui_sequence_visible") __attribute__((weak));
 static _Atomic uint64_t seq_resample_dialog_since;
@@ -2820,6 +2823,11 @@ static void pad_event(void *event)
             if(mb<0&&step_native_bank_or_last)mb=step_native_bank_or_last();
             if(mb>=0&&mb<8)am_midi_ui_pad_hit((unsigned)mb*16+pad);}}
     int up = FN(0xddff20,int(*)(void*,int))(msg,1);
+#if defined(MPC_SONG_UI) && defined(MPC_PATTERN_TOOLS_TRIAL)
+    /* A captured Pattern pad never started a voice. Its release belongs here
+     * even if the user has since opened a different native instrument. */
+    if(atomic_load(&consumed_song_pattern)&bit){if(up)atomic_fetch_and(&consumed_song_pattern,~bit);return;}
+#endif
     /* Sample Record screen: pads play the synth (16 Levels layout) while its keyboard is on. */
     if (am_synth_keys_get && am_synth_pad && rear_mic_screen_visible && am_synth_keys_get() && rear_mic_screen_visible()) {
         if (down) am_synth_pad(pad,1);
@@ -2915,6 +2923,15 @@ static void pad_event(void *event)
         return;
     }
     unsigned owned = consumed & bit;
+#if defined(MPC_SONG_UI) && defined(MPC_PATTERN_TOOLS_TRIAL)
+    if(down&&!owned&&!atomic_load(&naming_active)&&song_ui_pattern_pads()){
+        atomic_fetch_or(&consumed_song_pattern,bit);
+        struct phone_event e={0};e.kind=PHONE_SONG_PATTERN_PAD;e.pad=pad;
+        e.down=atomic_load(&native_shift_requested)||atomic_load(&native_buttons_down[0x31]);
+        e.workflow_ticket=song_ui_ticket();if(!phone_events_push(&e))queue_failed();
+        return;
+    }
+#endif
     uint64_t route=step_native_ticket();
     int pad_route=step_native_pad_route(route);
     unsigned tail=atomic_load(&tail_layout);
@@ -3175,7 +3192,11 @@ static unsigned process_events(void)
         }
 #endif
         else if(e.kind==PHONE_WORKFLOW_PAD){workflow_pad(e.pad,(int)e.down,e.when_ms,e.workflow_ticket);
-        } else if (e.kind==PHONE_STEP_PAD) {
+        }
+#if defined(MPC_SONG_UI) && defined(MPC_PATTERN_TOOLS_TRIAL)
+        else if(e.kind==PHONE_SONG_PATTERN_PAD){song_ui_pattern_pad(e.pad,(int)e.down,e.workflow_ticket);}
+#endif
+        else if (e.kind==PHONE_STEP_PAD) {
             if(e.down)step_native_pad_velocity(e.pad,e.step_ticket,e.midi[0]);else step_native_pad_release(e.pad,e.step_ticket);
         } else if (e.kind==PHONE_STEP_SHORTCUT_PAD && e.pad<16) {
             unsigned bit=1u<<e.pad;

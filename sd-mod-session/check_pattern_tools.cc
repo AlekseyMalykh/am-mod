@@ -49,6 +49,7 @@ int main(){
     assert(pt_capture(notes,3,7680,1,"program",map,outputs,0)&&pt_count()==2);
     pt_entry missing_entry;std::memset(&missing_entry,42,sizeof missing_entry);assert(!pt_info(999,&missing_entry)&&!missing_entry.name[0]&&!missing_entry.id);
     assert(!std::memcmp(before.data(),notes,sizeof notes));pt_entry original_entry;assert(pt_info(0,&original_entry)&&original_entry.count==2);
+    assert(pt_pad_number(0,map[0])==0&&pt_pad_number(999,0)==-1&&pt_pad_number(0,128)==-1);
     assert(pt_variation(0)&&pt_count()==3);editing=2;piano_roll roll;assert(pr_init(&roll,{nullptr,encode,commit}));load(roll);
     pr_select_all(&roll);assert(pr_copy(&roll));assert(pr_edit(&roll,240,0,120,-20)&&pr_apply(&roll));load(roll);
     assert(roll.notes[0].event.time==240);pt_entry unchanged;assert(pt_info(0,&unchanged)&&unchanged.revision==original_entry.revision);

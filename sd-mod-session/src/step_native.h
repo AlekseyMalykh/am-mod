@@ -23,6 +23,17 @@ unsigned step_native_transport_state(void); /* bit0 playing, bit1 valid */
 void step_native_bank_created(void *owner);
 void step_native_bank_destroyed(void *owner);
 int step_native_tick(void);
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+/* UI owner only. Reuses the one Piano Roll with value-only Pattern data.
+ * redraw is a code callback, never an Events/Project/Program pointer. */
+int step_pattern_open(uint64_t pattern,int64_t phase,void(*redraw)(void));
+int step_pattern_active(void);
+void step_pattern_close(void);
+int step_pattern_button(unsigned code,int down,int shift);
+int step_pattern_control(unsigned cc,unsigned value,int shift);
+int step_pattern_pad(unsigned pad,int shift);
+int step_pattern_paint(void *graphics,int shift);
+#endif
 /* UI thread: Tune pitches currently flashed from sequence playback. */
 int step_native_playback_pitches(int *out,int max);
 /* Last engine tick seen by the native transport timer (960 per quarter). */

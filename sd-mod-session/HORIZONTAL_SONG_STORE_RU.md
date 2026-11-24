@@ -74,6 +74,6 @@ roundtrip приложения, реальное аудио/MIDI и устрой
 проверки. Код включён только в opt-in `AM_MOD_PATTERN_TOOLS_TRIAL=1`.
 
 В 4c добавлены экран Arrange, переключение режимов Song, операции блоков с
-encoder/fader и Chop. Далее — переход в существующий pattern editor, затем
+encoder/fader и Chop; в 4d — переход в существующий pattern editor. Далее —
 native playback adapter с проверкой Program/pad mapping, длины Sequence,
 voice ownership и Stop/tails; затем export/mixdown и аппаратные сценарии.

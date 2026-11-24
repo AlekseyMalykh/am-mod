@@ -22,6 +22,10 @@ int song_ui_control_at(void *event,int shift);
 uint64_t song_ui_ticket(void);
 int song_ui_control_ticket(void *event,int shift,uint64_t ticket);
 int song_ui_button_ticket(void *event,int shift,uint64_t ticket);
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+int song_ui_pattern_pads(void); /* numeric producer snapshot, no GUI access */
+void song_ui_pattern_pad(unsigned pad,int shift,uint64_t ticket); /* UI owner */
+#endif
 int song_ui_button(void *event,int shift);
 /* Native button sink for gestures that replay stock presses (Song Export Shift+B2 Stems). */
 void song_ui_set_forward(void(*forward)(void*));

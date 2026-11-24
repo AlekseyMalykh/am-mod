@@ -15,8 +15,17 @@ extern int internal_storage_enabled(void) __attribute__((weak));
 #include "music_settings.h"
 #ifdef MPC_PATTERN_TOOLS_TRIAL
 #include "pattern_tools.h"
+#include "step_native.h"
+#pragma weak step_pattern_open
+#pragma weak step_pattern_active
+#pragma weak step_pattern_close
+#pragma weak step_pattern_button
+#pragma weak step_pattern_control
+#pragma weak step_pattern_pad
+#pragma weak step_pattern_paint
 extern unsigned step_native_transport_state(void) __attribute__((weak));
 static _Atomic unsigned arrangement_active;
+static _Atomic unsigned arrangement_editor;
 static void arrange_open(void),arrange_close(void),arrange_paint(void*),arrange_tick(void);
 static int arrange_button(unsigned,int),arrange_control(unsigned,unsigned,int);
 #endif
@@ -168,6 +177,12 @@ static unsigned button_bit(unsigned code)
     if(code==0x4b)return 32u;
     if(code==0x52)return 64u;
     if(code==0x50)return 128u;
+    if(code==0x6f)return 256u;
+    if(code==0x00)return 512u;
+    if(code==0x28)return 1024u;
+    if(code==0x09)return 2048u;
+    if(code==0x23)return 4096u;
+    if(code==0x2b)return 8192u;
 #endif
     return code==B2?1u:code==B3?2u:code==PLUS?4u:code==MINUS?8u:code==B1?16u:0u;
 }
@@ -251,6 +266,12 @@ void song_ui_init(uintptr_t b){ base=b; }
 int song_ui_active(void){ return atomic_load(&shown)!=0; }
 int song_ui_selected_sequence(void){ return atomic_load(&selected_sequence); }
 int song_ui_pads_active(void){ return atomic_load(&pads_shown)!=0; }
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+int song_ui_pattern_pads(void){return atomic_load(&shown)&&atomic_load(&arrangement_active)&&atomic_load(&arrangement_editor);}
+void song_ui_pattern_pad(unsigned pad,int shifted,uint64_t value){
+    if(value==song_ui_ticket()&&song_ui_pattern_pads()&&step_pattern_pad)step_pattern_pad(pad,shifted);
+}
+#endif
 
 int song_ui_owns(unsigned kind,unsigned code,int shift,int down)
 {
@@ -270,9 +291,10 @@ int song_ui_owns(unsigned kind,unsigned code,int shift,int down)
     if(!down) return (atomic_load(&owned_buttons)&bit)!=0;
 #ifdef MPC_PATTERN_TOOLS_TRIAL
     if(atomic_load(&shown)&&atomic_load(&arrangement_active)){
+        if(bit>=256u&&!atomic_load(&arrangement_editor))return 0;
         atomic_fetch_or(&owned_buttons,bit);return 1;
     }
-    if(code==0x4b||code==0x52||code==0x50)return 0;
+    if(bit>=32u)return 0;
 #endif
     /* Bounded diagnostic of the exact context seen by the input thread.
      * It is intentionally passive: never claim/export based on a guess. */
@@ -496,7 +518,12 @@ int song_ui_button(void *e,int shift)
 {
     unsigned code=FIELD(e,8,unsigned char),down=FIELD(e,9,unsigned char)!=0,bit=button_bit(code);
     if(!bit) return 0;
-    if(!down){ atomic_fetch_and(&owned_buttons,~bit); return 1; }
+    if(!down){ atomic_fetch_and(&owned_buttons,~bit);
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+        if(atomic_load(&arrangement_editor)&&step_pattern_button)step_pattern_button(code,0,shift);
+#endif
+        return 1;
+    }
 #ifdef MPC_PATTERN_TOOLS_TRIAL
     if(atomic_load(&shown)&&atomic_load(&arrangement_active))return arrange_button(code,shift);
 #endif

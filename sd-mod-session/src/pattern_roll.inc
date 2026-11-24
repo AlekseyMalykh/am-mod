@@ -10,7 +10,7 @@ static void roll_patterns_open(void){
 }
 static int roll_pattern_refresh(void){
  struct pt_entry entry;unsigned char loaded[128];
- if(!pt_info((unsigned)roll_pattern_index,&entry)){roll_pattern_index=-1;pr_reset_view(&roll);roll_patterns_open();return 1;}
+ if(!pt_info((unsigned)roll_pattern_index,&entry)){if(pattern_host){roll_close();return 0;}roll_pattern_index=-1;pr_reset_view(&roll);roll_patterns_open();return 1;}
  if(roll.revision==entry.revision&&roll.length==entry.length&&!roll.pending_commit)return 1;
  int count=pt_notes((unsigned)roll_pattern_index,roll_snapshot,PR_MAX_EVENTS,loaded);
  if(count<0||!pr_load(&roll,roll_snapshot,(unsigned)count,entry.length,entry.revision,loaded)){say("Pattern exceeds editor capacity");return 0;}

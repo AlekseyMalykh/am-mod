@@ -69,6 +69,12 @@
 #define T_MUTE (UINT64_C(1)<<51)
 #define T_PIANO (UINT64_C(1)<<52)
 static _Atomic unsigned piano_active;
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+static int pattern_host;
+static int pattern_saved_bank;
+static uint64_t pattern_host_id;
+static void (*pattern_redraw)(void);
+#endif
 /* Native shortcuts need their release even if the roll or its ticket changes. */
 static _Atomic unsigned piano_forwarded_buttons[112];
 static void roll_open(void),roll_close(void),roll_pad(unsigned,int),roll_paint(void*);
@@ -427,7 +433,12 @@ static int pad_step(unsigned pad) { return (3-(int)(pad/4))*4+(int)(pad%4); }
 static void invalidate(void)
 { epoch=(epoch+1)&T_EPOCH_MASK; if (!epoch) epoch=1; atomic_store(&ticket,0); }
 static void repaint(void)
-{ if (root && on_ui()) FN(0x1149880,void(*)(void*,uint64_t,uint64_t))(root,0,FIELD(root,0x28,uint64_t)); }
+{
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+    if(pattern_host){if(on_ui()&&pattern_redraw)pattern_redraw();return;}
+#endif
+    if (root && on_ui()) FN(0x1149880,void(*)(void*,uint64_t,uint64_t))(root,0,FIELD(root,0x28,uint64_t));
+}
 static void say(const char *s) { snprintf(message,sizeof(message),"%s",s);message_until=milliseconds()+1800;report(s);repaint(); }
 static void publish(void)
 {
@@ -1608,6 +1619,9 @@ int step_native_tick(void)
     if (atomic_exchange(&dead,0)) { root=NULL;controller=NULL;steps=menu=showing=0;reset_mute();invalidate(); }
     if (atomic_exchange(&project_reset,0)) { atomic_store(&pending_pad_note,0);roll_project_reset();atomic_store(&write_armed,0);atomic_store(&toggle_armed,0);sound_initialized=0;clip_valid=0;steps=want_steps=menu=0;last_sequence=NULL;reset_mute();invalidate(); }
     if (atomic_exchange(&queue_fault,0)) { roll_close();atomic_store(&write_armed,0);atomic_store(&toggle_armed,0);steps=want_steps=menu=0;reset_mute();invalidate();say("Steps stopped: input queue full"); }
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+    if(pattern_host){showing=0;publish();roll_refresh(0);return 0;}
+#endif
     if(menu!=3){stop_picker_audition();preview_gate_set(NULL,NULL);}
     int previous_showing=showing;
     showing=root && FIELD(root,0,uintptr_t)==base+SCREEN_VPTR

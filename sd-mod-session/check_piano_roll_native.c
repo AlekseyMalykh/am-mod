@@ -19,7 +19,7 @@ static void roll_draw_text(void*g,const uint64_t*s,int x,int y,int w,int h,int f
  const char*t=(const char*)(uintptr_t)*s;
  if(!strcmp(t,"M")){assert(x==56&&draw_ink==0xffff4747u);++row_mute_marks;}
  if(!strcmp(t,"SM")){assert(x==284&&draw_ink==0xffff4747u);++roll_sm_marks;}
- if(x==106&&y==222){assert(!strcmp(t,roll_grid_name())&&draw_ink==AMBER);++grid_footer;}
+ if(x==106&&y==222&&!roll_editing){assert(!strcmp(t,roll_grid_name())&&draw_ink==AMBER);++grid_footer;}
  if(!strncmp(t,"A01",3))a01_y=y;
  if(!strncmp(t,"A02",3))a02_y=y;
  if(!strncmp(t,"H16",3))h16_y=y;

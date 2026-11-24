@@ -9,6 +9,10 @@ static void patterns_write(void*p,const char*key,const void*text){(void)p;assert
 }
 static void patterns_original(void*p,void*a){(void)p;(void)a;}
 static int patterns_read(void*p,void*a){(void)a;pt_archive_load(p,saved_wrapper,patterns_original);return 1;}
+static unsigned host_redraws;
+static void host_redraw(void){++host_redraws;}
+static void host_press(unsigned code,int shifted){assert(step_pattern_button(code,1,shifted));assert(step_pattern_button(code,0,shifted));}
+static void host_action(int action){host_press(0x0e,1);int delta=action-roll_action;assert(step_pattern_control(0x64,(unsigned)(delta<0?128+delta:delta),0));host_press(0x0e,0);}
 int main(int argc,char**argv){
  assert(pattern_legacy_roll_main(argc,argv)==0);pt_init(base);
  FN(0xf535c0,void(*)(void*,const char*))(program+0xdc8,"pattern-ui-program");
@@ -44,6 +48,38 @@ int main(int argc,char**argv){
  FIELD(saved_members+24,0,uint32_t)=(uint32_t)saved_size;FIELD(saved_members+24,8,const char*)=saved_patterns;FIELD(saved_members+24,22,unsigned short)=1u<<10;
  pt_reset();assert(!pt_count());assert(pt_archive_read(NULL,NULL,patterns_read));assert(pt_count()==entries&&pt_notes(variation,packed_after,PR_MAX_EVENTS,NULL)==packed_count);
  for(int i=0;i<packed_count;++i)assert(packed_before[i].tune==packed_after[i].tune&&packed_before[i].slice==packed_after[i].slice&&!memcmp(&packed_before[i].event,&packed_after[i].event,sizeof(struct step_event)));
- pt_reset();free(saved_patterns);saved_patterns=NULL;fclose(draw_file);draw_file=NULL;
+ fclose(draw_file);char host_path[1024];snprintf(host_path,sizeof host_path,"%s-host",argv[2]);draw_file=fopen(host_path,"w");assert(draw_file);
+ phase="same Piano Roll with poisoned native Events pointers";
+ void*old_root=root,*old_controller=controller,*old_sequence=sequence,*old_list=event_list;
+ root=controller=sequence=event_list=(void*)1;showing=0;
+ int old_bank=browse_bank;browse_bank=5;
+ atomic_store(&clock_valid,1);atomic_store(&clock_running,0);atomic_store(&clock_recording,0);
+ struct pt_entry host_entry;assert(pt_info(variation,&host_entry));
+ assert(step_pattern_open(host_entry.id,240,host_redraw)&&step_pattern_active()&&roll.cursor_tick==240);
+ int host_sound=roll.notes[0].sound;for(int i=0;i<host_sound/16;++i)host_press(0x23,0);
+ assert(step_pattern_pad((unsigned)host_sound%16,0)&&roll.rows[roll.cursor_row]==host_sound&&!roll_input_held&&roll_audition<0);
+ host_press(0x6f,0);assert(!roll_data_held); /* both physical DATA edges reach the host */
+ for(unsigned i=0;i<roll.count;++i)roll.notes[i].selected=0;
+ assert(!step_native_tick()&&step_pattern_active());assert(step_pattern_paint((void*)1,0));
+ host_press(BUTTON_LEVELS,0);assert(roll.layer==PR_TUNE);assert(step_pattern_paint((void*)1,0));
+ struct pr_note host_before[PR_MAX_EVENTS],host_after[PR_MAX_EVENTS];int host_count=pt_notes(variation,host_before,PR_MAX_EVENTS,NULL);assert(host_count>0);
+ host_action(4);assert(pr_selected(&roll)==(unsigned)host_count);host_press(0x0e,0);assert(roll_editing);
+ assert(step_pattern_control(0x64,1,0)&&step_pattern_control(0x11,65,0)&&step_pattern_control(0x12,65,0));
+ assert(step_pattern_paint((void*)1,0));host_press(0x0e,0);
+ assert(pt_notes(variation,host_after,PR_MAX_EVENTS,NULL)==host_count);
+ for(int i=0;i<host_count;++i){assert(host_after[i].event.time==host_before[i].event.time+pr_grid_ticks(roll.grid));assert(host_after[i].tune==host_before[i].tune+1);}
+ host_press(BUTTON_MINUS,1);assert(pt_notes(variation,host_after,PR_MAX_EVENTS,NULL)==host_count);assert(!memcmp(&host_after[0].event,&host_before[0].event,sizeof(struct step_event)));host_press(BUTTON_PLUS,1);
+ host_action(12);assert(roll.count==(unsigned)host_count+1);assert(step_pattern_paint((void*)1,0));
+ host_action(18);assert(!roll_patterns_state&&step_pattern_active());
+ host_press(BUTTON_PLAY,0);host_press(BUTTON_RECORD,0);assert(step_pattern_active());
+ host_press(0x0c,0);assert(roll.layer==PR_PADS);host_press(0x0c,0);assert(!step_pattern_active()&&host_redraws&&browse_bank==5);
+ assert(step_pattern_open(host_entry.id,0,host_redraw));assert(variation>0&&pt_remove(0));assert(step_pattern_active()&&roll_pattern_index==(int)variation-1);
+ host_press(BUTTON_MINUS,1);assert(step_pattern_active()&&roll_pattern_index==(int)variation);
+ pt_reset();assert(!step_pattern_active()&&!pattern_host);
+ assert(browse_bank==5);browse_bank=old_bank;
+ root=old_root;controller=old_controller;sequence=old_sequence;event_list=old_list;
+ unsigned native_ordinal=0;for(void*n=tree()->left;n!=&tree()->colour;n=FN(0xb51738,void*(*)(void*))(n))assert(!memcmp((char*)n+0x20,source+native_ordinal++,sizeof(struct step_event)));assert(native_ordinal==count);
+ free(saved_patterns);saved_patterns=NULL;fclose(draw_file);draw_file=NULL;
+ puts("PASS pattern host: same Piano Roll with invalid native Events/Project context, pad/tune paint, selected-note move/transpose/length preview and commit, Undo/Redo, inline insertion, blocked native transport/library escape, return and project reset; native source unchanged.");
  puts("PASS pattern UI: actual existing Piano Roll adapter/encoder/fader actions, Pads split, variation edit and local Undo/Redo, range extraction, clipboard return, empty-pattern insert, packed native Tune/Chop archive roundtrip; native source tree unchanged and project reset closes editor. GUI/executor/routing/archive writer are fixtures; no full application built.");return 0;
 }

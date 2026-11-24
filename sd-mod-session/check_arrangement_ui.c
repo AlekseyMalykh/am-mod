@@ -6,6 +6,18 @@
 #undef SONG_UI_PROOF_MAIN
 static unsigned transport_state=2;
 unsigned step_native_transport_state(void){return transport_state;}
+/* Song handoff fixture. The real reused editor is tested with poisoned
+ * Events pointers in check_pattern_ui_native.c, not duplicated here. */
+static int bridge_active;static uint64_t bridge_id;static int64_t bridge_phase;
+static unsigned bridge_controls,bridge_down,bridge_up,bridge_paints,bridge_pads;
+static void(*bridge_redraw)(void);
+int step_pattern_open(uint64_t id,int64_t phase,void(*redraw)(void)){bridge_active=1;bridge_id=id;bridge_phase=phase;bridge_redraw=redraw;return 1;}
+int step_pattern_active(void){return bridge_active;}
+void step_pattern_close(void){bridge_active=0;bridge_redraw=NULL;}
+int step_pattern_button(unsigned code,int down,int shifted){(void)shifted;if(down)++bridge_down;else ++bridge_up;if(code==B1&&down)bridge_active=0;return 1;}
+int step_pattern_control(unsigned cc,unsigned value,int shifted){(void)cc;(void)value;(void)shifted;++bridge_controls;if(bridge_redraw)bridge_redraw();return 1;}
+int step_pattern_pad(unsigned pad,int shifted){assert(pad==3&&shifted);++bridge_pads;return 1;}
+int step_pattern_paint(void*g,int shifted){(void)g;(void)shifted;++bridge_paints;return bridge_active;}
 static FILE*draw_trace;
 static uint32_t trace_ink;static float trace_size;
 static void ink(void*g,uint32_t c){(void)g;trace_ink=c;}
@@ -48,6 +60,18 @@ int main(int argc,char**argv){
     assert(pt_info(0,&source_pattern)&&source_pattern.length==7680&&source_pattern.count==2&&pt_notes(0,unchanged_notes,2,NULL)==2);
     for(unsigned i=0;i<2;++i)assert(!memcmp(&unchanged_notes[i].event,&notes[i].event,sizeof(struct step_event)));
     puts("CHOP_LENGTHS source=7680 left=2880 right=4800 right_offset=2880; source pattern unchanged");
+    phase="Song handoff uses source phase and restores the same cursor/block";
+    int64_t held_cursor=arrange_cursor,held_left=arrange_left;int held_row=arrange_row;uint64_t held_block=arrange_selected,held_ticket=song_ui_ticket();
+    assert(!song_ui_owns(PHONE_BUTTON,0x6f,0,1));press(B3,1);
+    assert(atomic_load(&arrangement_editor)&&bridge_id==right.pattern&&bridge_phase==2880);
+    assert(song_ui_pattern_pads());song_ui_pattern_pad(3,1,held_ticket);assert(!bridge_pads);song_ui_pattern_pad(3,1,song_ui_ticket());assert(bridge_pads==1);
+    unsigned char old_movement[16]={0};old_movement[8]=DATA_ENCODER;old_movement[9]=1;
+    assert(song_ui_control_ticket(old_movement,0,held_ticket)&&!bridge_controls);
+    turn(DATA_ENCODER,1,0);press(0x6f,0);press(B2,0);assert(bridge_controls==1&&bridge_down==2&&bridge_up==3&&!arrange_menu);
+    paint(screen_obj,(void*)0x10);assert(bridge_paints==1);
+    press(B1,0);assert(!atomic_load(&arrangement_editor)&&!bridge_active);
+    assert(!song_ui_pattern_pads());song_ui_pattern_pad(3,1,song_ui_ticket());assert(bridge_pads==1);
+    assert(arrange_cursor==held_cursor&&arrange_left==held_left&&arrange_row==held_row&&arrange_selected==held_block);
     press(MINUS,1);assert(pt_arr_info(&a)&&a.clips==1);press(PLUS,1);assert(pt_arr_info(&a)&&a.clips==2);
     press(B3,0);turn(DATA_ENCODER,125,0);assert(arrange_cursor==0);press(B3,0);action(7);assert(pt_arr_info(&a)&&a.clips==1);shot();
     phase="Copy reference to second track and non-destructive rejected overlap";
@@ -68,9 +92,11 @@ int main(int argc,char**argv){
     stale[8]=B1;stale[9]=1;assert(song_ui_button_ticket(stale,0,old_ticket)&&!atomic_load(&export_menu_active));
     phase="New/Load invalidates editor, including held Chop up";
     press(B1,0);turn(DATA_ENCODER,63,0);press(B3,0);assert(atomic_load(&arrangement_active));
+    /* Native reset must close the host before any new-project input. */
+    press(B3,1);assert(atomic_load(&arrangement_editor));
     assert(song_ui_owns(PHONE_BUTTON,0x4b,0,1));old_ticket=song_ui_ticket();pt_reset();arrange_tick();assert(!atomic_load(&arrangement_active));
     assert(song_ui_owns(PHONE_BUTTON,0x4b,0,0));unsigned char up[16]={0};up[8]=0x4b;assert(song_ui_button_ticket(up,0,old_ticket));assert(!song_ui_owns(PHONE_BUTTON,0x4b,0,0));
-    assert(pt_arr_info(&a)&&!a.tracks&&!a.clips&&!pt_count());
+    assert(pt_arr_info(&a)&&!a.tracks&&!a.clips&&!pt_count()&&!bridge_active&&!atomic_load(&arrangement_editor));
     fclose(draw_trace);draw_trace=NULL;forget(screen_obj);
     puts("PASS Arrange UI: real SongScreen overlay, Sequential/Export regression, paired ownership, blocked running entry/play/record, cursor/fader/zoom/scroll, insert/reference copy/rejected overlap, Chop/join/shared history, mute/solo, confirmed deletion, project reset and held releases; native song unchanged. Fixtures; no application build or hardware.");
     return 0;
