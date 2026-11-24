@@ -11,6 +11,7 @@ void pattern_writer_setup(void);void*pattern_writer_track(void);void*pattern_wri
 void pattern_writer_clear_trace(void);unsigned pattern_writer_trace_count(void);
 unsigned pattern_writer_trace_kind(unsigned);void*pattern_writer_trace_program(unsigned);int pattern_writer_trace_number(unsigned);
 int pattern_writer_clip_selectors(void);
+void pattern_writer_replacement_setup(void);
 void*pattern_fixture_project(void);void*pattern_fixture_things(void);
 }
 using namespace am_pattern;
@@ -66,5 +67,40 @@ extern "C" int pattern_writer_proof(std::uintptr_t image){
      * not itself prove that the full binding is ready for publication. */
     assert(field<void*>(binding.things,0xb8)==old_program);
     std::cout<<"PASS native Program setter 29c9490: pre-notify sees old pointer, listeners/post-notify see new pointer+number; same non-null assignment no-op, null detach/reattach; disappearance callbacks 29c93a0(Track) and 29c7a80(Track+910) clear only matching Program and preserve its number. SourceDomain drains reader before real native setter and stays closed. Observer/rebuild services are fixtures; CurrentThings/async completion and writer coverage not certified.\n";
+
+    pattern_writer_replacement_setup();setter(track,old_program,5);pattern_writer_clear_trace();
+    auto replacement=reinterpret_cast<void(*)(void*,void*)>(image+0x29c9670);
+    replacement(track,next);
+    const unsigned replace_kinds[]={0x110,0x30,0x112,0x112,0x115,0x113,0x113,0x114,0x115,0x111,0x102};
+    assert(pattern_writer_trace_count()==11);
+    for(unsigned i=0;i<11;++i)trace(i,replace_kinds[i],i<9?old_program:next,i<9?5:92);
+    assert(field<void*>(track,0xbb8)==next&&field<int>(track,0xbc0)==92);
+    /* Unlike 29c9490, equal pointers still reset, notify and rebuild. */
+    pattern_writer_clear_trace();replacement(track,next);
+    assert(pattern_writer_trace_count()==4);trace(0,0x110,next,92);trace(1,0x30,next,92);trace(2,0x111,next,92);trace(3,0x102,next,92);
+    pattern_writer_clear_trace();replacement(track,nullptr);
+    const unsigned detach_kinds[]={0x110,0x30,0x112,0x112,0x115,0x111,0x102};
+    assert(pattern_writer_trace_count()==7);
+    for(unsigned i=0;i<7;++i)trace(i,detach_kinds[i],i<5?next:nullptr,92);
+    assert(field<void*>(track,0xbb8)==nullptr&&field<int>(track,0xbc0)==92);
+    pattern_writer_clear_trace();replacement(track,nullptr);
+    assert(pattern_writer_trace_count()==4);trace(0,0x110,nullptr,92);trace(1,0x30,nullptr,92);trace(2,0x111,nullptr,92);trace(3,0x102,nullptr,92);
+    pattern_writer_clear_trace();replacement(track,old_program);
+    const unsigned attach_kinds[]={0x110,0x30,0x113,0x113,0x114,0x115,0x111,0x102};
+    assert(pattern_writer_trace_count()==8);
+    for(unsigned i=0;i<8;++i)trace(i,attach_kinds[i],i<6?nullptr:old_program,i<6?92:61);
+    assert(field<void*>(track,0xbb8)==old_program&&field<int>(track,0xbc0)==61);
+
+    SourceDomain replacement_domain;
+    assert(replacement_domain.publish(binding,replacement_domain.epoch()));auto replacement_owner=replacement_domain.owner();
+    assert(replacement_owner->enter(context.data(),lease));pattern_writer_clear_trace();done.store(false);
+    std::thread replacement_writer([&]{auto change=replacement_domain.change();replacement(track,next);done.store(true);});
+    deadline=std::chrono::steady_clock::now()+std::chrono::seconds(5);
+    while(replacement_owner->currency()->current()){assert(std::chrono::steady_clock::now()<deadline);std::this_thread::yield();}
+    assert(!done.load()&&!pattern_writer_trace_count()&&field<void*>(track,0xbb8)==old_program);
+    replacement_owner->leave(context.data(),lease);replacement_writer.join();
+    assert(done.load()&&pattern_writer_trace_count()==11&&field<void*>(track,0xbb8)==next&&field<int>(track,0xbc0)==92);
+    assert(!replacement_domain.owner()&&!replacement_owner->currency()->current());
+    std::cout<<"PASS native Program replacement 29c9670 base path: both stores 29c9884/29c98e0, replace/detach/reattach, equal non-null and null pointers still reset/notify/refresh/rebuild; SourceDomain blocks even initial reset until reader leaves and stays closed. RTTI, reset, bindings, refresh and rebuild are fixtures; subtype branches and production hook safety not certified.\n";
     return 0;
 }

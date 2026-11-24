@@ -35,8 +35,10 @@ probe_path=R/'build/pattern-writer/verification.json';probe=None
 if probe_path.exists():
     candidate=json.loads(probe_path.read_text())
     if candidate.get('passed') and candidate.get('stock_sha256')==expected and all(hashlib.sha256((R/f).read_bytes()).hexdigest()==h for f,h in candidate['sources_sha256'].items()):
-        probe=dict(proof_sha256=hashlib.sha256(probe_path.read_bytes()).hexdigest(),checks=candidate['checks'],program_entry='0x29c9490',program_disappearance=candidate.get('actual_program_disappearance',[]),clip_argument='map selector, not create',observer_services='fixtures',thread_affinity_certified=False)
+        probe=dict(proof_sha256=hashlib.sha256(probe_path.read_bytes()).hexdigest(),checks=candidate['checks'],program_entry='0x29c9490',program_disappearance=candidate.get('actual_program_disappearance',[]),program_replacement=candidate.get('actual_program_replacement'),replacement_scope=candidate.get('replacement_scope'),replacement_subtype_executed=candidate.get('replacement_subtype_executed',False),clip_argument='map selector, not create',observer_services='fixtures',thread_affinity_certified=False)
 executed={0x29c7b38:('0x29c7a80','Track+0x910'),0x29c9440:('0x29c93a0','Track'),0x29c9518:('0x29c9490','Track')}
+if probe and probe.get('program_replacement')=='0x29c9670':
+    executed.update({0x29c9884:('0x29c9670','Track; base Program path'),0x29c98e0:('0x29c9670','Track; base Program path')})
 report=dict(stock_sha256=expected,analyzer_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),coverage_complete=False,production_read_admission=False,
     native_contract_probe=probe,read_only_targets=[hex(x) for x in sorted(read_only)],mutator_direct_branches=sum(len(calls[name]) for target,name in targets.items() if target not in read_only),
     program_field_store_candidates=[dict(site=hex(va),instruction=hex(word(va)),entry_hint=hint(va),hint_certified=False,executed_entry=executed[va][0] if probe and va in executed else None,receiver=executed[va][1] if probe and va in executed else None,hook_ready=False) for va in stores],

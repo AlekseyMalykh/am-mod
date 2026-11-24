@@ -13,7 +13,30 @@ static void detach(void*p,void*subscriber){assert((p==program+0x20||p==alternate
 static void attach(void*p,void*subscriber,int enabled){assert((p==program+0x20||p==alternate_program+0x20)&&subscriber==track+0x910&&enabled==1);}
 static void old_listener(void*p,void*callback){(void)callback;assert(p==program||p==alternate_program);observe(0x100);}
 static void new_listener(void*p,void*callback){(void)callback;assert(p==program||p==alternate_program);observe(0x101);}
-static void program_changed(void*p,void*old,void*next){assert(p==track&&(old==program||old==alternate_program)&&!next);observe(0x102);}
+static void program_changed(void*p,void*old,void*next){assert(p==track&&(!old||old==program||old==alternate_program)&&(!next||next==program||next==alternate_program));observe(0x102);}
+/* Replacement's service boundaries are captured; the actual native branch,
+ * pointer/number stores and call order remain intact. RTTI fixture explicitly
+ * selects the base Program path: subtype connection logic is NOT exercised. */
+static void replacement_reset(void*p,int value){assert(p==track&&value==0);observe(0x110);}
+static void replacement_refresh(void*p,int value){assert(p==track&&value==F(track,0xb58,int));observe(0x111);}
+static void replacement_unbind(void*p,void*q){
+    assert((p==track+0x7d0&&(q==program+0xd78||q==alternate_program+0xd78))||
+           (q==track+0x7d0&&(p==program+0xd78||p==alternate_program+0xd78)));observe(0x112);
+}
+static void replacement_bind(void*p,void*callback,void*q){
+    assert(callback&&((p==track+0x7d0&&(q==program+0xd78||q==alternate_program+0xd78))||
+           (q==track+0x7d0&&(p==program+0xd78||p==alternate_program+0xd78))));observe(0x113);
+}
+static void replacement_name(void*p,void*name){assert(p==track+0x7d0&&(name==program+0xdc8||name==alternate_program+0xdc8));observe(0x114);}
+static void*replacement_cast(void*p,void*source_type,void*target_type,int64_t offset){
+    assert((p==program||p==alternate_program)&&source_type&&target_type&&offset==0);observe(0x115);return NULL;
+}
+void pattern_writer_replacement_setup(void){
+    redirect(0x29c65b0,replacement_reset);redirect(0x29c68a0,replacement_refresh);
+    redirect(0x1393cf0,replacement_unbind);redirect(0x29c2eb0,replacement_bind);
+    redirect(0x13bf450,replacement_name);redirect(0xb51d78,replacement_cast);
+    F(track,0xb58,int)=7;
+}
 void*pattern_writer_track(void){return track;}
 void*pattern_writer_program(unsigned which){assert(which<2);return which?alternate_program:program;}
 void pattern_writer_clear_trace(void){observation_count=0;}

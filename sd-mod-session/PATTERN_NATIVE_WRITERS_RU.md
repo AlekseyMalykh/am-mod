@@ -71,6 +71,31 @@ subscriber attach/detach — fixtures. Реальный Program destructor эт�
 Разные receiver offsets подтверждены исполнением. Ставить на обе точки один
 hook, считающий x0 прямым Track, было бы ошибкой.
 
+## Program replacement `0x29c9670`: базовый путь
+
+Исполнен настоящий entry `(Track*, Program*)` с захватом service boundaries.
+Проверены замена old→new, снятие new→null, назначение null→old и повторные
+назначения одинаковых ненулевых и null pointers. Пройдены оба native stores:
+`0x29c9884` (новая Program) и `0x29c98e0` (null). Number берётся из
+новой Program+0x1234 при назначении и прежней Program при снятии.
+
+В отличие от `0x29c9490`, равенство pointers не делает весь вызов no-op:
+перед сравнением выполняются reset `0x29c65b0` и pre-notify, а после — refresh
+`0x29c68a0` и rebuild `0x29c9210`. Null→null проходит ветку равенства;
+чтения number через null в этом случае нет. Все captured callbacks до store
+наблюдают прежние pointer/number, refresh и rebuild — итоговые.
+
+Отдельный threaded test вызывает этот native entry внутри `SourceDomain::change`:
+до reader leave не исполняется даже начальный reset; epoch уже отозван.
+После завершения replacement доступ к чтению остаётся закрытым.
+
+RTTI `__dynamic_cast` в этом тесте явно возвращает null. Reset, парные binding
+services, name binding, refresh и rebuild заменены fixtures с проверкой
+аргументов/порядка и наблюдением полей. Поэтому исполнение stores доказано
+для базового пути, но работа subtype connections (+0x2f00), настоящих
+подписчиков, их reentrancy, thread affinity и безопасность production hooks
+ещё не доказаны. Это не исполнение полного native instrument replacement.
+
 ## Ограничения и следующая работа
 
 Native assignment в этом стенде не обновляет CurrentThings: соответствующие
@@ -83,12 +108,13 @@ lock order также не доказаны. Entry может быть пров�
 `build/pattern-writer/verification.json`. `analyze_pattern_writers.py` связывает
 inventory с этим proof только при совпадении всех исходных hashes:
 
-- три из шести store sites имеют исполненные entries и receiver contracts;
+- пять из шести store sites имеют исполненные entries и receiver contracts
+  (две точки replacement проверены только для базового пути Program);
 - две Clip getter targets исключены из списка writers;
 - 147 direct branches всего, из них 109 к оставшимся mutator targets;
 - `hook_ready`, `coverage_complete`, `production_read_admission` остаются false.
 
-Далее: сложный replacement path `0x29c9670` (два stores), инициализация
-`0x29c9920`, источник вызовов/потоки трёх проверенных entries, затем реальные
+Далее: subtype connections replacement path `0x29c9670`, инициализация
+`0x29c9920`, источники вызовов/потоки проверенных entries, затем реальные
 event erase/clear/bulk/history paths. Пока нет основания открывать live чтение
 или считать весь путь New/Load/Program безопасным в работающей программе.

@@ -88,6 +88,12 @@ targets; 109 — к оставшимся mutator targets. Исполненный
 готовность blocking hook: thread/lock/lifetime contracts ещё неполны.
 Подробности — `PATTERN_NATIVE_WRITERS_RU.md`.
 
+В следующей проверке `verify_pattern_writer.py` исполнен также базовый путь
+replacement `0x29c9670`, включая оба его stores и ожидание read lease перед
+начальным reset. Пять из шести store sites теперь связаны с исполненными
+entries; subtype connections, реальные service boundaries и потоки ещё
+не сертифицированы. Admission остаётся закрытым.
+
 ## База SampleBoot: r30d-beta4
 
 В ветку `codex/pad-midi-recording` включён официальный тег `r30d-beta4`
