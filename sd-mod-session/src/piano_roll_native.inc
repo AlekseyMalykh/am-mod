@@ -320,6 +320,15 @@ static void roll_action_run(void){
 #endif
  else say("Hold Shift and press - Undo or + Redo");
 }
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+static int roll_empty_cell(void){
+ if(roll.cursor_row<0||roll.cursor_row>=roll.row_count)return 0;
+ for(unsigned i=0;i<roll.count;++i){const struct pr_note*n=roll.notes+i;int64_t gate;memcpy(&gate,n->event.data+24,8);
+  if(pr_note_row(&roll,n)==roll.rows[roll.cursor_row]&&roll.cursor_tick>=n->event.time&&roll.cursor_tick-n->event.time<(gate>0?gate:1))return 0;
+ }
+ return 1;
+}
+#endif
 static int roll_button(unsigned code,int event_shift){
  if(!atomic_load(&piano_active))return 0;
 #ifdef MPC_PATTERN_TOOLS_TRIAL
@@ -372,6 +381,9 @@ static int roll_button(unsigned code,int event_shift){
   if(event_shift){roll_actions=!roll_actions;roll_editing=0;pr_cancel(&roll);}
   else if(roll_actions)roll_action_run();
   else if(roll_editing){int result=roll.plan.removed_count?pr_apply(&roll):1;roll_editing=0;roll_error(result,"Event edit applied; Undo / Redo available");}
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+  else if(pattern_host&&!pr_selected(&roll)&&roll_empty_cell()){roll_action=12;roll_action_run();}
+#endif
   else if(roll.layer==PR_PADS&&!pr_selected(&roll))roll_enter();else roll_edit_start();
  }else if(code==0x6f){if(roll_actions)roll_action_run();else if(!roll_editing){roll_data_held=1;roll_data_moved=0;}} /* selects on release unless the area was drawn */
  else if(code==BUTTON_MINUS||code==BUTTON_PLUS){if(!roll_editing&&!roll_actions)pr_cursor(&roll,roll.cursor_tick,roll.cursor_row+(code==BUTTON_PLUS?1:-1));}
@@ -561,7 +573,11 @@ static void roll_paint(void*g){
 #endif
  colour(g,WHITE);text(g,back_label,0,6,105,23,14);
  colour(g,shift&&roll.follow?AMBER:WHITE);text(g,shift?(roll.follow?"Follow On":"Follow Off"):roll.range?"End range":"Select range",107,6,105,23,14);
- colour(g,AMBER);text(g,roll_row_pending()?"Do It!":shift?"Actions":roll_actions?"Choose":roll_editing?"Apply":roll.layer==PR_PADS&&!pr_selected(&roll)?"Open":"Edit",214,6,105,23,14);
+ const char*primary=roll_row_pending()?"Do It!":shift?"Actions":roll_actions?"Choose":roll_editing?"Apply":roll.layer==PR_PADS&&!pr_selected(&roll)?"Open":"Edit";
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+ if(pattern_host&&!roll_row_pending()&&!shift&&!roll_actions&&!roll_editing&&!pr_selected(&roll)&&roll_empty_cell())primary="New";
+#endif
+ colour(g,AMBER);text(g,primary,214,6,105,23,14);
  char title[80],pad[8];pad_name(roll.sound,pad);
  uint64_t sequence_muted[2];int has_seq_mutes=roll_sequence_mutes(sequence_muted);
 #ifdef MPC_PATTERN_TOOLS_TRIAL

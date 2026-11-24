@@ -1,5 +1,8 @@
 # Stage 4d — открытие Pattern из Arrange в существующем Piano Roll
 
+История первоначального handoff. Новые кнопки, прямое создание и variation
+из Arrange описаны в [ARRANGE_DIRECT_WORKFLOW_RU.md](ARRANGE_DIRECT_WORKFLOW_RU.md).
+
 Реализовано под прежним opt-in `AM_MOD_PATTERN_TOOLS_TRIAL=1`. Приложение,
 preload и пакет не собирались. Это редактор значений паттерна; native
 воспроизведение/запись аранжировки и аппаратная проверка остаются впереди.

@@ -132,6 +132,32 @@ extern "C" int pt_arr_join(uint64_t first,uint64_t second){return arrange([&](Ar
 extern "C" int pt_arr_remove(uint64_t id){return arrange([&](Arrangement&a,const Library&l){return a.erase_clip(id,l);});}
 extern "C" int pt_arr_track_state(uint64_t id,int muted,int solo){if((muted!=0&&muted!=1)||(solo!=0&&solo!=1))return 0;return arrange([&](Arrangement&a,const Library&l){return a.track_state(id,muted!=0,solo!=0,l);});}
 extern "C" int pt_arr_length(int64_t length){return arrange([&](Arrangement&a,const Library&l){return a.song_length(length,l);});}
+extern "C" int pt_pattern_assigned(unsigned index){try{auto s=snapshot();if(index>=s->library.entries.size())return 0;const auto&r=s->library.entries[index].pattern.routes();if(r.empty())return 0;for(const auto&t:r)if(t.program_key==unassigned_program_key)return 0;return 1;}catch(...){return 0;}}
+extern "C" int pt_arr_new_pattern(uint64_t track,uint64_t route_template,int64_t start,int64_t length,uint64_t*out){
+ if(!out)return 0;
+ Id created=0;
+ int ok=edit_state([&](State&s){
+  if(start<0||length<=0||start>library_tick_limit||length>library_tick_limit-start)return Result::invalid;
+  std::vector<Route>routes;routes.reserve(128);
+  if(route_template){bool found=false;for(const auto&e:s.library.entries)if(e.pattern.id()==route_template){routes=e.pattern.routes();found=true;break;}if(!found)return Result::stale;}
+  else for(unsigned pad=0;pad<128;++pad){Route r;r.program_key=unassigned_program_key;r.pad=pad;r.source_note=pad;routes.push_back(r);}
+  auto result=s.library.empty(length,routes,getter());if(result!=Result::ok)return result;
+  if(start+length>s.song.length){result=s.song.song_length(start+length,s.library);if(result!=Result::ok)return result;}
+  Id row=track;if(!row){result=s.song.add_track("Track "+std::to_string(s.song.tracks.size()+1),s.library,row);if(result!=Result::ok)return result;}
+  result=s.song.add_clip(row,s.library.entries.back().pattern.id(),start,length,0,s.library,created);
+  if(result==Result::ok)s.arr_mode=1;
+  return result;
+ });if(ok)*out=created;return ok;
+}
+extern "C" int pt_arr_variation(uint64_t id){return edit_state([&](State&s){
+ Id source=0;for(const auto&c:s.song.clips)if(c.id==id){source=c.pattern;break;}if(!source)return Result::invalid;
+ unsigned index=0;while(index<s.library.entries.size()&&s.library.entries[index].pattern.id()!=source)++index;
+ auto result=s.library.variation(index);if(result!=Result::ok)return result;
+ result=s.song.rebind_clip(id,s.library.entries.back().pattern.id(),s.library);if(result==Result::ok)s.arr_mode=1;return result;
+ });}
+extern "C" int pt_arr_edit_clip(uint64_t id,uint64_t track,int64_t start,int64_t length,uint64_t revision){
+ return arrange([&](Arrangement&a,const Library&l){return a.revision==revision?a.edit_clip(id,track,start,length,l):Result::stale;});
+}
 namespace am_pattern {
 int pt_prepare_song(PreparedArrangement&out){try{auto generation=epoch.load();if(expected_epoch&&expected_epoch!=generation)throw std::runtime_error("Project changed: reopen Patterns");auto s=snapshot();if(s->mode==2||s->arr_mode==2)throw std::runtime_error("Newer song data: read only");
     PreparedArrangement prepared;auto result=prepare_arrangement(s->song,s->library,generation,prepared);if(result!=Result::ok)throw std::runtime_error(message(result));

@@ -42,6 +42,12 @@ int pt_arr_join(uint64_t,uint64_t);
 int pt_arr_remove(uint64_t);
 int pt_arr_track_state(uint64_t,int,int);
 int pt_arr_length(int64_t);
+/* One Store/history transaction. track=0 creates a track; template=0 makes
+ * an explicitly unassigned draft. Other templates copy only owned routes. */
+int pt_arr_new_pattern(uint64_t track,uint64_t route_template,int64_t start,int64_t length,uint64_t*clip);
+int pt_arr_variation(uint64_t clip);
+int pt_arr_edit_clip(uint64_t clip,uint64_t track,int64_t start,int64_t length,uint64_t expected_revision);
+int pt_pattern_assigned(unsigned index);
 const char*pt_error(void);
 void pt_archive_save(void*,void*,void(*)(void*,void*));
 void pt_archive_load(void*,void*,void(*)(void*,void*));

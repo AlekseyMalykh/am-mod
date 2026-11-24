@@ -19,8 +19,8 @@ def compile(source,name,prefix,flags):
 def execute(target,args,runner,label):
     result=subprocess.run([*runner,str(target),*args],cwd=R,text=True,capture_output=True,timeout=90)
     (O/(target.name+'.log')).write_text(result.stdout+result.stderr);print(target.name,result.stdout+result.stderr,flush=True);result.check_returncode();assert label in result.stdout
-    if label=='PASS pattern tools:':assert 'PASS arrangement store:' in result.stdout
-    if label=='PASS pattern UI:':assert 'PASS pattern host:' in result.stdout
+    if label=='PASS pattern tools:':assert 'PASS arrangement store:' in result.stdout and 'PASS direct creation Store:' in result.stdout
+    if label=='PASS pattern UI:':assert 'PASS pattern host:' in result.stdout and 'PASS direct unassigned pattern:' in result.stdout
     checks.append(target.name)
 for name,prefix,flags,runner in ([] if a.ui_only else [('host','',[],[]),('host-asan','',['-fsanitize=address,undefined','-fno-sanitize-recover=all'],[]),('arm','aarch64-linux-gnu-',[],['qemu-aarch64','-L',sysroot]),('arm-ubsan','aarch64-linux-gnu-',['-fsanitize=undefined','-static-libubsan','-fno-sanitize-recover=all'],['qemu-aarch64','-L',sysroot])]):
     objects=[compile(s,name,prefix,flags) for s in core+['check_pattern_tools.cc']]
@@ -34,6 +34,6 @@ for name,extra in [('ui',[]),('ui-ubsan',['-fsanitize=undefined','-static-libubs
 # Parse build flags as data: never import/execute a build script.
 tree=ast.parse((R/'build_mixer_r27r.py').read_text());common=next(ast.literal_eval(n.value) for n in tree.body if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='common' for t in n.targets))
 for flags in [[],['-DMPC_PATTERN_TOOLS_TRIAL=1'],['-DMPC_PATTERN_TOOLS_TRIAL=1','-DMPC_PAD_MIDI_RECORDING_TRIAL=1','-DMPC_SYNTH_NATIVE_PLAYBACK_TRIAL=1','-DMPC_PATTERN_SOURCE_TRIAL=1']]:
-    for source in ['src/step_native.c','src/phone_native.c']:run(['aarch64-linux-gnu-gcc','-std=c11',*common,'-DMPC_MIDI_EVENTS=1',*flags,'-fsyntax-only',source])
+    for source in ['src/step_native.c','src/phone_native.c']:run(['aarch64-linux-gnu-gcc','-std=c11',*common,'-DMPC_MIDI_EVENTS=1',*flags,'-c',source,'-o',str(O/('production-'+str(len(flags))+'-'+Path(source).stem+'.o'))])
 assert before==digest()
 proof.write_text(json.dumps(dict(passed=True,checks=checks,sources_sha256=before,application_built=False,hardware_tested=False,native_live_reader_enabled=False,arrangement_ui_checked_here=False,pattern_host_checked=True,arrangement_playback_connected=False,workflow='existing Piano Roll value snapshot -> parts/library -> existing Piano Roll -> native clipboard paste; shared arrangement Store; same editor in value-only external host with poisoned native pointers',archive='optional amPatternsV1 + amArrangementV1; native frame/writer fixtures; compressed XPJ/device roundtrip pending'),indent=2)+'\n')

@@ -1,5 +1,8 @@
 # Stage 4c — первый экран Arrange в SongScreen
 
+Историческая схема Stage 4c ниже. Актуальная прямая навигация New/Open/Edit,
+DATA selection и Shift+B3 Actions: [ARRANGE_DIRECT_WORKFLOW_RU.md](ARRANGE_DIRECT_WORKFLOW_RU.md).
+
 Экспериментальный редактор блоков подключён к существующему SongScreen под
 `AM_MOD_PATTERN_TOOLS_TRIAL=1`. По умолчанию флаг выключен. Используются
 штатные графические функции, палитра и размер 320×240; новый clock, второй

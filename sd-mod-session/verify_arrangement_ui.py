@@ -18,7 +18,7 @@ for name,flags in [('normal',[]),('ubsan',['-fsanitize=undefined','-static-libub
         run(['aarch64-linux-gnu-g++' if cpp else 'aarch64-linux-gnu-gcc','-std=c++11' if cpp else '-std=c11','-O1','-g','-Wall','-Wextra','-Werror','-mbranch-protection=standard',*flags,'-c',source,'-o',str(obj)])
     target=O/name;run(['aarch64-linux-gnu-g++',*flags,*objects,'-pthread','-ldl','-lm','-o',str(target)])
     result=subprocess.run(['qemu-aarch64','-L',sysroot,str(target),str(stock),str(O/(name+'-draw.txt'))],cwd=R,capture_output=True,text=True,timeout=90)
-    (O/(name+'.log')).write_text(result.stdout+result.stderr);print(result.stdout+result.stderr,flush=True);result.check_returncode();assert 'PASS Arrange UI:' in result.stdout;checks.append(name)
+    (O/(name+'.log')).write_text(result.stdout+result.stderr);print(result.stdout+result.stderr,flush=True);result.check_returncode();assert 'PASS Arrange UI:' in result.stdout and 'PASS Arrange direct workflow:' in result.stdout;checks.append(name)
 # Baseline Song hooks retain the existing suite with the trial flag absent.
 for name,flags in [('baseline',[]),('baseline-ubsan',['-fsanitize=undefined','-static-libubsan','-fno-sanitize-recover=all'])]:
     target=O/name;run(['aarch64-linux-gnu-gcc','-std=c11','-O1','-g','-Wall','-Wextra','-Werror',*flags,'check_song_ui.c','-pthread','-ldl','-lm','-o',str(target)])
@@ -28,4 +28,4 @@ tree=ast.parse((R/'build_mixer_r27r.py').read_text());common=next(ast.literal_ev
 for flags in [[],['-DMPC_PATTERN_TOOLS_TRIAL=1'],['-DMPC_PATTERN_TOOLS_TRIAL=1','-DMPC_MIDI_TOOLS=1']]:
     run(['aarch64-linux-gnu-gcc','-std=c11',*common,*flags,'-Ibuild','-fsyntax-only','src/song_ui.c'])
 assert before==digest()
-proof.write_text(json.dumps(dict(passed=True,checks=checks,sources_sha256=before,application_built=False,hardware_tested=False,arrangement_playback_connected=False,pattern_drill_down_connected=True,editor_handoff='Song fixture here; real editor with poisoned Events pointers in verify_pattern_tools.py',graphics='production layout; recorded native graphics fixtures, substituted font'),indent=2)+'\n')
+proof.write_text(json.dumps(dict(passed=True,checks=checks,sources_sha256=before,application_built=False,hardware_tested=False,arrangement_playback_connected=False,pattern_drill_down_connected=True,direct_new_pattern=True,selection_via_data=True,block_edit_preview=True,range_length=True,variation_one_clip=True,editor_handoff='Song fixture here; real editor with poisoned Events pointers in verify_pattern_tools.py',graphics='production layout; recorded native graphics fixtures, substituted font'),indent=2)+'\n')

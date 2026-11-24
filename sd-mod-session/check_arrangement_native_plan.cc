@@ -75,6 +75,7 @@ int main(){
     p=prepared;p.notes.assign(max_events,prepared.notes[0]);NativeArrangementPlan full;
     assert(prepare_native_plan(p,destination,nullptr,full)==NativePlanResult::ok&&full.notes.size()==max_events);
     p.notes.push_back(p.notes[0]);refuse(p,destination,NativePlanResult::limit);
+    p=prepared;for(auto&t:p.targets)t.program_key=unassigned_program_key;auto unbound_destination=destination;unbound_destination.program_key=unassigned_program_key;refuse(p,unbound_destination,NativePlanResult::program_mismatch);
     p=prepared;p.notes.clear();p.targets.clear();assert(prepare_native_plan(p,destination,nullptr,zero)==NativePlanResult::ok&&zero.notes.empty());
     unsigned failures=0;bool done=false;
     auto allocation_input=prepared;auto allocation_destination=destination;

@@ -31,6 +31,7 @@ NativePlanResult prepare_native_plan(const PreparedArrangement&prepared,const Na
     for(unsigned i=0;i<128;++i)if(destination.pad_to_note[i]<-1||destination.pad_to_note[i]>127
         ||destination.note_to_pad[i]<-1||destination.note_to_pad[i]>127)return NativePlanResult::invalid;
     for(const auto&t:prepared.targets){
+        if(t.program_key==unassigned_program_key)return NativePlanResult::program_mismatch;
         if(!identity(t.program_key)||t.pad>=128||t.source_note>=128)return NativePlanResult::invalid;
         if(t.program_key!=destination.program_key)return NativePlanResult::program_mismatch;
         int note=destination.pad_to_note[t.pad];

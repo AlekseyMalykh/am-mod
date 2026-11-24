@@ -14,7 +14,7 @@ int step_pattern_open(uint64_t id,int64_t phase,void(*redraw)(void)){
  message[0]=0;pt_expect_epoch(roll_patterns_epoch);atomic_store(&piano_active,1);
  if(!roll_refresh(1)){roll_close();return 0;}
  pr_view_layer(&roll,PR_PADS,roll.rows[0]);pr_cursor(&roll,phase%entry.length,0);
- say("Shared pattern: edits affect all its blocks");return 1;
+ say(pt_pattern_assigned((unsigned)index)?"Shared pattern: edits affect all its blocks":"Unassigned instrument; editable draft only");return 1;
 }
 int step_pattern_active(void){return on_ui()&&pattern_host&&roll_refresh(0);}
 void step_pattern_close(void){if(on_ui()&&pattern_host)roll_close();}

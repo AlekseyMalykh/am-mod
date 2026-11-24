@@ -21,6 +21,8 @@ struct Arrangement {
     Result copy_clip(Id,Id,std::int64_t,const Library&,Id&);
     Result move_clip(Id,Id,std::int64_t,const Library&);
     Result resize_clip(Id,std::int64_t,const Library&);
+    Result edit_clip(Id,Id,std::int64_t,std::int64_t,const Library&);
+    Result rebind_clip(Id,Id,const Library&);
     Result cut_clip(Id,std::int64_t,const Library&,Id&);
     Result join_clips(Id,Id,const Library&);
     Result erase_clip(Id,const Library&);

@@ -62,6 +62,8 @@ Result Arrangement::copy_clip(Id source,Id track,std::int64_t start,const Librar
 }
 Result Arrangement::move_clip(Id id,Id track,std::int64_t start,const Library&library){return change(*this,library,[&](Arrangement&s){auto*c=clip(s,id);if(!c)return Result::invalid;c->track=track;c->start=start;return Result::ok;});}
 Result Arrangement::resize_clip(Id id,std::int64_t length,const Library&library){return change(*this,library,[&](Arrangement&s){auto*c=clip(s,id);if(!c)return Result::invalid;c->length=length;return Result::ok;});}
+Result Arrangement::edit_clip(Id id,Id track,std::int64_t start,std::int64_t length,const Library&library){return change(*this,library,[&](Arrangement&s){auto*c=clip(s,id);if(!c)return Result::invalid;c->track=track;c->start=start;c->length=length;return Result::ok;});}
+Result Arrangement::rebind_clip(Id id,Id pattern,const Library&library){return change(*this,library,[&](Arrangement&s){auto*c=clip(s,id);if(!c)return Result::invalid;c->pattern=pattern;return Result::ok;});}
 Result Arrangement::erase_clip(Id id,const Library&library){return change(*this,library,[&](Arrangement&s){auto it=std::find_if(s.clips.begin(),s.clips.end(),[&](const ArrangementClip&c){return c.id==id;});if(it==s.clips.end())return Result::invalid;s.clips.erase(it);return Result::ok;});}
 Result Arrangement::cut_clip(Id id,std::int64_t cursor,const Library&library,Id&out){
     Id created=0;auto result=change(*this,library,[&](Arrangement&s){

@@ -125,6 +125,31 @@ int main(){
     assert(pt_arr_clip_at(1,&clip_view)&&clip_view.offset==3840&&clip_view.length==11520);
     uint64_t untouched=42;assert(!pt_arr_paste(&clip_view,row,3840,&untouched)&&untouched==42);
     assert(pt_arr_copy(right,row,15360,&block));pt_reset();
+    pt_expect_epoch(pt_epoch());unsigned new_failures=0;bool new_done=false;
+    for(int point=0;point<1024;++point){uint64_t out=42;fail_after=point;int ok=pt_arr_new_pattern(0,0,0,3840,&out);fail_after=-1;
+        if(ok){new_done=true;block=out;break;}
+        ++new_failures;assert(out==42&&!pt_count()&&pt_arr_info(&info)&&!info.tracks&&!info.clips);
+    }
+    assert(new_done&&new_failures&&pt_count()==1&&!pt_pattern_assigned(0));
+    assert(pt_arr_info(&info)&&info.tracks==1&&info.clips==1&&pt_arr_clip_at(0,&clip_view));row=clip_view.track;
+    assert(pt_history(-1)&&!pt_count()&&pt_arr_info(&info)&&!info.tracks&&!info.clips);
+    assert(pt_history(1)&&pt_arr_clip_at(0,&clip_view));block=clip_view.id;
+    uint64_t unassigned=clip_view.pattern;
+    assert(pt_arr_copy(block,row,7680,&right));assert(pt_arr_variation(right)&&pt_count()==2);
+    assert(pt_arr_clip_at(0,&clip_view)&&clip_view.pattern==unassigned);assert(pt_arr_clip_at(1,&clip_view)&&clip_view.pattern!=unassigned);
+    assert(pt_history(-1)&&pt_count()==1&&pt_arr_clip_at(1,&clip_view)&&clip_view.pattern==unassigned);
+    assert(pt_arr_info(&info));auto edit_revision=info.revision;
+    assert(!pt_arr_edit_clip(block,row,7680,960,edit_revision));assert(pt_arr_info(&info)&&info.revision==edit_revision);
+    assert(!pt_arr_edit_clip(block,row,960,960,edit_revision+1));assert(pt_arr_edit_clip(block,row,960,960,edit_revision));
+    assert(pt_history(-1)&&pt_arr_clip_at(0,&clip_view)&&clip_view.start==0&&clip_view.length==3840);
+    uint64_t invalid_output=55;unsigned before_new=pt_count();assert(!pt_arr_new_pattern(row,unassigned,7680,3840,&invalid_output)&&invalid_output==55&&pt_count()==before_new);
+    pt_archive_save(nullptr,nullptr,original);Input new_archive(written);new_archive.song(arrangement_written);pt_reset();pt_expect_epoch(0);read(new_archive);
+    assert(pt_count()==1&&pt_arr_info(&info)&&info.clips==2&&!pt_pattern_assigned(0));
+    pt_reset();pt_expect_epoch(0);assert(pt_capture(notes,3,7680,1,"program",map,outputs,0));pt_entry route_source;assert(pt_info(0,&route_source));
+    assert(pt_arr_new_pattern(0,route_source.id,30720,7680,&block)&&pt_pattern_assigned(pt_count()-1));
+    assert(pt_arr_info(&info)&&info.length==38400);assert(pt_history(-1)&&pt_count()==2&&pt_arr_info(&info)&&info.length==30720&&!info.tracks&&!info.clips);
+    pt_reset();pt_expect_epoch(0);
+    std::cout<<"PASS direct creation Store: atomic track/pattern/clip and song extension, route-only inheritance, unassigned drafts, archive roundtrip, unique variation per reference, staged clip edit/overlap/stale refusal and "<<new_failures<<" allocation failures without orphan data.\n";
     std::cout<<"PASS arrangement store: shared history, protected references, cut/join, value readers, prepared epoch guard, order-independent archive fields, failed/corrupt/dangling/future loads, reset. Native archive fixtures only.\n";
     std::cout<<"PASS pattern tools: copied source/pads/mixer/manual duplicate split, independent variation, existing Piano Roll edit/copy/paste/delete/history, empty pattern, retained tails, versioned archive roundtrip, legacy/failed/corrupt/duplicate/future fields; "<<failures<<" allocation failures and library limit preserve prior state; source unchanged. Host native archive frame/writer fixtures; hardware not tested.\n";
 }

@@ -31,6 +31,7 @@ static _Atomic unsigned arrangement_active;
 static _Atomic unsigned arrangement_editor;
 static void arrange_open(void),arrange_close(void),arrange_paint(void*),arrange_tick(void);
 static int arrange_button(unsigned,int),arrange_control(unsigned,unsigned,int);
+static void arrange_release(unsigned);
 #endif
 #ifdef MPC_MIDI_TOOLS
 #include "midi_file_native.h"
@@ -294,7 +295,7 @@ int song_ui_owns(unsigned kind,unsigned code,int shift,int down)
     if(!down) return (atomic_load(&owned_buttons)&bit)!=0;
 #ifdef MPC_PATTERN_TOOLS_TRIAL
     if(atomic_load(&shown)&&atomic_load(&arrangement_active)){
-        if(bit>=256u&&!atomic_load(&arrangement_editor))return 0;
+        if(bit>=256u&&code!=0x6f&&!atomic_load(&arrangement_editor))return 0;
         atomic_fetch_or(&owned_buttons,bit);return 1;
     }
     if(bit>=32u)return 0;
@@ -524,6 +525,7 @@ int song_ui_button(void *e,int shift)
     if(!down){ atomic_fetch_and(&owned_buttons,~bit);
 #ifdef MPC_PATTERN_TOOLS_TRIAL
         if(atomic_load(&arrangement_editor)&&step_pattern_button)step_pattern_button(code,0,shift);
+        else if(atomic_load(&arrangement_active))arrange_release(code);
 #endif
         return 1;
     }

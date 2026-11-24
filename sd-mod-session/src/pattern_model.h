@@ -17,6 +17,8 @@ extern "C" {
 namespace am_pattern {
 using Id=std::uint64_t;
 constexpr std::size_t max_events=32768,max_parts=128,max_routes=1024;
+/* Editable value-only draft, never an implicit native Program binding. */
+constexpr const char*unassigned_program_key="am:unassigned";
 enum class Result {ok,invalid,unsupported,limit,stale};
 enum class SplitBy {pads,mixer};
 enum class BoundaryPolicy {onsets_only};

@@ -82,6 +82,18 @@ int main(int argc,char**argv){
  assert(step_pattern_open(host_entry.id,0,host_redraw));assert(variation>0&&pt_remove(0));assert(step_pattern_active()&&roll_pattern_index==(int)variation-1);
  host_press(BUTTON_MINUS,1);assert(step_pattern_active()&&roll_pattern_index==(int)variation);
  pt_reset();assert(!step_pattern_active()&&!pattern_host);
+ FILE*previous_trace=draw_file;char fresh_path[1024];snprintf(fresh_path,sizeof fresh_path,"%s-new-pattern",argv[2]);draw_file=fopen(fresh_path,"w");assert(draw_file);
+ pt_expect_epoch(pt_epoch());uint64_t fresh_clip=0;assert(pt_arr_new_pattern(0,0,0,3840,&fresh_clip));
+ struct pt_arr_clip fresh_block;assert(pt_arr_clip_at(0,&fresh_block)&&step_pattern_open(fresh_block.pattern,0,host_redraw));
+ assert(!roll.count&&!pt_pattern_assigned(0)&&!strcmp(message,"Unassigned instrument; editable draft only"));
+ assert(step_pattern_paint((void*)1,0));host_press(0x0e,0);assert(roll.count==1);
+ assert(step_pattern_paint((void*)1,0));host_press(BUTTON_LEVELS,0);assert(roll.layer==PR_TUNE);
+ assert(step_pattern_control(0x64,1,0));for(unsigned i=0;i<roll.count;++i)roll.notes[i].selected=0;
+ host_press(0x0e,0);assert(roll.count==2);host_press(BUTTON_MINUS,1);assert(roll.count==1);host_press(BUTTON_PLUS,1);assert(roll.count==2);
+ assert(step_pattern_paint((void*)1,0));
+ host_press(0x0c,0);host_press(0x0c,0);assert(!step_pattern_active());pt_reset();
+ puts("PASS direct unassigned pattern: actual reused Piano Roll with poisoned Events pointers, B3 New manual Pad/Tune insertion and Undo/Redo; no native source/instrument pointer needed");
+ fclose(draw_file);draw_file=previous_trace;
  assert(browse_bank==5);browse_bank=old_bank;
  root=old_root;controller=old_controller;sequence=old_sequence;event_list=old_list;
  unsigned native_ordinal=0;for(void*n=tree()->left;n!=&tree()->colour;n=FN(0xb51738,void*(*)(void*))(n))assert(!memcmp((char*)n+0x20,source+native_ordinal++,sizeof(struct step_event)));assert(native_ordinal==count);
