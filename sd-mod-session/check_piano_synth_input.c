@@ -23,6 +23,7 @@ static void reset_queue(void*q,uint64_t*reader){
  assert(!FIELD(context,0x50,unsigned));*reader=0;memset(q,0,0x48);FIELD(q,0,uint64_t)=64;FIELD(q,0x30,void*)=trial_slots;
  for(unsigned i=0;i<64;++i){FIELD(trial_slots[i],0,uintptr_t)=base+0xb57a7c;FIELD(trial_slots[i],8,uintptr_t)=base+0x15265b0;}
 }
+#include "check_piano_synth_coexist.inc"
 int main(int argc,char **argv){
  assert(!piano_legacy_input_proof(argc,argv));phase="trial Synth on existing native Piano input queue";
  stub(0x286bbe0,carrier);stub(0x2804760,has_sample);__builtin___clear_cache((char*)base,(char*)base+0x7500000);
@@ -84,5 +85,6 @@ int main(int argc,char **argv){
 
  /* Native queue stopped: no lifetime leak and no Synth command is emitted. */
  FIELD(q,0x2d,unsigned char)=1;assert(!batch_piano_synth_input(base,context,program,&low,0,201));assert(!FIELD(context,0x50,unsigned)&&!am_synth_active());FIELD(q,0x2d,unsigned char)=0;
+ check_piano_synth_coexist(q,&reader);
  puts("PASS trial Synth/native Piano queue: worker-only note handoff, captured pitch/velocity, reverse releases, occurrence-safe retrigger, shared gates, Stop epochs, project-change release, occupied-carrier rejection, queue backpressure and retained context lifetime; Engine/recorder receivers are fixtures");return 0;
 }

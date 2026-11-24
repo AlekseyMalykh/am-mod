@@ -82,6 +82,30 @@ Project generation, instrument lookup/sample presence, property/position notific
 
 ## Следующий обязательный этап
 
+### Совместная живая игра и воспроизведение: изолированный DSP-стенд
+
+`check_piano_synth_coexist.inc` расширяет `verify_piano_synth_input.py`.
+Через настоящую native ThreadQueue выполняется live Synth worker, затем
+настоящий Synth DSP получает одновременно live gate и owned occurrence
+той же высоты. Owned On здесь подан напрямую как модель уже звучащей ноты
+секвенции; его native scheduling проверяет отдельный playback verifier.
+
+Проверены оба порядка отпускания: live Off сохраняет owned voice, owned Off
+сохраняет live gate. Восемь повторных worker handoffs одного пэда и stale Off
+не снимают owned voice. Очистка клавиатурного ввода через worker Stop снимает
+live gate, сохраняя owned playback; это **не** полный Stop транспорта, который
+должен отменить обе группы через отдельный transport hook.
+
+Восемь различных live высот одновременно занимают реальные восемь голосов
+Synth. Перемешанный порядок отпусканий последовательно уменьшает и число
+DSP voices, и worker held count до нуля. Fault counter не растёт. Это проверка
+существующего лимита, а не обещание 16-голосной полифонии синтезатора.
+
+Native Engine On и recorder Off в этом стенде остаются fixtures. Отсутствие
+конфликта DSP voices не доказывает полный overdub, quantization, XPJ Save/Load,
+физический Stop или совместный render на устройстве. Источники и результаты
+normal/UBSan записывает `build/piano-synth-input/verification.json`.
+
 ### Проверка повторов без новой сборки приложения (2026-11-24)
 
 `check_synth_repeat.inc`, включённый в `verify_synth_live_native.py`, исполняет

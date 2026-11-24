@@ -24,7 +24,7 @@ proof.unlink(missing_ok=True)
 files = ['src/piano_input.inc', 'src/batch_copy.h', 'src/batch_copy.cc',
          'src/pad_midi_note.c', 'src/pad_midi_note.h', 'src/midi_event.c',
          'src/synth.c', 'src/synth.h', 'check_piano_input.c',
-         'check_piano_synth_input.c', 'check_batch_dispatch.c', 'check_batch_native.c',
+         'check_piano_synth_input.c', 'check_piano_synth_coexist.inc', 'check_batch_dispatch.c', 'check_batch_native.c',
          'check_steps.c', 'src/batch_events.cc', 'src/piano_roll.c',
          'phone_build.py', 'verify_piano_synth_input.py']
 digest = lambda: {f: hashlib.sha256((root/f).read_bytes()).hexdigest() for f in files}
@@ -76,10 +76,13 @@ for mode, sanitizer in [('normal', []), ('ubsan', ['-fsanitize=undefined', '-sta
             if result.returncode:
                 print(result.stdout+result.stderr, flush=True)
                 result.check_returncode()
+            if suite == 'check_piano_synth_input.c':
+                assert 'PASS live/playback coexistence:' in result.stdout
             print('PASS', name, flush=True)
             checks.append(name)
 assert before == digest()
 proof.write_text(json.dumps(dict(passed=True, checks=checks, sources_sha256=before,
     stock_sha256=expected, native_worker_tested=True, real_synth_dsp_tested=True,
     native_engine_input_tested=False, recorder_receivers_are_fixtures=True,
+    live_playback_dsp_coexistence=True, live_chord_voices=8,
     hardware_tested=False, production_trial_enabled=False), indent=2)+'\n')
