@@ -80,3 +80,10 @@ lock order. Поля `coverage_complete` и `production_read_admission` — fals
 под тем же trial flag. До этого native source admission остаётся закрытым.
 Текущие Sequence, Sequential Song, XPJ и привычный pad workflow не меняются
 при стандартной конфигурации.
+
+Продолжение: `verify_pattern_writer.py` исполняет Program setter и два пути
+снятия совпадающей ссылки, а также исправляет Clip map-selector contract.
+В актуальном inventory 38 прямых переходов относятся к read-only getter
+targets; 109 — к оставшимся mutator targets. Исполненный entry не означает
+готовность blocking hook: thread/lock/lifetime contracts ещё неполны.
+Подробности — `PATTERN_NATIVE_WRITERS_RU.md`.

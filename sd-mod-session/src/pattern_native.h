@@ -27,7 +27,9 @@ struct NativeReadAccess {
     /* Exactly once after successful enter, including errors. Must not throw. */
     void (*leave)(void*,const NativeReadContext&)=nullptr;
 };
-/* Pinned firmware adapter, synchronous owner/control boundary only. Not yet
+/* Reads the current native Track's DEFAULT clip map (selector 0), not a merge
+ * of every Track/alternate map in the Sequence. Selector is not a create flag.
+ * Pinned firmware adapter, synchronous owner/control boundary only. Not yet
  * connected to a production executor. No native pointer is published.
  * Failure preserves out. No native command, list creation or event mutation.
  * Caller supplies stable sequence identity; index is a lookup hint, not ID. */

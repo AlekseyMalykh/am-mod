@@ -1,7 +1,7 @@
 # Stage 3a — native Sequence → immutable Snapshot
 
 Реализован `src/pattern_native.h/.cc`, пока отдельно от приложения.
-Адаптер читает одну выбранную Sequence для **текущего native Track** из
+Адаптер читает default Clip map одной выбранной Sequence для **текущего native Track** из
 `CurrentThings+0x368`, как существующие batch/MIDI export пути. Это не обход
 всех TrackClipMaps и не реализация Horizontal playback. Сборка приложения,
 preload или установочного пакета не выполнялась.
@@ -23,6 +23,11 @@ preload или установочного пакета не выполнялас
 | Clip event list | настоящий `0x2957ae0(sequence,track,0)`: отсутствие clip не создаёт новый |
 | Inline событие | node `+0x20`, только tag 3, существующий `am_midi_event_copy` |
 | Tune/Chop | настоящий choice getter `0x27e4230`, без повторного encode |
+
+Уточнение после native probes: третий аргумент getter — **map selector**, не
+create flag. 0 выбирает default map, ненулевой selector — другую существующую
+карту. Проверено на разных картах; старое `create=0` в proof metadata исправлено.
+Этот adapter не объединяет alternate maps. См. `PATTERN_NATIVE_WRITERS_RU.md`.
 
 Список событий использует тот же libstdc++ RB-tree ABI, что batch/Piano Roll:
 header `list+0x68`, count `+0x88`, parent/left/right node offsets 8/16/24.

@@ -49,6 +49,8 @@ NativeReadResult scan(const NativeReadRequest&request,const NativeReadContext&co
         out.forward[i]=field<int>(out.program,0x12a8+i*4);
         out.reverse[i]=field<int>(out.program,0x14a8+i*4);
     }
+    /* 0 selects the default Track->Clip map. Nonzero selects an alternate
+     * pre-existing map; this parameter does not enable Clip creation. */
     out.list=fn<void*(*)(void*,void*,int)>(image,0x2957ae0)(out.sequence,out.track,0);
     if(!out.list)return NativeReadResult::ok; /* Absent clip is empty, never create. */
     if(!aligned(out.list))return NativeReadResult::invalid;

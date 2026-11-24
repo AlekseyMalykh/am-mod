@@ -470,6 +470,8 @@ Stage 3a, source lifetime: реализован concrete `SourceDomain` с reade
 
 Stage 3a, lifecycle wiring: New/Read/Load guards подключены к существующей phone callback table под выключенным trial flag; baseline callbacks сохраняются. Production runtime не экспортирует publisher, поэтому source admission остаётся закрытым. Восемь isolated baseline/trial прогонов и три phone syntax-only конфигурации проверяют этот wiring; полной сборки не было. Пинованный writer inventory содержит шесть Program-field store candidates и 147 direct branches, но не объявляет coverage завершённым. Следующий шаг — Program/Clip writers и их thread/lock contracts; см. `PATTERN_LIFECYCLE_HOOKS_RU.md`.
 
+Stage 3a, native contracts: в QEMU normal/UBSan исполнены setter `0x29c9490` и два пути снятия Program reference `0x29c93a0(Track)` / `0x29c7a80(Track+0x910)`. SourceDomain проверен перед настоящим setter. Уточнено, что третий аргумент Clip getter — map selector, а не create flag; adapter читает default map. Inventory разделяет read-only targets и mutators (109 direct branches к последним), но hook readiness/thread affinity ещё не подтверждены. Детали — `PATTERN_NATIVE_WRITERS_RU.md`.
+
 ## Проверки и риски
 
 | Проверка | Что нужно подтвердить |
