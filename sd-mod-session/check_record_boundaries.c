@@ -1,6 +1,7 @@
 /* Native finalizer preconditions, not a complete recorder/transport test. */
 #define MPC_POLY_TEST_MAIN legacy_poly_checks
 #include "check_poly_record.c"
+#include "check_overdub_matrix.inc"
 
 static void boundary_case(int typed,int64_t onset,int64_t release,int64_t expected){
     unsigned char recorder[0x1c0]={0};void *header=recorder+0x1a0;
@@ -29,6 +30,8 @@ static void boundary_case(int typed,int64_t onset,int64_t release,int64_t expect
 
 int main(int argc,char **argv){
     legacy_poly_checks(argc,argv);
+    check_overdub_matrix();
+    check_chord_boundaries();
     const int64_t holds[]={0,1,36,60,96,240,600,900,15540};
     unsigned cases=0;
     for(int typed=0;typed<2;++typed){
