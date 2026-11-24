@@ -3,6 +3,9 @@
 #undef pattern_native_proof
 static _Alignas(8) unsigned char alternate_program[0x2900],alternate_clip[0x900],map_rows[2][0xe0],alternate_map_node[0x40],other_track[0xc00];
 static void*map_span[2];static uintptr_t program_vtable[41];
+static _Alignas(8) unsigned char subtype_objects[2][0x3000],connection_tokens[2][0x20];
+static _Alignas(8) unsigned char peer_connection[0x20];
+static unsigned subtype_mask,subtype_input,subtype_output;
 struct program_observation {unsigned kind;void*current;int number;};
 static struct program_observation observations[16];static unsigned observation_count;
 static void observe(unsigned kind){assert(observation_count<16);observations[observation_count++]=(struct program_observation){kind,F(track,0xbb8,void*),F(track,0xbc0,int)};}
@@ -15,8 +18,8 @@ static void old_listener(void*p,void*callback){(void)callback;assert(p==program|
 static void new_listener(void*p,void*callback){(void)callback;assert(p==program||p==alternate_program);observe(0x101);}
 static void program_changed(void*p,void*old,void*next){assert(p==track&&(!old||old==program||old==alternate_program)&&(!next||next==program||next==alternate_program));observe(0x102);}
 /* Replacement's service boundaries are captured; the actual native branch,
- * pointer/number stores and call order remain intact. RTTI fixture explicitly
- * selects the base Program path: subtype connection logic is NOT exercised. */
+ * pointer/number stores and call order remain intact. RTTI fixture selects
+ * either base or subtype branch; this does not certify real class RTTI. */
 static void replacement_reset(void*p,int value){assert(p==track&&value==0);observe(0x110);}
 static void replacement_refresh(void*p,int value){assert(p==track&&value==F(track,0xb58,int));observe(0x111);}
 static void replacement_unbind(void*p,void*q){
@@ -29,7 +32,54 @@ static void replacement_bind(void*p,void*callback,void*q){
 }
 static void replacement_name(void*p,void*name){assert(p==track+0x7d0&&(name==program+0xdc8||name==alternate_program+0xdc8));observe(0x114);}
 static void*replacement_cast(void*p,void*source_type,void*target_type,int64_t offset){
-    assert((p==program||p==alternate_program)&&source_type&&target_type&&offset==0);observe(0x115);return NULL;
+    assert((p==program||p==alternate_program)&&source_type&&target_type&&offset==0);observe(0x115);
+    unsigned i=p==alternate_program;return (subtype_mask&(1u<<i))?subtype_objects[i]:NULL;
+}
+static void subtype_detach(void*p,void*callback){assert((p==subtype_objects[0]+0x2f00||p==subtype_objects[1]+0x2f00)&&callback==track+0x838);observe(0x119);}
+static void*subtype_attach(void*p,void*callback,void*receiver){
+    assert((p==subtype_objects[0]+0x2f00||p==subtype_objects[1]+0x2f00)&&callback&&receiver==track+0x838);
+    assert(F(callback,0,void*)==receiver&&F(callback,8,uintptr_t)==base+0x29cde30);
+    observe(0x120);return connection_tokens[p==subtype_objects[1]+0x2f00];
+}
+static int subtype_transform(void*p,void*value){assert(p==track+0x858&&F(value,0,unsigned char)==subtype_input);observe(0x121);return (int)subtype_output;}
+static void subtype_property(void*p,int value){assert(p==track+0x838&&value==(int)subtype_output);observe(0x122);}
+void pattern_writer_subtype_setup(void){
+    redirect(0x14e8960,subtype_detach);redirect(0x29ce380,subtype_attach);redirect(0x13ae070,subtype_property);
+    /* Real constructor and assignment manipulate the intrusive links. Only
+     * the token provider and boolean-property callbacks are fixtures. */
+    FN(0x236efe0,void(*)(void*,void*))(track+0x1ff0,NULL);
+    F(track,0x868,uintptr_t)=1;F(track,0x870,void*)=subtype_transform;
+    subtype_mask=0;subtype_input=1;subtype_output=0;
+    subtype_objects[0][0x2f1b]=subtype_objects[1][0x2f1b]=1;
+}
+void pattern_writer_subtype_select(unsigned mask,unsigned input,unsigned output){
+    assert(mask<=3&&input<=1&&output<=1);subtype_mask=mask;subtype_input=input;subtype_output=output;
+    subtype_objects[0][0x2f1b]=subtype_objects[1][0x2f1b]=(unsigned char)input;
+}
+void pattern_writer_subtype_connection(int which){
+    void*p=track+0x1ff0;
+    if(which<0){assert(!F(p,0x18,void*)&&!F(connection_tokens[0],0x18,void*)&&!F(connection_tokens[1],0x18,void*));return;}
+    assert(which<2);void*token=connection_tokens[which];
+    assert(F(p,0x18,void*)==token&&F(token,0x18,void*)==(char*)p+8);
+    assert(F(p,8,void*)==(char*)token+0x18&&!F(p,0x10,void*));
+    assert(!F(connection_tokens[1-which],0x18,void*));
+}
+void pattern_writer_subtype_peer(int create){
+    void*token=connection_tokens[0];
+    if(create){
+        FN(0x236efe0,void(*)(void*,void*))(peer_connection,token);
+        assert(F(token,0x18,void*)==peer_connection+8&&F(peer_connection,0x10,void*)==track+0x1ff8);
+        assert(F(track,0x1ff8,void*)==peer_connection+0x10);
+    }else{
+        /* Native replacement removed Track and its temporary, leaving this
+         * independent subscriber as the sole member of the original token. */
+        assert(F(token,0x18,void*)==peer_connection+8&&F(peer_connection,8,void*)==(char*)token+0x18);
+        assert(!F(peer_connection,0x10,void*)&&F(peer_connection,0x18,void*)==token);
+        _Alignas(8) unsigned char empty[0x20];
+        FN(0x236efe0,void(*)(void*,void*))(empty,NULL);
+        FN(0x236f060,void(*)(void*,void*))(peer_connection,empty);
+        assert(!F(token,0x18,void*)&&!F(peer_connection,0x18,void*));
+    }
 }
 void pattern_writer_replacement_setup(void){
     redirect(0x29c65b0,replacement_reset);redirect(0x29c68a0,replacement_refresh);

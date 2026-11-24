@@ -89,12 +89,39 @@ hook, считающий x0 прямым Track, было бы ошибкой.
 до reader leave не исполняется даже начальный reset; epoch уже отозван.
 После завершения replacement доступ к чтению остаётся закрытым.
 
-RTTI `__dynamic_cast` в этом тесте явно возвращает null. Reset, парные binding
-services, name binding, refresh и rebuild заменены fixtures с проверкой
-аргументов/порядка и наблюдением полей. Поэтому исполнение stores доказано
-для базового пути, но работа subtype connections (+0x2f00), настоящих
-подписчиков, их reentrancy, thread affinity и безопасность production hooks
-ещё не доказаны. Это не исполнение полного native instrument replacement.
+В базовых случаях RTTI `__dynamic_cast` явно возвращает null. Reset, парные
+binding services, name binding, refresh и rebuild заменены fixtures с проверкой
+аргументов/порядка и наблюдением полей. Это не исполнение полного native
+instrument replacement.
+
+## Program replacement: дополнительные связи подтипа
+
+В отдельной серии RTTI fixture возвращает выделенные subtype buffers.
+Исполняются настоящие ветки `0x29c9670`, включая снятие дополнительной связи,
+создание callback descriptor, чтение subtype+0x2f1b, вызов Track callback
+и передачу его результата property service. Проверены оба значения входного
+флага и разные результаты callback (1→0, 0→1), а также переходы base→subtype,
+subtype→subtype, subtype→base, subtype→null и null→subtype. Повтор того же
+Program оставляет установленную связь на месте.
+
+Функции `0x236efe0` (инициализация connection) и `0x236f060` (assignment)
+не подменены: исполняется их native код, а также unlink временного connection
+в самом replacement. После возврата проверяются оба направления intrusive
+links: token указывает на постоянный connection Track+0x1ff0, обратная ссылка
+ведёт к token, следующего временного узла нет. При снятии связи старый token
+пуст. Дополнительный тест создаёт независимый subscriber тем же native
+конструктором: replacement снимает только связь Track, сохраняет subscriber
+и корректно перестраивает его обратную ссылку; затем subscriber снимается
+настоящим native assignment. Финальная связь Track также снимается.
+
+Буфер Track общего тестового fixture увеличен с 0xc00 до 0x2200 для области
+connection +0x1ff0; это размер выделения стенда, не утверждение о полном
+размере native класса. RTTI, subtype token provider, detach service и
+boolean-property services остаются fixtures. Native классы/RTTI и lifetime
+самого token provider, callbacks из настоящих service bodies, исключения и
+производственные потоки этим не проверены. Отдельный SourceDomain case
+подтверждает ожидание reader перед первым reset и изменением connection;
+автоматическое повторное открытие чтения не добавлено.
 
 ## Ограничения и следующая работа
 
@@ -109,12 +136,12 @@ lock order также не доказаны. Entry может быть пров�
 inventory с этим proof только при совпадении всех исходных hashes:
 
 - пять из шести store sites имеют исполненные entries и receiver contracts
-  (две точки replacement проверены только для базового пути Program);
+  (replacement исполняется и с ветками дополнительных subtype connections);
 - две Clip getter targets исключены из списка writers;
 - 147 direct branches всего, из них 109 к оставшимся mutator targets;
 - `hook_ready`, `coverage_complete`, `production_read_admission` остаются false.
 
-Далее: subtype connections replacement path `0x29c9670`, инициализация
-`0x29c9920`, источники вызовов/потоки проверенных entries, затем реальные
+Далее: инициализация `0x29c9920`, реальные subtype/service lifetime boundaries,
+источники вызовов/потоки проверенных entries, затем реальные
 event erase/clear/bulk/history paths. Пока нет основания открывать live чтение
 или считать весь путь New/Load/Program безопасным в работающей программе.

@@ -5,7 +5,7 @@
 #undef main
 #include "src/step_native.h"
 #define F(p,o,T) (*(T*)((char*)(p)+(o)))
-static _Alignas(8) unsigned char project[0x1300],things[0x400],program[0x2900],track[0xc00];
+static _Alignas(8) unsigned char project[0x1300],things[0x400],program[0x2900],track[0x2200];
 static _Alignas(8) unsigned char sequences[3][0x800],clips[2][0x900],maps[2][0x40];
 static void*sequence_array[3];
 static void quiet_notification(void*p){(void)p;}

@@ -91,8 +91,10 @@ targets; 109 — к оставшимся mutator targets. Исполненный
 В следующей проверке `verify_pattern_writer.py` исполнен также базовый путь
 replacement `0x29c9670`, включая оба его stores и ожидание read lease перед
 начальным reset. Пять из шести store sites теперь связаны с исполненными
-entries; subtype connections, реальные service boundaries и потоки ещё
-не сертифицированы. Admission остаётся закрытым.
+entries. Следующая серия исполняет также subtype branches, настоящий
+connection constructor/assignment и stack cleanup, включая сохранение
+независимого subscriber. RTTI и service boundaries остаются fixtures,
+реальные потоки ещё не сертифицированы. Admission остаётся закрытым.
 
 ## База SampleBoot: r30d-beta4
 
