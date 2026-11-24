@@ -87,3 +87,19 @@ lock order. Поля `coverage_complete` и `production_read_admission` — fals
 targets; 109 — к оставшимся mutator targets. Исполненный entry не означает
 готовность blocking hook: thread/lock/lifetime contracts ещё неполны.
 Подробности — `PATTERN_NATIVE_WRITERS_RU.md`.
+
+## База SampleBoot: r30d-beta4
+
+В ветку `codex/pad-midi-recording` включён официальный тег `r30d-beta4`
+(release commit `e0a846f`, merge `57995a8`). Перенесены изменения запуска,
+установщика 1.5.1 и диагностики в `AmMod/` вместе с документацией.
+В diff релиза от общей базы нет изменений native sequencer/MIDI/Synth или
+экспериментальных lifecycle hooks; merge прошёл без конфликтов.
+
+После merge проверены: installer unittest (37, из них 2 skipped),
+`verify_power_audit.py` (AArch64 helper в QEMU, временная карта),
+`verify_pattern_lifecycle.py` (8 baseline/trial вариантов host/ASan/ARM/UBSan
+и 3 syntax-only конфигурации `phone_native.c`). Приложение и пакет не
+собирались. Запуск через физический SampleBoot этими проверками не доказан.
+Будущие сборки этой ветки должны сохранять launcher и пути из beta4;
+экспериментальные флаги MIDI/Pattern не означают готовность нового релиза.
