@@ -7,14 +7,12 @@ R=Path(__file__).resolve().parent
 sys.path.insert(0,str(R.parent/'installer'))
 from mpc_mod_installer import Package,AUTORUN_CHECK_SALT
 sha=lambda b:hashlib.sha256(b).hexdigest()
-VERSION='r30d-arrange-test1'
-PREFIX='autorun/mods/AM-Mod-Arrange-Test1/'
-README='''Am MOD Arrange Test 1 — отдельный мод для SampleBoot
+README='''Am MOD Arrange Test {number} — отдельный мод для SampleBoot
 
 Установка: распакуйте этот архив в корень карты с уже установленным SampleBoot.
-Появится папка autorun/mods/AM-Mod-Arrange-Test1/. Файлы загрузчика и стабильный
+Появится папка autorun/mods/AM-Mod-Arrange-Test{number}/. Файлы загрузчика и стабильный
 AM-Mod архив не заменяет. Обычный установщик Am MOD для этого архива не нужен.
-В меню SampleBoot выберите Am MOD Arrange Test 1.
+В меню SampleBoot выберите Am MOD Arrange Test {number}.
 
 Кнопка питания: B1 Cancel, B2 Bootloader, B3 Power off. B2/B3 сначала сохраняют
 копию проекта Projects/Mod-Exit-Last.xpj. Ошибка сохранения оставляет мод включённым.
@@ -23,11 +21,21 @@ AM-Mod архив не заменяет. Обычный установщик Am 
 Для тестирования используйте копию проекта: Projects общая для двух модов;
 стабильная версия при пересохранении может потерять новые расширения Arrange.
 
-Arrange: Song → B1 Export → Horizontal Arrange, при остановленном транспорте.
-B2 Actions: дорожки/блоки, Copy/Paste, Move, длина, Join, Mute/Solo, Edit Pattern.
-B3 фиксирует выбранный блок, DATA двигает курсор, CHOP разрезает в его позиции.
-Shift+B3 открывает паттерн в существующем Piano Roll, B1 возвращает в Arrange.
-Изменения паттерна действуют на все блоки с тем же Pattern ID.
+При остановленном транспорте: Song → Shift+B1 → Arrange. На временной шкале
+Shift+B1 возвращает обычный Song. В Piano Roll прежнее Shift+B1 сохранено.
+DATA двигает курсор, нажатие DATA выделяет блок, фейдер выбирает дорожку.
+B3: New на пустом месте, Open на блоке, Edit при выделении, Apply в preview.
+B1: Back/Cancel. B2 Range задаёт длину нового блока. Shift+B3 открывает Actions:
+Add track, Insert pattern, Copy/Paste, Move, Join, Mute/Solo, Create variation.
+CHOP разрезает блок на курсоре. Shift -/+ — Undo/Redo.
+В открытом из Arrange Piano Roll B3 New вставляет событие в пустую ячейку.
+Для отделения строк: удерживать B2, выбрать пэды, затем B3 Separate, не
+отпуская B2. В Tune/Chop можно отделять отдельные высоты/срезы одного пэда.
+Copy selection в Actions копирует выбранное. Отделение создаёт самостоятельный
+паттерн/дорожку одной операцией Undo; другие экземпляры исходника сохраняются.
+Обычное редактирование общего Pattern ID действует на все его блоки.
+Пустой проект создаёт draft с неназначенным инструментом. Назначение
+инструмента и воспроизведение/запись Arrange пока не подключены.
 
 Эта сборка позволяет проверить редактор и переходы на устройстве. Play/Record
 в Arrange ещё заблокированы: производственный запуск параллельных паттернов
@@ -36,17 +44,20 @@ Shift+B3 открывает паттерн в существующем Piano Rol
 
 Проверены конструктор полной библиотеки и аппаратные маршруты ввода в QEMU.
 Полный графический запуск, сохранение XPJ через приложение и физическое
-устройство этой проверкой не подтверждаются. На карту агент ничего не записывал.
+устройство этой проверкой не подтверждаются. Этот архив сам ничего не устанавливает.
 Для возврата к стабильной версии: питание → B2 → выбрать прежний Am MOD.
 '''
 
 def main():
- p=argparse.ArgumentParser();p.add_argument('--base',type=Path,required=True);a=p.parse_args()
- O=R/'build/arrange-sampleboot-test1';proof=json.loads((O/'compile-verification.json').read_text())
+ p=argparse.ArgumentParser();p.add_argument('--base',type=Path,required=True);p.add_argument('--test-number',type=int,default=2);a=p.parse_args()
+ assert 1<=a.test_number<=99
+ VERSION=f'r30d-arrange-test{a.test_number}';PREFIX=f'autorun/mods/AM-Mod-Arrange-Test{a.test_number}/'
+ source_prefix=f'SOURCE-Arrange-Test{a.test_number}/';menu_name=f'Am MOD Arrange Test {a.test_number}'
+ O=R/f'build/arrange-sampleboot-test{a.test_number}';proof=json.loads((O/'compile-verification.json').read_text())
  baseproof=json.loads((O/'base-verification.json').read_text());assert proof['passed'] and baseproof['passed']
  assert sha(a.base.read_bytes())==baseproof['base_sha256']=='c7883a402d387753d77f8770fae8306bf8358ae3a134b2bdb7ae9b10e02736ea'
  library=(O/'phone-input.so').read_bytes();assert sha(library)==proof['library_sha256']
- assert b'r30d-arrange-test1' in library
+ assert VERSION.encode() in library and baseproof['version']==VERSION
  for n,h in proof['sources_sha256'].items():assert sha((R/n).read_bytes())==h,n
  with zipfile.ZipFile(a.base) as z:
   original={i.filename[8:]:z.read(i) for i in z.infolist() if not i.is_dir() and i.filename.startswith('autorun/') and i.filename.count('/')==1}
@@ -57,10 +68,10 @@ def main():
  entry=entry.replace(oldcontroller,sha(files['mod-launcher.sh']).encode())
  assert entry.count(b'ENTRY_BEGIN revision=r30d-beta4')==1
  files['autorun.sh']=entry.replace(b'ENTRY_BEGIN revision=r30d-beta4',('ENTRY_BEGIN revision='+VERSION).encode())
- manifest=json.loads(files['autorun.json']);manifest['value0']['scripts'][0]['message']='Am MOD Arrange Test 1'
+ manifest=json.loads(files['autorun.json']);manifest['value0']['scripts'][0]['message']=menu_name
  files['autorun.json']=(json.dumps(manifest,indent=2)+'\n').encode()
  files['autorun.check']=sha(files['autorun.json']+files['autorun.sh']+AUTORUN_CHECK_SALT).encode()
- files['sampleboot.txt']=b'Am MOD Arrange Test 1\n'
+ files['sampleboot.txt']=(menu_name+'\n').encode()
  assert files['sampleboot.inplace']==b'' and b'BOOTLOADER_START_CLEAN_STOCK' in entry
  for n in ('autorun.sh','mod-launcher.sh'):subprocess.run(['sh','-n','/dev/stdin'],input=files[n],check=True)
  # Validate the complete module with the existing installer parser, in memory.
@@ -69,7 +80,7 @@ def main():
   for n,b in files.items():z.writestr('autorun/'+n,b)
  validated=Package(flat.getvalue(),'candidate.zip');assert validated.revision==VERSION
  checks={}
- for directory in ('power-button','power-native','about-power','synth-live-native','arrangement-native-plan','pattern-tools','arrangement-ui'):
+ for directory in ('power-button','power-native','about-power','synth-live-native','arrangement-native-plan','pattern-tools','arrangement-ui','arrangement-separate'):
   path=R/'build'/directory/'verification.json';data=json.loads(path.read_text());assert data['passed'],directory
   for n,h in data['sources_sha256'].items():assert sha((R/n).read_bytes())==h,(directory,n)
   checks[directory]=data
@@ -85,9 +96,9 @@ def main():
  source['base-verification.json']=(O/'base-verification.json').read_bytes()
  for n,data in checks.items():source['verification/'+n+'.json']=(json.dumps(data,indent=2)+'\n').encode()
  artifacts={PREFIX+n:b for n,b in files.items()}
- artifacts['README-Arrange-Test1.txt']=README.encode('utf-8')
- for name in ('LICENSE','NOTICE.md'):artifacts['SOURCE-Arrange-Test1/'+name]=(R.parent/name).read_bytes()
- artifacts.update({'SOURCE-Arrange-Test1/'+n:b for n,b in source.items()})
+ artifacts[f'README-Arrange-Test{a.test_number}.txt']=README.format(number=a.test_number).encode('utf-8')
+ for name in ('LICENSE','NOTICE.md'):artifacts[source_prefix+name]=(R.parent/name).read_bytes()
+ artifacts.update({source_prefix+n:b for n,b in source.items()})
  for n in artifacts:
   path=PurePosixPath(n);assert not path.is_absolute() and '..' not in path.parts and '\\' not in n
   if n.startswith('autorun/'):assert n.startswith(PREFIX)
