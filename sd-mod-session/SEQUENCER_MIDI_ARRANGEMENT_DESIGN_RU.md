@@ -458,7 +458,9 @@ Bus stems A–H/Master Direct сохраняют нынешний смысл. Mu
 
 Сохранение вводится до пользовательского Horizontal playback, а не откладывается до самого конца. Offline Synth проверяется до объявления MIDI recording готовым. Это предотвращает ситуацию, когда мелодия записывается и играет, но теряется при Save или Mixdown.
 
-Изолированный runtime-прототип сейчас не подключён: пока не доказаны безопасный context для carrier, native release без sample voice и участие Synth в offline render, такая правка не соответствует условию не затрагивать штатное воспроизведение и реальные проекты. Следующий небольшой кодовый шаг — native fixture/VM probe, а не массовая замена sequencer.
+Актуальный статус Stage 2 и ограничения пробного native Synth playback описаны в `SYNTH_NATIVE_PLAYBACK_TRIAL_RU.md`; исходный план выше не означает завершение всех этих шагов. Полная проверка текущего приложения и offline render ещё впереди.
+
+Stage 3a: реализованы изолированные `pattern_model.h/.cc` — immutable snapshot, Split by Pads/Mixer, exclusive Manual membership, Extract с явной onset/tail policy, независимая Variation и revision-guarded replace. Используется существующий native tag-3 decoder. Модель не включена в приложение, save format или playback. Проверки host/ASan/ARM/UBSan и точные ограничения — в `PATTERN_MODEL_STAGE3_RU.md`. Native snapshot adapter, общий history boundary и подключение Piano Roll остаются следующими шагами; сценарий B на устройстве ещё не готов.
 
 ## Проверки и риски
 
