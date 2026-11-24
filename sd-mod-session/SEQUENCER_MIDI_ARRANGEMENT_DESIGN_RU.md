@@ -468,6 +468,8 @@ Stage 3a, executor: `pattern_request.h/.cc` ставит чтение в нас�
 
 Stage 3a, source lifetime: реализован concrete `SourceDomain` с reader/change fences, закрытым admission, явным epoch-bound publish и New/Read/Load/Program scopes. Value-only currency теперь обязательна для queued request и отклоняет устаревший Complete результат. Проверены concurrent frees под host ASan, ARM/UBSan и SourceDomain в native queue/getter цепочке. Production coverage всех native writers и безопасных границ завершения по-прежнему не доказан; source admission/экран не подключены. Подробности — `PATTERN_SOURCE_LIFETIME_RU.md`.
 
+Stage 3a, lifecycle wiring: New/Read/Load guards подключены к существующей phone callback table под выключенным trial flag; baseline callbacks сохраняются. Production runtime не экспортирует publisher, поэтому source admission остаётся закрытым. Восемь isolated baseline/trial прогонов и три phone syntax-only конфигурации проверяют этот wiring; полной сборки не было. Пинованный writer inventory содержит шесть Program-field store candidates и 147 direct branches, но не объявляет coverage завершённым. Следующий шаг — Program/Clip writers и их thread/lock contracts; см. `PATTERN_LIFECYCLE_HOOKS_RU.md`.
+
 ## Проверки и риски
 
 | Проверка | Что нужно подтвердить |

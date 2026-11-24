@@ -1893,6 +1893,8 @@ static void new_project(void *p,int *choice)
 #endif
 }
 
+#include "pattern_phone_lifecycle.inc"
+
 static void draw_text(void *g, const char *text, int y, int h, float height, uint32_t colour)
 {
     uint64_t str = 0, font = 0;
@@ -3987,9 +3989,9 @@ static void load(void)
         [H_SCROLL]=(void(*)(void))scroll_action,[H_RIGHT]=(void(*)(void))right_action,
         [H_SAMPLE_DTOR]=(void(*)(void))sample_dtor,[H_PROJECT_DTOR]=(void(*)(void))project_dtor,
         [H_SIXTEEN_REFRESH]=(void(*)(void))sixteen_refresh,[H_SIXTEEN_PROCESS]=(void(*)(void))sixteen_process,
-        [H_MUSIC_SAVE]=(void(*)(void))music_save,[H_MUSIC_LOAD]=(void(*)(void))music_load,
-        [H_MUSIC_READ]=(void(*)(void))music_read,[H_MUSIC_KEY]=(void(*)(void))music_key,
-        [H_NEW_PROJECT]=(void(*)(void))new_project,[H_SIXTEEN_CTOR]=(void(*)(void))sixteen_ctor,
+        [H_MUSIC_SAVE]=(void(*)(void))music_save,[H_MUSIC_LOAD]=(void(*)(void))PHONE_PATTERN_LOAD,
+        [H_MUSIC_READ]=(void(*)(void))PHONE_PATTERN_READ,[H_MUSIC_KEY]=(void(*)(void))music_key,
+        [H_NEW_PROJECT]=(void(*)(void))PHONE_PATTERN_NEW,[H_SIXTEEN_CTOR]=(void(*)(void))sixteen_ctor,
         [H_SIXTEEN_DTOR]=(void(*)(void))sixteen_dtor,[H_STEP_DTOR]=(void(*)(void))step_dtor,
         [H_NOW_TICK]=(void(*)(void))now_tick,[H_BANK_CTOR]=(void(*)(void))bank_ctor,
         [H_BANK_DTOR]=(void(*)(void))bank_dtor,[H_BUTTON_LIGHT]=(void(*)(void))button_light,

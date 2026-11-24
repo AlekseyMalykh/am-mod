@@ -36,16 +36,19 @@ pgm_probe = os.environ.get('AM_MOD_PGM_NATIVE_PROBE') == '1'
 pad_midi_trial = os.environ.get('AM_MOD_PAD_MIDI_RECORDING_TRIAL') == '1'
 pad_midi_probe = os.environ.get('AM_MOD_PAD_MIDI_VM_PROBE') == '1'
 synth_native_trial = os.environ.get('AM_MOD_SYNTH_NATIVE_PLAYBACK_TRIAL') == '1'
+pattern_source_trial = os.environ.get('AM_MOD_PATTERN_SOURCE_TRIAL') == '1'
 assert not synth_native_trial or (pad_midi_trial and os.environ.get('AM_MOD_MIDI_EVENT_CONTEXT','1')!='0'), 'Synth playback requires pad trial and native MIDI event context'
 assert not pad_midi_probe or pad_midi_trial, 'VM probe requires explicit trial build'
 if pad_midi_trial:sources += ['src/pad_midi_note.c','src/synth_sequence.c','src/synth_binding.c','src/synth_archive.cc']
 if synth_native_trial:sources += ['src/synth_route.c','src/synth_accept_native.cc']
+if pattern_source_trial:sources += ['src/pattern_source.cc','src/pattern_lifecycle.cc']
 if pgm_probe:sources += ['src/program_native_probe.cc']
 sha = lambda b: hashlib.sha256(b).hexdigest()
 hashes = {s: sha((R / s).read_bytes()) for s in sources + ['build_mixer_r27r.py', 'build/phone_hooks.h', 'src/shift_badge.h', 'src/mod_build.h', 'src/spectrum_plot.h', 'src/screen_mirror_frame.h', 'src/usb_audio.h', 'src/fx_layout.inc', 'src/fx_visual.inc', 'src/fx_catalog.h', 'src/fx_amp_models.inc', 'src/piano_roll.h', 'src/piano_input.inc', 'src/poly_record.h', 'src/batch_copy.h', 'src/piano_roll_native.inc', 'src/midi_event.h', 'src/midi_context.h', 'src/midi_native.h', 'src/sample_live_tuner.h']}
 for name in ('src/midi_file.h','src/midi_file_native.h','src/piano_roll_midi.inc'):hashes[name]=sha((R/name).read_bytes())
 hashes['src/usb_drive_lights.h']=sha((R/'src/usb_drive_lights.h').read_bytes())
 hashes['src/internal_storage.h']=sha((R/'src/internal_storage.h').read_bytes())
+hashes['src/pattern_phone_lifecycle.inc']=sha((R/'src/pattern_phone_lifecycle.inc').read_bytes())
 for name in ('src/seq_mutes.h','src/seq_audition.h','src/midi_wire.h','src/midi_voice.h','src/midi_route.h','src/midi_live.inc'):hashes[name]=sha((R/name).read_bytes())
 for name in ('src/program_pgm.h','src/program_import.h','src/program_manifest.h','src/program_import_ui.inc'):hashes[name]=sha((R/name).read_bytes())
 common = ['-O2', '-g', '-fPIC', '-Wall', '-Wextra', '-Werror', '-Ibuild',
@@ -57,6 +60,10 @@ common = ['-O2', '-g', '-fPIC', '-Wall', '-Wextra', '-Werror', '-Ibuild',
           '-DMPC_SAMPLE_LIVE_TUNER=1', '-DMPC_MIDI_TOOLS=1', '-DMPC_USB_AUDIO=1', '-DMPC_MIXER_ARCHIVE=1', '-DMPC_MIXER_LIVE=1', '-DMPC_MIXER_AUTOBIND=1', '-DMPC_SONG_UI=1',
           '-mbranch-protection=standard']
 if os.environ.get('AM_MOD_MIDI_EVENT_CONTEXT','1')!='0':common.append('-DMPC_MIDI_EVENTS=1')
+if pattern_source_trial:
+    common.append('-DMPC_PATTERN_SOURCE_TRIAL=1')
+    for name in ('src/pattern_source.h','src/pattern_request.h','src/pattern_native.h','src/pattern_model.h','src/pattern_lifecycle.h','src/midi_event.h','src/step_native.h'):
+        hashes[name]=sha((R/name).read_bytes())
 if pad_midi_trial:
     common.append('-DMPC_PAD_MIDI_RECORDING_TRIAL=1')
     hashes['src/pad_midi_note.h']=sha((R/'src/pad_midi_note.h').read_bytes())

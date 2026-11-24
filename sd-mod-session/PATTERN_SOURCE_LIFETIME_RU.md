@@ -85,7 +85,10 @@ event tree, включая native edits, должен участвовать в 
 иметь подтверждённую общую защиту. Нужно также проверить thread affinity и
 lock order: change fence вызывается до native locks, нужных читателю, и не
 из render/audio callback. Поэтому production admission/UI остаётся выключенным.
-Новые scope wrappers пока не подменяют штатные callbacks в phone_native.c.
+New/Read/Load scope wrappers теперь подключены к phone callback table под
+отдельным выключенным `MPC_PATTERN_SOURCE_TRIAL`. Production publisher не
+экспортируется, admission закрыт. Program/Clip coverage всё ещё не завершён.
+Проверки и машинный inventory — `PATTERN_LIFECYCLE_HOOKS_RU.md`.
 
 ## Проверки
 
