@@ -15,22 +15,25 @@ T = {
   title="Am MOD synth: five modules, nine pages",
   sub="Hold Loop and press a pad (13-16 and 9), or use + / -. The DATA encoder flips the pages of a module. Shift shows the hidden parameter above each knob.",
   caps={"synth-osc":"Tone 1/2 - Oscillators: Wave, Osc2, Sub","synth-amp":"Envelope 1/2 - Amp ADSR, Velocity","synth-keys":"Keys - 16 Levels, as the Tune tab","synth-filter":"Filter + LFO - Filter, Resonance, Key track","synth-voices":"Voices - Unison, Detune, Spread, Glide","synth-controller":"Controller - Fader, Bend range, MIDI channel"},
-  lbl_yes="Yes", lbl_no="No", flow_title="Exit to bootloader", flow=["Project > Mod Settings > About","Exit to bootloader  (B3 confirm, B1 cancel)","Project copy saved to SD: Projects/Mod-Exit-Last","D.S.B on the card?"],
-  yes="Yes: the start is marked healthy,\nthe MPC reboots into the D.S.B menu", no="No: stock firmware starts",
+  lbl_yes="Yes", lbl_no="No", flow_title="Exit to bootloader", flow=["Project > Mod Settings > About","Exit to bootloader  (B3 confirm, B1 cancel)","Project copy saved to SD: Projects/Mod-Exit-Last","Which boot menu is on the card?"],
+  l1="D.S.B", l2="SampleBoot", l3="None",
+  yes="D.S.B: start marked healthy, reboot into the D.S.B menu", sb="SampleBoot: reboot into the SampleBoot menu", no="No boot menu: stock firmware starts",
   foot="Pick another system in the menu - or leave the card in and keep working.", ov="Synth, Input ROUTE, Piano Roll area select, bootloader exit"),
  "ru": dict(
   title="Синтезатор Am MOD: пять модулей, девять страниц",
   sub="Удерживайте Loop и нажмите пэд (13-16 и 9) или используйте + / -. Энкодер DATA листает страницы модуля. Shift показывает скрытый параметр над каждой ручкой.",
   caps={"synth-osc":"Tone 1/2 - осцилляторы: Wave, Osc2, Sub","synth-amp":"Envelope 1/2 - ADSR усилителя, Velocity","synth-keys":"Keys - 16 Levels, как вкладка Tune","synth-filter":"Filter + LFO - Filter, Resonance, Key track","synth-voices":"Voices - Unison, Detune, Spread, Glide","synth-controller":"Controller - Fader, Bend range, MIDI-канал"},
-  lbl_yes="Да", lbl_no="Нет", flow_title="Выход в загрузчик", flow=["Project > Mod Settings > About","Exit to bootloader  (B3 - подтвердить, B1 - отмена)","Копия проекта на SD: Projects/Mod-Exit-Last","На карте есть D.S.B?"],
-  yes="Да: запуск помечается как успешный,\nMPC перезагружается в меню D.S.B", no="Нет: запускается штатная прошивка",
+  lbl_yes="Да", lbl_no="Нет", flow_title="Выход в загрузчик", flow=["Project > Mod Settings > About","Exit to bootloader  (B3 - подтвердить, B1 - отмена)","Копия проекта на SD: Projects/Mod-Exit-Last","Какое меню загрузки на карте?"],
+  l1="D.S.B", l2="SampleBoot", l3="Нет",
+  yes="D.S.B: запуск помечен успешным, перезагрузка в меню D.S.B", sb="SampleBoot: перезагрузка в меню SampleBoot", no="Меню загрузки нет: запускается штатная прошивка",
   foot="Выберите в меню другую систему - либо оставьте карту и продолжайте работу.", ov="Синт, Input ROUTE, выделение области в пианоролле, выход в загрузчик"),
  "es": dict(
   title="Sintetizador de Am MOD: cinco módulos, nueve páginas",
   sub="Mantén Loop y pulsa un pad (13-16 y 9), o usa + / -. El encoder DATA pasa las páginas de un módulo. Shift muestra el parámetro oculto sobre cada mando.",
   caps={"synth-osc":"Tone 1/2 - osciladores: Wave, Osc2, Sub","synth-amp":"Envelope 1/2 - ADSR del amplificador, Velocity","synth-keys":"Keys - 16 Levels, como la pestaña Tune","synth-filter":"Filter + LFO - Filter, Resonance, Key track","synth-voices":"Voices - Unison, Detune, Spread, Glide","synth-controller":"Controller - Fader, Bend range, canal MIDI"},
-  lbl_yes="Sí", lbl_no="No", flow_title="Salir al cargador de arranque", flow=["Project > Mod Settings > About","Exit to bootloader  (B3 confirma, B1 cancela)","Copia del proyecto en la SD: Projects/Mod-Exit-Last","¿Hay D.S.B en la tarjeta?"],
-  yes="Sí: el arranque se marca como correcto\ny el MPC reinicia en el menú de D.S.B", no="No: arranca el firmware original",
+  lbl_yes="Sí", lbl_no="No", flow_title="Salir al cargador de arranque", flow=["Project > Mod Settings > About","Exit to bootloader  (B3 confirma, B1 cancela)","Copia del proyecto en la SD: Projects/Mod-Exit-Last","¿Qué menú de arranque hay en la tarjeta?"],
+  l1="D.S.B", l2="SampleBoot", l3="Ninguno",
+  yes="D.S.B: arranque marcado como correcto, reinicio al menú de D.S.B", sb="SampleBoot: reinicio al menú de SampleBoot", no="Sin menú de arranque: arranca el firmware original",
   foot="Elige otro sistema en el menú, o deja la tarjeta y sigue trabajando.", ov="Sintetizador, Input ROUTE, selección de área en Piano Roll, salida al cargador"),
 }
 ORDER = ["synth-osc", "synth-amp", "synth-keys", "synth-filter", "synth-voices", "synth-controller"]
@@ -78,15 +81,18 @@ def flow(lang):
     qx0 = (W-bw)//2; qy0 = 300
     box(d, (qx0, qy0, qx0+bw, qy0+90), t["flow"][3], f, outline=AMB)
     d.line((xs[2]+bw//2, y+bh+4, xs[2]+bw//2, 262), fill=AMB, width=4); d.line((xs[2]+bw//2, 262, qx0+bw//2, 262), fill=AMB, width=4); arrow(d, (qx0+bw//2, 262), (qx0+bw//2, qy0-6))
-    yw, nw, y2 = 640, 560, 480
-    yx = 60; nx = W-60-nw
-    box(d, (yx, y2, yx+yw, y2+130), t["yes"], f, outline="#6bd36b")
-    box(d, (nx, y2, nx+nw, y2+130), t["no"], f, outline="#c9c9c9")
-    bus = 440; yc = yx+yw//2; nc = nx+nw//2
-    d.line((qx0+bw//2, qy0+90+4, qx0+bw//2, bus), fill=AMB, width=4)
-    d.line((yc, bus, nc, bus), fill=AMB, width=4)
-    arrow(d, (yc, bus), (yc, y2-6), "#6bd36b"); arrow(d, (nc, bus), (nc, y2-6), "#c9c9c9")
-    d.text((yc+14, bus+8), t["lbl_yes"], font=font(22, True), fill="#6bd36b"); d.text((nc+14, bus+8), t["lbl_no"], font=font(22, True), fill="#c9c9c9")
+    bw3, y2, bus = 440, 480, 440
+    xs3 = [40, 530, 1020]
+    cols = ["#6bd36b", "#6bd36b", "#c9c9c9"]
+    texts = [t["yes"], t["sb"], t["no"]]
+    labels = [t["l1"], t["l2"], t["l3"]]
+    qc = qx0+bw//2
+    d.line((qc, qy0+90+4, qc, bus), fill=AMB, width=4)
+    d.line((xs3[0]+bw3//2, bus, xs3[2]+bw3//2, bus), fill=AMB, width=4)
+    for x3, col, tx, lb in zip(xs3, cols, texts, labels):
+        box(d, (x3, y2, x3+bw3, y2+130), tx, f, outline=col)
+        arrow(d, (x3+bw3//2, bus), (x3+bw3//2, y2-6), col)
+        d.text((x3+bw3//2+14, bus+8), lb, font=font(22, True), fill=col)
     d.text((40, 644), t["foot"], font=font(21), fill=GREY)
     im.save(H/f"exit-bootloader-{lang}.png")
 def overview(lang):
@@ -94,7 +100,7 @@ def overview(lang):
     names = ["synth-osc", "synth-keys", "synth-filter", "synth-voices"]
     W = 2*w + 3*gap; Hh = 110 + 2*h + 3*gap
     im = Image.new("RGB", (W, Hh), BG); d = ImageDraw.Draw(im)
-    d.text((gap, 22), "Am MOD r30d beta1", font=font(40, True), fill=AMB)
+    d.text((gap, 22), "Am MOD r30d", font=font(40, True), fill=AMB)
     d.text((gap, 72), t["ov"], font=font(22), fill=GREY)
     for i, n in enumerate(names):
         x = gap + (i % 2)*(w+gap); yy = 110 + (i//2)*(h+gap)
