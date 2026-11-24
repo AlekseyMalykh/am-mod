@@ -464,6 +464,8 @@ Stage 3a: реализованы изолированные `pattern_model.h/.cc
 
 Продолжение Stage 3a: добавлен `pattern_native.h/.cc` с настоящими native getters и bounded event-tree read. Он проверен в ARM QEMU normal/UBSan, включая 27 allocation failures. Native ownership/executor lease и routing snapshot пока fixtures; production подключение не выполнено. Подробности — `PATTERN_NATIVE_ADAPTER_RU.md`. Общий history boundary, Piano Roll, сохранение и сценарий B на устройстве по-прежнему впереди.
 
+Stage 3a, executor: `pattern_request.h/.cc` ставит чтение в настоящую native ThreadQueues с удержанием Copy context, owned callback payload, cancel и защитой от producer-inline fallback при full queue. QEMU normal/UBSan исполняют native enqueue/runner/reclaim и Copy destructor с pending/running cancellation, включая подтверждённое ожидание running callback. Native context lifetime доказан в этом изолированном стенде; concrete Project/Program/event-list owner lease и production thread-affinity ещё не доказаны. Этот долг не подменяется counter или double scan. Контракты — `PATTERN_REQUEST_LIFETIME_RU.md`; UI/build wiring пока отсутствует.
+
 ## Проверки и риски
 
 | Проверка | Что нужно подтвердить |

@@ -112,7 +112,11 @@ Proof с hashes: `build/pattern-native/verification.json`. Эти проверк
 пользовательский Split UI или устройство. Форматы XPJ/sidecar, Sequential
 Song Mode, Piano Roll и штатное воспроизведение этим кодом не изменены.
 
-Следующий интеграционный шаг — настоящий owner/executor request с безопасной
-публикацией immutable результата. До него модуль намеренно не включён в
-`phone_build.py` и не вызывается из production UI. После этого — общие
-history commands и event-source adapter существующего Piano Roll.
+Executor request с безопасной публикацией immutable результата реализован
+в `pattern_request.h/.cc`; протокол native context lifetime/cancel проверен
+на настоящей очереди и destructor в QEMU. Подробности —
+`PATTERN_REQUEST_LIFETIME_RU.md`. Следующий интеграционный шаг — concrete
+Project/Program/event-list owner lease; он пока fixture. До подтверждения
+этой гарантии модули намеренно не включены в `phone_build.py` и не вызываются
+из production UI. Затем — общие history commands и event-source adapter
+существующего Piano Roll.
