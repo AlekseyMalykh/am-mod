@@ -150,5 +150,6 @@ event erase/clear/bulk/history paths. Пока нет основания отк�
 `0x27eef10` и exact-key wrapper `0x27ef360`, проверено сохранение независимого
 Pattern после освобождения исходных nodes. Native batching может подавлять
 уведомления при реальном изменении списка: post-change notification не
-подходит как единственная lifetime граница. Полные clear/bulk/history paths
-и потоки по-прежнему не покрыты.
+подходит как единственная lifetime граница. Следующая серия исполнила также
+native delta replay `0x27f0ee0`, single replacement и методы DeleteEvent
+execute/reverse. GUI Clear, полный manager history и потоки ещё не покрыты.

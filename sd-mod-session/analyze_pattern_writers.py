@@ -14,6 +14,8 @@ def ptr(va):return struct.unpack_from('<Q',b,file_offset(va))[0]
 targets={0x29c9490:'Program assignment',0x2957ae0:'Sequence Clip list getter',0x29579e0:'Sequence Clip map selector lookup',0x27ee5d0:'Event list insertion',0x29589f0:'Sequence destructor',0x29112f0:'Project destructor',0x290cee0:'Project teardown'}
 read_only={0x2957ae0,0x29579e0}
 calls={v:[] for v in targets.values()}
+event_targets={0x27eef10:'iterator erase',0x27ef360:'exact-key erase',0x27f0ee0:'delta replay',0x19d8f70:'DeleteEvent execute',0x19d52c0:'DeleteEvent reverse'}
+event_calls={hex(at):[] for at in event_targets}
 for i,(w,) in enumerate(struct.iter_unpack('<I',b[code[2]:code[2]+code[5]-code[5]%4])):
     kind=w>>26
     if kind not in (5,37):continue
@@ -21,6 +23,7 @@ for i,(w,) in enumerate(struct.iter_unpack('<I',b[code[2]:code[2]+code[5]-code[5
     if imm&(1<<25):imm-=1<<26
     va=code[3]+i*4;target=va+imm*4
     if target in targets:calls[targets[target]].append(dict(site=hex(va),branch='BL' if kind==37 else 'B',target_read_only=target in read_only))
+    if target in event_targets:event_calls[hex(target)].append(dict(site=hex(va),branch='BL' if kind==37 else 'B'))
 # STR Xt,[Xn,#0xbb8] in the native Track code range. Register-base identity
 # and other encodings must be audited separately; these are candidates only.
 stores=[va for va in range(0x29c0000,0x29ca000,4) if word(va)&0xffc00000==0xf9000000 and (word(va)>>10)&0xfff==0xbb8//8]
@@ -41,14 +44,14 @@ event_path=R/'build/pattern-event-writer/verification.json';event_probe=None
 if event_path.exists():
     candidate=json.loads(event_path.read_text())
     if candidate.get('passed') and candidate.get('stock_sha256')==expected and all(hashlib.sha256((R/f).read_bytes()).hexdigest()==h for f,h in candidate['sources_sha256'].items()):
-        event_probe=dict(proof_sha256=hashlib.sha256(event_path.read_bytes()).hexdigest(),checks=candidate['checks'],entries=candidate['actual_event_entries'],event_variant=candidate['event_variant'],bulk_scope=candidate['bulk_scope'],notification_services='fixtures',thread_affinity_certified=False,hook_ready=False)
+        event_probe=dict(proof_sha256=hashlib.sha256(event_path.read_bytes()).hexdigest(),checks=candidate['checks'],entries=candidate['actual_event_entries'],event_variant=candidate['event_variant'],bulk_scope=candidate['bulk_scope'],history_scope=candidate.get('history_scope'),gui_clear_entry_tested=candidate.get('gui_clear_entry_tested',False),notification_services='fixtures',thread_affinity_certified=False,hook_ready=False)
 if probe and probe.get('program_replacement')=='0x29c9670':
     receiver='Track; base and subtype branches' if probe.get('replacement_subtype_executed') else 'Track; base Program path'
     executed.update({0x29c9884:('0x29c9670',receiver),0x29c98e0:('0x29c9670',receiver)})
 report=dict(stock_sha256=expected,analyzer_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),coverage_complete=False,production_read_admission=False,
     native_contract_probe=probe,native_event_contract_probe=event_probe,read_only_targets=[hex(x) for x in sorted(read_only)],mutator_direct_branches=sum(len(calls[name]) for target,name in targets.items() if target not in read_only),
     program_field_store_candidates=[dict(site=hex(va),instruction=hex(word(va)),entry_hint=hint(va),hint_certified=False,executed_entry=executed[va][0] if probe and va in executed else None,receiver=executed[va][1] if probe and va in executed else None,hook_ready=False) for va in stores],
-    direct_branch_inventory=calls,
+    direct_branch_inventory=calls,event_direct_branch_inventory={key:dict(name=event_targets[int(key,16)],calls=[dict(**call,entry_hint=hint(int(call['site'],16)),hint_certified=False) for call in sites]) for key,sites in event_calls.items()},
     remaining=['classify constructors/destructors and replacement paths','indirect/virtual callbacks and adjusted-base stores','event erase/clear/bulk changes and history','thread affinity and lock order','actual async completion and source rebind'],
     note='Read-only inventory; no hooks installed, no application build, direct branches are not complete call coverage')
 O=R/'build/pattern-writers';O.mkdir(exist_ok=True);(O/'inventory.json').write_text(json.dumps(report,indent=2)+'\n')

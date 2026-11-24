@@ -11,6 +11,8 @@ void*pattern_fixture_list(unsigned);void*pattern_fixture_node(unsigned,unsigned)
 void pattern_event_writer_setup(void);unsigned pattern_event_notifications(void);
 std::uint64_t pattern_event_notified_size(void);
 void*pattern_event_erase(unsigned);void*pattern_event_erase_key(const step_event*);void pattern_event_insert(const step_event*);
+void pattern_event_command_setup(const step_event*);void pattern_event_command(int);
+void pattern_event_delta_setup(const step_event*,const step_event*);void pattern_event_delta(unsigned);
 }
 using namespace am_pattern;
 template<class T>T field(const void*p,std::size_t n){T value;std::memcpy(&value,static_cast<const char*>(p)+n,sizeof value);return value;}
@@ -99,6 +101,46 @@ extern "C" int pattern_event_writer_proof(std::uintptr_t image){
     publish(domain,binding,bridge);++request.snapshot_id;
     assert(read_native(request,bridge.access(),fresh)==NativeReadResult::ok&&fresh->events().empty());
     assert(original->events().size()==3&&same(copied,pattern.events()[0].native));
-    std::cout<<"PASS native event writers: actual 27eef10 iterator erase/successor/free/change trees and 27ef360 exact-key wrapper; duplicate occurrences, missing key, last-node header reset, 32 inserts/erases, native batch flag suppresses notifications while mutations still occur; SourceDomain waits for reader, stays closed, explicit republish gives fresh snapshot; original snapshot/extracted pattern unchanged. Notifications are fixtures; other variants, native bulk/history entries, caller threads and production coverage not certified.\n";
+    {auto change=domain.change();pattern_event_insert(&first);pattern_event_insert(&duplicate);pattern_event_insert(&duplicate);}
+    pattern_event_command_setup(&duplicate);pattern_event_delta_setup(&first,&duplicate);
+    auto expect_snapshot=[&](unsigned count){
+        publish(domain,binding,bridge);++request.snapshot_id;
+        assert(read_native(request,bridge.access(),fresh)==NativeReadResult::ok&&fresh->events().size()==count);
+        assert(original->events().size()==3&&pattern.events().size()==2&&same(copied,pattern.events()[0].native));
+    };
+    expect_snapshot(3);
+    assert(bridge.owner->enter(bridge.context,lease));done.store(false);
+    const auto command_owner=bridge.owner;unsigned before_notifications=pattern_event_notifications();
+    std::thread command_writer([&]{auto change=domain.change();pattern_event_command(0);done.store(true);});
+    deadline=std::chrono::steady_clock::now()+std::chrono::seconds(5);
+    while(command_owner->currency()->current()){assert(std::chrono::steady_clock::now()<deadline);std::this_thread::yield();}
+    assert(!done.load()&&field<std::uint64_t>(list,0x88)==3&&pattern_event_notifications()==before_notifications);
+    command_owner->leave(bridge.context,lease);command_writer.join();
+    assert(done.load()&&!domain.owner()&&field<std::uint64_t>(list,0x88)==2&&same(duplicate,note(1)));
+    expect_snapshot(2);
+    {auto change=domain.change();pattern_event_command(1);}expect_snapshot(3);
+    assert(same(first,note(0))&&same(duplicate,note(1))&&same(duplicate,note(2)));
+    {auto change=domain.change();pattern_event_command(0);}expect_snapshot(2);
+    {auto change=domain.change();pattern_event_command(1);}expect_snapshot(3);
+    /* Actual native delta application, including the single-remove/add fast
+     * path and the multi-event clear/restore path, not a C++ erase loop. */
+    {auto change=domain.change();pattern_event_delta(2);}expect_snapshot(3);
+    assert(note(2).time==4800&&note(2).data[32]==52&&same(duplicate,note(1)));
+    {auto change=domain.change();pattern_event_delta(3);}expect_snapshot(3);
+    assert(same(first,note(0))&&same(duplicate,note(1))&&same(duplicate,note(2)));
+    for(unsigned i=0;i<4;++i){
+        {auto change=domain.change();pattern_event_delta(0);}expect_snapshot(0);
+        {auto change=domain.change();pattern_event_delta(1);}expect_snapshot(3);
+        assert(same(first,note(0))&&same(duplicate,note(1))&&same(duplicate,note(2)));
+    }
+    before_notifications=pattern_event_notifications();
+    {auto change=domain.change();set(list,0x48,unsigned(2));pattern_event_delta(0);
+        assert(field<unsigned>(list,0x48)==2&&field<std::uint64_t>(list,0x88)==0);
+        pattern_event_delta(1);assert(field<unsigned>(list,0x48)==2);
+        set(list,0x48,unsigned(0));
+    }
+    assert(pattern_event_notifications()==before_notifications);expect_snapshot(3);
+    std::cout<<"PASS native history methods/deltas: actual DeleteEvent vtable execute/undo/redo (inline fixture command; no history manager), 27f0ee0 bulk remove/restore and single replacement, duplicate notes, repeated replay, nested batch counter retained; SourceDomain drains reader before native command. Source snapshot/pattern unchanged. Factory, real history stack, GUI Clear entry, exception rollback and thread contracts not certified.\n";
+    std::cout<<"PASS native event writers: actual 27eef10 iterator erase/successor/free/change trees and 27ef360 exact-key wrapper; duplicate occurrences, missing key, last-node header reset, 32 inserts/erases, native batch flag suppresses notifications while mutations still occur; SourceDomain waits for reader, stays closed, explicit republish gives fresh snapshot; original snapshot/extracted pattern unchanged. Notifications are fixtures; other variants, full bulk/history coverage, caller threads and production coverage not certified.\n";
     return 0;
 }

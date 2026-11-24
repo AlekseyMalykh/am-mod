@@ -11,13 +11,16 @@ preload и пакет не собираются. Это продолжение `
 | `0x27eef10` | `(EventList*, iterator*)`, удаляет одно событие, возвращает следующий node/header |
 | `0x27ef360` | `(EventList*, event key*)`, ищет точное совпадение и вызывает iterator erase; при отсутствии возвращает header |
 | `0x27ee5d0` | Добавляет inline tag-3 событие; используется также для повторного заполнения |
+| `0x27f0ee0` | Применяет пару деревьев remove/add, в том числе набор целиком и обратную операцию |
+| `0x27f0500` | Single replacement path, вызывается из native delta replay |
+| `0x19d8f70` / `0x19d52c0` | Native методы удаления/обратной вставки inline DeleteEvent command |
 
 В iterator erase аргумент — адрес переменной с node pointer, не сам node.
 Исполняются настоящий native поиск, tree rebalance, освобождение узла и
 обновление служебного дерева удалённых событий. Вызываемые PLT функции
 libstdc++/allocator разрешаются стендом как в существующих native проверках.
 Notification services заменены наблюдателями/no-op; это не проверка реального
-GUI refresh, Undo/Redo, движка воспроизведения или физических пэдов.
+GUI refresh, менеджера Undo/Redo, движка воспроизведения или физических пэдов.
 
 Проверены:
 
@@ -47,10 +50,40 @@ GUI refresh, Undo/Redo, движка воспроизведения или фи�
 границей. Закрывать чтение нужно перед writer/owner transaction, до любого
 изменения или освобождения node. Поздний refresh не заменяет такую защиту.
 
+## Native command methods и массовое применение изменений
+
+Добавлена отдельная серия проверок:
+
+- Команда DeleteEvent с настоящим vptr `0x6e44288` вызывает native slot 8
+  (`0x19d8f70`, удаление), slot 9 (`0x19d52c0`, обратная вставка) и снова
+  slot 8/9 для redo/undo. Один из дублей удаляется и восстанавливается,
+  соседняя нота не меняется. Сам command fixture инициализирован вручную:
+  list+0x50, inline event+0x58, nested command+0x90=null. Native constructor,
+  manager enqueue, выбор команды из истории и освобождение command не
+  исполняются; это проверка методов, не всей истории пользователя.
+- `0x27f0ee0` получает независимые remove/add деревья, заполненные native
+  `0x1574460`. Набор из трёх нот с дублями полностью удаляется и возвращается
+  в четырёх циклах. Исходные delta trees сохраняют counts. Здесь удалением
+  управляет native bulk loop, а не C++ цикл из отдельных erase.
+- Два singleton sets проходят native replacement fast path `0x27f0500`:
+  меняются время и высота одной ноты, затем возвращаются; вторая одинаковая
+  нота сохраняется.
+- При внешнем batch counter = 2 bulk remove/restore возвращает счётчик к 2
+  и не вызывает post notifications. После явного publish адаптер видит
+  восстановленные три ноты.
+- SourceDomain ждёт активный read lease перед native virtual execute;
+  по завершении команды admission закрыт. После каждой операции новое
+  чтение проверяет число нот, старый Snapshot/Pattern остаётся неизменным.
+
+Связь с составными командами подтверждена disassembly: `0x19d8f70` в nested
+ветке вызывает `0x27f0ee0` на +0x80/+0xb0 trees, а `0x19d52c0` передаёт их
+в обратном порядке. Эта nested-ветка самой команды пока не исполнялась.
+Наличие такого общего механизма не доказывает, что найден GUI entry Clear.
+
 ## Границы результата
 
-Проверены только inline tag-3 события. Цикл из native erase в стенде не означает
-покрытие самостоятельных native clear/bulk/history entries. Не проверены
+Проверены только inline tag-3 события. Покрыты указанные bulk/command методы,
+но самостоятельный GUI Clear и полный history manager не проверены. Не проверены
 pointer/refcounted event variants, ошибки выделения памяти внутри native
 writer, callbacks реальных services, thread affinity и caller lock order.
 Production hooks не установлены, admission остаётся закрытым.
@@ -58,8 +91,10 @@ Production hooks не установлены, admission остаётся зак�
 Логи и hashes: `build/pattern-event-writer/verification.json`.
 `analyze_pattern_writers.py` добавляет отдельный `native_event_contract_probe`
 только при совпадении stock SHA и hashes всех исходников. Существующий direct
-branch inventory остаётся ограниченным прежним набором targets; наличие
-event proof не делает его полным call graph.
+branch inventory остаётся ограниченным прежним набором targets. Дополнительный
+`event_direct_branch_inventory` перечисляет прямые переходы к erase, delta и
+двум command methods с неподтверждёнными entry hints. Virtual/indirect calls
+этот скан не покрывает; наличие event proof не делает его полным call graph.
 
-Далее: найти самостоятельные clear/bulk/history boundaries и проверить их
+Далее: найти GUI Clear и manager history boundaries и проверить их
 потоки/lock order, прежде чем подключать live snapshots к интерфейсу.
