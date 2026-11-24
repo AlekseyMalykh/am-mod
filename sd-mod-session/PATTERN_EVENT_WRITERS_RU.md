@@ -118,10 +118,50 @@ strings, inline event, vptr и command state. В этой серии вручн�
 удерживаются полной native историей при New/Load. Переходы выбираются стендом,
 а не кнопкой Undo/Redo; selection/trimming реального history stack ещё нужны.
 
+## Native queue перед dispatcher
+
+Следующая серия передаёт созданный native DeleteEvent в test-only owned
+closure через настоящую очередь `0x2b59300`. Используются native producer
+mutex, runner `0x2b59200`/`0x2b59160`, reclaim `0x2b58c70` и Copy destructor
+`0x1517c70` с tag cancellation. Layout соответствует существующему
+`check_pattern_request_fixture.c`; storage context/queue выделен стендом.
+Base destructor и отмена другой очереди — fixtures. Новый production API
+или приложение эта серия не подключает.
+
+Проверены три сценария:
+
+1. После enqueue вызывающая сторона освобождает command shared_ptr. Closure
+   удерживает команду; ноты до drain не меняются. Worker отзываeт source stamp
+   и ждёт read lease до входа в dispatcher. После leave исполняется настоящая
+   команда; context counter возвращается к нулю. История удерживает command
+   после reclaim closure, Undo восстанавливает ноты, затем deleting destructor
+   вызывается один раз.
+2. Source stamp отозван после enqueue, но до drain. Worker не вызывает
+   dispatcher, освобождает свою ссылку и counter; после reclaim команда
+   уничтожена. Ноты и число history entries не меняются.
+3. Native Copy destructor отменяет ожидающий tag до запуска. Context counter
+   снимается сразу, но reclaim ещё не освобождает command: consumer должен
+   сначала пропустить отменённый slot. После skip/reclaim command и closure
+   освобождены по одному разу, callback не вызван и ноты не меняются.
+
+Closure manager при копировании удерживает Job, а при reclaim освобождает
+его без обращения к context. Context counter и Job lifetime — разные
+механизмы, их нельзя объединять или уменьшать counter повторно при reclaim.
+Тестовый enqueue делает preflight под native producer mutex; это исключает
+из сценария native full-queue inline execution. Полнота отказов enqueue
+этой серией не проверяется.
+
+SourceDomain и служебные result/destruction counters принадлежат стенду и
+живут до reclaim всех jobs. Domain не сериализует всех native writers;
+производственные thread/lock contracts всё ещё не установлены. Raw EventList
+внутри command не становится shared-owned от одного лишь shared_ptr команды.
+Удаление Project/List одновременно с queued command этой серией не доказано;
+mode2 inline destructor проверен после teardown контекста, при живом list.
+
 ## Границы результата
 
 Проверены только inline tag-3 события. Покрыты указанные bulk/command методы
-и dispatch с history-adapter, но GUI Clear и полный history manager не проверены. Не проверены
+и queued dispatch с history-adapter, но GUI Clear и полный history manager не проверены. Не проверены
 pointer/refcounted event variants, ошибки выделения памяти внутри native
 writer, callbacks реальных services, thread affinity и caller lock order.
 Production hooks не установлены, admission остаётся закрытым.

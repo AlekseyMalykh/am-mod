@@ -44,7 +44,7 @@ event_path=R/'build/pattern-event-writer/verification.json';event_probe=None
 if event_path.exists():
     candidate=json.loads(event_path.read_text())
     if candidate.get('passed') and candidate.get('stock_sha256')==expected and all(hashlib.sha256((R/f).read_bytes()).hexdigest()==h for f,h in candidate['sources_sha256'].items()):
-        event_probe=dict(proof_sha256=hashlib.sha256(event_path.read_bytes()).hexdigest(),checks=candidate['checks'],entries=candidate['actual_event_entries'],event_variant=candidate['event_variant'],bulk_scope=candidate['bulk_scope'],history_scope=candidate.get('history_scope'),history_queue_tested=candidate.get('history_queue_tested',False),gui_clear_entry_tested=candidate.get('gui_clear_entry_tested',False),notification_services='fixtures',thread_affinity_certified=False,hook_ready=False)
+        event_probe=dict(proof_sha256=hashlib.sha256(event_path.read_bytes()).hexdigest(),checks=candidate['checks'],entries=candidate['actual_event_entries'],event_variant=candidate['event_variant'],bulk_scope=candidate['bulk_scope'],history_scope=candidate.get('history_scope'),history_queue_tested=candidate.get('history_queue_tested',False),queue_scope=candidate.get('queue_scope'),production_history_queue_integrated=candidate.get('production_history_queue_integrated',False),gui_clear_entry_tested=candidate.get('gui_clear_entry_tested',False),notification_services='fixtures',thread_affinity_certified=False,hook_ready=False)
 if probe and probe.get('program_replacement')=='0x29c9670':
     receiver='Track; base and subtype branches' if probe.get('replacement_subtype_executed') else 'Track; base Program path'
     executed.update({0x29c9884:('0x29c9670',receiver),0x29c98e0:('0x29c9670',receiver)})

@@ -16,6 +16,8 @@ void pattern_event_delta_setup(const step_event*,const step_event*);void pattern
 void pattern_history_setup(void);void*pattern_history_create(const step_event*);
 int pattern_history_dispatch(const void*);void*pattern_history_transaction(void);unsigned pattern_history_dispatches(void);
 int pattern_history_replay(void*,int);
+void pattern_history_queue_setup(void);void*pattern_history_queue_context(void);int pattern_history_is_worker(void);
+void pattern_history_queue_drain(void);void pattern_history_queue_reclaim(void);void pattern_history_queue_destroy(void);
 }
 using namespace am_pattern;
 static std::shared_ptr<void> retained_history;
@@ -26,6 +28,59 @@ extern "C" void pattern_history_retain(void*transaction,const void*shared,int in
 }
 template<class T>T field(const void*p,std::size_t n){T value;std::memcpy(&value,static_cast<const char*>(p)+n,sizeof value);return value;}
 template<class T>void set(void*p,std::size_t n,T value){std::memcpy(static_cast<char*>(p)+n,&value,sizeof value);}
+/* Test-only command transport. SourceDomain/context are fixture-owned until
+ * all jobs are reclaimed. This is not a production writer API or ownership
+ * guarantee for the command's borrowed native EventList. */
+struct QueuedCommand {
+    std::atomic<unsigned>references{1};std::shared_ptr<void>command;
+    SourceDomain*domain;std::shared_ptr<const ReadCurrency>currency;
+    void*context;std::atomic<int>*result;unsigned*destroyed;
+    ~QueuedCommand(){++*destroyed;} /* Never dereference context on reclaim. */
+};
+struct CommandPayload {void*reference;QueuedCommand*job;std::uintptr_t spare;};
+struct CommandAction {std::uintptr_t invoke,manage;CommandPayload payload;};
+static_assert(sizeof(CommandAction)==40,"native closure ABI");
+static void command_drop(QueuedCommand*p){if(p->references.fetch_sub(1,std::memory_order_acq_rel)==1)delete p;}
+static int command_manage(int mode,void*source,void*destination){
+    auto*p=static_cast<CommandPayload*>(source);
+    if(mode==0){p->job->references.fetch_add(1,std::memory_order_relaxed);std::memcpy(destination,p,sizeof *p);}
+    else if(mode==1)command_drop(p->job);
+    return mode==2?1:0;
+}
+static void command_run(void*data){
+    auto payload=*static_cast<CommandPayload*>(data);auto&job=*payload.job;
+    assert(pattern_history_is_worker()&&field<unsigned>(job.context,0x50));
+    int result=-2;
+    if(job.currency->current()){
+        auto before=job.domain->epoch();auto change=job.domain->change();
+        if(job.domain->epoch()==before+1)result=pattern_history_dispatch(&job.command);
+    }
+    job.command.reset();job.context=nullptr;
+    __atomic_fetch_sub(reinterpret_cast<unsigned*>(static_cast<char*>(payload.reference)+8),1,__ATOMIC_RELEASE);
+    job.result->store(result,std::memory_order_release);
+}
+static bool command_enqueue(std::uintptr_t image,SourceDomain&domain,const std::shared_ptr<const ReadCurrency>&currency,
+ const std::shared_ptr<void>&command,std::atomic<int>&result,unsigned&destroyed){
+    void*context=pattern_history_queue_context(),*owner=field<void*>(context,0x48),*q=static_cast<char*>(owner)+0x1d8;
+    auto*job=new QueuedCommand;job->command=command;job->domain=&domain;job->currency=currency;
+    job->context=context;job->result=&result;job->destroyed=&destroyed;
+    CommandAction action{reinterpret_cast<std::uintptr_t>(command_run),reinterpret_cast<std::uintptr_t>(command_manage),{static_cast<char*>(context)+0x48,job,0}};
+    auto native=[&](std::uintptr_t offset){return image+offset;};
+    reinterpret_cast<void(*)(void*)>(native(0xf40e50))(static_cast<char*>(owner)+0x220);
+    reinterpret_cast<void(*)(void*)>(native(0x2b58c70))(q);
+    auto capacity=field<std::uint64_t>(q,0),write=field<std::uint64_t>(q,0x20),reclaimed=field<std::uint64_t>(q,0x10);
+    bool accepted=false;
+    if(!field<unsigned char>(q,0x2d)&&capacity==4&&write<capacity&&reclaimed<capacity&&(write+1)%capacity!=reclaimed){
+        auto*slot=static_cast<char*>(field<void*>(q,0x30))+write*0xc0;
+        if(!(__atomic_load_n(reinterpret_cast<std::uintptr_t*>(slot+0xb0),__ATOMIC_ACQUIRE)&3u)){
+            __atomic_fetch_add(reinterpret_cast<unsigned*>(static_cast<char*>(context)+0x50),1,__ATOMIC_ACQUIRE);
+            accepted=reinterpret_cast<int(*)(void*,void*,std::uintptr_t)>(native(0x2b59300))(q,&action,reinterpret_cast<std::uintptr_t>(action.payload.reference)&~std::uintptr_t(3))&255;
+            if(!accepted)__atomic_fetch_sub(reinterpret_cast<unsigned*>(static_cast<char*>(context)+0x50),1,__ATOMIC_RELEASE);
+        }
+    }
+    reinterpret_cast<void(*)(void*)>(native(0xf40e90))(static_cast<char*>(owner)+0x220);
+    command_drop(job);return accepted;
+}
 struct ReadBridge {
     std::shared_ptr<NativeReadOwner> owner;
     std::uint64_t context[0x100/8]{};
@@ -177,6 +232,46 @@ extern "C" int pattern_event_writer_proof(std::uintptr_t image){
     {auto change=domain.change();assert(pattern_history_replay(retained_history.get(),1)==0);}expect_snapshot(3);
     assert(same(first,note(0))&&same(duplicate,note(1))&&same(duplicate,note(2)));
     retained_history.reset();assert(command_lifetime.expired()&&command_destroyed==1);
+    pattern_history_queue_setup();unsigned jobs_destroyed=0;std::atomic<int>queued_result{-1};
+    auto make_command=[&]{return std::shared_ptr<void>(pattern_history_create(&duplicate),[&](void*p){
+        auto table=*static_cast<std::uintptr_t**>(p);reinterpret_cast<void(*)(void*)>(table[1])(p);++command_destroyed;
+    });};
+    auto queued_command=make_command();std::weak_ptr<void>queued_lifetime=queued_command;
+    assert(bridge.owner->enter(bridge.context,lease));auto queued_owner=bridge.owner;
+    assert(command_enqueue(image,domain,queued_owner->currency(),queued_command,queued_result,jobs_destroyed));
+    queued_command.reset();assert(!queued_lifetime.expired()&&field<unsigned>(pattern_history_queue_context(),0x50)==1);
+    assert(pattern_history_dispatches()==1&&field<std::uint64_t>(list,0x88)==3&&queued_result.load()==-1);
+    std::thread queued_writer([]{pattern_history_queue_drain();});
+    deadline=std::chrono::steady_clock::now()+std::chrono::seconds(5);
+    while(queued_owner->currency()->current()){assert(std::chrono::steady_clock::now()<deadline);std::this_thread::yield();}
+    assert(queued_result.load()==-1&&pattern_history_dispatches()==1&&field<std::uint64_t>(list,0x88)==3);
+    queued_owner->leave(bridge.context,lease);queued_writer.join();
+    assert(queued_result.load()==0&&pattern_history_dispatches()==2&&history_entries==2);
+    assert(!field<unsigned>(pattern_history_queue_context(),0x50)&&!domain.owner());
+    pattern_history_queue_reclaim();assert(jobs_destroyed==1&&!queued_lifetime.expired());expect_snapshot(2);
+    {auto change=domain.change();assert(pattern_history_replay(retained_history.get(),1)==0);}expect_snapshot(3);
+    retained_history.reset();assert(queued_lifetime.expired()&&command_destroyed==2);
+
+    queued_result.store(-1);queued_command=make_command();queued_lifetime=queued_command;
+    assert(command_enqueue(image,domain,bridge.owner->currency(),queued_command,queued_result,jobs_destroyed));queued_command.reset();
+    {auto change=domain.change();} /* Queued command's source stamp is now stale. */
+    pattern_history_queue_drain();pattern_history_queue_reclaim();
+    assert(queued_result.load()==-2&&queued_lifetime.expired()&&command_destroyed==3&&jobs_destroyed==2);
+    assert(pattern_history_dispatches()==2&&!field<unsigned>(pattern_history_queue_context(),0x50));expect_snapshot(3);
+
+    queued_result.store(-1);queued_command=make_command();queued_lifetime=queued_command;
+    assert(command_enqueue(image,domain,bridge.owner->currency(),queued_command,queued_result,jobs_destroyed));queued_command.reset();
+    assert(!queued_lifetime.expired()&&field<unsigned>(pattern_history_queue_context(),0x50)==1);
+    pattern_history_queue_destroy();pattern_history_queue_reclaim();
+    /* Native tag cancellation releases the context counter immediately;
+     * the consumer must skip the cancelled slot before reclaim frees it. */
+    assert(queued_result.load()==-1&&!queued_lifetime.expired()&&jobs_destroyed==2);
+    assert(!field<unsigned>(pattern_history_queue_context(),0x50));
+    pattern_history_queue_drain();pattern_history_queue_reclaim();
+    assert(queued_result.load()==-1&&queued_lifetime.expired()&&command_destroyed==4&&jobs_destroyed==3);
+    assert(pattern_history_dispatches()==2&&!field<unsigned>(pattern_history_queue_context(),0x50));
+    assert(field<std::uint64_t>(list,0x88)==3&&same(first,note(0))&&same(duplicate,note(1))&&same(duplicate,note(2)));
+    std::cout<<"PASS queued native event command: actual enqueue/mutex/runner/reclaim and Copy destructor tag cancellation; closure retains constructed command until worker/history or cancellation reclaim, worker waits for reader before dispatch, stale source skips dispatch, context counters balanced, command destructors run once. Queue/context storage, base destructor/other queue and history services are fixtures; production source writer coverage and history selection not certified.\n";
     std::cout<<"PASS native event CommandManager: real ctor19cf2b0/dispatch19d0a00/transaction19cc1f0, DeleteEvent ctor19d8ba0 mode2, command state wrappers19c9a50/19c9c40; retained history owns command after caller release, native Undo/Redo changes state and restores duplicates, native virtual destructor runs once. SourceDomain waits before dispatch. History storage/maintenance/monitor are adapters; queue, actual history selection and GUI Clear not certified.\n";
     std::cout<<"PASS native history methods/deltas: actual DeleteEvent vtable execute/undo/redo (inline fixture command; no history manager), 27f0ee0 bulk remove/restore and single replacement, duplicate notes, repeated replay, nested batch counter retained; SourceDomain drains reader before native command. Source snapshot/pattern unchanged. Factory, real history stack, GUI Clear entry, exception rollback and thread contracts not certified.\n";
     std::cout<<"PASS native event writers: actual 27eef10 iterator erase/successor/free/change trees and 27ef360 exact-key wrapper; duplicate occurrences, missing key, last-node header reset, 32 inserts/erases, native batch flag suppresses notifications while mutations still occur; SourceDomain waits for reader, stays closed, explicit republish gives fresh snapshot; original snapshot/extracted pattern unchanged. Notifications are fixtures; other variants, full bulk/history coverage, caller threads and production coverage not certified.\n";

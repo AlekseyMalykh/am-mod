@@ -154,5 +154,7 @@ Pattern после освобождения исходных nodes. Native batch
 native delta replay `0x27f0ee0`, single replacement и методы DeleteEvent
 execute/reverse. В дальнейшем добавлен native CommandManager dispatch,
 constructor DeleteEvent mode2, state wrappers и проверка shared ownership
-с history-adapter. GUI Clear, реальный выбор/хранение истории, queue и потоки
-ещё не покрыты.
+с history-adapter. Дополнительная серия проверяет native enqueue/runner/reclaim
+и отмену ожидающей команды при Copy teardown; очередь и command ownership
+здесь исполняются на test-only closure. GUI Clear, реальный выбор/хранение
+истории и производственные потоки ещё не покрыты.

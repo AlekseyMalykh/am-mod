@@ -56,10 +56,11 @@ void pattern_event_delta(unsigned operation){
 }
 static _Alignas(8) unsigned char command_manager[0x200],command_environment[0x100],command_transaction[0x88];
 static uintptr_t command_environment_vtable[8];static unsigned manager_dispatches;
+static _Thread_local int history_on_worker;static int history_worker_required;
 extern void pattern_history_retain(void*,const void*,int);
 static int history_environment_valid(void*p,void*flags,int mode){assert(p==command_environment&&flags&&mode==3);return 1;}
 static void history_monitor(void*p,void*manager,int enabled){assert(p==command_environment+8&&manager==command_manager&&enabled==1);}
-static void history_enter(void*p){assert(p==command_manager&&F(p,0,uintptr_t)==base+0x6d97818);++manager_dispatches;}
+static void history_enter(void*p){assert(p==command_manager&&F(p,0,uintptr_t)==base+0x6d97818);assert(!history_worker_required||history_on_worker);++manager_dispatches;}
 static void history_trim(void*p,uint64_t limit){assert(p==command_manager);(void)limit;}
 void pattern_history_setup(void){
     /* Same native dispatch boundary as check_batch_dispatch.c; model monitor,
@@ -83,3 +84,23 @@ unsigned pattern_history_dispatches(void){return manager_dispatches;}
 int pattern_history_replay(void*command,int undo){
     return undo?FN(0x19c9c40,int(*)(void*))(command):FN(0x19c9a50,int(*)(void*,void*))(command,command_environment);
 }
+/* Mirrors the already tested native queue layout in
+ * check_pattern_request_fixture.c; no application executor is installed. */
+static _Alignas(8) unsigned char history_context[0x100],history_queues[0x260],history_slots[4][0xc0];
+static uint64_t history_reader;
+static unsigned history_context_destroyed;
+static void history_base_destroy(void*p){assert(p==history_context&&!F(p,0x50,unsigned));++history_context_destroyed;}
+static unsigned history_other_cancel(void*p,uintptr_t tag){assert(p==history_queues+8&&tag==((uintptr_t)(history_context+0x48)&~(uintptr_t)3));return 0;}
+void pattern_history_queue_setup(void){
+    F(history_context,0,uintptr_t)=base+0x6d8cd88;F(history_context,0x48,void*)=history_queues;
+    F(history_context,0x68,void*)=command_manager;F(history_context,0x78,void*)=things;F(history_context,0xc8,void*)=project;
+    F(history_queues+0x1d8,0,uint64_t)=4;F(history_queues+0x1d8,0x30,void*)=history_slots;
+    for(unsigned i=0;i<4;++i){F(history_slots[i],0,uintptr_t)=base+0xb57a7c;F(history_slots[i],8,uintptr_t)=base+0x15265b0;}
+    FN(0xf406b0,void(*)(void*))(history_queues+0x220);
+    redirect(0x1fd2d20,history_base_destroy);redirect(0x2b55650,history_other_cancel);history_worker_required=1;
+}
+void*pattern_history_queue_context(void){return history_context;}
+int pattern_history_is_worker(void){return history_on_worker;}
+void pattern_history_queue_drain(void){++history_on_worker;FN(0x2b59200,void(*)(void*,uint64_t*))(history_queues+0x1d8,&history_reader);--history_on_worker;}
+void pattern_history_queue_reclaim(void){FN(0x2b58c70,void(*)(void*))(history_queues+0x1d8);}
+void pattern_history_queue_destroy(void){FN(0x1517c70,void(*)(void*))(history_context);assert(history_context_destroyed==1);}
