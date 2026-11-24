@@ -19,6 +19,15 @@ struct am_synth_drain_scope {void*engine;uint64_t offset;uint64_t ids[AM_SYNTH_D
 typedef void(*am_synth_drain_fn)(void*,uint64_t,unsigned);
 void am_synth_native_drain_scope(void*,uint64_t,unsigned,am_synth_drain_fn,
                                 void(*begin)(struct am_synth_drain_scope*),void(*finish)(struct am_synth_drain_scope*,int));
+struct step_event;
+struct am_synth_event_scope {void*engine;void*track;uint64_t accepted;struct am_synth_event_scope*previous;};
+typedef void(*am_synth_engine_event_fn)(void*,uint64_t,void*,const struct step_event*,unsigned,unsigned);
+void am_synth_native_event_scope(void*,uint64_t,void*,const struct step_event*,unsigned,unsigned,am_synth_engine_event_fn,
+                                void(*begin)(struct am_synth_event_scope*),void(*finish)(struct am_synth_event_scope*,int));
+struct am_synth_track_cancel_scope {void*engine;void*track;uint64_t ids[AM_SYNTH_DRAIN_OCCURRENCES];struct am_synth_track_cancel_scope*previous;};
+typedef void(*am_synth_track_cancel_fn)(void*,void*);
+void am_synth_native_track_cancel_scope(void*,void*,am_synth_track_cancel_fn,
+                                       void(*begin)(struct am_synth_track_cancel_scope*),void(*finish)(struct am_synth_track_cancel_scope*,int));
 #ifdef __cplusplus
 }
 #endif

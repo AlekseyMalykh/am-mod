@@ -5,11 +5,30 @@
 /* Project metadata and engine services are fixtures. Track command building,
  * both stock filters, accepted virtual call and native due heap are real ELF. */
 static uint64_t project_generation=1;
+static void*fixture_engine;
+static void fixture_engine_event(void*engine,uint64_t offset,void*track,const struct step_event*event,unsigned kind,unsigned tag){
+ (void)engine;(void)kind;(void)tag;
+ FN(0x29caa30,void(*)(void*,uint64_t,const struct step_event*,void*))(track,offset,event,NULL);
+}
+void check_synth_accept_unqueued(void*engine,uint64_t offset,void*track,const struct step_event*event,unsigned kind,unsigned tag){fixture_engine_event(engine,offset,track,event,kind,tag);}
+extern void check_synth_throw_engine_event(void*,uint64_t,void*,const struct step_event*,unsigned,unsigned);
+extern void check_synth_catch_engine_event(am_synth_engine_event_fn,void*,void*,const struct step_event*);
+static void dispatch_bound(void*track,uint64_t offset,const struct step_event*event,void*out){
+ assert(!out&&fixture_engine);
+ am_synth_native_event_scope(fixture_engine,offset,track,event,3,0,fixture_engine_event,synth_event_begin,synth_event_end);
+ assert(!synth_event_scope);
+}
+static void mismatched_schedule(void*engine,uint64_t offset,void*track,const struct step_event*event,unsigned kind,unsigned tag){
+ fixture_engine_event(engine,offset,track,event,kind,tag);
+ unsigned char entry[96]={0};struct step_event changed=*event;++changed.time;memcpy(entry,&changed,sizeof changed);
+ int64_t end=10500;memcpy(entry+56,&end,8);memcpy(entry+80,&track,8);unsigned channel=(event->type>>12)&15;memcpy(entry+76,&channel,4);entry[64]=50;
+ synth_native_schedule((char*)engine+0x6c8,entry);
+}
 static void*no_optional_program_extension(void*p,const void*from,const void*to,int64_t hint){(void)p;(void)from;(void)to;(void)hint;return NULL;}
 void*check_native_symbol(const char*name,void*fn){return !strcmp(name,"__dynamic_cast")?(void*)no_optional_program_extension:fn;}
 uint64_t am_synth_archive_generation(void){return project_generation;}
 int am_synth_archive_loading(void){return 0;}
-static _Alignas(8) unsigned char track_data[0x3000],program_data[0x3000],instrument_data[16];
+static _Alignas(8) unsigned char track_data[0x3000],second_track[0x3000],program_data[0x3000],instrument_data[16],music_data[0x200];
 static uintptr_t backend_vtable[4];static unsigned backend_count,occupied,change_on_notification;
 static uint64_t backend_offset;static unsigned drain_tail_count,drain_filter_count,position_count,drain_gate_open;
 static unsigned midi_layer,midi_count;static uintptr_t midi_backend[4],midi_vtable[4];
@@ -20,6 +39,10 @@ static void midi_queue_sink(void*manager,int route,const void*record){
  assert(am_midi_wire_read(record,&midi_log[midi_count].wire,&midi_log[midi_count].message));++midi_count;
 }
 static void*drain_nested_engine;static am_synth_drain_fn real_drain;
+static am_synth_track_cancel_fn real_track_cancel;
+void check_synth_remove_then_fail(void*engine,void*track){real_track_cancel(engine,track);}
+extern void check_synth_throw_track_cancel(void*,void*);
+extern void check_synth_catch_track_cancel(am_synth_track_cancel_fn,void*,void*);
 static void nested_drain(void*engine,uint64_t offset,unsigned flags){
  struct am_synth_drain_scope*outer=synth_drain;assert(outer&&outer->engine==engine);
  native_synth_drain=real_drain;synth_native_drain(drain_nested_engine,offset,flags);assert(synth_drain==outer);
@@ -32,7 +55,7 @@ static void synth_fault(int signal,siginfo_t*info,void*context){
  ucontext_t*u=context;fprintf(stderr,"TRACE lr=%lx x0=%lx x1=%lx x2=%lx\n",(unsigned long)(u->uc_mcontext.regs[30]-base),(unsigned long)u->uc_mcontext.regs[0],(unsigned long)u->uc_mcontext.regs[1],(unsigned long)u->uc_mcontext.regs[2]);fault(signal,info,context);
 }
 static void backend_sink(void*owner,uint64_t offset,int route,void*out,const void*command){
- assert(owner==program_data+0xdf0&&route==321&&!out);assert(((const unsigned char*)command)[0]==50);
+ assert(owner==program_data+0xdf0&&route==321&&(!out||out==track_data+0x228||out==second_track+0x228));assert(((const unsigned char*)command)[0]==50);
  backend_offset=offset;++backend_count;
  if(midi_layer)FN(0x28a8d00,void(*)(void*,uint64_t,int,const void*))(midi_backend,offset,route,command);
 }
@@ -41,7 +64,7 @@ static void backend_off_sink(void*owner,uint64_t offset,int route,unsigned chann
  FN(0x28a8eb0,void(*)(void*,uint64_t,int,unsigned,unsigned))(midi_backend,offset,route,channel,note);
 }
 static void notification(void*owner,int changed){
- assert(owner==track_data+0x228&&changed==1);
+ assert((owner==track_data+0x228||owner==second_track+0x228)&&changed==1);
  unsigned action=change_on_notification;change_on_notification=0;
  if(action==1)am_synth_route_stop();
  if(action==2){struct am_synth_binding b;assert(am_synth_binding_capture("native-synth-program",15,&b));++project_generation;assert(am_synth_route_publish(&b,project_generation));}
@@ -53,8 +76,11 @@ static void drain_tail(void*owner,unsigned offset,unsigned flags){(void)owner;(v
 static void position_notice(void*owner,uint64_t code,uint64_t count,const void*position){(void)owner;(void)position;assert(code==16&&count==1);}
 static void position_sink(void*owner,unsigned offset,void*out,uint64_t tick){(void)owner;(void)offset;(void)out;(void)tick;++position_count;}
 static void optional_release_bookkeeping(void){}
+static unsigned deterministic_random(void){return 50;}
+static unsigned no_source_transpose(void*property){assert(property==track_data+0x890||property==second_track+0x890);return 0;}
 static void release_sink(void*engine,uint64_t offset,void*track,unsigned note,unsigned tag,unsigned channel,unsigned kind,unsigned scheduled){
  (void)engine;(void)offset;(void)track;(void)note;(void)tag;(void)channel;(void)kind;(void)scheduled;
+ if(live_release&&live_release->synth_handled)assert(live_release->synth_source_channel==channel);
 }
 static void patch(uintptr_t offset,void*target){
  uint32_t words[]={0x58000050,0xd61f0200};memcpy((void*)(base+offset),words,8);memcpy((void*)(base+offset+8),&target,8);
@@ -81,6 +107,7 @@ int main(int argc,char**argv){
  patch(0x2768e10,notification);patch(0x286bbe0,instrument_get);patch(0x2804760,sample_exists);
  patch(0x282fe30,drain_gate);patch(0x20f9140,drain_tail);patch(0x212c440,position_notice);patch(0x2146140,position_sink);
  patch(0x2830410,optional_release_bookkeeping);patch(0x282e950,optional_release_bookkeeping);patch(0x212cba0,optional_release_bookkeeping);
+ patch(0x3b89890,deterministic_random);
  assert(am_midi_native_install(base));native_release=release_sink;
  void*p=program_data;memcpy(track_data+0xbb8,&p,8);const char*key="native-synth-program";memcpy(program_data+0xdc8,&key,8);
  int sound=15,note=50,route=321;memcpy(program_data+0x12a8+sound*4,&note,4);memcpy(program_data+0x14a8+note*4,&sound,4);memcpy(track_data+0x6f0,&route,4);
@@ -90,8 +117,18 @@ int main(int argc,char**argv){
  struct am_synth_binding binding;assert(am_synth_binding_capture(key,15,&binding));assert(am_synth_route_publish(&binding,project_generation));
  struct step_event event=FN(0x27e54d0,struct step_event(*)(unsigned,int64_t,int64_t,unsigned,unsigned,float))(50,960,240,100,2,.8f);
  FN(0x27e4400,void(*)(void*,int,int,int))(event.data+4,0,0,7);
- void(*dispatch)(void*,uint64_t,const struct step_event*,void*)=FN(0x29caa30,void(*)(void*,uint64_t,const struct step_event*,void*));
- unsigned char scheduler[0x800]={0};struct step_event before=event;
+ void(*dispatch)(void*,uint64_t,const struct step_event*,void*)=dispatch_bound;
+ unsigned char scheduler[0x800]={0};fixture_engine=scheduler;struct step_event before=event;
+ phase="real common Engine event scope";
+ uintptr_t transpose_vtable[3]={0,0,(uintptr_t)no_source_transpose};void*transpose_table=transpose_vtable;memcpy(track_data+0x890,&transpose_table,8);
+ void*music=music_data;memcpy(scheduler+0x788,&music,8);uint64_t origin_tick=10000;memcpy(music_data+200,&origin_tick,8);
+ drain_gate_open=1;FN(0x2119d00,am_synth_engine_event_fn)(scheduler,96,track_data,&event,3,0);drain_gate_open=0;
+ assert(count_synth()==1&&!synth_event_scope&&latest()->synth_heap==(uintptr_t)scheduler+0x6c8&&latest()->synth_has_anchor&&latest()->synth_anchor==10000);
+ uintptr_t heap_begin,heap_end;memcpy(&heap_begin,scheduler+0x6c8,8);memcpy(&heap_end,scheduler+0x6d0,8);assert(heap_end-heap_begin==96);
+ uint64_t native_end;memcpy(&native_end,(void*)(heap_begin+56),8);assert(native_end==origin_tick+240);
+ FN(0x21185a0,void(*)(void*,uint64_t,uint64_t))(scheduler,native_end,96);assert(!count_synth());render();backend_count=0;
+ /* Raw Track calls without a proven Engine context do not guess ownership. */
+ FN(0x29caa30,void(*)(void*,uint64_t,const struct step_event*,void*))(track_data,0,&event,NULL);assert(!count_synth());backend_count=0;
  phase="first stock Track dispatch";dispatch(track_data,96,&event,NULL);assert(count_synth()==1&&backend_count==1&&backend_offset==96&&synth_last_offset==96);
  assert(!memcmp(&before,&event,sizeof event));render();struct am_synth_state state;assert(am_synth_peek(&state)&&state.voices==1&&(state.notes[67/32]&(1u<<(67%32))));
  dispatch(track_data,112,&event,NULL);assert(count_synth()==2&&backend_count==2);uint64_t second=latest()->id;
@@ -169,6 +206,102 @@ int main(int argc,char**argv){
   assert(midi_log[i].wire.id==midi_log[i+2].wire.id&&midi_log[i].message.data[1]==midi_log[i+2].message.data[1]);
  }
  midi_layer=0;native_queue=saved_queue;
+ phase="accepted On with failed native scheduling";
+ memcpy(second_track,track_data,sizeof second_track);
+ dispatch(second_track,0,&event,NULL);struct live_note*event_peer=latest();push(scheduler,&event,10400,second_track);
+ am_synth_engine_event_fn real_engine_event=native_synth_engine_event;native_synth_engine_event=check_synth_throw_engine_event;
+ check_synth_catch_engine_event(synth_engine_event,scheduler,track_data,&event);native_synth_engine_event=real_engine_event;
+ assert(!synth_event_scope&&count_synth()==1&&event_peer->synth.occurrence);
+ dispatch(track_data,0,&event,NULL);assert(count_synth()==1&&synth_track_blocked((uintptr_t)scheduler+0x6c8,(uintptr_t)track_data));
+ FN(0x211e610,am_synth_track_cancel_fn)(scheduler,track_data);assert(!synth_track_blocked((uintptr_t)scheduler+0x6c8,(uintptr_t)track_data));
+ FN(0x21185a0,void(*)(void*,uint64_t,uint64_t))(scheduler,10400,96);assert(!count_synth());
+ native_synth_engine_event=mismatched_schedule;FN(0x2119d00,am_synth_engine_event_fn)(scheduler,96,track_data,&event,3,0);native_synth_engine_event=real_engine_event;
+ assert(!count_synth()&&synth_track_blocked((uintptr_t)scheduler+0x6c8,(uintptr_t)track_data));
+ FN(0x211e610,am_synth_track_cancel_fn)(scheduler,track_data);assert(!synth_track_blocked((uintptr_t)scheduler+0x6c8,(uintptr_t)track_data));
+ phase="native tail clamping preserves release identity";
+ memcpy(second_track,track_data,sizeof second_track);
+ unsigned char play_position[0x200]={0};void*position_model=play_position;memcpy(scheduler+0x790,&position_model,8);
+ unsigned char record_service[0x200]={0},record_model[0xa00]={0};void*recorder=record_service,*record_mode=record_model;memcpy(scheduler+0x768,&recorder,8);memcpy(record_service+0x188,&record_mode,8);
+ struct step_event longer=event;int64_t long_duration=600;memcpy(longer.data+24,&long_duration,8);
+ drain_gate_open=1;FN(0x2119d00,am_synth_engine_event_fn)(scheduler,96,track_data,&longer,3,0);struct live_note*long_voice=latest();
+ FN(0x2119d00,am_synth_engine_event_fn)(scheduler,96,track_data,&event,3,0);struct live_note*short_voice=latest();drain_gate_open=0;
+ assert(long_voice->synth_anchor==short_voice->synth_anchor);
+ FN(0x21185a0,void(*)(void*,uint64_t,uint64_t))(scheduler,10240,96);assert(count_synth()==1&&long_voice->synth.occurrence);
+ FN(0x21185a0,void(*)(void*,uint64_t,uint64_t))(scheduler,10600,96);assert(!count_synth());
+ for(int boundary=120;boundary>=-10;boundary-=boundary==120?120:10){
+  drain_gate_open=1;FN(0x2119d00,am_synth_engine_event_fn)(scheduler,96,track_data,&event,3,0);
+  struct live_note*clamped=latest();FN(0x2119d00,am_synth_engine_event_fn)(scheduler,96,second_track,&event,3,0);drain_gate_open=0;
+  struct live_note*clamp_peer=latest();assert(count_synth()==2&&clamped->synth_has_anchor&&clamp_peer->synth_has_anchor);
+  unsigned backend_before_clamp=backend_count;
+  FN(0x211e7b0,void(*)(void*,void*,uint64_t,int64_t))(scheduler,track_data,0,boundary);
+  assert(count_synth()==2&&backend_count==backend_before_clamp); /* no second On, retrigger or forced Off */
+  memcpy(&heap_begin,scheduler+0x6c8,8);struct am_midi_event changed;
+  assert(am_midi_event_copy((void*)heap_begin,FN(0x27e4230,am_midi_choice_get),AM_MIDI_EVENT_NOTE_ON,&changed));
+  memcpy(&native_end,(void*)(heap_begin+56),8);
+  assert(native_end==(uint64_t)(10000+boundary)&&changed.duration==boundary&&clamped->source.duration==240);
+  assert(!live_same(&clamped->source,&changed)&&synth_release_same(clamped,scheduler,(void*)heap_begin,&changed));
+  FN(0x21185a0,void(*)(void*,uint64_t,uint64_t))(scheduler,native_end-1,96);assert(count_synth()==2);
+  FN(0x21185a0,void(*)(void*,uint64_t,uint64_t))(scheduler,native_end,96);assert(count_synth()==1&&clamp_peer->synth.occurrence);
+  FN(0x21185a0,void(*)(void*,uint64_t,uint64_t))(scheduler,10240,96);assert(!count_synth());
+ }
+ /* Identical source notes from different loop origins retain distinct anchors
+  * after both native due times are clamped to the SAME boundary. */
+ drain_gate_open=1;FN(0x2119d00,am_synth_engine_event_fn)(scheduler,96,track_data,&event,3,0);struct live_note*loop_first=latest();
+ origin_tick=10060;memcpy(music_data+200,&origin_tick,8);FN(0x2119d00,am_synth_engine_event_fn)(scheduler,96,track_data,&event,3,0);drain_gate_open=0;
+ struct live_note*loop_second=latest();assert(loop_first->synth_anchor!=loop_second->synth_anchor);
+ origin_tick=10000;memcpy(music_data+200,&origin_tick,8);FN(0x211e7b0,void(*)(void*,void*,uint64_t,int64_t))(scheduler,track_data,0,120);
+ FN(0x21185a0,void(*)(void*,uint64_t,uint64_t))(scheduler,10120,96);assert(!count_synth());
+ struct step_event other_channel=event;other_channel.type=(other_channel.type&~0xf000u)|(3u<<12);
+ midi_count=0;midi_layer=1;native_queue=midi_queue_sink;
+ drain_gate_open=1;FN(0x2119d00,am_synth_engine_event_fn)(scheduler,96,track_data,&other_channel,3,0);
+ FN(0x2119d00,am_synth_engine_event_fn)(scheduler,96,track_data,&event,3,0);drain_gate_open=0;
+ FN(0x211e7b0,void(*)(void*,void*,uint64_t,int64_t))(scheduler,track_data,0,120);
+ FN(0x21185a0,void(*)(void*,uint64_t,uint64_t))(scheduler,10120,96);assert(!count_synth()); /* callback asserts captured channel per occurrence */
+ assert(midi_count==4);
+ for(unsigned i=0;i<2;++i){unsigned matches=0;for(unsigned j=2;j<4;++j)if(midi_log[i].wire.id==midi_log[j].wire.id){
+   assert((midi_log[j].message.data[0]&0xf0)==0x80&&(midi_log[i].message.data[0]&15)==(midi_log[j].message.data[0]&15));++matches;
+  }assert(matches==1);
+ }
+ midi_layer=0;native_queue=saved_queue;
+ phase="native single Track cancellation and Engine isolation";
+ memcpy(second_track,track_data,sizeof second_track);render();am_synth_note(72,100,1);
+ dispatch(track_data,0,&event,NULL);struct live_note*first_track_voice=latest();uint64_t first_track_id=first_track_voice->id;push(scheduler,&event,9000,track_data);
+ dispatch(second_track,0,&event,NULL);struct live_note*second_track_voice=latest();push(scheduler,&event,9200,second_track);
+ fixture_engine=foreign;dispatch(track_data,0,&event,NULL);struct live_note*other_engine_voice=latest();push(foreign,&event,9300,track_data);fixture_engine=scheduler;
+ assert(count_synth()==3);FN(0x211e610,am_synth_track_cancel_fn)(scheduler,track_data);
+ assert(count_synth()==2&&second_track_voice->synth.occurrence&&other_engine_voice->synth.occurrence&&!synth_track_cancel);
+ render();assert(am_synth_peek(&state)&&(state.notes[67/32]&(1u<<(67%32)))&&(state.notes[72/32]&(1u<<(72%32))));
+ dispatch(track_data,0,&event,NULL);newer=latest();assert(newer->id!=first_track_id);push(scheduler,&event,9400,track_data);
+ FN(0x21185a0,void(*)(void*,uint64_t,uint64_t))(scheduler,9200,96);assert(newer->synth.occurrence&&other_engine_voice->synth.occurrence);
+ FN(0x21185a0,void(*)(void*,uint64_t,uint64_t))(scheduler,9400,96);assert(count_synth()==1&&other_engine_voice->synth.occurrence);
+ FN(0x21185a0,void(*)(void*,uint64_t,uint64_t))(foreign,9300,96);assert(!count_synth());
+ /* A failed cancellation may already have removed entries. Keep the affected
+  * Track blocked until a successful retry, without resetting another Track. */
+ dispatch(track_data,0,&event,NULL);cancelled=latest();push(scheduler,&event,9500,track_data);
+ dispatch(second_track,0,&event,NULL);second_track_voice=latest();push(scheduler,&event,9600,second_track);
+ real_track_cancel=native_synth_track_cancel;native_synth_track_cancel=check_synth_throw_track_cancel;
+ check_synth_catch_track_cancel(synth_native_track_cancel,scheduler,track_data);native_synth_track_cancel=real_track_cancel;
+ assert(!synth_track_cancel&&cancelled->synth_cancel_pending&&!cancelled->synth.occurrence&&second_track_voice->synth.occurrence);
+ dispatch(track_data,0,&event,NULL);assert(count_synth()==1); /* Track A refused, B still owned */
+ FN(0x211e610,am_synth_track_cancel_fn)(scheduler,track_data);assert(!synth_track_blocked((uintptr_t)scheduler+0x6c8,(uintptr_t)track_data));
+ dispatch(track_data,0,&event,NULL);push(scheduler,&event,9700,track_data);assert(count_synth()==2);
+ FN(0x211e610,am_synth_track_cancel_fn)(scheduler,track_data);assert(count_synth()==1&&second_track_voice->synth.occurrence);
+ FN(0x21185a0,void(*)(void*,uint64_t,uint64_t))(scheduler,9600,96);assert(!count_synth());am_synth_note(72,0,0);
+ /* Captured MIDI releases stay scoped even when both Tracks share pitch. */
+ midi_count=0;native_queue=midi_queue_sink;midi_layer=1;
+ dispatch(track_data,0,&event,NULL);push(scheduler,&event,9800,track_data);
+ dispatch(second_track,0,&event,NULL);second_track_voice=latest();push(scheduler,&event,9900,second_track);
+ assert(midi_count==2);FN(0x211e610,am_synth_track_cancel_fn)(scheduler,track_data);
+ assert(count_synth()==1&&second_track_voice->synth.occurrence&&midi_count==3&&midi_log[2].wire.id==midi_log[0].wire.id);
+ FN(0x21185a0,void(*)(void*,uint64_t,uint64_t))(scheduler,9900,96);assert(midi_count==4&&midi_log[3].wire.id==midi_log[1].wire.id&&!count_synth());
+ midi_count=0;dispatch(track_data,0,&event,NULL);push(scheduler,&event,10000,track_data);
+ dispatch(second_track,0,&event,NULL);second_track_voice=latest();push(scheduler,&event,10100,second_track);
+ native_synth_track_cancel=check_synth_throw_track_cancel;check_synth_catch_track_cancel(synth_native_track_cancel,scheduler,track_data);native_synth_track_cancel=real_track_cancel;
+ assert(midi_count==3&&midi_log[2].wire.id==midi_log[0].wire.id);
+ dispatch(track_data,0,&event,NULL);assert(midi_count==3&&count_synth()==1&&second_track_voice->synth.occurrence);
+ FN(0x211e610,am_synth_track_cancel_fn)(scheduler,track_data);assert(midi_count==3);
+ FN(0x21185a0,void(*)(void*,uint64_t,uint64_t))(scheduler,10100,96);assert(midi_count==4&&midi_log[3].wire.id==midi_log[1].wire.id&&!count_synth());
+ midi_layer=0;native_queue=saved_queue;
  ++project_generation;assert(am_synth_route_publish(&binding,project_generation));dispatch(track_data,0,&event,NULL);assert(count_synth()==1);due(scheduler,&event,3120);
  /* Saturate queue after On: Off cannot hang; owned-only panic is independent
   * of native MIDI forwarding and a free command slot. */
@@ -176,5 +309,5 @@ int main(int argc,char**argv){
  uint64_t faults=synth_faults;due(scheduler,&event,3360);assert(synth_faults==faults+1&&!count_synth());
  render();for(unsigned i=0;i<300;++i)render();assert(!am_synth_peek(&state)||!state.voices);
  void*storage;memcpy(&storage,scheduler+0x6c8,8);free(storage);memcpy(&storage,foreign+0x6c8,8);free(storage);
- puts("PASS native Synth: stock Track/filters/virtual call, original backend, owned DSP, three exact due paths, delayed Off after Stop request, confirmed native heap drain, full-pool recovery, foreign Engine isolation, exception/nested scope, paired native MIDI backend releases, project generation, queue-full panic");return 0;
+ puts("PASS native Synth: real common Engine scope/scheduling, native Track cancel with cross-Track/Engine isolation and retry after partial failure, native tail clamping with positive/zero/negative remaining duration and loop identities, stock Track/filters/MIDI, three due paths, drain/exception scopes, queue-full panic");return 0;
 }

@@ -15,6 +15,17 @@ extern "C" void am_synth_native_drain_scope(void*engine,uint64_t offset,unsigned
  try{original(engine,offset,flags);}catch(...){finish(&scope,0);throw;}
  finish(&scope,1);
 }
+extern "C" void am_synth_native_event_scope(void*engine,uint64_t offset,void*track,const step_event*event,unsigned kind,unsigned tag,am_synth_engine_event_fn original,
+                                           void(*begin)(am_synth_event_scope*),void(*finish)(am_synth_event_scope*,int)){
+ am_synth_event_scope scope{};scope.engine=engine;scope.track=track;begin(&scope);
+ try{original(engine,offset,track,event,kind,tag);}catch(...){finish(&scope,0);throw;}
+ finish(&scope,1);
+}
+extern "C" void am_synth_native_track_cancel_scope(void*engine,void*track,am_synth_track_cancel_fn original,
+                                                  void(*begin)(am_synth_track_cancel_scope*),void(*finish)(am_synth_track_cancel_scope*,int)){
+ am_synth_track_cancel_scope scope{};scope.engine=engine;scope.track=track;begin(&scope);
+ try{original(engine,track);finish(&scope,1);}catch(...){finish(&scope,0);throw;}
+}
 extern "C" int am_synth_accept_native_install(uintptr_t base,am_synth_accept_tap callback,am_synth_accept_end finish){
  if(image)return image==base&&tap==callback&&end==finish;
  if(!base||!callback||!finish||sysconf(_SC_PAGESIZE)!=4096)return 0;

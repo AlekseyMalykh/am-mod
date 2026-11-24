@@ -144,6 +144,8 @@ int am_midi_native_install(uintptr_t base){
   {0x1e39910,(uintptr_t)live_port_enqueue,{0xd503233f,0xa9ba7bfd,0x910003fd,0xa9025bf5},(void**)&native_port_queue}
 #ifdef MPC_SYNTH_NATIVE_PLAYBACK_TRIAL
   ,{0x2119550,(uintptr_t)synth_native_drain,{0xd503233f,0xa9b97bfd,0x910003fd,0xa90153f3},(void**)&native_synth_drain}
+  ,{0x2119d00,(uintptr_t)synth_engine_event,{0xd503233f,0xd10583ff,0xf0028246,0xf941ccc6},(void**)&native_synth_engine_event}
+  ,{0x211e610,(uintptr_t)synth_native_track_cancel,{0xd503233f,0xd10203ff,0xa9057bfd,0x910143fd},(void**)&native_synth_track_cancel}
 #endif
  };
  for(unsigned i=0;i<sizeof hooks/sizeof *hooks;++i)if(memcmp((void*)(base+hooks[i].offset),hooks[i].expected,16))return 0;
@@ -153,6 +155,7 @@ int am_midi_native_install(uintptr_t base){
   {0x2118d04,{0x97fffdd7,0},4},
   {0x2118fb8,{0xf9402842,0x97fffd29},8},
   {0x211969c,{0x941c59e5,0},4}
+  ,{0x211a114,{0x940046bf,0},4}
  };
  for(unsigned i=0;i<sizeof extra_calls/sizeof *extra_calls;++i)if(memcmp((void*)(base+extra_calls[i].offset),extra_calls[i].words,extra_calls[i].size))return 0;
 #endif
@@ -167,6 +170,7 @@ int am_midi_native_install(uintptr_t base){
  if(!install_call(base,0x2118fb8,(uintptr_t)live_scheduled_release,indirect,12,8))_exit(121);
  const uint32_t tail[]={0xd503245f,0x58000070,0xd61f0200,0xd503201f};
  if(!install_call(base,0x211969c,(uintptr_t)synth_drain_filter,tail,4,4))_exit(121);
+ if(!install_call(base,0x211a114,(uintptr_t)synth_native_schedule,tail,4,4))_exit(121);
  if(!am_synth_accept_native_install(base,synth_instrument_on,synth_instrument_end))_exit(121);
 #endif
  fprintf(stderr,"AM_MIDI_NATIVE SOURCE_CONTEXT_INSTALLED LIVE_LAYERS_INSTALLED\n");return 1;

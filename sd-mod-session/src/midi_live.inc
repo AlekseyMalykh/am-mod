@@ -7,7 +7,7 @@ struct live_note {
  struct am_midi_event source;uint16_t mask;unsigned char choices[16];
  struct live_route routes[4];
 #ifdef MPC_SYNTH_NATIVE_PLAYBACK_TRIAL
- struct am_synth_sequence_voice synth;uint64_t synth_stop,synth_generation;unsigned synth_handled;
+ struct am_synth_sequence_voice synth;uint64_t synth_stop,synth_generation;uintptr_t synth_heap;int64_t synth_anchor;unsigned synth_handled,synth_cancel_pending,synth_has_anchor,synth_source_channel;
 #endif
 };
 static struct live_note live[LIVE_COUNT];
@@ -18,8 +18,11 @@ static _Thread_local uintptr_t release_track;
 static _Thread_local struct {uintptr_t owner;unsigned key,layer;} live_key,live_key_stack[8];
 static _Thread_local unsigned live_key_depth;
 #ifdef MPC_SYNTH_NATIVE_PLAYBACK_TRIAL
+static _Thread_local struct am_synth_event_scope*synth_event_scope;
 static void synth_finish(struct live_note*);
 static void synth_scope_tick(void);
+static int synth_track_blocked(uintptr_t,uintptr_t);
+static int synth_release_same(const struct live_note*,void*,const struct step_event*,const struct am_midi_event*);
 static void *synth_instrument_on(void*,uint64_t,int,void*,const void*);
 static void synth_instrument_end(void*,int);
 #endif
@@ -56,6 +59,8 @@ static struct live_note *live_start(const struct am_midi_context *context,const 
 #ifdef MPC_SYNTH_NATIVE_PLAYBACK_TRIAL
   n->synth_stop=am_synth_route_stop_serial();
   n->synth_generation=am_synth_archive_generation();
+  n->synth_heap=synth_event_scope&&synth_event_scope->track==(void*)context->track_id?(uintptr_t)synth_event_scope->engine+0x6c8:0;
+  n->synth_source_channel=context->channel;
 #endif
   n->layer=!!n->mask||(n->key_owner&&live_key.layer);return n;
  }
@@ -70,7 +75,7 @@ static struct live_note *live_repeat(const struct live_note *source){
   struct live_note *n=live+i;if(n==source)continue;
   *n=*source;n->id=0;n->released=0;n->route_count=0;memset(n->routes,0,sizeof n->routes);
 #ifdef MPC_SYNTH_NATIVE_PLAYBACK_TRIAL
-  memset(&n->synth,0,sizeof n->synth);n->synth_handled=0;
+  memset(&n->synth,0,sizeof n->synth);n->synth_handled=n->synth_cancel_pending=n->synth_has_anchor=0;
 #endif
   return n;
  }
@@ -101,6 +106,9 @@ static void live_queue(void *manager,int route,const void *record){
 static void live_on(void *owner,uint64_t offset,int route,const void *command){
  struct live_note *n=live_event;
  if(live_blocked)return;
+#ifdef MPC_SYNTH_NATIVE_PLAYBACK_TRIAL
+ if(n&&n->synth_heap&&synth_track_blocked(n->synth_heap,n->track))return;
+#endif
  if(!n){native_on(owner,offset,route,command);return;}
  for(unsigned j=0;j<n->route_count;++j)if(n->routes[j].owner==owner&&n->routes[j].route==route){n=live_repeat(n);if(!n)return;break;}
  struct am_midi_event accepted;
@@ -179,12 +187,16 @@ static void live_release_note(void *engine,uint64_t offset,void *track,unsigned 
  if(live_scheduled){
   const struct step_event *entry=live_scheduled;
   struct am_midi_event value;
-  if(entry&&am_midi_event_copy(entry,(am_midi_choice_get)(image+0x27e4230),AM_MIDI_EVENT_NOTE_ON,&value))
-   for(unsigned i=0;i<LIVE_COUNT;++i)if(live[i].used&&live[i].track==(uintptr_t)track&&live_same(&live[i].source,&value)){
 #ifdef MPC_SYNTH_NATIVE_PLAYBACK_TRIAL
-    if(!match||live[i].id<match->id)match=live+i;
+  unsigned best_score=0;
+#endif
+  if(entry&&am_midi_event_copy(entry,(am_midi_choice_get)(image+0x27e4230),AM_MIDI_EVENT_NOTE_ON,&value))
+   for(unsigned i=0;i<LIVE_COUNT;++i)if(live[i].used&&live[i].track==(uintptr_t)track){
+#ifdef MPC_SYNTH_NATIVE_PLAYBACK_TRIAL
+    unsigned score=live[i].synth_handled?(unsigned)synth_release_same(live+i,engine,entry,&value):2u*live_same(&live[i].source,&value);
+    if(score&&(score>best_score||(score==best_score&&(!match||live[i].id<match->id)))){match=live+i;best_score=score;}
 #else
-    match=live+i;break;
+    if(live_same(&live[i].source,&value)){match=live+i;break;}
 #endif
    }
  }
