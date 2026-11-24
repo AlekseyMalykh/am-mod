@@ -82,6 +82,35 @@ Project generation, instrument lookup/sample presence, property/position notific
 
 ## Следующий обязательный этап
 
+### Проверка повторов без новой сборки приложения (2026-11-24)
+
+`check_synth_repeat.inc`, включённый в `verify_synth_live_native.py`, исполняет
+настоящие native expansion, pending-On delivery `0x2124c80` и due-Off loop.
+Событие с тремя ударами начинается на tick 7640: On приходят на 7640, 7720,
+7800, отдельные Off — на 7719, 7799, 7879. Проверены ровно три вызова backend,
+освобождение каждой Synth occurrence, пустые обе очереди и неизменный fault
+counter. Normal и UBSan прошли. Это воспроизведение ratchets сохранённого
+события; recorder interception, clock и bookkeeping здесь fixtures. Удержание
+физического Note Repeat и его запись этим тестом не подменяются.
+
+На уже существующей VM-библиотеке `b20b44f7422d2a8fa4e6c0c5f791a8f6a709e4a35e33c759aea4d3bce1fc517d`
+отдельно выполнен surface overdub обычного Sample Note On. Запуск PLAY,
+затем SEQ RECORD сохранил все 7 прежних событий и добавил восьмое, длиной
+500 ticks. Следующий take с удержанием NOTE REPEAT сохранил все 8 событий
+и добавил 6 ударов на 6240…7440 с шагом 240 и длиной 180 ticks.
+Сравнивается multiset полных событий XPJ, а не только их число.
+Повторяемый helper — `lab/check_overdub_preservation_vm.py`; нужны непустая
+частная VM-секвенция, явно выбранный режим пэдов и уникальная velocity.
+В 16 Levels / Tune запись Note Repeat на соседней высоте сохранила все
+23 прежних события и добавила 7 ударов, в том числе через loop. Take на
+той же высоте и tick 0 заменил прежнюю длинную ноту новым коротким ударом;
+его строгая проверка сохранности закономерно не прошла и сохранена отдельно.
+Подробности и ограничения — в `NOTE_ON_BOUNDARY_INVESTIGATION_RU.md`.
+Отчёты — `build/pad-midi-pads/overdub-followup-*-verification.json`.
+Это исходный input/recorder прежней библиотеки; новая Synth-интеграция
+полностью запущенным приложением здесь не проверена. Новая библиотека,
+пакет для установки и сборка на устройство не создавались.
+
 После разрешения на полную тестовую сборку: запустить isolated system QEMU, записать партию физическим pad protocol, воспроизвести при закрытом Synth UI, изменить ноты в существующем Piano Roll, сохранить native XPJ, выполнить New/Load и проверить preset/binding/ноты. Отдельно проверить UI и native Stop, Seek, конец Song, loop, probability, Note Repeat, simultaneous live input, sample tails, export/mixdown и аудиофазу. До этого сценарий A не объявляется завершённым и сборка на устройство не предлагается.
 
 Horizontal Arrangement, музыкальные Tracks, параллельные clips, automation lanes и CHOP на курсоре остаются следующим этапом архитектуры; этот прототип их не включает.

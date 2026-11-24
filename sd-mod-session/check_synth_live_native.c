@@ -101,6 +101,7 @@ static void due(void*scheduler,const struct step_event*event,uint64_t end){
  push(scheduler,event,end,track_data);
  FN(0x21185a0,void(*)(void*,uint64_t,uint64_t))(scheduler,end,96);
 }
+#include "check_synth_repeat.inc"
 int main(int argc,char**argv){
  assert(argc==2);struct sigaction sa={.sa_sigaction=synth_fault,.sa_flags=SA_SIGINFO};sigaction(SIGSEGV,&sa,NULL);sigaction(SIGILL,&sa,NULL);sigaction(SIGABRT,&sa,NULL);
  load(argv[1]);phase="Synth native accepted command";
@@ -222,6 +223,7 @@ int main(int argc,char**argv){
  memcpy(second_track,track_data,sizeof second_track);
  unsigned char play_position[0x200]={0};void*position_model=play_position;memcpy(scheduler+0x790,&position_model,8);
  unsigned char record_service[0x200]={0},record_model[0xa00]={0};void*recorder=record_service,*record_mode=record_model;memcpy(scheduler+0x768,&recorder,8);memcpy(record_service+0x188,&record_mode,8);
+ check_synth_repeat(scheduler,&event,play_position);
  struct step_event longer=event;int64_t long_duration=600;memcpy(longer.data+24,&long_duration,8);
  drain_gate_open=1;FN(0x2119d00,am_synth_engine_event_fn)(scheduler,96,track_data,&longer,3,0);struct live_note*long_voice=latest();
  FN(0x2119d00,am_synth_engine_event_fn)(scheduler,96,track_data,&event,3,0);struct live_note*short_voice=latest();drain_gate_open=0;
@@ -309,5 +311,6 @@ int main(int argc,char**argv){
  uint64_t faults=synth_faults;due(scheduler,&event,3360);assert(synth_faults==faults+1&&!count_synth());
  render();for(unsigned i=0;i<300;++i)render();assert(!am_synth_peek(&state)||!state.voices);
  void*storage;memcpy(&storage,scheduler+0x6c8,8);free(storage);memcpy(&storage,foreign+0x6c8,8);free(storage);
+ memcpy(&storage,scheduler+0x6e8,8);free(storage);
  puts("PASS native Synth: real common Engine scope/scheduling, native Track cancel with cross-Track/Engine isolation and retry after partial failure, native tail clamping with positive/zero/negative remaining duration and loop identities, stock Track/filters/MIDI, three due paths, drain/exception scopes, queue-full panic");return 0;
 }

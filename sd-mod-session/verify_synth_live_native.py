@@ -7,7 +7,7 @@ R=Path(__file__).resolve().parent;stock=Path(a.stock).resolve();expected='b6584c
 assert hashlib.sha256(stock.read_bytes()).hexdigest()==expected
 O=R/'build/synth-live-native';O.mkdir(exist_ok=True);proof=O/'verification.json';proof.unlink(missing_ok=True)
 sources=['check_synth_live_native.c','check_synth_drain_exception.cc','src/synth.c','src/synth_sequence.c','src/synth_binding.c','src/synth_route.c','src/synth_accept_native.cc','src/midi_context.c','src/midi_event.c','src/midi_wire.c','src/midi_voice.c','src/midi_route.c','src/midi_tools.c']
-tracked=sources+['src/midi_native.c','src/midi_live.inc','src/synth_live.inc','src/synth_accept_native.h','src/synth_route.h','src/synth_binding.h','src/synth_sequence.h','src/synth.h','src/synth_archive.h','check_fx_native.c','verify_synth_live_native.py']
+tracked=sources+['check_synth_repeat.inc','src/midi_native.c','src/midi_live.inc','src/synth_live.inc','src/synth_accept_native.h','src/synth_route.h','src/synth_binding.h','src/synth_sequence.h','src/synth.h','src/synth_archive.h','check_fx_native.c','verify_synth_live_native.py']
 digest=lambda:{f:hashlib.sha256((R/f).read_bytes()).hexdigest() for f in tracked};before=digest();checks=[]
 for mode,extra in [('normal',[]),('ubsan',['-fsanitize=undefined','-static-libubsan','-fno-sanitize-recover=all'])]:
     objects=[]
