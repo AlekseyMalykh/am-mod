@@ -95,7 +95,13 @@ int main(){
     pt_arr_track track_view;pt_arr_clip clip_view;assert(pt_arr_track_at(0,&track_view)&&track_view.id==row&&!std::strcmp(track_view.name,"Drums"));
     assert(pt_arr_clip_at(0,&clip_view)&&clip_view.id==block&&pt_pattern_index(clip_view.pattern)==0);assert(!pt_arr_clip_at(99,&clip_view)&&!clip_view.id);
     assert(!pt_remove(0)&&pt_count()==2);PreparedArrangement ready;assert(pt_prepare_song(ready)&&pt_prepared_current(ready)&&ready.notes.size()==4);
+    NativeDestination native_destination;native_destination.project_epoch=pt_epoch();native_destination.routing_revision=1;native_destination.destination_revision=1;
+    native_destination.program_key="program";native_destination.sequence_ticks=info.length;native_destination.transport_valid=true;
+    for(unsigned i=0;i<128;++i){native_destination.pad_to_note[i]=map[i];native_destination.note_to_pad[(unsigned)map[i]]=int(i);}
+    NativeArrangementPlan native_plan;assert(pt_prepare_native_plan(native_destination,native_plan)&&native_plan.notes.size()==4&&pt_native_plan_current(native_plan,native_destination));
+    auto wrong_destination=native_destination;wrong_destination.playing=true;assert(!pt_prepare_native_plan(wrong_destination,native_plan)&&native_plan.notes.size()==4&&!pt_native_plan_current(native_plan,wrong_destination));
     assert(pt_arr_cut(block,3840,&right)&&!pt_prepared_current(ready));assert(pt_arr_join(block,right));
+    assert(!pt_native_plan_current(native_plan,native_destination));
     pt_archive_save(nullptr,nullptr,original);std::string library_saved=written,song_saved=arrangement_written;assert(song_saved.compare(0,5,"AAR1 ")==0);
     Input combined(library_saved);combined.song(song_saved);char swap[48];std::memcpy(swap,combined.members,48);std::memcpy(combined.members,combined.members+48,48);std::memcpy(combined.members+48,swap,48);
     pt_reset();pt_expect_epoch(0);read(combined);assert(pt_arr_info(&info)&&info.clips==1&&pt_count()==2);assert(pt_prepare_song(ready));
@@ -110,6 +116,7 @@ int main(){
     Input future_song(library_saved);future_song.song("AAR2 opaque song\n");read(future_song);pt_expect_epoch(pt_epoch());assert(pt_arr_info(&info)&&info.read_only&&!pt_remove(0)&&!pt_arr_add_track("New",&row));
     pt_archive_save(nullptr,nullptr,original);assert(arrangement_written==future_song.arrangement&&written==library_saved);
     pt_reset();pt_expect_epoch(0);pr_destroy(&roll);
+    assert(!pt_native_plan_current(native_plan,native_destination));
     assert(pt_arr_info(&info)&&!info.tracks&&!info.clips&&!pt_count());
     assert(pt_capture(notes,3,7680,1,"program",map,outputs,0)&&pt_arr_add_track("Paste",&row));
     assert(pt_arr_add_clip(row,0,0,15360,&block)&&pt_arr_cut(block,3840,&right));

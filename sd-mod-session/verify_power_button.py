@@ -29,6 +29,7 @@ for name, extra in [('normal', []), ('ubsan', ['-fsanitize=undefined', '-static-
     p.check_returncode()
     assert 'PASS relocated native shutdown-question' in p.stdout
     assert 'QUESTION_WITHOUT_UI_CONTEXT shutdown_cancelled' in p.stderr
+    assert 'PASS native option bridge Cancel/B2 Bootloader/B3 Power off' in p.stdout
     print(p.stdout, end='')
 p = subprocess.run(['python3', 'verify_power_host.py'], cwd=R, capture_output=True, text=True, timeout=30)
 (O / 'host.log').write_text(p.stdout + p.stderr)
@@ -39,6 +40,8 @@ proof = dict(passed=True, scope='Native entry/PAC and state machine; save and OS
              no_without_ui_context=True, failed_save_keeps_device_on=True,
              unfinished_copy_or_resample_blocks_shutdown=True,
              sd_flush_before_host_poweroff=True, full_vm_verified=False,
+             native_dialog_options_bridge_executed=True, bootloader_button='B2',
+             save_failure_preserves_boot_destination=True,
              physical_device_tested=False, physical_card_written=False,
              sources_sha256=before)
 (O / 'verification.json').write_text(json.dumps(proof, indent=2) + '\n')

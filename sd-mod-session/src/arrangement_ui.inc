@@ -1,5 +1,6 @@
 /* SongScreen UI owner only. Producer sees arrangement_active, never these
  * values or native pointers. Timeline units are quarter-note beats (960). */
+#include "ui_list_geometry.h"
 static uint64_t arrange_epoch,arrange_selected;
 static struct pt_arr_clip arrange_clipboard;
 static int arrange_row,arrange_top,arrange_rows=4,arrange_menu,arrange_pick;
@@ -50,6 +51,7 @@ static void arrange_tick(void){
     if(arrange_left<0)arrange_left=0;
     if(arrange_row<arrange_top)arrange_top=arrange_row;
     if(arrange_row>=arrange_top+arrange_rows)arrange_top=arrange_row-arrange_rows+1;
+    arrange_top=arrange_clamp(arrange_top,0,a.tracks>(unsigned)arrange_rows?(int)a.tracks-arrange_rows:0);
     struct pt_arr_clip c;if(arrange_selected&&!arrange_clip(arrange_selected,&c))arrange_selected=0;
 }
 static void arrange_result(int ok){say(ok?"Arrangement updated; save project":pt_error()[0]?pt_error():"Block operation unavailable");arrange_tick();repaint(screen);}
@@ -120,11 +122,11 @@ static int arrange_control(unsigned cc,unsigned value,int shifted){
     if(atomic_load(&arrangement_editor)){step_pattern_control(cc,value,shifted);arrange_tick();return 1;}
     int delta=value>64?(int)value-128:value==64?0:(int)value;
     if(arrange_menu){int n=arrange_menu==1?ARRANGE_ACTIONS:arrange_menu==2?(int)pt_count():0;
-        if(n){if(cc==DATA_ENCODER)arrange_pick=arrange_clamp(arrange_pick+delta,0,n-1);else if(cc==0x14||cc==K1)arrange_pick=(int)value*(n-1)/127;}
+        if(n){if(cc==DATA_ENCODER)arrange_pick=arrange_clamp(arrange_pick+delta,0,n-1);else if(cc==0x14)arrange_pick=ui_list_fader(value,n-1);else if(cc==K1)arrange_pick=(int)value*(n-1)/127;}
     }else if(cc==DATA_ENCODER){
         if(shifted){int n=delta>0?delta:-delta;if(n>8)n=8;while(n--){if(delta>0&&arrange_span>960)arrange_span/=2;else if(delta<0&&arrange_span<a.length)arrange_span*=2;}if(arrange_span<960)arrange_span=960;}
         else arrange_cursor+=(int64_t)delta*arrange_grid;
-    }else if(cc==0x14){if(shifted)arrange_rows=3+(int)value*3/128;else arrange_row=a.tracks?(int)value*((int)a.tracks-1)/127:0;}
+    }else if(cc==0x14){if(shifted)arrange_rows=6-(int)value*3/127;else arrange_row=ui_list_fader(value,(int)a.tracks-1);}
     else if(cc==0x10){int relative=arrange_row-arrange_top;arrange_top=(int)value*(a.tracks>(unsigned)arrange_rows?(int)a.tracks-arrange_rows:0)/127;arrange_row=arrange_top+relative;}
     else if(cc==0x11)arrange_grid=arrange_grids[value*5/128];
     else if(cc==0x12)arrange_left=(int64_t)value*(a.length>arrange_span?a.length-arrange_span:0)/127;
@@ -140,12 +142,14 @@ static void arrange_paint(void*g){
     colour(g,0xff000000u);rect(g,0,0,320,240);
     colour(g,0xffffffffu);text(g,arrange_menu?"Back":"Sequential",0,4,106,25,13);
     text(g,"Actions",107,4,106,25,13);colour(g,0xffffc247u);text(g,arrange_menu==3?"Delete":arrange_menu?"Choose":atomic_load(&export_shift)?"Edit pattern":arrange_selected?"Unpin":"Pin block",214,4,106,25,13);
-    text_at(g,a.read_only?"Arrange / read only":"Song / Arrange",6,34,308,23,17,0x21);
+    text_at(g,arrange_menu==1?"Arrange / Actions":arrange_menu==2?"Insert pattern":a.read_only?"Arrange / read only":"Song / Arrange",6,34,arrange_menu?236:308,23,17,0x21);
     if(arrange_menu==3){colour(g,0xffffffffu);text(g,"Delete selected block?",8,93,304,27,18);text(g,"Pattern stays in the library",8,126,304,22,13);}
-    else if(arrange_menu){int n=arrange_menu==1?ARRANGE_ACTIONS:(int)pt_count(),first=arrange_pick>4?arrange_pick-4:0;
+    else if(arrange_menu){int n=arrange_menu==1?ARRANGE_ACTIONS:(int)pt_count(),first=ui_list_first(arrange_pick,n,6);
+        char position[32];snprintf(position,sizeof position,"%d / %d",n?arrange_pick+1:0,n);colour(g,0xffaaaaaau);text_at(g,position,245,36,67,20,12,0x22);
         for(int i=first;i<n&&i<first+6;++i){char label[80];if(arrange_menu==1)snprintf(label,sizeof label,"%s",arrange_actions[i]);else{struct pt_entry e;if(!pt_info((unsigned)i,&e))continue;snprintf(label,sizeof label,"%.40s / %lld q",e.name,(long long)(e.length/960));}
-            int y=62+(i-first)*21;if(i==arrange_pick){colour(g,0xff303030u);rect(g,6,y,308,21);}colour(g,i==arrange_pick?0xffffc247u:0xffffffffu);text_at(g,label,11,y,298,21,13,0x21);
+            int y=62+(i-first)*22;if(i==arrange_pick){colour(g,0xff303030u);rect(g,6,y,302,22);}colour(g,i==arrange_pick?0xffffc247u:0xffffffffu);text_at(g,label,11,y,294,22,13,0x21);
         }
+        int offset,thumb=ui_list_thumb(first,n,6,132,&offset);colour(g,0xff303030u);rect(g,314,62,2,132);colour(g,0xffffc247u);rect(g,314,62+offset,2,thumb);
     }else{
         int h=120/arrange_rows;
         for(int i=0;i<arrange_rows;++i){unsigned index=(unsigned)(arrange_top+i);struct pt_arr_track t;if(!pt_arr_track_at(index,&t))break;int y=76+i*h;
@@ -161,6 +165,8 @@ static void arrange_paint(void*g){
         for(int i=0;i<=4;++i){int x=72+60*i;char beat[24];snprintf(beat,sizeof beat,"%lldq",(long long)((arrange_left+arrange_span*i/4)/960+1));colour(g,0xff777777u);text_at(g,beat,x<290?x:283,59,34,14,10,0x21);colour(g,0xff444444u);rect(g,x,75,1,121);}
         if(arrange_cursor>=arrange_left&&arrange_cursor<=arrange_left+arrange_span){colour(g,0xffffc247u);rect(g,arrange_x(arrange_cursor),73,1,124);}
         if(!a.tracks){colour(g,0xffffffffu);text(g,"Actions > Add track",8,108,304,25,16);}
+        int offset,thumb=ui_list_thumb(arrange_top,(int)a.tracks,arrange_rows,120,&offset);
+        colour(g,0xff303030u);rect(g,315,76,2,120);colour(g,0xffffc247u);rect(g,315,76+offset,2,thumb);
     }
     char status[96];snprintf(status,sizeof status,"q %.2f / Grid %.2f / %u blocks",1.+arrange_cursor/960.,arrange_grid/960.,a.clips);
     struct pt_arr_clip selected_clip;struct pt_entry selected_pattern;
@@ -168,6 +174,6 @@ static void arrange_paint(void*g){
         int index=pt_pattern_index(selected_clip.pattern);
         if(index>=0&&pt_info((unsigned)index,&selected_pattern))snprintf(status,sizeof status,"q %.2f / Block %.2fq / Pattern %.2fq",1.+arrange_cursor/960.,selected_clip.length/960.,selected_pattern.length/960.);
     }
-    colour(g,0xffaaaaaau);text_at(g,status,6,199,308,15,11,0x21);
-    colour(g,0xffffc247u);text_at(g,toast_until&&now_ms()<toast_until?toast:"DATA time / Fader track / Chop split",6,215,308,19,11,0x21);
+    colour(g,0xffaaaaaau);text_at(g,arrange_menu?"DATA / Fader: choose":status,6,199,308,15,11,0x21);
+    colour(g,0xffffc247u);text_at(g,toast_until&&now_ms()<toast_until?toast:arrange_menu?"B1 Back / B3 Choose":"DATA time / Fader track / Chop split",6,215,308,19,11,0x21);
 }

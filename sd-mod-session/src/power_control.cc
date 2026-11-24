@@ -1,6 +1,5 @@
-/* Cold-start hook of the pinned native shutdown question. The native No/Yes
- * dialog is retained. Yes cancels the native engine shutdown, first saving
- * a durable SD copy. Only the host supervisor can then request OS poweroff. */
+/* Cold-start hooks of the pinned native power question. Native modal owns
+ * its strings/buttons; either exit waits for the durable SD project copy. */
 #include "power_control.h"
 #include "project_exit.h"
 extern "C" {
@@ -19,6 +18,10 @@ enum {IDLE,PENDING,SAVING,REQUESTED,FAILED};
 static std::atomic<int> state{IDLE};
 static std::atomic<bool> stop_pending{false};
 static std::atomic<int> button_action{0};
+enum {POWER_OFF,BOOTLOADER};
+static int destination=POWER_OFF; // UI owner, latched before PENDING publication.
+static bool boot_choice; // Only the synchronous native question invocation.
+static bool question_open;
 static unsigned char owned_buttons[112]; // Button producer only.
 static char error[160];
 extern "C" int power_control_operation_busy(void);
@@ -28,15 +31,42 @@ static void *surface; // UI only, while the modal blocks screen changes.
 #ifndef MPC_POWER_REQUEST
 #define MPC_POWER_REQUEST "/run/mpc-trial-app/power-off.request"
 #endif
+#ifndef MPC_BOOT_REQUEST
+#define MPC_BOOT_REQUEST "/run/mpc-trial-app/mod-off.request"
+#endif
+using QuestionDispatch=int(*)(void*,void*);
+static void option_string(void*options,unsigned offset,const char*label){
+    uint64_t value=0;
+    FN(0xf535c0,void(*)(uint64_t*,const char*))(&value,label);
+    FN(0xf1c6f0,void(*)(void*,const uint64_t*))(static_cast<char*>(options)+offset,&value);
+    FN(0xf0a290,void(*)(uint64_t*))(&value);
+}
+static int power_options(void*manager,void*options,QuestionDispatch original){
+    char*o=static_cast<char*>(options);
+    // Pinned Power options only. All three string slots have native lifetime.
+    if(!question_open||!o||*reinterpret_cast<int*>(o+96)!=2||
+       *reinterpret_cast<int*>(o+128)!=1||*reinterpret_cast<int*>(o+132)!=2)
+        return original(manager,options);
+    option_string(o,8,"Power");
+    option_string(o,16,"Save a project copy and exit?");
+    option_string(o,104,"Cancel");option_string(o,112,"Bootloader");option_string(o,120,"Power off");
+    *reinterpret_cast<int*>(o+132)=3;*reinterpret_cast<int*>(o+136)=2;
+    *reinterpret_cast<int*>(o+96)=3;
+    int result=original(manager,options);boot_choice=result==3;return result;
+}
 extern "C" int power_control_busy(void){return state.load()!=IDLE;}
 static int confirm(void *environment){
-    if(power_control_busy())return 0;
-    if(!question(environment))return 0;
+    if(power_control_busy()||question_open)return 0;
+    boot_choice=false;question_open=true;int answer;
+    try{answer=question(environment);}catch(...){question_open=false;boot_choice=false;throw;}
+    question_open=false;
+    if(!answer&&!boot_choice)return 0;
     if(!power_control_wake()){
         std::fprintf(stderr,"POWER_BUTTON QUESTION_WITHOUT_UI_CONTEXT shutdown_cancelled\n");
         return 0;
     }
     int expected=IDLE;
+    destination=boot_choice?BOOTLOADER:POWER_OFF;
     if(state.compare_exchange_strong(expected,PENDING)){
         stop_pending.store(true);
         std::fprintf(stderr,"POWER_BUTTON CONFIRMED_SD_COPY_PENDING\n");
@@ -64,11 +94,11 @@ extern "C" void power_control_tick(void){
         if(project_exit_status()==3){
             std::snprintf(error,sizeof(error),"%s",project_exit_message());state.store(FAILED);
         }else if(project_exit_status()==2){
-            int fd=open(MPC_POWER_REQUEST,O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC|O_NOFOLLOW,0600);
+            int fd=open(destination==BOOTLOADER?MPC_BOOT_REQUEST:MPC_POWER_REQUEST,O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC|O_NOFOLLOW,0600);
             bool ok=fd>=0&&write(fd,"1",1)==1;
             if(fd>=0)close(fd);
             if(ok){state.store(REQUESTED);std::fprintf(stderr,"POWER_BUTTON SD_COPY_READY_HOST_REQUESTED\n");}
-            else{std::snprintf(error,sizeof(error),"Could not request power off");state.store(FAILED);}
+            else{std::snprintf(error,sizeof(error),"Could not request %s",destination==BOOTLOADER?"bootloader":"power off");state.store(FAILED);}
         }
     }
     if(surface&&power_control_busy())FN(0x1149880,void(*)(void*,uint64_t,uint64_t))(surface,0,*reinterpret_cast<uint64_t*>(static_cast<char*>(surface)+0x28));
@@ -97,7 +127,7 @@ extern "C" void power_control_paint(void*p,void*g){
     surface=p;
     ink(g,0xff000000);FN(0x102e000,void(*)(void*,int,int,int,int))(g,0,0,320,240);
     ink(g,s==FAILED?0xffff4040:0xffffc247);
-    text(g,s==FAILED?"Power off cancelled":s==REQUESTED?"Shutting down":"Saving project copy",68,28,20);
+    text(g,s==FAILED?"Exit cancelled":s==REQUESTED?(destination==BOOTLOADER?"Returning to bootloader":"Shutting down"):"Saving project copy",68,28,20);
     ink(g,0xffffffff);
     if(s==FAILED){text(g,"B1: back   B3: retry",6,23,14);text(g,error,111,45,13);text(g,"The device is still on",177,22,14);}
     else{text(g,"Keep the SD card inserted",116,24,15);text(g,"Please wait",168,22,14);}
@@ -107,9 +137,21 @@ extern "C" int power_control_install(uintptr_t b){
     if(!b||sysconf(_SC_PAGESIZE)!=4096)return 0;
     const uint32_t expected[]={0xd503233f,0xd106c3ff,0xaa0003e2,0xb002e3c1};
     void *entry=reinterpret_cast<void*>(b+0x14eb910);
-    if(std::memcmp(entry,expected,16))return 0;
+    uintptr_t site=b+0x14ebb04;const uint32_t dispatch=0xd63f0040; // BLR x2.
+    if(std::memcmp(entry,expected,16)||std::memcmp(reinterpret_cast<void*>(site),&dispatch,4))return 0;
+    void*bridge=MAP_FAILED;
+    for(uintptr_t off=0x7800000;off<0x9600000;off+=0x10000){
+        if(b+off-site>=0x8000000)break;
+        bridge=mmap(reinterpret_cast<void*>(b+off),4096,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED_NOREPLACE,-1,0);
+        if(bridge!=MAP_FAILED)break;
+    }
+    if(bridge==MAP_FAILED)return 0;
+    const uint32_t thunk[]={0xd503245f,0x58000070,0xd61f0200,0xd503201f};
+    std::memcpy(bridge,thunk,16);*reinterpret_cast<uintptr_t*>(static_cast<char*>(bridge)+16)=reinterpret_cast<uintptr_t>(power_options);
+    __builtin___clear_cache(static_cast<char*>(bridge),static_cast<char*>(bridge)+24);
+    if(mprotect(bridge,4096,PROT_READ|PROT_EXEC)){munmap(bridge,4096);return 0;}
     void *tr=mmap(nullptr,4096,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
-    if(tr==MAP_FAILED)return 0;
+    if(tr==MAP_FAILED){munmap(bridge,4096);return 0;}
     /* Relocate the displaced ADRP x1 explicitly. Native continuation starts
      * at14eb920; no other PC-relative instruction is copied. */
     const uint32_t code[]={0xd503245f,expected[0],expected[1],expected[2],
@@ -118,13 +160,15 @@ extern "C" int power_control_install(uintptr_t b){
     *reinterpret_cast<uintptr_t*>(static_cast<char*>(tr)+32)=b+0x7164000;
     *reinterpret_cast<uintptr_t*>(static_cast<char*>(tr)+40)=b+0x14eb920;
     __builtin___clear_cache(static_cast<char*>(tr),static_cast<char*>(tr)+48);
-    if(mprotect(tr,4096,PROT_READ|PROT_EXEC)){munmap(tr,4096);return 0;}
+    if(mprotect(tr,4096,PROT_READ|PROT_EXEC)){munmap(tr,4096);munmap(bridge,4096);return 0;}
     void *page=reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(entry)&~uintptr_t(4095));
-    if(mprotect(page,4096,PROT_READ|PROT_WRITE)){munmap(tr,4096);return 0;}
+    if(mprotect(page,4096,PROT_READ|PROT_WRITE)){munmap(tr,4096);munmap(bridge,4096);return 0;}
     base=b;question=reinterpret_cast<int(*)(void*)>(tr);
     const uint32_t jump[]={0x58000050,0xd61f0200};std::memcpy(entry,jump,8);
     *reinterpret_cast<uintptr_t*>(static_cast<char*>(entry)+8)=reinterpret_cast<uintptr_t>(confirm);
-    __builtin___clear_cache(static_cast<char*>(entry),static_cast<char*>(entry)+16);
+    uint32_t call=0x94000000u|static_cast<uint32_t>((reinterpret_cast<uintptr_t>(bridge)-site)/4);
+    std::memcpy(reinterpret_cast<void*>(site),&call,4);
+    __builtin___clear_cache(static_cast<char*>(entry),reinterpret_cast<char*>(site)+4);
     if(mprotect(page,4096,PROT_READ|PROT_EXEC))_exit(121);
     std::fprintf(stderr,"POWER_BUTTON NATIVE_QUESTION_INSTALLED\n");return 1;
 }

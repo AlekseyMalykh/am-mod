@@ -1,6 +1,7 @@
 /* Included by step_native.c: one UI owner and the existing native event history. */
 static struct piano_roll roll;
 static struct pr_note *roll_snapshot;
+#include "ui_list_geometry.h"
 static int roll_ready,roll_editing,roll_actions,roll_action,roll_source_steps;
 static int64_t roll_delta_time,roll_delta_length;
 static int roll_delta_row,roll_delta_velocity;
@@ -396,7 +397,7 @@ static int roll_control(unsigned cc,unsigned v,int event_shift){
  if(roll_midi_state)return roll_midi_control(cc,v);
 #endif
  int delta=v>64?(int)v-128:(int)v;
- if(roll_actions){if(cc==0x64)roll_action=clamp(roll_action+delta,0,ROLL_ACTIONS_COUNT-1);else if(cc==0x10)roll_action=(int)(v*(unsigned)ROLL_ACTIONS_COUNT/128);repaint();return 1;}
+ if(roll_actions){if(cc==0x64)roll_action=clamp(roll_action+delta,0,ROLL_ACTIONS_COUNT-1);else if(cc==0x14)roll_action=ui_list_fader(v,ROLL_ACTIONS_COUNT-1);else if(cc==0x10)roll_action=(int)(v*(unsigned)ROLL_ACTIONS_COUNT/128);repaint();return 1;}
  if(cc==0x64){if(event_shift){pr_zoom(&roll,1,roll.zoom-delta);repaint();return 1;}roll.follow=0;if(!roll_editing){if(roll.note_focus&&!roll.range&&!event_shift&&!roll_data_held)pr_browse(&roll,delta);else{roll_data_begin_move();pr_cursor(&roll,roll.cursor_tick+(int64_t)delta*(event_shift?1:pr_grid_ticks(roll.grid)),roll.cursor_row);if(roll_data_moved)pr_range_apply(&roll);}}
   else {roll_delta_time+=(int64_t)delta*(event_shift?1:pr_grid_ticks(roll.grid));roll_error(pr_edit(&roll,roll_delta_time,roll_delta_row,roll_delta_length,roll_delta_velocity),NULL);}
   repaint();return 1;}
@@ -582,10 +583,14 @@ static void roll_paint(void*g){
   ui_caption(caption,sizeof(caption),sample,18);colour(g,!strcmp(sample,"Empty")?GREY:WHITE);left_text(g,caption,46,34,150,20,14);
   {unsigned nsel=pr_selected(&roll);char cnt[24];snprintf(cnt,sizeof(cnt),nsel?"  %u sel":"",nsel);snprintf(title,sizeof(title),"%s%s%s",roll.layer==PR_PADS?"":roll.layer==PR_TUNE?"Tune ":"Chop ",roll_grid_name(),cnt);}
   colour(g,GREY);right_text(g,title,196,34,118,20,12);}
- if(roll_actions){int first=roll_action<5?0:roll_action-4;
-  for(int i=first;i<ROLL_ACTIONS_COUNT&&i<first+6;++i){int y=61+(i-first)*21;if(i==roll_action){colour(g,0xff303030);rect(g,6,y,308,21);}
-   colour(g,i==roll_action?AMBER:WHITE);left_text(g,roll_action_names[i],12,y,294,21,14);
-  }return;
+ if(roll_actions){int first=ui_list_first(roll_action,ROLL_ACTIONS_COUNT,6);
+  for(int i=first;i<ROLL_ACTIONS_COUNT&&i<first+6;++i){int y=61+(i-first)*22;if(i==roll_action){colour(g,0xff303030);rect(g,6,y,302,22);}
+   colour(g,i==roll_action?AMBER:WHITE);left_text(g,roll_action_names[i],12,y,292,22,14);
+  }
+  int offset,thumb=ui_list_thumb(first,ROLL_ACTIONS_COUNT,6,132,&offset);
+  colour(g,0xff303030);rect(g,314,61,2,132);colour(g,AMBER);rect(g,314,61+offset,2,thumb);
+  char position[40];snprintf(position,sizeof position,"Action %d / %d",roll_action+1,ROLL_ACTIONS_COUNT);colour(g,GREY);left_text(g,position,6,200,308,16,11);
+  colour(g,AMBER);left_text(g,"DATA / Fader: choose | B3: apply",6,218,308,17,11);return;
  }
  int64_t unit=roll.grid==10?60:pr_grid_ticks(roll.grid);while(roll.span/unit>48)unit*=2;
  for(int64_t t=(roll.left/unit)*unit;t<=roll.left+roll.span;t+=unit){int x=roll_x(t);if(x>=70&&x<310){

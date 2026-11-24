@@ -14,3 +14,17 @@ check_power_continuation:
     ret
 .size check_power_continuation,.-check_power_continuation
 .section .note.GNU-stack,"",%progbits
+.text
+.global check_power_dispatch
+.type check_power_dispatch,%function
+check_power_dispatch:
+    bti c
+    paciasp
+    stp x19,x30,[sp,#-16]!
+    adr x19,1f
+    br x3
+1:  bti j
+    ldp x19,x30,[sp],#16
+    autiasp
+    ret
+.size check_power_dispatch,.-check_power_dispatch

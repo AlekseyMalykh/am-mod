@@ -74,21 +74,24 @@ static int roll_patterns_control(unsigned cc,unsigned value,int shifted){
   if(roll_patterns_end>entry.length)roll_patterns_end=entry.length;
  }else if(roll_patterns_state==1||roll_patterns_state==2){int limit=roll_patterns_state==2?7:pt_count()?(int)pt_count()-1:0;
   int*pick=roll_patterns_state==2?&roll_patterns_action:&roll_patterns_pick;
-  if(cc==0x64)*pick=clamp(*pick+delta,0,limit);else if(cc==0x14||cc==0x10)*pick=(int)value*limit/127;
+  if(cc==0x64)*pick=clamp(*pick+delta,0,limit);else if(cc==0x14)*pick=ui_list_fader(value,limit);else if(cc==0x10)*pick=(int)value*limit/127;
  }
  repaint();return 1;
 }
 static void roll_patterns_paint(void*g){
  colour(g,0xff000000);rect(g,0,0,320,240);colour(g,WHITE);text(g,"Back",0,6,105,23,14);
  text(g,roll_patterns_state==3?"Full range":"Actions",107,6,105,23,14);colour(g,AMBER);text(g,roll_patterns_state==1?"Open":"Do It",214,6,105,23,14);
- colour(g,AMBER);left_text(g,roll_patterns_state==3?"Extract Pattern":roll_patterns_state==4?"Delete Pattern?":"Parts / Patterns",6,35,308,24,17);
+ colour(g,AMBER);left_text(g,roll_patterns_state==3?"Extract Pattern":roll_patterns_state==4?"Delete Pattern?":roll_patterns_state==2?"Pattern / Actions":"Parts / Patterns",6,35,236,24,17);
  if(roll_patterns_state==3){char text_value[96];snprintf(text_value,sizeof text_value,"Start %lld   End %lld",(long long)roll_patterns_begin,(long long)roll_patterns_end);colour(g,WHITE);left_text(g,text_value,10,90,300,25,14);colour(g,GREY);left_text(g,"DATA: start | Shift DATA: end",10,126,300,20,13);left_text(g,"K1 Start / K2 End; notes keep tails",10,153,300,20,12);}
  else if(roll_patterns_state==4){struct pt_entry entry;if(pt_info((unsigned)roll_patterns_pick,&entry)){colour(g,WHITE);left_text(g,entry.name,10,92,300,25,16);}colour(g,GREY);left_text(g,"Source sequence stays unchanged",10,130,300,20,13);}
- else {int pick=roll_patterns_state==2?roll_patterns_action:roll_patterns_pick;int count=roll_patterns_state==2?8:(int)pt_count(),first=pick>4?pick-4:0;
+ else {int pick=roll_patterns_state==2?roll_patterns_action:roll_patterns_pick;int count=roll_patterns_state==2?8:(int)pt_count(),first=ui_list_first(pick,count,6);
+  char position[32];snprintf(position,sizeof position,"%d / %d",count?pick+1:0,count);colour(g,GREY);right_text(g,position,245,37,67,20,12);
   for(int i=first;i<count&&i<first+6;++i){char label[112];if(roll_patterns_state==2)snprintf(label,sizeof label,"%s",roll_pattern_actions[i]);else{struct pt_entry e;if(!pt_info((unsigned)i,&e))continue;snprintf(label,sizeof label,"%s %.26s  %u ev",e.part?"P":" ",e.name,e.count);}
-   int y=66+(i-first)*21;if(i==pick){colour(g,0xff303030);rect(g,6,y,308,21);}colour(g,i==pick?AMBER:WHITE);left_text(g,label,11,y,300,21,14);
+   int y=66+(i-first)*22;if(i==pick){colour(g,0xff303030);rect(g,6,y,302,22);}colour(g,i==pick?AMBER:WHITE);left_text(g,label,11,y,294,22,14);
   }
+  int offset,thumb=ui_list_thumb(first,count,6,132,&offset);colour(g,0xff303030);rect(g,314,66,2,132);colour(g,AMBER);rect(g,314,66+offset,2,thumb);
   if(!count){colour(g,GREY);left_text(g,"B2 Actions > Split or Empty",10,100,300,24,14);}
  }
- colour(g,AMBER);left_text(g,message[0]?message:"DATA / Fader: choose | Shift +/-: pattern history",5,201,310,24,11);
+ colour(g,GREY);left_text(g,"DATA / Fader: choose | Shift +/-: undo",6,201,308,16,11);
+ colour(g,AMBER);left_text(g,message[0]?message:"B1 Back / B2 Actions / B3 Open",6,219,308,17,11);
 }

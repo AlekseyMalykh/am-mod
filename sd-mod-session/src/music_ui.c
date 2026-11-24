@@ -1069,13 +1069,7 @@ static void mod_settings_paint(void*g){
   colour(g,0xffffc247);text(g,"Version " AM_MOD_VERSION,8,108,304,25,17);
   colour(g,0xffa0a0a0);text(g,"Source and updates",8,138,304,18,12);
   colour(g,0xffffffff);text(g,AM_MOD_REPO_URL,5,154,310,23,12);
-  /* Last row: leave the mod for the bootloader menu (or stock when there is none). */
-  colour(g,0xff2c2c2c);rect(g,6,178,308,21);
-  colour(g,0xffffffff);text_aligned(g,"Exit to bootloader",14,178,220,21,13,0x21);
-  colour(g,0xffa0a0a0);text_aligned(g,"Press",240,178,66,21,12,0x22);
   colour(g,0xff000000);rect(g,0,200,320,40);
-  colour(g,0xffffffff);text(g,"Exit",4,200,98,12,12);text(g,"Press",4,214,98,19,16);
-  colour(g,0xffa0a0a0);text_aligned(g,"Press DATA: exit",116,206,196,20,13,0x21);
   return;
  }
  unsigned first=mod_row<5?0:mod_row-4;
@@ -1468,7 +1462,6 @@ int music_ui_button(void *event)
         }
         else if(code==0x0c){key_page=0;repaint(project);music_ui_tick();}
         else if(code==0x0d||code==0x0e){mod_tab=(mod_tab+(code==0x0e?1:MOD_TAB_COUNT-1))%MOD_TAB_COUNT;mod_row=mod_edit=0;repaint(project);}
-        else if(code==0x6f&&mod_tab==MOD_ABOUT_TAB){key_page=2;repaint(project);}
         else if(code==0x6f&&mod_tab!=MOD_ABOUT_TAB){if(mod_row==mod_rows()){mod_reset_confirm=1;mod_edit=0;}else if(!row_disabled(mod_row))mod_edit=!mod_edit;repaint(project);}
         owned_buttons[code]=1;atomic_fetch_add(&held_count,1);return 1;
     }

@@ -102,13 +102,75 @@ static void due(void*scheduler,const struct step_event*event,uint64_t end){
  FN(0x21185a0,void(*)(void*,uint64_t,uint64_t))(scheduler,end,96);
 }
 #include "check_synth_repeat.inc"
+extern int check_arrangement_native_engine_plan(uintptr_t,void*,void(*)(void*,const struct step_event*,unsigned,int64_t));
+static int phone_gate_fixture,phone_preview_calls;
+static int phone_preview(void*track,const struct step_event*event,unsigned tag){
+ assert(track&&event);++phone_preview_calls;return tag==0x7ffffffe;
+}
+static void arrangement_drain_until(void*scheduler,uint64_t until){
+ /* The low-level native due path accepts its exact heap boundary. Passing a
+  * later UI/seek tick can spin at 21185f4..21185fc. The production adapter
+  * must use the existing scheduler, not call this path with a guessed clock. */
+ for(unsigned budget=0;;++budget){
+  uintptr_t begin,end;memcpy(&begin,(char*)scheduler+0x6c8,8);memcpy(&end,(char*)scheduler+0x6d0,8);
+  assert(end>=begin&&(end-begin)%96==0);if(begin==end)return;
+  uint64_t next;memcpy(&next,(void*)(begin+56),8);if(next>until)return;
+  assert(budget<32);memcpy(music_data+200,&next,8);
+  FN(0x21185a0,void(*)(void*,uint64_t,uint64_t))(scheduler,next,96);
+  uintptr_t after;memcpy(&after,(char*)scheduler+0x6d0,8);assert(after<end);
+ }
+}
+static void arrangement_engine_probe(void*scheduler,const struct step_event*events,unsigned count,int64_t length){
+ if(phone_gate_fixture){
+  struct step_event muted=events[0];muted.type|=0x200;int previous=phone_preview_calls;
+  FN(0x2119d00,am_synth_engine_event_fn)(scheduler,0,track_data,&muted,3,0);
+  assert(!count_synth()&&phone_preview_calls==previous);
+  FN(0x2119d00,am_synth_engine_event_fn)(scheduler,0,track_data,events,3,0x7ffffffe);
+  assert(!count_synth()&&phone_preview_calls==previous+1);
+  puts("PASS preserved phone Engine gate: muted On and preview receiver veto return through signed LR before native allocation; no Synth voice");
+ }
+ assert(count==7&&length==30720&&!count_synth());
+ const uint64_t origin=10000;double energy=0;unsigned initial=0;
+ for(unsigned i=0;i<count;++i){
+  uint64_t now=origin+(uint64_t)events[i].time;
+  arrangement_drain_until(scheduler,now);
+  unsigned expected=0;for(unsigned j=0;j<i;++j){int64_t duration;memcpy(&duration,events[j].data+24,8);expected+=events[j].time+duration>events[i].time;}
+  assert(count_synth()==expected);memcpy(music_data+200,&now,8);
+  drain_gate_open=1;FN(0x2119d00,am_synth_engine_event_fn)(scheduler,96,track_data,events+i,3,0);drain_gate_open=0;
+  assert(count_synth()==expected+1);if(!events[i].time)++initial;
+  float left[256]={0},right[256]={0};am_synth_render_add(left,right,256);
+  for(unsigned f=0;f<256;++f){assert(isfinite(left[f])&&isfinite(right[f]));energy+=fabsf(left[f])+fabsf(right[f]);}
+ }
+ assert(initial==3&&energy>0);
+ arrangement_drain_until(scheduler,origin+(uint64_t)length);
+ assert(count_synth()==1); /* the second 4-bar part retains its long tail */
+ FN(0x211e610,am_synth_track_cancel_fn)(scheduler,track_data);assert(!count_synth());
+ uintptr_t begin,end;memcpy(&begin,(char*)scheduler+0x6c8,8);memcpy(&end,(char*)scheduler+0x6d0,8);assert(begin==end);
+ assert(am_synth_owned_reset()); /* isolate later legacy DSP assertions, including release envelopes */
+ struct am_synth_state state;for(unsigned i=0;i<500;++i){render();if(!am_synth_peek(&state)||!state.voices)break;}
+ assert(!am_synth_peek(&state)||!state.voices);
+ puts("PASS Arrange Engine: compiled parallel 2/4/8 parts -> seven real Engine dispatches, three simultaneous On, native due heap, nonzero Synth PCM, tail beyond arrangement end and native Track cancellation; fixture transport/delivery, no Arrange UI Start or sample-audio proof.");
+}
 int main(int argc,char**argv){
- assert(argc==2);struct sigaction sa={.sa_sigaction=synth_fault,.sa_flags=SA_SIGINFO};sigaction(SIGSEGV,&sa,NULL);sigaction(SIGILL,&sa,NULL);sigaction(SIGABRT,&sa,NULL);
+ assert(argc==2||argc==3);struct sigaction sa={.sa_sigaction=synth_fault,.sa_flags=SA_SIGINFO};sigaction(SIGSEGV,&sa,NULL);sigaction(SIGILL,&sa,NULL);sigaction(SIGABRT,&sa,NULL);sigaction(SIGALRM,&sa,NULL);
  load(argv[1]);phase="Synth native accepted command";
  patch(0x2768e10,notification);patch(0x286bbe0,instrument_get);patch(0x2804760,sample_exists);
  patch(0x282fe30,drain_gate);patch(0x20f9140,drain_tail);patch(0x212c440,position_notice);patch(0x2146140,position_sink);
  patch(0x2830410,optional_release_bookkeeping);patch(0x282e950,optional_release_bookkeeping);patch(0x212cba0,optional_release_bookkeeping);
  patch(0x3b89890,deterministic_random);
+ if(argc==3){
+  assert(!strcmp(argv[2],"--phone-gate")||!strcmp(argv[2],"--fast-phone-gate"));phone_gate_fixture=1;
+  memcpy((void*)(base+0x6d3e34c),synth_phone_gate_words,sizeof synth_phone_gate_words);
+  *(uint32_t*)(base+0x2119d04)=0x15309192;patch(0x6d3e260,phone_preview);
+  *(uint32_t*)(base+0x6d3e34c)^=1;
+  assert(!am_midi_native_install(base)&&!image&&*(uint32_t*)(base+0x2119d00)==0xd503233f);
+  *(uint32_t*)(base+0x6d3e34c)^=1;
+  __builtin___clear_cache((char*)base,(char*)base+0x7500000);
+  if(!strcmp(argv[2],"--fast-phone-gate")){
+   assert(resample_fast_native_install(base)&&resample_fast_native_dispatch_bridge(base));
+   assert(!resample_fast_native_dispatch_bridge(base+4096));
+  }
+ }
  assert(am_midi_native_install(base));native_release=release_sink;
  void*p=program_data;memcpy(track_data+0xbb8,&p,8);const char*key="native-synth-program";memcpy(program_data+0xdc8,&key,8);
  int sound=15,note=50,route=321;memcpy(program_data+0x12a8+sound*4,&note,4);memcpy(program_data+0x14a8+note*4,&sound,4);memcpy(track_data+0x6f0,&route,4);
@@ -128,6 +190,11 @@ int main(int argc,char**argv){
  uintptr_t heap_begin,heap_end;memcpy(&heap_begin,scheduler+0x6c8,8);memcpy(&heap_end,scheduler+0x6d0,8);assert(heap_end-heap_begin==96);
  uint64_t native_end;memcpy(&native_end,(void*)(heap_begin+56),8);assert(native_end==origin_tick+240);
  FN(0x21185a0,void(*)(void*,uint64_t,uint64_t))(scheduler,native_end,96);assert(!count_synth());render();backend_count=0;
+ phase="prepared parallel Arrange through real Engine and Synth DSP";
+ alarm(15);
+ assert(check_arrangement_native_engine_plan(base,scheduler,arrangement_engine_probe));
+ alarm(0);
+ memcpy(music_data+200,&origin_tick,8);backend_count=0;
  /* Raw Track calls without a proven Engine context do not guess ownership. */
  FN(0x29caa30,void(*)(void*,uint64_t,const struct step_event*,void*))(track_data,0,&event,NULL);assert(!count_synth());backend_count=0;
  phase="first stock Track dispatch";dispatch(track_data,96,&event,NULL);assert(count_synth()==1&&backend_count==1&&backend_offset==96&&synth_last_offset==96);

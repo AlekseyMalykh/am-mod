@@ -84,6 +84,51 @@ static void event(void *track,uint64_t offset,const struct step_event *incoming,
  live_event=previous;live_blocked=blocked;am_midi_context_end(&frame);
 }
 struct hook {uintptr_t offset,callback;uint32_t expected[4];void **saved;};
+#ifdef MPC_SYNTH_NATIVE_PLAYBACK_TRIAL
+#include "synth_phone_gate.h"
+#ifdef MPC_FAST_RESAMPLE
+#include "resample_fast_native.h"
+#endif
+static uintptr_t phone_engine_gate(uintptr_t base){
+ const uint32_t entry[]={0xd503233f,0x15309192,0xf0028246,0xf941ccc6};
+ if(!memcmp((void*)(base+0x2119d00),entry,sizeof entry)&&
+    !memcmp((void*)(base+0x6d3e34c),synth_phone_gate_words,sizeof synth_phone_gate_words))return base+0x6d3e34c;
+#ifdef MPC_FAST_RESAMPLE
+ const uint32_t*p=(const uint32_t*)(base+0x2119d00);
+ uintptr_t bridge=resample_fast_native_dispatch_bridge(base);
+ if(bridge&&p[0]==entry[0]&&p[2]==entry[2]&&p[3]==entry[3]&&(p[1]&0xfc000000u)==0x14000000u){
+  int32_t delta=(int32_t)(p[1]<<6)>>6;
+  if(base+0x2119d04+(int64_t)delta*4==bridge)return bridge;
+ }
+#endif
+ return 0;
+}
+static int install_phone_engine(uintptr_t base,const struct hook*h){
+ // Keep native+4's gate and native+8's continuation intact. The original
+ // callable trampoline signs LR before entering the existing gate, whose
+ // muted early return and normal stack allocation both remain unchanged.
+ uintptr_t site=base+h->offset;unsigned char*code=MAP_FAILED;
+ for(uintptr_t off=0x7800000;off<0x9600000;off+=0x10000){
+  if(base+off-site>=0x8000000)break;
+  code=mmap((void*)(base+off),4096,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED_NOREPLACE,-1,0);
+  if(code!=MAP_FAILED)break;
+ }
+ if(code==MAP_FAILED)return 0;
+ const uint32_t jump[]={0xd503245f,0x58000070,0xd61f0200,0xd503201f};
+ const uint32_t original[]={0xd503245f,0xd503233f,0x58000050,0xd61f0200};
+ memcpy(code,jump,16);memcpy(code+16,&h->callback,8);
+ memcpy(code+32,original,16);uintptr_t gate=phone_engine_gate(base);if(!gate){munmap(code,4096);return 0;}memcpy(code+48,&gate,8);
+ __builtin___clear_cache((char*)code,(char*)code+56);
+ if(mprotect(code,4096,PROT_READ|PROT_EXEC)){munmap(code,4096);return 0;}
+ uintptr_t page=site&~(uintptr_t)4095;
+ if(mprotect((void*)page,4096,PROT_READ|PROT_WRITE)){munmap(code,4096);return 0;}
+ *h->saved=code+32;
+ uint32_t branch=0x14000000u|((uint32_t)(((uintptr_t)code-site)/4)&0x3ffffffu);memcpy((void*)site,&branch,4);
+ __builtin___clear_cache((char*)site,(char*)site+4);
+ if(mprotect((void*)page,4096,PROT_READ|PROT_EXEC))_exit(121);
+ fprintf(stderr,"AM_MIDI_NATIVE EXISTING_PHONE_ENGINE_GATE_PRESERVED\n");return 1;
+}
+#endif
 /* Constructor only. Relocate ADRP literals explicitly; no relative native
  * branch is permitted in the pinned displaced prologues. */
 static int install_hook(uintptr_t base,const struct hook *h){
@@ -148,7 +193,11 @@ int am_midi_native_install(uintptr_t base){
   ,{0x211e610,(uintptr_t)synth_native_track_cancel,{0xd503233f,0xd10203ff,0xa9057bfd,0x910143fd},(void**)&native_synth_track_cancel}
 #endif
  };
- for(unsigned i=0;i<sizeof hooks/sizeof *hooks;++i)if(memcmp((void*)(base+hooks[i].offset),hooks[i].expected,16))return 0;
+ for(unsigned i=0;i<sizeof hooks/sizeof *hooks;++i)if(memcmp((void*)(base+hooks[i].offset),hooks[i].expected,16)){
+#ifdef MPC_SYNTH_NATIVE_PLAYBACK_TRIAL
+  if(hooks[i].offset==0x2119d00&&phone_engine_gate(base))continue;
+#endif
+  fprintf(stderr,"AM_MIDI_NATIVE INCOMPATIBLE_ENTRY offset=%lx\n",(unsigned long)hooks[i].offset);return 0;}
  const uint32_t scheduled_bl=0x97ffff83; if(memcmp((void*)(base+0x2118654),&scheduled_bl,4))return 0;
 #ifdef MPC_SYNTH_NATIVE_PLAYBACK_TRIAL
  const struct {uintptr_t offset;uint32_t words[2];unsigned size;} extra_calls[]={
@@ -160,7 +209,15 @@ int am_midi_native_install(uintptr_t base){
  for(unsigned i=0;i<sizeof extra_calls/sizeof *extra_calls;++i)if(memcmp((void*)(base+extra_calls[i].offset),extra_calls[i].words,extra_calls[i].size))return 0;
 #endif
  image=base;
- for(unsigned i=0;i<sizeof hooks/sizeof *hooks;++i)if(!install_hook(base,hooks+i))_exit(121);
+ for(unsigned i=0;i<sizeof hooks/sizeof *hooks;++i){
+#ifdef MPC_SYNTH_NATIVE_PLAYBACK_TRIAL
+  if(hooks[i].offset==0x2119d00&&phone_engine_gate(base)){
+   if(!install_phone_engine(base,hooks+i))_exit(121);
+   continue;
+  }
+#endif
+  if(!install_hook(base,hooks+i))_exit(121);
+ }
  const uint32_t scheduled[]={0xd503245f,0xd10083ff,0xa9017bfd,0xf90003e8,0x580000d0,0xd63f0200,0xa9417bfd,0x910083ff,0xd65f03c0,0xd503201f};
  if(!install_call(base,0x2118654,(uintptr_t)live_scheduled_release,scheduled,10,4))_exit(121);
 #ifdef MPC_SYNTH_NATIVE_PLAYBACK_TRIAL

@@ -1,5 +1,8 @@
 #define _GNU_SOURCE
 #include "song_ui.h"
+#ifdef MPC_POWER_BUTTON
+#include "power_control.h"
+#endif
 #ifdef MPC_EARLY_STARTUP
 #include "startup_project.h"
 extern int internal_storage_enabled(void) __attribute__((weak));
@@ -742,6 +745,9 @@ static void paint(void *p,void *g)
 {
     if(FIELD(p,0,uintptr_t)!=base+SONG_VPTR) return;
     screen=p;
+#ifdef MPC_POWER_BUTTON
+    if(power_control_busy()){power_control_paint(p,g);return;}
+#endif
 #ifdef MPC_PATTERN_TOOLS_TRIAL
     if(atomic_load(&arrangement_active)){arrange_paint(g);return;}
 #endif

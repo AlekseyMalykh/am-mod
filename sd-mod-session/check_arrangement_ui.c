@@ -20,11 +20,13 @@ int step_pattern_pad(unsigned pad,int shifted){assert(pad==3&&shifted);++bridge_
 int step_pattern_paint(void*g,int shifted){(void)g;(void)shifted;++bridge_paints;return bridge_active;}
 static FILE*draw_trace;
 static uint32_t trace_ink;static float trace_size;
+static int drawn_menu_rows,thumb_y,thumb_h;
 static void ink(void*g,uint32_t c){(void)g;trace_ink=c;}
-static void box(void*g,int x,int y,int w,int h){(void)g;assert(x>=0&&y>=0&&w>=0&&h>=0&&x+w<=320&&y+h<=240);if(draw_trace)fprintf(draw_trace,"R %d %d %d %d %08x\n",x,y,w,h,trace_ink);}
+static void box(void*g,int x,int y,int w,int h){(void)g;assert(x>=0&&y>=0&&w>=0&&h>=0&&x+w<=320&&y+h<=240);if(x==314&&trace_ink==0xffffc247u){thumb_y=y;thumb_h=h;}if(draw_trace)fprintf(draw_trace,"R %d %d %d %d %08x\n",x,y,w,h,trace_ink);}
 static void font_make(uint64_t*f,int face,float size){(void)face;*f=0;trace_size=size;}
 static void label(void*g,const uint64_t*s,int x,int y,int w,int h,int flags,int lines,float scale){
     (void)g;(void)s;(void)lines;(void)scale;assert(x>=0&&y>=0&&w>=0&&h>=0&&x+w<=320&&y+h<=240);
+    if(x==11&&y>=62&&y<194&&h==22)++drawn_menu_rows;
     if(draw_trace)fprintf(draw_trace,"T %d %d %d %d %08x %.1f @%x %s\n",x,y,w,h,trace_ink,trace_size,flags,drawn);
 }
 static void press(unsigned code,int shifted){
@@ -79,10 +81,21 @@ int main(int argc,char**argv){
     uint64_t revision=a.revision;action(3);assert(pt_arr_info(&a)&&a.revision==revision&&a.clips==2);press(B1,0);
     action(8);struct pt_arr_track t;assert(pt_arr_track_at(1,&t)&&t.muted);action(9);assert(pt_arr_track_at(1,&t)&&t.solo);
     phase="Zoom/scroll, boundary Chop refused, delete requires confirmation";
-    int64_t before_span=arrange_span;turn(DATA_ENCODER,1,1);assert(arrange_span<before_span);turn(0x14,127,1);assert(arrange_rows==5);
+    int64_t before_span=arrange_span;turn(DATA_ENCODER,1,1);assert(arrange_span<before_span);turn(0x14,127,1);assert(arrange_rows==3);
     turn(0x12,127,0);shot();press(0x4b,0);assert(pt_arr_info(&a)&&a.clips==2);
     action(10);assert(arrange_menu==3);press(B1,0);assert(pt_arr_info(&a)&&a.clips==2);
     action(10);press(B3,0);assert(pt_arr_info(&a)&&a.clips==1);press(MINUS,1);assert(pt_arr_info(&a)&&a.clips==2);
+    phase="Fader follows screen direction; six filled menu rows and visible scrollbar endpoints";
+    turn(0x14,127,0);assert(arrange_row==0);turn(0x14,0,0);assert(arrange_row==1);
+    turn(0x14,0,1);assert(arrange_rows==6);turn(0x14,127,1);assert(arrange_rows==3);
+    FILE*timeline_trace=draw_trace;char menu_path[4096];snprintf(menu_path,sizeof menu_path,"%s-menus.txt",argv[2]);draw_trace=fopen(menu_path,"w");assert(draw_trace);
+    press(B2,0);turn(0x14,127,0);assert(arrange_pick==0);drawn_menu_rows=0;shot();assert(drawn_menu_rows==6&&thumb_y==62&&thumb_h>0&&thumb_h<132);
+    int previous_pick=0;for(unsigned value=127;value>0;--value){turn(0x14,value,0);assert(arrange_pick>=previous_pick);previous_pick=arrange_pick;}
+    turn(0x14,0,0);assert(arrange_pick==ARRANGE_ACTIONS-1);drawn_menu_rows=0;shot();assert(drawn_menu_rows==6&&thumb_y+thumb_h==194);
+    turn(K1,0,0);assert(arrange_pick==0);turn(K1,127,0);assert(arrange_pick==ARRANGE_ACTIONS-1);
+    press(B1,0);press(B2,0);turn(DATA_ENCODER,1,0);press(B3,0);assert(arrange_menu==2);shot();press(B1,0);
+    fclose(draw_trace);draw_trace=timeline_trace;
+    puts("PASS screen navigation: fader up selects top, down selects bottom; zoom up increases row size; full menu viewport and scrollbar ends, knobs retain direction");
     phase="Play/Record held locally; Stop and Shift-B1 Sequential stay native";
     press(0x52,0);press(0x50,0);assert(!song_ui_owns(PHONE_BUTTON,0x51,0,1));
     assert(ops==original_ops&&step_count==original_steps&&!memcmp(source,steps,sizeof steps));

@@ -49,9 +49,12 @@ int pt_archive_read(void*,void*,int(*)(void*,void*));
 #ifdef __cplusplus
 }
 #include "arrangement.h"
+#include "arrangement_native_plan.h"
 namespace am_pattern {
 int pt_prepare_song(PreparedArrangement&);
 bool pt_prepared_current(const PreparedArrangement&);
+int pt_prepare_native_plan(const NativeDestination&,NativeArrangementPlan&);
+bool pt_native_plan_current(const NativeArrangementPlan&,const NativeDestination&);
 }
 #endif
 #endif

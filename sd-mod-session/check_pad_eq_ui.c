@@ -241,7 +241,17 @@ int main(int argc,char**argv){
  phase="Project Mod Settings tabs, encoder, reset and Standard/AM Mod switching";
  project_open=1;music_ui_project(project_screen,screen);
  assert(music_set_pad_colour(18,13)&&music_set_sequence_colour(11,4));
- music_ui_request_project((void*)((uintptr_t)project_screen|2));music_ui_tick();captions[0]=0;music_ui_project(project_screen,screen);assert(strstr(captions,"Pad lighting")&&strstr(captions,"Am MOD")&&strstr(captions,"Restore recommended"));
+ music_ui_request_project((void*)((uintptr_t)project_screen|2));music_ui_tick();captions[0]=0;music_ui_project(project_screen,screen);
+ if(getenv("AM_ABOUT_ONLY")){
+  for(unsigned i=0;i<4;++i)assert(key(0x0e,1)&&key(0x0e,0));
+  captions[0]=0;music_ui_project(project_screen,screen);
+  assert(strstr(captions,"About")&&strstr(captions,"Version " AM_MOD_VERSION)&&strstr(captions,AM_MOD_REPO_URL));
+  assert(!strstr(captions,"Exit to bootloader")&&!strstr(captions,"Press DATA: exit"));
+  assert(key(0x6f,1)&&key(0x6f,0));captions[0]=0;music_ui_project(project_screen,screen);
+  assert(strstr(captions,"About")&&!strstr(captions,"Exit to bootloader?"));
+  assert(key(0x0c,1)&&key(0x0c,0));puts("PASS About retains version/repository; no exit row/footer or DATA exit action; B1 closes");return 0;
+ }
+ assert(strstr(captions,"Pad lighting")&&strstr(captions,"Am MOD")&&strstr(captions,"Restore recommended"));
 #ifdef SCREEN_MIRROR_FLAG
  assert(strstr(captions,"Screen Mirror")&&access(SCREEN_MIRROR_FLAG,F_OK)!=0);
  knob(0x64,1);
@@ -327,7 +337,9 @@ int main(int argc,char**argv){
  assert(key(0x36,1)&&key(0x36,0)&&key(0x37,1)&&key(0x37,0));
  captions[0]=0;music_ui_project(project_screen,screen);
  assert(strstr(captions,"About")&&strstr(captions,"Version " AM_MOD_VERSION)&&strstr(captions,AM_MOD_REPO_URL)&&!strstr(captions,"Restore recommended"));
+ assert(!strstr(captions,"Exit to bootloader")&&!strstr(captions,"Press DATA: exit"));
  uint64_t about_snapshot=music_mod_settings_snapshot();knob(0x10,0);knob(0x11,127);knob(0x12,127);knob(0x64,127);assert(key(0x6f,1)&&key(0x6f,0)&&music_mod_settings_snapshot()==about_snapshot);
+ captions[0]=0;music_ui_project(project_screen,screen);assert(strstr(captions,"About")&&!strstr(captions,"Exit to bootloader?"));
  assert(key(0x0e,1)&&key(0x0e,0));captions[0]=0;music_ui_project(project_screen,screen);assert(strstr(captions,"Pad lighting"));
  assert(key(0x0d,1)&&key(0x0d,0));captions[0]=0;music_ui_project(project_screen,screen);assert(strstr(captions,"About"));
  assert(key(0x0d,1)&&key(0x0d,0));captions[0]=0;music_ui_project(project_screen,screen);assert(strstr(captions,"Cursor pulse"));

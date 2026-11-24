@@ -4073,9 +4073,6 @@ static void load(void)
     }
     if (mprotect(table,4096,PROT_READ|PROT_WRITE)) { note("BRIDGE_NOT_WRITABLE"); return; }
     if (!music_ui_install(music_sample_paint,music_project_paint,music_tab_paint)) _exit(121);
-#ifdef MPC_MIDI_EVENTS
-    if(!am_midi_native_install(base))_exit(121);
-#endif
 #ifdef MPC_REAR_ROUTING
     if(!rear_native_install(base)||!rear_ui_install(base))_exit(121);
 #endif
@@ -4130,6 +4127,13 @@ static void load(void)
     /* Constructor runs before main/audio startup. Later Render commands only
      * check readiness; they must never revoke X on running input handlers. */
     if (!resample_fast_native_install(base)) _exit(121);
+#endif
+#ifdef MPC_MIDI_EVENTS
+    /* Compose outside the offline renderer's already installed Engine gate;
+     * keep its Mini filter and the clone's mute/preview gate in the chain. */
+    if(!am_midi_native_install(base))_exit(121);
+#endif
+#ifdef MPC_FAST_RESAMPLE
 #ifdef MPC_POWER_BUTTON
     note("BRIDGE_READY r23_power_button_sd_copy");
 #else

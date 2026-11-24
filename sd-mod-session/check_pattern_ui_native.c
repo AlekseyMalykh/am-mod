@@ -10,11 +10,12 @@ static void patterns_write(void*p,const char*key,const void*text){(void)p;assert
 static void patterns_original(void*p,void*a){(void)p;(void)a;}
 static int patterns_read(void*p,void*a){(void)a;pt_archive_load(p,saved_wrapper,patterns_original);return 1;}
 static unsigned host_redraws;
+extern int check_arrangement_native_choices(uintptr_t);
 static void host_redraw(void){++host_redraws;}
 static void host_press(unsigned code,int shifted){assert(step_pattern_button(code,1,shifted));assert(step_pattern_button(code,0,shifted));}
 static void host_action(int action){host_press(0x0e,1);int delta=action-roll_action;assert(step_pattern_control(0x64,(unsigned)(delta<0?128+delta:delta),0));host_press(0x0e,0);}
 int main(int argc,char**argv){
- assert(pattern_legacy_roll_main(argc,argv)==0);pt_init(base);
+ assert(pattern_legacy_roll_main(argc,argv)==0);pt_init(base);assert(check_arrangement_native_choices(base));
  FN(0xf535c0,void(*)(void*,const char*))(program+0xdc8,"pattern-ui-program");
  step_native_tick();roll_open();assert(atomic_load(&piano_active));
  unsigned count=roll.count;assert(count);struct step_event source[PR_MAX_EVENTS];for(unsigned i=0;i<count;++i)source[i]=roll.notes[i].event;
@@ -22,11 +23,16 @@ int main(int argc,char**argv){
  roll_action=18;roll_action_run();assert(roll_patterns_state==1);
  roll_patterns_button(0x0d,0);assert(roll_patterns_state==2);roll_patterns_action=0;roll_patterns_button(0x0e,0);
  assert(pt_count()>0&&roll_patterns_state==1&&roll.count==count);roll_patterns_paint((void*)1);
+ roll_patterns_button(0x0d,0);assert(roll_patterns_state==2);
+ roll_patterns_control(0x14,127,0);assert(roll_patterns_action==0);roll_patterns_control(0x14,0,0);assert(roll_patterns_action==7);
+ roll_patterns_control(0x10,0,0);assert(roll_patterns_action==0);roll_patterns_button(0x0d,0);
+ roll_patterns_control(0x14,127,0);assert(roll_patterns_pick==0);roll_patterns_control(0x14,0,0);assert(roll_patterns_pick==(int)pt_count()-1);
  unsigned original_count=pt_count();roll_patterns_button(0x0d,0);roll_patterns_action=5;roll_patterns_button(0x0e,0);
  assert(pt_count()==original_count+1);unsigned variation=(unsigned)roll_patterns_pick;
  roll_patterns_button(0x0e,0);assert(roll_pattern_index==(int)variation&&!roll_patterns_state);pr_select_all(&roll);
  assert(pr_edit(&roll,0,0,120,-5)&&pr_apply(&roll));assert(roll_refresh(1));
  assert(roll_layer_open(PR_TUNE,roll.notes[0].sound));pr_select_all(&roll);int previous_tune=roll.notes[0].tune;
+ assert(roll_control(0x14,0,0));int bottom_row=roll.cursor_row;assert(roll_control(0x14,127,0)&&roll.cursor_row>=bottom_row); // Pitch increases upward on screen.
  assert(pr_edit(&roll,0,1,0,0)&&pr_apply(&roll)&&roll_refresh(1));assert(roll.notes[0].tune==previous_tune+1);
  assert(roll_layer_open(PR_PADS,roll.notes[0].sound));
  assert(tree()->size==count);unsigned ordinal=0;for(void*n=tree()->left;n!=&tree()->colour;n=FN(0xb51738,void*(*)(void*))(n))assert(!memcmp((char*)n+0x20,source+ordinal++,sizeof(struct step_event)));

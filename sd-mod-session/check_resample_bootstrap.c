@@ -6,6 +6,14 @@
 #include "src/resample_fast_native.h"
 #include "build/phone_hooks.h"
 #include <link.h>
+#include <sys/syscall.h>
+#include "build/pad_lighting_project.h"
+/* Report fail-closed constructor guards without changing production code. */
+__attribute__((noreturn)) void _exit(int status){
+ void*caller=__builtin_extract_return_addr(__builtin_return_address(0));Dl_info info={0};
+ if(status==121&&dladdr(caller,&info))fprintf(stderr,"BOOTSTRAP_CONSTRUCTOR_EXIT status=%d library=%s offset=%lx\n",status,info.dli_fname,(unsigned long)((uintptr_t)caller-(uintptr_t)info.dli_fbase));
+ syscall(SYS_exit_group,status);__builtin_unreachable();
+}
 /* Exercise the real BL at1500d44. Only its continuation is a test adapter:
  * return through x19 to this harness instead of entering the pad UI. */
 extern int copy_from_loader(const uint64_t*,const uint64_t*,uintptr_t);
@@ -58,6 +66,10 @@ int main(int argc,char**argv){
  FILE*f=fopen(argv[3],"rb");assert(f);uint64_t offset,size;
  while(fread(&offset,8,1,f)==1){assert(fread(&size,8,1,f)==1&&offset<0x7500000&&size<=65536&&offset+size<=0x7500000);assert(fread((void*)(base+offset),1,size,f)==size);}assert(feof(f));fclose(f);
  __builtin___clear_cache((char*)base,(char*)(base+0x7500000));pretend_main=1;
+ const uintptr_t slots[]={0x6e212a0+0xd8,0x6e1f788+0xd8,0x706e940+0xd8,0x6e1e258+0xd0,0x6e1f060+0xd0,0x6e23e38+0xd8,0x6e23e38,0x6e23e38+8,0x6e1f060+0xd8,0x6e1f060,0x6e1f060+8,0x6e1e258,0x6e1e258+8,0x6e1e9e8+0xd8,0x6e1e9e8,0x6e1e9e8+8};
+ const uintptr_t expected[]={0x10e2e10,0x10e2e10,0x10e2e10,0x10e2e10,0x10e2e10,0x10e2e10,0x169a0f0,0x169a6d0,0x10e2e10,0x1639740,0x1639df0,0x1627040,0x1628750,0x10e2e10,0x1637230,0x1637710};
+ for(unsigned i=0;i<16;++i)if(*(uintptr_t*)(base+slots[i])!=base+expected[i])fprintf(stderr,"BOOTSTRAP_UI_SLOT %u actual=%lx expected=%lx\n",i,(unsigned long)(*(uintptr_t*)(base+slots[i])-base),(unsigned long)expected[i]);
+ fprintf(stderr,"BOOTSTRAP_UI_CODE amber=%08x/%08x project=%d dispatch=%d rows=%d\n",*(unsigned*)(base+0x6d3ba84),*(unsigned*)(base+0x6d3ba88),memcmp((void*)(base+0x6d3b400),lighting_project_before,sizeof lighting_project_before),memcmp((void*)(base+0x1643908),lighting_dispatch_before,4),memcmp((void*)(base+0x1644ff4),lighting_rows_before,4));
  void*library=dlopen(argv[2],RTLD_NOW|RTLD_LOCAL);if(!library){fprintf(stderr,"%s\n",dlerror());return 1;}
  int(*ready)(uintptr_t)=dlsym(library,"resample_fast_native_ready");assert(ready&&ready(base));
  for(unsigned i=0;i<H_COUNT;++i){uintptr_t*slot=(uintptr_t*)(base+PHONE_TABLE_VA+64+i*16);assert(slot[0]==phone_hooks[i].entry&&slot[1]);}

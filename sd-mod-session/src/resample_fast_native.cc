@@ -449,7 +449,13 @@ extern "C" int resample_fast_native_prepare_import(const char*path){
     std::fprintf(stderr,"RESAMPLE OUTPUT_FINALIZED success=%u valid=%u bytes=%u peak=%.9g path=%s\n",ok,p.valid,p.bytes,p.peak,path);
     return ok;
 }
+static uintptr_t dispatch_bridge;
+static uint32_t dispatch_branch;
 extern "C" int resample_fast_native_ready(uintptr_t base){return base&&installed.load(std::memory_order_acquire)&&image.load(std::memory_order_acquire)==base;}
+extern "C" uintptr_t resample_fast_native_dispatch_bridge(uintptr_t base){
+ if(!resample_fast_native_ready(base)||!dispatch_bridge)return 0;
+ return F(reinterpret_cast<void*>(base),0x2119d04,uint32_t)==dispatch_branch?dispatch_bridge:0;
+}
 extern "C" int resample_fast_native_install(uintptr_t base){
     std::lock_guard<std::mutex>lock(install_lock);if(image)return image==base;
     if(!base||sysconf(_SC_PAGESIZE)!=4096)return 0;
@@ -493,6 +499,8 @@ extern "C" int resample_fast_native_install(uintptr_t base){
     image=base;
     for(auto&v:patches){intptr_t delta=reinterpret_cast<uintptr_t>(p)+v.relay-(base+v.offset);F(reinterpret_cast<void*>(base),v.offset,uint32_t)=(v.call?0x94000000u:0x14000000u)|(uint32_t(delta/4)&0x03ffffffu);__builtin___clear_cache(reinterpret_cast<char*>(base+v.offset),reinterpret_cast<char*>(base+v.offset+4));}
     for(unsigned i=0;i<page_count;++i)if(mprotect(reinterpret_cast<void*>(pages[i]),4096,PROT_READ|PROT_EXEC))_exit(121);
+    dispatch_bridge=reinterpret_cast<uintptr_t>(p)+160;
+    dispatch_branch=F(reinterpret_cast<void*>(base),0x2119d04,uint32_t);
     installed.store(true,std::memory_order_release);
     std::fprintf(stderr,"RESAMPLE FAST_PATCH_READY bootstrap_required=1\n");
     return 1;

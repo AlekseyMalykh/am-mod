@@ -138,6 +138,27 @@ int pt_prepare_song(PreparedArrangement&out){try{auto generation=epoch.load();if
     std::lock_guard<std::mutex>lock(mutex);if(epoch.load()!=generation||current!=s)throw std::runtime_error("Song changed: prepare again");out=std::move(prepared);return 1;
 }catch(const std::exception&e){set_error(e.what());return 0;}}
 bool pt_prepared_current(const PreparedArrangement&prepared){std::lock_guard<std::mutex>lock(mutex);return current&&prepared.matches(epoch.load(),current->song,current->library);}
+int pt_prepare_native_plan(const NativeDestination&destination,NativeArrangementPlan&out){try{
+    PreparedArrangement prepared;if(!pt_prepare_song(prepared))return 0;
+    NativeArrangementPlan value;auto result=prepare_native_plan(prepared,destination,getter(),value);
+    if(result!=NativePlanResult::ok){
+        const char*reason=result==NativePlanResult::program_mismatch?"Arrange needs another Program":
+            result==NativePlanResult::length_mismatch?"Native sequence length differs":
+            result==NativePlanResult::mapping_unavailable?"Native pad mapping unavailable":
+            result==NativePlanResult::transport_running?"Stop transport before preparing":
+            result==NativePlanResult::transport_unavailable?"Native transport unavailable":
+            result==NativePlanResult::stale?"Project changed: prepare again":"Arrange native plan refused";
+        throw std::runtime_error(reason);
+    }
+    std::lock_guard<std::mutex>lock(mutex);
+    if(!current||!prepared.matches(epoch.load(),current->song,current->library))throw std::runtime_error("Song changed: prepare again");
+    out=std::move(value);error[0]=0;return 1;
+}catch(const std::exception&e){set_error(e.what());return 0;}}
+bool pt_native_plan_current(const NativeArrangementPlan&plan,const NativeDestination&destination){
+    std::lock_guard<std::mutex>lock(mutex);if(!current||current->mode==2||current->arr_mode==2)return false;
+    PreparedArrangement metadata;metadata.project_epoch=epoch.load();metadata.arrangement_revision=current->song.revision;
+    metadata.library_revision=current->library.revision;metadata.length=current->song.length;return plan.matches(metadata,destination);
+}
 }
 extern "C" void pt_archive_save(void*data,void*a,void(*original)(void*,void*)){
     auto s=snapshot();std::string payload=s->mode==2?s->opaque:s->mode==1?library_encode(s->library):"";

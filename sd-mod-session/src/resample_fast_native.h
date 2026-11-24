@@ -10,6 +10,9 @@ extern "C" {
  * while another thread may be executing them. */
 int resample_fast_native_install(uintptr_t base);
 int resample_fast_native_ready(uintptr_t base);
+/* Cold constructor composition only: exact installed Engine relay, zero if
+ * readiness/base or its entry branch no longer matches. No live mutation. */
+uintptr_t resample_fast_native_dispatch_bridge(uintptr_t base);
 /* Capture the request on its model owner. Render receives AudioExport's
  * SERVICE CONTEXT, not the AudioExportSettings copied at submission. Never
  * read its +6e8 as a filename or +218 as a sample rate. Scope by context and
