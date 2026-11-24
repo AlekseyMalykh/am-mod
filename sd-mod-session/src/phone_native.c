@@ -1351,11 +1351,7 @@ static void tick(void *unused)
     levels_state_tick();
 #ifdef MPC_PAD_MIDI_RECORDING_TRIAL
     {static unsigned synth_stop_was;unsigned synth_stop=atomic_load(&synth_record_stop_serial);
-     if(synth_stop!=synth_stop_was){workflow_synth_record_stop();
-#ifdef MPC_SYNTH_NATIVE_PLAYBACK_TRIAL
-      am_synth_route_stop();
-#endif
-     }
+     if(synth_stop!=synth_stop_was)workflow_synth_record_stop();
      synth_stop_was=synth_stop;}
 #endif
     int note_running=note_native_tick();
@@ -2625,7 +2621,15 @@ static void buttons(void *event)
     }
     if(native_code==0x51)atomic_store(&stop_requested,native_down);
 #ifdef MPC_PAD_MIDI_RECORDING_TRIAL
-    if(native_code==0x51&&native_down)atomic_fetch_add(&synth_record_stop_serial,1);
+    if(native_code==0x51&&native_down){
+        atomic_fetch_add(&synth_record_stop_serial,1);
+#ifdef MPC_SYNTH_NATIVE_PLAYBACK_TRIAL
+        /* Invalidate accepted input at the request, not a later UI tick
+         * that could already belong to the following Play. This does not
+         * retire native due entries; only the native drain confirms that. */
+        am_synth_route_stop();
+#endif
+    }
 #endif
 #ifdef MPC_MIXER_LIVE
     if(mixer_sample_button(native_code,native_down))return;

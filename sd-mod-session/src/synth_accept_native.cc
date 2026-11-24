@@ -9,6 +9,12 @@ static void accepted(void*owner,uint64_t offset,int route,void*out,const void*co
  try{original(owner,offset,route,out,command);}catch(...){end(cookie,1);throw;}
  end(cookie,0);
 }
+extern "C" void am_synth_native_drain_scope(void*engine,uint64_t offset,unsigned flags,am_synth_drain_fn original,
+                                           void(*begin)(am_synth_drain_scope*),void(*finish)(am_synth_drain_scope*,int)){
+ am_synth_drain_scope scope{};scope.engine=engine;scope.offset=offset;begin(&scope);
+ try{original(engine,offset,flags);}catch(...){finish(&scope,0);throw;}
+ finish(&scope,1);
+}
 extern "C" int am_synth_accept_native_install(uintptr_t base,am_synth_accept_tap callback,am_synth_accept_end finish){
  if(image)return image==base&&tap==callback&&end==finish;
  if(!base||!callback||!finish||sysconf(_SC_PAGESIZE)!=4096)return 0;

@@ -3,6 +3,9 @@
  * after both stock channel/note/velocity filters accepted its command. */
 static struct am_synth_sequence synth_player;
 static uint64_t synth_generation,synth_transport_stop,synth_faults,synth_last_offset;
+static void(*native_synth_drain)(void*,uint64_t,unsigned);
+static _Thread_local struct am_synth_drain_scope*synth_drain;
+_Static_assert(LIVE_COUNT==AM_SYNTH_DRAIN_OCCURRENCES,"Native drain scope must cover the existing live pool");
 static void synth_cancel(void){
  ++synth_faults;
  if(am_synth_sequence_stop(&synth_player)!=AM_SYNTH_SEQUENCE_ACCEPTED)(void)am_synth_owned_reset();
@@ -14,8 +17,8 @@ static void synth_finish(struct live_note*n){
  memset(&n->synth,0,sizeof n->synth);
 }
 static void synth_retire_cancelled(void){
- /* Only after a real Stop/project generation change, which invalidates the
-  * native due heap. Binding/parameter edits must retain scheduled tombstones.
+ /* Only after a project generation change. A physical Stop request does NOT
+  * prove that the native due heap was drained; retain its tombstones.
   * Never dereference retired native backend/track pointers here. */
  for(unsigned i=0;i<LIVE_COUNT;++i)if(live[i].used&&live[i].synth_handled){
   memset(&live[i].synth,0,sizeof live[i].synth);live[i].synth_handled=0;
@@ -26,7 +29,44 @@ static void synth_scope_tick(void){
  uint64_t generation=am_synth_archive_generation(),stop=am_synth_route_stop_serial();
  if(synth_generation==generation&&synth_transport_stop==stop)return;
  if(synth_player.epoch)am_synth_sequence_stop(&synth_player);
- synth_retire_cancelled();synth_generation=generation;synth_transport_stop=stop;
+ if(synth_generation!=generation)synth_retire_cancelled();
+ else for(unsigned i=0;i<LIVE_COUNT;++i)if(live[i].synth_handled)memset(&live[i].synth,0,sizeof live[i].synth);
+ synth_generation=generation;synth_transport_stop=stop;
+}
+static void synth_drain_begin(struct am_synth_drain_scope*scope){scope->previous=synth_drain;synth_drain=scope;}
+static void synth_drain_end(struct am_synth_drain_scope*scope,int success){
+ uintptr_t begin=0,end=1;
+ if(success){memcpy(&begin,(char*)scope->engine+0x6c8,8);memcpy(&end,(char*)scope->engine+0x6d0,8);}
+ if(success&&begin==end)for(unsigned i=0;i<LIVE_COUNT;++i){struct live_note*n=live+i;
+  if(scope->ids[i]&&n->used&&n->id==scope->ids[i]&&n->synth_handled){
+   memset(&n->synth,0,sizeof n->synth);n->synth_handled=0;
+   /* Original backend releases have returned, and the native heap is empty.
+    * A slot accepted recursively with another occurrence ID is never erased. */
+   if(n!=live_event&&(!n->route_count||n->released))live_forget(n);
+  }
+ }
+ synth_drain=scope->previous;
+}
+static void synth_native_drain(void*engine,uint64_t offset,unsigned flags){
+ am_synth_native_drain_scope(engine,offset,flags,native_synth_drain,synth_drain_begin,synth_drain_end);
+}
+static unsigned synth_drain_filter(void*filter,unsigned kind,unsigned flags){
+ struct am_synth_drain_scope*scope=synth_drain;
+ if(scope){
+  uintptr_t begin,end;memcpy(&begin,(char*)scope->engine+0x6c8,8);memcpy(&end,(char*)scope->engine+0x6d0,8);
+  if(begin&&end>begin&&(end-begin)%96==0){
+   uintptr_t track;memcpy(&track,(void*)(begin+80),8);struct am_midi_event event;
+   if(filter==(void*)(track+0x750)&&am_midi_event_copy((const struct step_event*)begin,(am_midi_choice_get)(image+0x27e4230),AM_MIDI_EVENT_NOTE_ON,&event)){
+    struct live_note*match=NULL;unsigned index=0;
+    /* Bounded existing pool scan per entry that native code itself drains. */
+    for(unsigned i=0;i<LIVE_COUNT;++i){struct live_note*n=live+i;
+     if(n->used&&n->synth_handled&&n->id&&scope->ids[i]!=n->id&&n->track==track&&live_same(&n->source,&event)&&(!match||n->id<match->id)){match=n;index=i;}
+    }
+    if(match){scope->ids[index]=match->id;live_finish(match,scope->offset);}
+   }
+  }
+ }
+ return ((unsigned(*)(void*,unsigned,unsigned))(image+0x282fe30))(filter,kind,flags);
 }
 static void *synth_instrument_on(void*owner,uint64_t offset,int route,void*out,const void*command){
  (void)route;(void)out;

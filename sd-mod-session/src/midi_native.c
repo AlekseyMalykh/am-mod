@@ -110,22 +110,22 @@ static int install_hook(uintptr_t base,const struct hook *h){
  if(mprotect((void*)page,4096,PROT_READ|PROT_EXEC))_exit(121);
  return 1;
 }
-static int install_scheduled_call(uintptr_t base){
- uintptr_t site=base+0x2118654;unsigned char *code=MAP_FAILED;
+static int install_call(uintptr_t base,uintptr_t offset,uintptr_t callback,const uint32_t*words,unsigned word_count,unsigned replaced){
+ uintptr_t site=base+offset;unsigned char *code=MAP_FAILED;
  for(uintptr_t off=0x7800000;off<0x9600000;off+=0x10000){
   uintptr_t address=base+off;if(address-site>=0x8000000)break;
   code=mmap((void*)address,4096,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED_NOREPLACE,-1,0);
   if(code!=MAP_FAILED)break;
  }
  if(code==MAP_FAILED)return 0;
- const uint32_t words[]={0xd503245f,0xd10083ff,0xa9017bfd,0xf90003e8,0x580000d0,0xd63f0200,0xa9417bfd,0x910083ff,0xd65f03c0,0xd503201f};
- memcpy(code,words,sizeof words);uintptr_t fn=(uintptr_t)live_scheduled_release;memcpy(code+40,&fn,8);
- __builtin___clear_cache((char*)code,(char*)code+48);
+ memcpy(code,words,word_count*4);memcpy(code+word_count*4,&callback,8);
+ __builtin___clear_cache((char*)code,(char*)code+word_count*4+8);
  if(mprotect(code,4096,PROT_READ|PROT_EXEC)){munmap(code,4096);return 0;}
  uintptr_t page=site&~(uintptr_t)4095;
  if(mprotect((void*)page,4096,PROT_READ|PROT_WRITE))_exit(121);
  uint32_t branch=0x94000000u|((uint32_t)(((uintptr_t)code-site)/4)&0x3ffffffu);memcpy((void*)site,&branch,4);
- __builtin___clear_cache((char*)site,(char*)site+4);
+ if(replaced==8){uint32_t nop=0xd503201f;memcpy((void*)(site+4),&nop,4);}
+ __builtin___clear_cache((char*)site,(char*)site+replaced);
  if(mprotect((void*)page,4096,PROT_READ|PROT_EXEC))_exit(121);
  return 1;
 }
@@ -142,13 +142,31 @@ int am_midi_native_install(uintptr_t base){
   {0xe05620,(uintptr_t)live_send,{0xd503233f,0xd10203ff,0xf0031ae2,0xf941cc42},(void**)&native_send},
   {0x1e620b0,(uintptr_t)live_filter,{0xd503233f,0xd10203ff,0xd0029803,0xf941cc63},(void**)&native_filter},
   {0x1e39910,(uintptr_t)live_port_enqueue,{0xd503233f,0xa9ba7bfd,0x910003fd,0xa9025bf5},(void**)&native_port_queue}
+#ifdef MPC_SYNTH_NATIVE_PLAYBACK_TRIAL
+  ,{0x2119550,(uintptr_t)synth_native_drain,{0xd503233f,0xa9b97bfd,0x910003fd,0xa90153f3},(void**)&native_synth_drain}
+#endif
  };
  for(unsigned i=0;i<sizeof hooks/sizeof *hooks;++i)if(memcmp((void*)(base+hooks[i].offset),hooks[i].expected,16))return 0;
  const uint32_t scheduled_bl=0x97ffff83; if(memcmp((void*)(base+0x2118654),&scheduled_bl,4))return 0;
+#ifdef MPC_SYNTH_NATIVE_PLAYBACK_TRIAL
+ const struct {uintptr_t offset;uint32_t words[2];unsigned size;} extra_calls[]={
+  {0x2118d04,{0x97fffdd7,0},4},
+  {0x2118fb8,{0xf9402842,0x97fffd29},8},
+  {0x211969c,{0x941c59e5,0},4}
+ };
+ for(unsigned i=0;i<sizeof extra_calls/sizeof *extra_calls;++i)if(memcmp((void*)(base+extra_calls[i].offset),extra_calls[i].words,extra_calls[i].size))return 0;
+#endif
  image=base;
  for(unsigned i=0;i<sizeof hooks/sizeof *hooks;++i)if(!install_hook(base,hooks+i))_exit(121);
- if(!install_scheduled_call(base))_exit(121);
+ const uint32_t scheduled[]={0xd503245f,0xd10083ff,0xa9017bfd,0xf90003e8,0x580000d0,0xd63f0200,0xa9417bfd,0x910083ff,0xd65f03c0,0xd503201f};
+ if(!install_call(base,0x2118654,(uintptr_t)live_scheduled_release,scheduled,10,4))_exit(121);
 #ifdef MPC_SYNTH_NATIVE_PLAYBACK_TRIAL
+ if(!install_call(base,0x2118d04,(uintptr_t)live_scheduled_release,scheduled,10,4))_exit(121);
+ /* Capture the real x2 heap entry BEFORE native code loads its Track into x2. */
+ const uint32_t indirect[]={0xd503245f,0xaa0203e8,0xf9402842,0xd10083ff,0xa9017bfd,0xf90003e8,0x580000d0,0xd63f0200,0xa9417bfd,0x910083ff,0xd65f03c0,0xd503201f};
+ if(!install_call(base,0x2118fb8,(uintptr_t)live_scheduled_release,indirect,12,8))_exit(121);
+ const uint32_t tail[]={0xd503245f,0x58000070,0xd61f0200,0xd503201f};
+ if(!install_call(base,0x211969c,(uintptr_t)synth_drain_filter,tail,4,4))_exit(121);
  if(!am_synth_accept_native_install(base,synth_instrument_on,synth_instrument_end))_exit(121);
 #endif
  fprintf(stderr,"AM_MIDI_NATIVE SOURCE_CONTEXT_INSTALLED LIVE_LAYERS_INSTALLED\n");return 1;
