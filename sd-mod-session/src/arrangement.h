@@ -45,5 +45,7 @@ struct PreparedArrangement {
  * No sample seek/retrigger for a gate whose onset precedes the clip window.
  * Failure/exception preserves the previous prepared output. */
 Result prepare_arrangement(const Arrangement&,const Library&,std::uint64_t,PreparedArrangement&);
+std::string arrangement_encode(const Arrangement&,const Library&);
+Result arrangement_decode(const std::string&,const Library&,Arrangement&);
 }
 #endif

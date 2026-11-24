@@ -2,8 +2,9 @@
 
 Первая часть этапа 4 реализована в `arrangement.h/.cc`. Она использует
 готовые `Library`/`Pattern` этапа 3, не создаёт второй Piano Roll и не
-запускает новый sequencer clock. Пока это изолированный control-owner модуль:
-в приложение/экран/архив и native transport он ещё не подключён.
+запускает новый sequencer clock. Следующий подэтап 4b подключил модель к
+общему Store и архивным hooks под существующим trial flag; см.
+`HORIZONTAL_SONG_STORE_RU.md`. Экран Arrange и native transport ещё не подключены.
 
 ## Данные и операции
 
@@ -64,8 +65,9 @@ sort выполняются до playback, вне audio callback. Output сод�
 Prepared snapshot содержит project epoch, arrangement revision и library
 revision. `matches` отвергает данные другого проекта/версии; исчезновение
 используемого паттерна даёт stale, без обращения к освобождённому объекту.
-Будущий bridge должен запретить удаление используемого Pattern либо явно
-обновить ссылки одной общей транзакцией. Сам Store этапа 3 пока не изменён.
+Bridge этапа 4b запрещает удаление используемого Pattern. Подготовка проверяет
+epoch и актуальность общего Store перед публикацией. Это проверка метаданных,
+не гарантия времени жизни native Project/Program для будущего playback.
 
 ## Почему Sequential Song не меняется
 
@@ -73,12 +75,13 @@ revision. `matches` отвергает данные другого проект�
 Он не представляет параллельные блоки разной длины. Новый value model
 готовит общий поток без требования запускать несколько native sequences
 одновременно. Пока ни список Sequential Song, ни его editing/export,
-ни project data не меняются: новый модуль даже не включён в preload builder.
+ни штатные события не меняются. Дополнительные данные сохраняются двумя
+необязательными полями только под `AM_MOD_PATTERN_TOOLS_TRIAL=1`.
 
 Следующая часть этапа 4:
 
-1. Общий project Store/архив Arrangement + Pattern references, проверки
-   удаления и stale publication.
+1. Реализовано в 4b: общий project Store/архив Arrangement + Pattern references,
+   проверки удаления и stale publication. См. отдельный протокол Store.
 2. Переключатель Sequential/Arrange и timeline в SongScreen. Связать Chop с
    `cut_clip`, открытие блока — с существующим pattern editor. Сохранить
    текущие аппаратные действия Sequential и управление encoder/fader.
@@ -101,7 +104,9 @@ host ASan/UBSan, ARM QEMU, ARM UBSan. Проверены:
 - Лимит 32768: точное значение проходит, 32769 отклоняется до подготовки.
 - 26 allocation failures: старый output не меняется.
 - Library, исходные Pattern и их события не меняются после операций блоков.
+- Codec AAR1: roundtrip, все усечения payload, checksum и неизвестная версия.
 
 Proof/logs/hashes: `build/arrangement/verification.json`. Ни UI, ни реальные
-аудио/MIDI playback/Stop, save/load Arrangement и аппаратный MPC этим не
-проверены. Приложение/preload/пакет не собирались.
+аудио/MIDI playback/Stop и аппаратный MPC этим не проверены. Изолированный
+codec проверен здесь; архивные hooks проверены отдельно в 4b. Полного
+compressed XPJ roundtrip приложения не было. Приложение/preload/пакет не собирались.

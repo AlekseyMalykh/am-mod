@@ -13,12 +13,15 @@ void operator delete(void*p)noexcept{std::free(p);}
 void*operator new(std::size_t size,const std::nothrow_t&)noexcept{try{return ::operator new(size);}catch(...){return nullptr;}}
 void operator delete(void*p,const std::nothrow_t&)noexcept{::operator delete(p);}
 template<class T>void put(void*p,unsigned at,T value){std::memcpy(static_cast<char*>(p)+at,&value,sizeof value);}
-static std::string written;static unsigned writes;
-static void writer(void*,const char*key,const void*value){assert(!std::strcmp(key,"amPatternsV1"));auto data=*static_cast<const char*const*>(value);std::size_t size;std::memcpy(&size,static_cast<const char*>(value)+sizeof data,sizeof size);written.assign(data,size);++writes;}
+static std::string written,arrangement_written;static unsigned writes;
+static void writer(void*,const char*key,const void*value){auto data=*static_cast<const char*const*>(value);std::size_t size;std::memcpy(&size,static_cast<const char*>(value)+sizeof data,sizeof size);
+    if(!std::strcmp(key,"amArrangementV1")){arrangement_written.assign(data,size);return;}
+    assert(!std::strcmp(key,"amPatternsV1"));written.assign(data,size);++writes;
+}
 static void original(void*,void*){}
 struct Input {
-    alignas(8) char wrapper[4][16]{},archive[0x158]{},frame[0x38]{},members[96]{};
-    std::string text;unsigned count=1;
+    alignas(8) char wrapper[4][16]{},archive[0x158]{},frame[0x38]{},members[144]{};
+    std::string text,arrangement;unsigned count=1;
     explicit Input(std::string value):text(std::move(value)){
         for(unsigned i=0;i<4;++i)put<void*>(wrapper[i],8,i==3?archive:wrapper[i+1]);
         put<std::uintptr_t>(archive,0x150,reinterpret_cast<std::uintptr_t>(frame)+0x38);put<unsigned>(frame,0x30,1);
@@ -26,6 +29,7 @@ struct Input {
     }
     static void string(void*p,const char*s,std::size_t n){put<uint32_t>(p,0,n);put<const char*>(p,8,s);put<unsigned short>(p,22,1u<<10);}
     void bounds(){put<std::uintptr_t>(frame,0,reinterpret_cast<std::uintptr_t>(members));put<std::uintptr_t>(frame,8,reinterpret_cast<std::uintptr_t>(members)+count*48);}
+    void song(const std::string&value){arrangement=value;string(members+48,"amArrangementV1",15);string(members+72,arrangement.data(),arrangement.size());count=2;bounds();}
 };
 static Input*input;static int success=1;
 static int read_original(void*p,void*){pt_archive_load(p,input->wrapper,original);return success;}
@@ -85,6 +89,27 @@ int main(){
     pr_plan deletion{};deletion.revision=large.revision;deletion.removed=removed.data();deletion.removed_count=removed.size();
     assert(pt_commit(0,&deletion)&&pt_info(0,&large)&&!large.count);assert(pt_history(-1)&&pt_info(0,&large)&&large.count==PR_MAX_EVENTS);
     pt_expect_epoch(pt_epoch());pt_reset();assert(!pt_capture(notes,3,7680,1,"program",map,outputs,0)&&!pt_count());pt_expect_epoch(pt_epoch());assert(pt_capture(notes,3,7680,1,"program",map,outputs,0));
+    uint64_t row=0,block=0,right=0;assert(pt_arr_add_track("Drums",&row));assert(pt_arr_add_clip(row,0,0,15360,&block));
+    pt_arrangement info;assert(pt_arr_info(&info)&&info.tracks==1&&info.clips==1);
+    pt_arr_track track_view;pt_arr_clip clip_view;assert(pt_arr_track_at(0,&track_view)&&track_view.id==row&&!std::strcmp(track_view.name,"Drums"));
+    assert(pt_arr_clip_at(0,&clip_view)&&clip_view.id==block&&pt_pattern_index(clip_view.pattern)==0);assert(!pt_arr_clip_at(99,&clip_view)&&!clip_view.id);
+    assert(!pt_remove(0)&&pt_count()==2);PreparedArrangement ready;assert(pt_prepare_song(ready)&&pt_prepared_current(ready)&&ready.notes.size()==4);
+    assert(pt_arr_cut(block,3840,&right)&&!pt_prepared_current(ready));assert(pt_arr_join(block,right));
+    pt_archive_save(nullptr,nullptr,original);std::string library_saved=written,song_saved=arrangement_written;assert(song_saved.compare(0,5,"AAR1 ")==0);
+    Input combined(library_saved);combined.song(song_saved);char swap[48];std::memcpy(swap,combined.members,48);std::memcpy(combined.members,combined.members+48,48);std::memcpy(combined.members+48,swap,48);
+    pt_reset();pt_expect_epoch(0);read(combined);assert(pt_arr_info(&info)&&info.clips==1&&pt_count()==2);assert(pt_prepare_song(ready));
+    auto loaded_epoch=pt_epoch();success=0;read(combined);success=1;assert(pt_epoch()==loaded_epoch&&pt_prepared_current(ready));
+    pt_expect_epoch(pt_epoch());assert(pt_arr_remove(block)&&pt_remove(0));assert(pt_arr_info(&info)&&!info.clips&&pt_count()==1);
+    assert(pt_history(-1)&&pt_count()==2);assert(pt_history(-1)&&pt_arr_info(&info)&&info.clips==1);assert(pt_prepared_current(ready));
+    read(combined);assert(!pt_prepared_current(ready));auto previous_size=ready.notes.size();assert(!pt_prepare_song(ready)&&ready.notes.size()==previous_size);pt_expect_epoch(pt_epoch());assert(pt_prepare_song(ready));
+    Input broken(library_saved);broken.song(song_saved);broken.arrangement[8]=broken.arrangement[8]=='0'?'1':'0';Input::string(broken.members+72,broken.arrangement.data(),broken.arrangement.size());input=&broken;refused=false;
+    try{pt_archive_read(nullptr,nullptr,read_original);}catch(const std::exception&){refused=true;}assert(refused&&pt_arr_info(&info)&&info.clips==1&&pt_count()==2);
+    Input dangling("");dangling.count=0;dangling.bounds();dangling.song(song_saved);std::memmove(dangling.members,dangling.members+48,48);dangling.count=1;dangling.bounds();input=&dangling;refused=false;
+    try{pt_archive_read(nullptr,nullptr,read_original);}catch(const std::exception&){refused=true;}assert(refused&&pt_count()==2);
+    Input future_song(library_saved);future_song.song("AAR2 opaque song\n");read(future_song);pt_expect_epoch(pt_epoch());assert(pt_arr_info(&info)&&info.read_only&&!pt_remove(0)&&!pt_arr_add_track("New",&row));
+    pt_archive_save(nullptr,nullptr,original);assert(arrangement_written==future_song.arrangement&&written==library_saved);
     pt_reset();pt_expect_epoch(0);pr_destroy(&roll);
+    assert(pt_arr_info(&info)&&!info.tracks&&!info.clips&&!pt_count());
+    std::cout<<"PASS arrangement store: shared history, protected references, cut/join, value readers, prepared epoch guard, order-independent archive fields, failed/corrupt/dangling/future loads, reset. Native archive fixtures only.\n";
     std::cout<<"PASS pattern tools: copied source/pads/mixer/manual duplicate split, independent variation, existing Piano Roll edit/copy/paste/delete/history, empty pattern, retained tails, versioned archive roundtrip, legacy/failed/corrupt/duplicate/future fields; "<<failures<<" allocation failures and library limit preserve prior state; source unchanged. Host native archive frame/writer fixtures; hardware not tested.\n";
 }

@@ -2,7 +2,7 @@
 from pathlib import Path
 import hashlib,json,os,subprocess
 R=Path(__file__).resolve().parent;O=R/'build/arrangement';O.mkdir(exist_ok=True)
-sources=['src/arrangement.cc','src/pattern_model.cc','src/pattern_library.cc','src/pattern_codec.cc','src/midi_event.c','check_arrangement.cc']
+sources=['src/arrangement.cc','src/arrangement_codec.cc','src/pattern_model.cc','src/pattern_library.cc','src/pattern_codec.cc','src/midi_event.c','check_arrangement.cc']
 tracked=sources+['src/arrangement.h','src/pattern_model.h','src/pattern_library.h','src/midi_event.h','src/step_native.h','verify_arrangement.py']
 digest=lambda:{s:hashlib.sha256((R/s).read_bytes()).hexdigest() for s in tracked}
 before=digest();proof=O/'verification.json';proof.unlink(missing_ok=True);checks=[]

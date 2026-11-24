@@ -122,7 +122,8 @@ automation и иные native event variants остаются в исходно�
 Проверены сохранность native source tree, packed Tune/Chop с настоящим ARM
 decoder/setter, вариации, edit/insert/delete/copy/paste, ручное разделение
 дублей, длинные gates, неизвестные шины, старое/ошибочное/будущее extension,
-архивный roundtrip, New/Load UI reset, 14 allocation failures и library limit.
+архивный roundtrip, New/Load UI reset, 19 allocation failures и library limit
+(после интеграции общего Store этапа 4b; см. `HORIZONTAL_SONG_STORE_RU.md`).
 Native архивные frames/writer и GUI/command executor в UI-тесте — fixtures;
 полный compressed XPJ file roundtrip приложения, реальная карта и физические
 кнопки требуют будущей разрешённой сборки и проверки устройства.

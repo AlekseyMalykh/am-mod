@@ -37,6 +37,11 @@ int main(){
     PreparedArrangement original;assert(prepare_arrangement(song,library,7,original)==Result::ok&&original.notes.size()==12&&original.targets.size()==3&&original.matches(7,song,library));
     for(const auto&n:original.notes)assert(n.native.data[34]==73&&(n.native.type>>12)==6&&n.native.data[36]==2);
     auto canonical=music(original);Id right=99;
+    auto serialized=arrangement_encode(song,library);Arrangement restored;
+    assert(arrangement_decode(serialized,library,restored)==Result::ok&&arrangement_encode(restored,library)==serialized);
+    for(std::size_t n=0;n<serialized.size();++n){auto previous=restored.revision;assert(arrangement_decode(serialized.substr(0,n),library,restored)!=Result::ok&&restored.revision==previous);}
+    auto damaged=serialized;damaged[10]=damaged[10]=='0'?'1':'0';assert(arrangement_decode(damaged,library,restored)==Result::invalid);
+    assert(arrangement_decode("AAR2 future\n",library,restored)==Result::unsupported);
     assert(song.cut_clip(dclip,9600,library,right)==Result::ok&&song.clips.size()==4);
     PreparedArrangement cut;assert(prepare_arrangement(song,library,7,cut)==Result::ok&&music(cut)==canonical&&!original.matches(7,song,library));
     assert(song.join_clips(dclip,right,library)==Result::ok&&song.clips.size()==3);

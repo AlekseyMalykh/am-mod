@@ -23,11 +23,32 @@ int pt_notes(unsigned,struct pr_note*,unsigned,unsigned char[128]);
 int pt_note_number(unsigned,int pad);
 int pt_encode(unsigned,const struct pr_note*,struct step_event*);
 int pt_commit(unsigned,const struct pr_plan*);
+struct pt_arrangement {uint64_t revision;int64_t length;unsigned tracks,clips,read_only;};
+struct pt_arr_track {uint64_t id;char name[32];unsigned muted,solo;};
+struct pt_arr_clip {uint64_t id,track,pattern;int64_t start,length,offset;unsigned muted;};
+int pt_arr_info(struct pt_arrangement*);
+int pt_arr_track_at(unsigned,struct pt_arr_track*);
+int pt_arr_clip_at(unsigned,struct pt_arr_clip*);
+int pt_pattern_index(uint64_t);
+int pt_arr_add_track(const char*,uint64_t*);
+int pt_arr_add_clip(uint64_t,unsigned,int64_t,int64_t,uint64_t*);
+int pt_arr_move(uint64_t,uint64_t,int64_t);
+int pt_arr_resize(uint64_t,int64_t);
+int pt_arr_cut(uint64_t,int64_t,uint64_t*);
+int pt_arr_join(uint64_t,uint64_t);
+int pt_arr_remove(uint64_t);
+int pt_arr_track_state(uint64_t,int,int);
+int pt_arr_length(int64_t);
 const char*pt_error(void);
 void pt_archive_save(void*,void*,void(*)(void*,void*));
 void pt_archive_load(void*,void*,void(*)(void*,void*));
 int pt_archive_read(void*,void*,int(*)(void*,void*));
 #ifdef __cplusplus
+}
+#include "arrangement.h"
+namespace am_pattern {
+int pt_prepare_song(PreparedArrangement&);
+bool pt_prepared_current(const PreparedArrangement&);
 }
 #endif
 #endif
