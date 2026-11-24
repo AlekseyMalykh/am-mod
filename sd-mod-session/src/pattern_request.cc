@@ -10,6 +10,7 @@ struct RequestState {
     std::atomic<bool> cancel{false};
     NativeReadResult result=NativeReadResult::unavailable;
     std::mutex mutex;std::shared_ptr<const Snapshot> snapshot;
+    std::shared_ptr<const ReadCurrency> currency;
 };
 namespace {
 template<class T>T field(const void*p,std::size_t n){T v;std::memcpy(&v,static_cast<const char*>(p)+n,sizeof v);return v;}
@@ -86,7 +87,10 @@ struct ProducerLock {
 RequestStatus SnapshotRequest::status()const noexcept{
     RequestStatus out;if(!state_)return out;
     out.phase=state_->phase.load(std::memory_order_acquire);
-    if(out.phase==RequestPhase::complete)out.result=state_->result;
+    if(out.phase==RequestPhase::complete){
+        out.result=state_->result;
+        if(out.result==NativeReadResult::ok&&state_->currency&&!state_->currency->current())out.result=NativeReadResult::stale;
+    }
     return out;
 }
 void SnapshotRequest::cancel()noexcept{
@@ -100,7 +104,8 @@ void SnapshotRequest::cancel()noexcept{
 bool SnapshotRequest::take(std::shared_ptr<const Snapshot>&out)noexcept{
     if(!state_||state_->phase.load(std::memory_order_acquire)!=RequestPhase::complete)return false;
     std::lock_guard<std::mutex> lock(state_->mutex);
-    if(state_->result!=NativeReadResult::ok||!state_->snapshot)return false;
+    if(state_->result!=NativeReadResult::ok||!state_->snapshot
+       ||(state_->currency&&!state_->currency->current()))return false;
     out=std::move(state_->snapshot);return true;
 }
 SubmitResult enqueue_snapshot(std::uintptr_t image,void*context,const NativeReadRequest&request,
@@ -113,6 +118,8 @@ SubmitResult enqueue_snapshot(std::uintptr_t image,void*context,const NativeRead
         if(field<std::uintptr_t>(context,0)!=image+0x6d8cd88)return SubmitResult::unsupported;
         void*queues=field<void*>(context,0x48);if(!queues)return SubmitResult::unavailable;
         auto state=std::make_shared<RequestState>();
+        state->currency=owner->currency();
+        if(!state->currency||!state->currency->current())return SubmitResult::unavailable;
         Job*job=new Job;
         struct Release {Job*p;~Release(){drop(p);}}release{job};
         job->state=state;job->owner=std::move(owner);job->request=request;job->image=image;job->context=context;

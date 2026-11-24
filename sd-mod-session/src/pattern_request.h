@@ -3,6 +3,12 @@
 #include "pattern_native.h"
 
 namespace am_pattern {
+class ReadCurrency {
+public:
+    virtual ~ReadCurrency(){}
+    /* Value-only check, no native dereferences. Safe after context teardown. */
+    virtual bool current()const noexcept=0;
+};
 /* Owned across enqueue/cancellation; no borrowed callback user pointer.
  * enter runs ONLY inside the retained native context's worker callback.
  * It must acquire the Project/Program/event-list owner lease described by
@@ -16,6 +22,9 @@ public:
     virtual bool enter(void*native_context,NativeReadContext&)=0;
     virtual bool valid(void*native_context,const NativeReadContext&)=0;
     virtual void leave(void*native_context,const NativeReadContext&)noexcept=0;
+    /* Required for enqueue_snapshot; null is refused. Must use value metadata
+     * only and remain valid after this owner/native context is destroyed. */
+    virtual std::shared_ptr<const ReadCurrency> currency()const{return {};}
 };
 enum class RequestPhase {empty,queued,running,complete,cancelled};
 enum class SubmitResult {accepted,invalid,unsupported,busy,unavailable,allocation_failed,exception};

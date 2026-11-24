@@ -89,9 +89,11 @@ snapshot adapter, Save/Load, Undo/Redo или проигрывание этим 
 1. Изолированный snapshot adapter `pattern_native.h/.cc` реализован и
    проверен на штатных getter/tree/choice функциях в ARM QEMU, normal/UBSan.
    Контракт и ограничения — `PATTERN_NATIVE_ADAPTER_RU.md`. Следующая часть:
-   concrete Project/Program/event-list owner lease, generation и безопасного
-   времени жизни источника. Executor request уже реализован с native context
-   counter/cancel; см. `PATTERN_REQUEST_LIFETIME_RU.md`. Source lease пока fixture.
+   production охват Project/Program/event-list mutators. Concrete SourceDomain
+   lease уже реализован: change fences, generation, New/Read/Load/Program scopes,
+   stale completed-result rejection; см. `PATTERN_SOURCE_LIFETIME_RU.md`.
+   Executor request с native context counter/cancel также готов. Полный runtime
+   охват всех writers и их thread/lock order пока не доказан; UI admission выключен.
 2. Команды Insert/Delete/Copy/Paste с одним общим history boundary, совместимым
    с существующим редактором; затем adapter источника событий Piano Roll.
 3. Versioned codec и транзакционный archive до пользовательского сохранения.

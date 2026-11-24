@@ -1,4 +1,5 @@
 #include "src/pattern_request.h"
+#include "src/pattern_source.h"
 #include <atomic>
 #include <cassert>
 #include <chrono>
@@ -32,8 +33,16 @@ struct Source {
 };
 class Owner:public NativeReadOwner {
     std::shared_ptr<Source> source;std::uintptr_t image;std::uint64_t expected;
+    class Stamp:public ReadCurrency {
+        std::shared_ptr<Source> source;std::uint64_t expected;
+    public:
+        Stamp(std::shared_ptr<Source>s,std::uint64_t e):source(std::move(s)),expected(e){}
+        bool current()const noexcept override{std::lock_guard<std::mutex>lock(source->mutex);return !source->loading&&source->generation==expected;}
+    };
+    std::shared_ptr<const ReadCurrency> stamp;
 public:
-    Owner(std::shared_ptr<Source>s,std::uintptr_t b,std::uint64_t e):source(std::move(s)),image(b),expected(e){}
+    Owner(std::shared_ptr<Source>s,std::uintptr_t b,std::uint64_t e):source(std::move(s)),image(b),expected(e),stamp(std::make_shared<Stamp>(source,e)){}
+    std::shared_ptr<const ReadCurrency> currency()const override{return stamp;}
     bool enter(void*context,NativeReadContext&out)override{
         assert(pattern_request_on_worker()&&pattern_request_context_alive()&&pattern_request_references());
         std::unique_lock<std::mutex> lock(source->mutex);
@@ -86,7 +95,7 @@ extern "C" int pattern_request_proof(std::uintptr_t image){
     assert(submit(task)==SubmitResult::accepted);++source->generation;
     pattern_request_drain(1);assert(task.status().result==NativeReadResult::unavailable&&!pattern_request_references());
     --source->generation;
-    source->loading=true;assert(submit(task)==SubmitResult::accepted);pattern_request_drain(1);
+    assert(submit(task)==SubmitResult::accepted);source->loading=true;pattern_request_drain(1);
     assert(task.status().result==NativeReadResult::unavailable&&!pattern_request_references());source->loading=false;
     source->wrong_image=true;assert(submit(task)==SubmitResult::accepted);pattern_request_drain(1);
     assert(task.status().result==NativeReadResult::unavailable&&!pattern_request_references()&&source->enters==source->leaves);source->wrong_image=false;
@@ -115,6 +124,29 @@ extern "C" int pattern_request_proof(std::uintptr_t image){
     for(unsigned i=0;i<24;++i){SnapshotRequest next;assert(submit(next)==SubmitResult::accepted);pattern_request_drain(1);assert(next.take(result));}
     set<unsigned char>(q,0x2c,0);
 
+    /* Concrete source domain in the actual queue/native snapshot chain. */
+    {
+        SourceDomain domain;SourceBinding binding;binding.image=image;
+        binding.project=field<void*>(pattern_request_context(),0xc8);
+        binding.things=field<void*>(pattern_request_context(),0x78);
+        binding.program=field<void*>(binding.things,0xb8);binding.outputs.fill(0);
+        assert(domain.publish(binding,domain.epoch()));auto bound_owner=domain.owner();
+        SnapshotRequest bound;
+        assert(enqueue_snapshot(image,pattern_request_context(),request,bound_owner,bound)==SubmitResult::accepted);
+        pattern_request_drain(1);assert(bound.status().result==NativeReadResult::ok);
+        auto before_change=result;
+        {auto change=domain.change();}
+        assert(bound.status().result==NativeReadResult::stale&&!bound.take(result)&&result==before_change);
+        assert(enqueue_snapshot(image,pattern_request_context(),request,bound_owner,bound)==SubmitResult::unavailable);
+        assert(domain.publish(binding,domain.epoch()));bound_owner=domain.owner();
+        assert(enqueue_snapshot(image,pattern_request_context(),request,bound_owner,bound)==SubmitResult::accepted);
+        {auto change=domain.change();} /* Project change before worker consumes On. */
+        pattern_request_drain(1);assert(bound.status().result!=NativeReadResult::ok&&!pattern_request_references());
+        assert(domain.publish(binding,domain.epoch()));bound_owner=domain.owner();
+        assert(enqueue_snapshot(image,pattern_request_context(),request,bound_owner,bound)==SubmitResult::accepted);
+        pattern_request_drain(1);assert(bound.take(result)&&result->events().size()==3);
+    }
+
     /* Native Copy destructor cancels a queued closure WITHOUT invoking it.
      * The native destructor subtracts the purge count. Reclaimer destroys our
      * owned payload later, after context has already become invalid. */
@@ -141,6 +173,6 @@ extern "C" int pattern_request_proof(std::uintptr_t image){
     worker.join();destructor.join();assert(destroyed.load()&&!pattern_request_context_alive()&&!pattern_request_references());
     assert(task.status().phase==RequestPhase::cancelled&&source->enters==source->leaves);
     pattern_request_reclaim();
-    std::cout<<"PASS native snapshot request: actual queue/mutex/reclaim/runner and Copy destructor cancellation; owned callback lifetime, worker-only source lease, generation rejection, full-queue no-inline refusal, ring reuse, queued/running cancel and confirmed native destructor waiting; "<<oom_cases<<" submission allocation failures, no leaked context counters. Project/source owner lease remains a fixture; app integration not enabled.\n";
+    std::cout<<"PASS native snapshot request: actual queue/mutex/reclaim/runner and Copy destructor cancellation; owned callback lifetime, worker-only source lease, generation rejection, full-queue no-inline refusal, ring reuse, queued/running cancel and confirmed native destructor waiting; "<<oom_cases<<" submission allocation failures, no leaked context counters. Concrete SourceDomain rejects completed stale results; lifecycle mutations remain fixtures; production writer coverage not enabled.\n";
     return 0;
 }

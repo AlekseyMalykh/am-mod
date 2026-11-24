@@ -466,6 +466,8 @@ Stage 3a: реализованы изолированные `pattern_model.h/.cc
 
 Stage 3a, executor: `pattern_request.h/.cc` ставит чтение в настоящую native ThreadQueues с удержанием Copy context, owned callback payload, cancel и защитой от producer-inline fallback при full queue. QEMU normal/UBSan исполняют native enqueue/runner/reclaim и Copy destructor с pending/running cancellation, включая подтверждённое ожидание running callback. Native context lifetime доказан в этом изолированном стенде; concrete Project/Program/event-list owner lease и production thread-affinity ещё не доказаны. Этот долг не подменяется counter или double scan. Контракты — `PATTERN_REQUEST_LIFETIME_RU.md`; UI/build wiring пока отсутствует.
 
+Stage 3a, source lifetime: реализован concrete `SourceDomain` с reader/change fences, закрытым admission, явным epoch-bound publish и New/Read/Load/Program scopes. Value-only currency теперь обязательна для queued request и отклоняет устаревший Complete результат. Проверены concurrent frees под host ASan, ARM/UBSan и SourceDomain в native queue/getter цепочке. Production coverage всех native writers и безопасных границ завершения по-прежнему не доказан; source admission/экран не подключены. Подробности — `PATTERN_SOURCE_LIFETIME_RU.md`.
+
 ## Проверки и риски
 
 | Проверка | Что нужно подтвердить |

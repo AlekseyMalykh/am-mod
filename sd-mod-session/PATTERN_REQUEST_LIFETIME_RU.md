@@ -78,9 +78,15 @@ Reclaim до проверки также предотвращает вечный
 а leave — освободить её. Pending/Running request удерживает сам объект owner,
 но не выдаёт это за владение его произвольными native pointers.
 
-**Production реализация source-owner lease ещё не доказана и не подключена.**
+Конкретный source-owner lease теперь реализован в `pattern_source.h/.cc`:
+закрытое admission, reader/writer fence, New/Read/Load/Program boundaries,
+явный rebind и value-only currency. SourceDomain подключён к изолированному
+native queue тесту; подробности — `PATTERN_SOURCE_LIFETIME_RU.md`.
+**Полный production охват mutators ещё не доказан и не подключён.**
 Новый слой не выставляет `read_safe=true` автоматически из факта нахождения
-в queue. В тестах source protected mutex и Project/Things являются fixtures.
+в queue. В первоначальной группе тестов source protected mutex остаётся fixture;
+новая группа использует настоящий SourceDomain. Project/Things storage и
+native lifecycle mutations в стенде по-прежнему подготовлены тестом.
 Изученный Project sequence getter `0x2909be0` возвращает raw pointer из
 OwnedArray, а не shared_ptr; простое увеличение неизвестного счётчика Sequence
 было бы предположением о native ABI. Двойное чтение тоже не защищает от free.
