@@ -1,5 +1,8 @@
 # Arrange — прямое создание и единая навигация
 
+Прямой Shift+B1 и отделение пэдовых строк добавлены следующим этапом:
+[ARRANGE_SEPARATE_ROWS_RU.md](ARRANGE_SEPARATE_ROWS_RU.md).
+
 Следующая модель работы с несколькими пэдовыми строками одного блока:
 [ARRANGE_COMPOUND_BLOCKS_RU.md](ARRANGE_COMPOUND_BLOCKS_RU.md).
 

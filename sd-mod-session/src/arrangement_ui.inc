@@ -70,6 +70,15 @@ static void arrange_cut(void){
     int ok=pt_arr_cut(c.id,arrange_cursor,&right);if(ok)arrange_selected=right;arrange_result(ok);
 }
 static void arrange_redraw(void){if(screen&&atomic_load(&shown)&&atomic_load(&arrangement_active))repaint(screen);}
+static void arrange_separated(uint64_t id){
+    if(arrange_epoch!=pt_epoch()||!atomic_load(&arrangement_active))return;
+    struct pt_arr_clip c;struct pt_arrangement a;
+    if(pt_arr_clip_by_id(id,&c)&&pt_arr_info(&a)){
+        arrange_selected=id;arrange_cursor=c.start;
+        for(unsigned i=0;i<a.tracks;++i){struct pt_arr_track t;if(pt_arr_track_at(i,&t)&&t.id==c.track){arrange_row=(int)i;break;}}
+    }
+    arrange_tick();say("Part ready: DATA time / B3 Edit / Chop");repaint(screen);
+}
 static void arrange_edit_pattern(void){
     struct pt_arr_clip c;struct pt_entry p;
     if(!arrange_target(&c)){say("Choose a block to edit");return;}
@@ -77,7 +86,8 @@ static void arrange_edit_pattern(void){
     if(index<0||!pt_info((unsigned)index,&p)){say("Pattern unavailable");return;}
     int64_t phase=c.offset;
     if(arrange_cursor>=c.start&&arrange_cursor<c.start+c.length)phase=(phase+(arrange_cursor-c.start)%p.length)%p.length;
-    if(!step_pattern_open||!step_pattern_active||!step_pattern_close||!step_pattern_button||!step_pattern_control||!step_pattern_pad||!step_pattern_paint||!step_pattern_open(c.pattern,phase,arrange_redraw)){
+    if(!step_pattern_open||!step_pattern_active||!step_pattern_close||!step_pattern_button||!step_pattern_control||!step_pattern_pad||!step_pattern_paint||
+       !(step_pattern_open_clip?step_pattern_open_clip(c.id,phase,arrange_redraw,arrange_separated):step_pattern_open(c.pattern,phase,arrange_redraw))){
         say("Pattern editor unavailable; stop transport");return;
     }
     arrange_menu=0;arrange_range=arrange_data_held=arrange_data_moved=0;atomic_store(&arrangement_editor,1);atomic_fetch_add(&input_epoch,1);repaint(screen);
@@ -136,6 +146,7 @@ static int arrange_button(unsigned code,int shifted){
     arrange_tick();if(!atomic_load(&arrangement_active))return 1;
     pt_expect_epoch(arrange_epoch);
     if(atomic_load(&arrangement_editor)){step_pattern_button(code,1,shifted);arrange_tick();repaint(screen);return 1;}
+    if(code==B1&&shifted){arrange_close();say("Sequential Song");repaint(screen);return 1;}
     if(code==B3&&shifted&&!arrange_editing){arrange_menu=arrange_menu?0:1;arrange_pick=0;arrange_data_held=0;repaint(screen);return 1;}
     if(code==0x52||code==0x50){say("Arrange playback/record not connected");return 1;}
     if((code==PLUS||code==MINUS)&&shifted){arrange_editing=0;arrange_result(pt_history(code==MINUS?-1:1));return 1;}
@@ -194,7 +205,7 @@ static void arrange_paint(void*g){
     struct pt_arrangement a;if(!pt_arr_info(&a))return;
     colour(g,0xff000000u);rect(g,0,0,320,240);
     struct pt_arr_clip under;int have_under=arrange_target(&under);
-    colour(g,0xffffffffu);text(g,arrange_editing?"Cancel":"Back",0,4,106,25,13);
+    colour(g,0xffffffffu);text(g,atomic_load(&export_shift)?"Song":arrange_editing?"Cancel":"Back",0,4,106,25,13);
     text(g,arrange_editing?"":arrange_menu?"Close":arrange_range?"Range On":"Range",107,4,106,25,13);colour(g,0xffffc247u);text(g,arrange_editing?"Apply":atomic_load(&export_shift)?"Actions":arrange_menu==3?"Delete":arrange_menu?"Choose":arrange_selected?"Edit":have_under&&!arrange_range?"Open":"New",214,4,106,25,13);
     text_at(g,arrange_menu==1?"Arrange / Actions":arrange_menu==2?"Insert pattern":a.read_only?"Arrange / read only":"Song / Arrange",6,34,arrange_menu?236:308,23,17,0x21);
     if(arrange_menu==3){colour(g,0xffffffffu);text(g,"Delete selected block?",8,93,304,27,18);text(g,"Pattern stays in the library",8,126,304,22,13);}

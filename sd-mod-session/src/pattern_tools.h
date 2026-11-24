@@ -8,6 +8,8 @@ struct pt_entry {char name[64];uint64_t id,revision;int64_t length;unsigned coun
 void pt_init(uintptr_t);
 void pt_reset(void);
 uint64_t pt_epoch(void);
+/* Monotonic value receipt across edits/history/load; not a native lease. */
+uint64_t pt_serial(void);
 /* Bind the current UI owner's operations to the project shown on screen. */
 void pt_expect_epoch(uint64_t);
 unsigned pt_count(void);
@@ -30,6 +32,7 @@ struct pt_arr_clip {uint64_t id,track,pattern;int64_t start,length,offset;unsign
 int pt_arr_info(struct pt_arrangement*);
 int pt_arr_track_at(unsigned,struct pt_arr_track*);
 int pt_arr_clip_at(unsigned,struct pt_arr_clip*);
+int pt_arr_clip_by_id(uint64_t,struct pt_arr_clip*);
 int pt_pattern_index(uint64_t);
 int pt_arr_add_track(const char*,uint64_t*);
 int pt_arr_add_clip(uint64_t,unsigned,int64_t,int64_t,uint64_t*);
@@ -48,6 +51,11 @@ int pt_arr_new_pattern(uint64_t track,uint64_t route_template,int64_t start,int6
 int pt_arr_variation(uint64_t clip);
 int pt_arr_edit_clip(uint64_t clip,uint64_t track,int64_t start,int64_t length,uint64_t expected_revision);
 int pt_pattern_assigned(unsigned index);
+/* Snapshot must match the displayed complete Pattern, including duplicates.
+ * copy=0 removes selected events from only this clip's new remainder.
+ * copy=1 leaves the original clip intact. One history transaction. */
+int pt_arr_separate(uint64_t clip,uint64_t pattern,uint64_t serial,
+    const struct pr_note*,unsigned count,int copy,uint64_t*result_clip);
 const char*pt_error(void);
 void pt_archive_save(void*,void*,void(*)(void*,void*));
 void pt_archive_load(void*,void*,void(*)(void*,void*));

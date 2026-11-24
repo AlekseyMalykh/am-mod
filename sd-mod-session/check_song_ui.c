@@ -170,7 +170,11 @@ int SONG_UI_PROOF_MAIN(int argc,char **argv)
     phase="ownership pairing";
     assert(song_ui_owns(PHONE_CONTROLLER,K1,0,1)&&!song_ui_owns(PHONE_CONTROLLER,0x11,0,1));
     assert(!song_ui_owns(PHONE_BUTTON,B3,0,1));          /* plain B3 stays stock Insert */
-    assert(!song_ui_owns(PHONE_BUTTON,0x0c,1,1));        /* B1 Export untouched */
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+    assert(song_ui_owns(PHONE_BUTTON,0x0c,1,1));button(B1,0); /* Shortcut owns its paired release. */
+#else
+    assert(!song_ui_owns(PHONE_BUTTON,0x0c,1,1));        /* Baseline Shift B1 stays native. */
+#endif
     assert(song_ui_owns(PHONE_BUTTON,B3,1,1));
     assert(song_ui_owns(PHONE_BUTTON,B3,0,0));           /* Shift released first: up still ours */
     assert(!song_ui_owns(PHONE_BUTTON,B2,0,0));          /* unclaimed up goes native */

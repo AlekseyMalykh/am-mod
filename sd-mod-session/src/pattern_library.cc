@@ -85,6 +85,18 @@ Result Library::erase(unsigned index){
     if(revision==UINT64_MAX)return Result::limit;
     entries.erase(entries.begin()+index);++revision;return Result::ok;
 }
+Result Library::subset(unsigned index,const std::vector<unsigned char>&selection,bool remainder,am_midi_choice_get get,Id&out){
+    if(index>=entries.size())return Result::invalid;
+    const auto&source=entries[index];const auto&p=source.pattern;
+    if(selection.size()!=p.events().size())return Result::stale;
+    std::vector<PatternEvent>events;
+    for(unsigned i=0;i<selection.size();++i){if(selection[i]>1)return Result::invalid;if(bool(selection[i])!=remainder)events.push_back(p.events()[i]);}
+    if(events.empty())return Result::invalid;
+    LibraryEntry value;value.name=source.name+(remainder?" rest":" rows");
+    Id id=next;Result result=Pattern::restore(id,p.id(),1,p.length(),p.routes(),events,get,value.pattern);
+    if(result!=Result::ok)return result;
+    result=append(*this,std::move(value));if(result==Result::ok)out=id;return result;
+}
 Result Library::edit(unsigned index,std::uint64_t expected,const std::vector<step_event>&removed,const std::vector<step_event>&added,am_midi_choice_get get){
     if(index>=entries.size()||(removed.empty()&&added.empty()))return Result::invalid;
     auto&p=entries[index].pattern;if(expected!=p.revision())return Result::stale;

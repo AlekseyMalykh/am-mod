@@ -10,6 +10,8 @@ static void patterns_write(void*p,const char*key,const void*text){(void)p;assert
 static void patterns_original(void*p,void*a){(void)p;(void)a;}
 static int patterns_read(void*p,void*a){(void)a;pt_archive_load(p,saved_wrapper,patterns_original);return 1;}
 static unsigned host_redraws;
+static uint64_t separated_clip;
+static void host_separated(uint64_t id){assert(!pattern_host&&!atomic_load(&piano_active));separated_clip=id;++host_redraws;}
 extern int check_arrangement_native_choices(uintptr_t);
 static void host_redraw(void){++host_redraws;}
 static void host_press(unsigned code,int shifted){assert(step_pattern_button(code,1,shifted));assert(step_pattern_button(code,0,shifted));}
@@ -94,6 +96,38 @@ int main(int argc,char**argv){
  host_press(0x0c,0);host_press(0x0c,0);assert(!step_pattern_active());pt_reset();
  puts("PASS direct unassigned pattern: actual reused Piano Roll with poisoned Events pointers, B3 New manual Pad/Tune insertion and Undo/Redo; no native source/instrument pointer needed");
  fclose(draw_file);draw_file=previous_trace;
+ FILE*saved_trace=draw_file;char separate_path[1024];snprintf(separate_path,sizeof separate_path,"%s-separate",argv[2]);draw_file=fopen(separate_path,"w");assert(draw_file);
+ pt_expect_epoch(pt_epoch());int identity[128],direct[128];for(int i=0;i<128;++i){identity[i]=i;direct[i]=0;}
+ struct pr_note row_notes[4]={0};
+ for(unsigned i=0;i<4;++i){row_notes[i].sound=i<2?0:(int)i-1;row_notes[i].selected=1;row_notes[i].event=FN(0x27e54d0,struct step_event(*)(unsigned,int64_t,int64_t,unsigned,unsigned,float))((unsigned)row_notes[i].sound,(int64_t)i*960,10000,100,0,.8f);}
+ FN(0x27e4400,void(*)(void*,int,int,int))(row_notes[1].event.data+4,0,0,4);
+ assert(pt_capture(row_notes,4,7680,1,"row-ui",identity,direct,2)&&pt_count()==1);
+ uint64_t row_id=0,block_id=0,other_row=0,other_block=0;assert(pt_arr_add_track("Song",&row_id)&&pt_arr_add_clip(row_id,0,0,15360,&block_id));
+ assert(pt_arr_add_track("Other",&other_row)&&pt_arr_copy(block_id,other_row,0,&other_block));struct pt_entry row_source;assert(pt_info(0,&row_source));
+ assert(step_pattern_open_clip(block_id,0,host_redraw,host_separated));
+ host_press(0x0d,0);assert(roll.range);host_press(0x0d,0);assert(!roll.range);
+ assert(step_pattern_button(0x0d,1,0)&&pattern_rows_held);assert(step_pattern_pad(0,0)&&pr_selected(&roll)==2);
+ assert(step_pattern_pad(1,0)&&pr_selected(&roll)==3);assert(step_pattern_pad(0,0)&&pr_selected(&roll)==1);assert(step_pattern_pad(0,0)&&pr_selected(&roll)==3);
+ assert(step_pattern_paint((void*)1,0));assert(step_pattern_button(0x0d,0,0)&&!roll.range&&!pattern_rows_held&&!roll_input_held&&roll_audition<0);
+ host_action(19);assert(separated_clip&&!step_pattern_active());struct pt_arr_clip moved,remainder,other;
+ assert(pt_arr_clip_by_id(separated_clip,&moved)&&pt_arr_clip_by_id(block_id,&remainder)&&pt_arr_clip_by_id(other_block,&other));
+ assert(moved.pattern!=row_source.id&&remainder.pattern!=row_source.id&&other.pattern==row_source.id&&moved.length==15360);
+ struct pt_entry entry;assert(pt_info((unsigned)pt_pattern_index(moved.pattern),&entry)&&entry.count==3&&entry.length==7680);
+ assert(pt_history(-1)&&step_pattern_open_clip(block_id,0,host_redraw,host_separated));host_press(BUTTON_LEVELS,0);assert(roll.layer==PR_TUNE);
+ host_press(0x23,0); /* Pattern Tune page 0 is -12..+3; +4 is on page 1. */
+ int pitch_pad=-1;for(int i=0;i<16;++i)if(roll_pad_rows[i]==124)pitch_pad=i;assert(pitch_pad>=0);
+ assert(step_pattern_button(0x0d,1,0));int saved_pitch=roll_pad_rows[15];roll_pad_rows[15]=-1;
+ assert(step_pattern_pad(15,0)&&!pr_selected(&roll));roll_pad_rows[15]=saved_pitch;
+ assert(step_pattern_pad((unsigned)pitch_pad,0)&&pr_selected(&roll)==1);assert(step_pattern_paint((void*)1,0));assert(step_pattern_button(0x0d,0,0)&&!roll.range);
+ separated_clip=0;host_action(20);assert(separated_clip&&!step_pattern_active()&&pt_arr_clip_by_id(block_id,&other)&&other.pattern==row_source.id);
+ assert(pt_arr_clip_by_id(separated_clip,&moved)&&pt_info((unsigned)pt_pattern_index(moved.pattern),&entry)&&entry.count==1&&entry.length==7680);
+ assert(pt_history(-1)&&step_pattern_open_clip(block_id,0,host_redraw,host_separated));separated_clip=0;
+ assert(step_pattern_button(0x0d,1,0)&&step_pattern_pad(0,0)&&pr_selected(&roll)==2);host_press(0x0e,0);
+ assert(separated_clip&&!step_pattern_active()&&step_pattern_button(0x0d,0,0)&&!pattern_rows_held);
+ assert(pt_history(-1)&&step_pattern_open_clip(block_id,0,host_redraw,host_separated));assert(pt_arr_variation(block_id)&&!step_pattern_active());
+ assert(step_pattern_pad(0,0));assert(step_pattern_open_clip(block_id,0,host_redraw,host_separated));assert(step_pattern_button(0x0d,1,0));pt_reset();assert(!step_pattern_active());assert(step_pattern_button(0x0d,0,0)&&!pattern_rows_held);
+ fclose(draw_file);draw_file=saved_trace;
+ puts("PASS row extraction host: hold B2 + Pads toggles full Pad/Tune rows, no audition, existing range tap, invalid row ignored, Separate/Copy actions close only after safe external repaint and return numeric clip ID, other references unchanged, stale rebind/reset rejected with invalid native Events pointers");
  assert(browse_bank==5);browse_bank=old_bank;
  root=old_root;controller=old_controller;sequence=old_sequence;event_list=old_list;
  unsigned native_ordinal=0;for(void*n=tree()->left;n!=&tree()->colour;n=FN(0xb51738,void*(*)(void*))(n))assert(!memcmp((char*)n+0x20,source+native_ordinal++,sizeof(struct step_event)));assert(native_ordinal==count);

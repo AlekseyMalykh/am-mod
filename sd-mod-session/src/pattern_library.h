@@ -11,6 +11,7 @@ struct Library {
     Result window(unsigned,std::int64_t,std::int64_t,am_midi_choice_get);
     Result variation(unsigned);
     Result empty(std::int64_t,const std::vector<Route>&,am_midi_choice_get);
+    Result subset(unsigned,const std::vector<unsigned char>&,bool,am_midi_choice_get,Id&);
     Result edit(unsigned,std::uint64_t,const std::vector<step_event>&,const std::vector<step_event>&,am_midi_choice_get);
     Result erase(unsigned);
 };

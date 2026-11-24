@@ -27,6 +27,7 @@ int step_native_tick(void);
 /* UI owner only. Reuses the one Piano Roll with value-only Pattern data.
  * redraw is a code callback, never an Events/Project/Program pointer. */
 int step_pattern_open(uint64_t pattern,int64_t phase,void(*redraw)(void));
+int step_pattern_open_clip(uint64_t clip,int64_t phase,void(*redraw)(void),void(*separated)(uint64_t));
 int step_pattern_active(void);
 void step_pattern_close(void);
 int step_pattern_button(unsigned code,int down,int shift);

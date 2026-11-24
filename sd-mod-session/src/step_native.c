@@ -73,6 +73,10 @@ static _Atomic unsigned piano_active;
 static int pattern_host;
 static int pattern_saved_bank;
 static uint64_t pattern_host_id;
+static uint64_t pattern_host_clip;
+static uint64_t pattern_split_result;
+static int pattern_rows_held,pattern_rows_used;
+static void (*pattern_separated)(uint64_t);
 static void (*pattern_redraw)(void);
 #endif
 /* Native shortcuts need their release even if the roll or its ticket changes. */

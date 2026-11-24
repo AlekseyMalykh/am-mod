@@ -20,6 +20,7 @@ extern int internal_storage_enabled(void) __attribute__((weak));
 #include "pattern_tools.h"
 #include "step_native.h"
 #pragma weak step_pattern_open
+#pragma weak step_pattern_open_clip
 #pragma weak step_pattern_active
 #pragma weak step_pattern_close
 #pragma weak step_pattern_button
@@ -314,6 +315,12 @@ int song_ui_owns(unsigned kind,unsigned code,int shift,int down)
     if(atomic_load(&export_menu_active)||atomic_load(&clear_pending)){
         atomic_fetch_or(&owned_buttons,bit);return 1;
     }
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+    if(code==B1&&shift&&atomic_load(&shown)&&!atomic_load(&export_shown)&&
+       !atomic_load(&stems_name_stage)&&!atomic_load(&stems_modal_visible)){
+        atomic_fetch_or(&owned_buttons,bit);return 1;
+    }
+#endif
     if(code==B1 && atomic_load(&shown) && !shift &&
        !atomic_load(&stems_name_stage) && !atomic_load(&stems_modal_visible)){
         atomic_fetch_or(&owned_buttons,bit);return 1;
@@ -531,6 +538,11 @@ int song_ui_button(void *e,int shift)
     }
 #ifdef MPC_PATTERN_TOOLS_TRIAL
     if(atomic_load(&shown)&&atomic_load(&arrangement_active))return arrange_button(code,shift);
+    if(code==B1&&shift&&atomic_load(&shown)&&!atomic_load(&export_menu_active)&&!atomic_load(&clear_pending)&&
+       !atomic_load(&export_shown)&&!atomic_load(&stems_name_stage)&&!atomic_load(&stems_modal_visible)){
+        if(!export_route_stage)arrange_open();
+        return 1;
+    }
 #endif
     if(atomic_load(&clear_pending)){
         if(code==B1)close_clear();
@@ -803,6 +815,10 @@ static void paint(void *p,void *g)
     { struct song_ref pr; if(song_ref(&pr)) paint_rows(p,g,&pr); }
     if(atomic_load(&export_shift)){
         /* Same look and baseline as the native Remove/Insert labels (no boxes, centred at y=17). */
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+        colour(g,0xff000000u);rect(g,0,2,107,34);
+        colour(g,0xffffc247u);text(g,"Arrange",0,2,107,30,14.0f);
+#endif
         colour(g,0xff000000u);rect(g,107,2,213,34);
         colour(g,0xffff4040u);text(g,"Clear All",110,2,107,30,14.0f);
         colour(g,0xffffffffu);text(g,"Duplicate",216,2,104,30,14.0f);

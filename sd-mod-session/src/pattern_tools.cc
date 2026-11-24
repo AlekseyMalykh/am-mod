@@ -1,6 +1,7 @@
 #include "pattern_tools.h"
 #include "pattern_library.h"
 #include <atomic>
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <exception>
@@ -12,6 +13,7 @@ struct State {Library library;Arrangement song;unsigned mode=0,arr_mode=0;std::s
 std::mutex mutex;std::shared_ptr<const State>current,empty_state;
 std::vector<std::shared_ptr<const State>>undo,redo;
 std::atomic<uint64_t>epoch{1};uintptr_t image;
+std::atomic<uint64_t>serial{1};
 thread_local char error[96];
 thread_local uint64_t expected_epoch;
 void set_error(const char*text){std::snprintf(error,sizeof error,"%s",text);}
@@ -25,11 +27,12 @@ template<class F>int edit_state(F function){try{
     auto next=std::make_shared<State>(*old);Result result=function(*next);if(result!=Result::ok)throw std::runtime_error(message(result));
     result=next->song.validate(next->library);if(result!=Result::ok)throw std::runtime_error("Pattern is used by arrangement");
     next->mode=1;std::lock_guard<std::mutex>lock(mutex);if(current!=old||epoch.load()!=generation)throw std::runtime_error("Project changed: retry");
-    undo.push_back(current);if(undo.size()>4)undo.erase(undo.begin());redo.clear();current=std::move(next);error[0]=0;return 1;
+    if(serial.load()==UINT64_MAX)throw std::runtime_error("Pattern receipt exhausted");
+    undo.push_back(current);if(undo.size()>4)undo.erase(undo.begin());redo.clear();current=std::move(next);serial.fetch_add(1);error[0]=0;return 1;
 }catch(const std::bad_alloc&){set_error("Not enough memory for patterns");return 0;}catch(const std::exception&e){set_error(e.what());return 0;}catch(...){set_error("Pattern operation failed");return 0;}}
 template<class F>int edit(F function){return edit_state([&](State&s){return function(s.library);});}
 template<class F>int arrange(F function){return edit_state([&](State&s){auto result=function(s.song,s.library);if(result==Result::ok)s.arr_mode=1;return result;});}
-void publish(std::shared_ptr<State>value){std::lock_guard<std::mutex>lock(mutex);current=std::move(value);undo.clear();redo.clear();epoch.fetch_add(1);}
+void publish(std::shared_ptr<State>value){std::lock_guard<std::mutex>lock(mutex);if(serial.load()==UINT64_MAX)throw std::runtime_error("Pattern receipt exhausted");current=std::move(value);undo.clear();redo.clear();epoch.fetch_add(1);serial.fetch_add(1);}
 struct Bytes{const char*data;std::size_t size;};
 Bytes archive_string(const void*p){
     unsigned flags=field<unsigned short>(p,22);if(!(flags&(1u<<10)))throw std::runtime_error("Patterns must be a string");
@@ -71,8 +74,9 @@ struct Transaction {std::shared_ptr<State>value;std::exception_ptr failure;bool 
 thread_local Transaction*transaction;
 }
 extern "C" void pt_init(uintptr_t base){if(!base)throw std::invalid_argument("Pattern image missing");std::lock_guard<std::mutex>lock(mutex);if(image&&image!=base)throw std::runtime_error("Pattern image changed");image=base;if(!empty_state)empty_state=std::make_shared<State>();if(!current)current=empty_state;}
-extern "C" void pt_reset(){std::lock_guard<std::mutex>lock(mutex);current=empty_state;undo.clear();redo.clear();epoch.fetch_add(1);}
+extern "C" void pt_reset(){std::lock_guard<std::mutex>lock(mutex);current=empty_state;undo.clear();redo.clear();epoch.fetch_add(1);serial.fetch_add(1);}
 extern "C" uint64_t pt_epoch(){return epoch.load();}
+extern "C" uint64_t pt_serial(){return serial.load();}
 extern "C" void pt_expect_epoch(uint64_t value){expected_epoch=value;}
 extern "C" const char*pt_error(){return error;}
 extern "C" unsigned pt_count(){try{return snapshot()->library.entries.size();}catch(...){return 0;}}
@@ -92,7 +96,7 @@ extern "C" int pt_capture(const pr_note*notes,unsigned count,int64_t length,uint
 extern "C" int pt_extract(unsigned i,int64_t begin,int64_t end){return edit([&](Library&l){return l.window(i,begin,end,getter());});}
 extern "C" int pt_variation(unsigned i){return edit([&](Library&l){return l.variation(i);});}
 extern "C" int pt_remove(unsigned i){return edit([&](Library&l){return l.erase(i);});}
-extern "C" int pt_history(int direction){try{std::lock_guard<std::mutex>lock(mutex);if(expected_epoch&&expected_epoch!=epoch.load())throw std::runtime_error("Project changed: reopen Patterns");auto&from=direction<0?undo:redo;auto&to=direction<0?redo:undo;if(from.empty())throw std::runtime_error("No pattern history");to.push_back(current);current=from.back();from.pop_back();error[0]=0;return 1;}catch(const std::exception&e){set_error(e.what());return 0;}}
+extern "C" int pt_history(int direction){try{std::lock_guard<std::mutex>lock(mutex);if(expected_epoch&&expected_epoch!=epoch.load())throw std::runtime_error("Project changed: reopen Patterns");auto&from=direction<0?undo:redo;auto&to=direction<0?redo:undo;if(from.empty())throw std::runtime_error("No pattern history");if(serial.load()==UINT64_MAX)throw std::runtime_error("Pattern receipt exhausted");to.push_back(current);current=from.back();from.pop_back();serial.fetch_add(1);error[0]=0;return 1;}catch(const std::exception&e){set_error(e.what());return 0;}}
 extern "C" int pt_notes(unsigned index,pr_note*out,unsigned capacity,unsigned char loaded[128]){try{
     auto s=snapshot();if(index>=s->library.entries.size())return -1;const auto&p=s->library.entries[index].pattern;
     if(p.events().size()>capacity||(!out&&!p.events().empty()))return -1;
@@ -120,6 +124,7 @@ extern "C" int pt_commit(unsigned index,const pr_plan*plan){if(!plan||plan->remo
 extern "C" int pt_arr_info(pt_arrangement*out){if(!out)return 0;std::memset(out,0,sizeof *out);try{auto s=snapshot();out->revision=s->song.revision;out->length=s->song.length;out->tracks=s->song.tracks.size();out->clips=s->song.clips.size();out->read_only=s->mode==2||s->arr_mode==2;return 1;}catch(...){return 0;}}
 extern "C" int pt_arr_track_at(unsigned index,pt_arr_track*out){if(!out)return 0;std::memset(out,0,sizeof *out);try{auto s=snapshot();if(index>=s->song.tracks.size())return 0;const auto&t=s->song.tracks[index];out->id=t.id;std::snprintf(out->name,sizeof out->name,"%s",t.name.c_str());out->muted=t.muted;out->solo=t.solo;return 1;}catch(...){return 0;}}
 extern "C" int pt_arr_clip_at(unsigned index,pt_arr_clip*out){if(!out)return 0;std::memset(out,0,sizeof *out);try{auto s=snapshot();if(index>=s->song.clips.size())return 0;const auto&c=s->song.clips[index];out->id=c.id;out->track=c.track;out->pattern=c.pattern;out->start=c.start;out->length=c.length;out->offset=c.offset;out->muted=c.muted;return 1;}catch(...){return 0;}}
+extern "C" int pt_arr_clip_by_id(uint64_t id,pt_arr_clip*out){if(!out)return 0;std::memset(out,0,sizeof *out);try{auto s=snapshot();for(const auto&c:s->song.clips)if(c.id==id){out->id=c.id;out->track=c.track;out->pattern=c.pattern;out->start=c.start;out->length=c.length;out->offset=c.offset;out->muted=c.muted;return 1;}}catch(...){}return 0;}
 extern "C" int pt_pattern_index(uint64_t id){try{auto s=snapshot();for(unsigned i=0;i<s->library.entries.size();++i)if(s->library.entries[i].pattern.id()==id)return (int)i;}catch(...){}return -1;}
 extern "C" int pt_arr_add_track(const char*name,uint64_t*out){if(!name||!out||::strnlen(name,32)>=32)return 0;Id id=0;int ok=arrange([&](Arrangement&a,const Library&l){return a.add_track(name,l,id);});if(ok)*out=id;return ok;}
 extern "C" int pt_arr_add_clip(uint64_t track,unsigned pattern,int64_t start,int64_t length,uint64_t*out){if(!out)return 0;Id id=0;int ok=arrange([&](Arrangement&a,const Library&l){if(pattern>=l.entries.size())return Result::invalid;return a.add_clip(track,l.entries[pattern].pattern.id(),start,length,0,l,id);});if(ok)*out=id;return ok;}
@@ -157,6 +162,45 @@ extern "C" int pt_arr_variation(uint64_t id){return edit_state([&](State&s){
  });}
 extern "C" int pt_arr_edit_clip(uint64_t id,uint64_t track,int64_t start,int64_t length,uint64_t revision){
  return arrange([&](Arrangement&a,const Library&l){return a.revision==revision?a.edit_clip(id,track,start,length,l):Result::stale;});
+}
+extern "C" int pt_arr_separate(uint64_t id,uint64_t pattern,uint64_t receipt,const pr_note*notes,unsigned count,int copy,uint64_t*out){
+ if(!out||!notes||!count||count>PR_MAX_EVENTS||(copy!=0&&copy!=1))return 0;
+ Id created=0;int ok=edit_state([&](State&s){
+  if(!receipt||receipt!=serial.load())return Result::stale;
+  ArrangementClip source;bool found=false;for(const auto&c:s.song.clips)if(c.id==id){source=c;found=true;break;}
+  if(!found||source.pattern!=pattern)return Result::stale;
+  unsigned index=0;while(index<s.library.entries.size()&&s.library.entries[index].pattern.id()!=pattern)++index;
+  if(index==s.library.entries.size())return Result::stale;
+  const auto&p=s.library.entries[index].pattern;if(p.events().size()!=count)return Result::stale;
+  std::vector<unsigned char>selection;selection.reserve(count);unsigned selected=0;
+  for(unsigned i=0;i<count;++i){const auto&e=p.events()[i];
+   if(notes[i].selected>1||notes[i].sound!=int(p.routes()[e.route].pad)||std::memcmp(&notes[i].event,&e.native,sizeof e.native))return Result::stale;
+   selection.push_back((unsigned char)notes[i].selected);selected+=notes[i].selected;
+  }
+  if(!selected)return Result::invalid;
+  unsigned needed=copy||selected==count?1:2;
+  if(s.song.tracks.size()>=arrangement_track_limit||
+     ((copy||selected!=count)&&s.song.clips.size()>=arrangement_clip_limit)||s.library.entries.size()+needed>library_limit)return Result::limit;
+  std::size_t total=0;for(const auto&e:s.library.entries)total+=e.pattern.events().size();
+  if(total>max_events||(copy?selected:count)>max_events-total)return Result::limit;
+  unsigned row_index=0;while(row_index<s.song.tracks.size()&&s.song.tracks[row_index].id!=source.track)++row_index;
+  if(row_index==s.song.tracks.size())return Result::stale;
+  bool muted=s.song.tracks[row_index].muted,solo=s.song.tracks[row_index].solo;
+  Id extracted=pattern,remainder=0;
+  {auto result=s.library.subset(index,selection,false,getter(),extracted);if(result!=Result::ok)return result;}
+  if(!copy&&selected!=count){auto result=s.library.subset(index,selection,true,getter(),remainder);if(result!=Result::ok)return result;}
+  Id row=0;auto result=s.song.add_track("Part "+std::to_string(s.song.tracks.size()+1),s.library,row);if(result!=Result::ok)return result;
+  std::rotate(s.song.tracks.begin()+row_index+1,s.song.tracks.end()-1,s.song.tracks.end());
+  if(muted||solo){result=s.song.track_state(row,muted,solo,s.library);if(result!=Result::ok)return result;}
+  if(!copy&&selected==count){result=s.song.rebind_clip(id,extracted,s.library);if(result==Result::ok)result=s.song.move_clip(id,row,source.start,s.library);created=id;}
+  else{
+   result=s.song.add_clip(row,extracted,source.start,source.length,source.offset,s.library,created);
+   if(result==Result::ok&&source.muted)result=s.song.clip_state(created,true,s.library);
+   if(result==Result::ok&&!copy)result=s.song.rebind_clip(id,remainder,s.library);
+  }
+  if(result==Result::ok)s.arr_mode=1;
+  return result;
+ });if(ok)*out=created;return ok;
 }
 namespace am_pattern {
 int pt_prepare_song(PreparedArrangement&out){try{auto generation=epoch.load();if(expected_epoch&&expected_epoch!=generation)throw std::runtime_error("Project changed: reopen Patterns");auto s=snapshot();if(s->mode==2||s->arr_mode==2)throw std::runtime_error("Newer song data: read only");

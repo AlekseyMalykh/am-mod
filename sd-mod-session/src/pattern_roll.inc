@@ -10,11 +10,13 @@ static void roll_patterns_open(void){
 }
 static int roll_pattern_refresh(void){
  struct pt_entry entry;unsigned char loaded[128];
+ uint64_t receipt=pt_serial();
  if(!pt_info((unsigned)roll_pattern_index,&entry)){if(pattern_host){roll_close();return 0;}roll_pattern_index=-1;pr_reset_view(&roll);roll_patterns_open();return 1;}
- if(roll.revision==entry.revision&&roll.length==entry.length&&!roll.pending_commit)return 1;
+ if(roll.revision==entry.revision&&roll.length==entry.length&&!roll.pending_commit&&roll_pattern_serial==receipt)return 1;
  int count=pt_notes((unsigned)roll_pattern_index,roll_snapshot,PR_MAX_EVENTS,loaded);
+ if(pt_serial()!=receipt){say("Pattern changed: reopen editor");if(pattern_host)roll_close();return 0;}
  if(count<0||!pr_load(&roll,roll_snapshot,(unsigned)count,entry.length,entry.revision,loaded)){say("Pattern exceeds editor capacity");return 0;}
- return 1;
+ roll_pattern_serial=receipt;return 1;
 }
 static int roll_patterns_capture(unsigned mode){
  if(roll_pattern_index>=0){say("Return to sequence before capture");return 0;}

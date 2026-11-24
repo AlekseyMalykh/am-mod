@@ -26,6 +26,8 @@ static int roll_row_pending(void);static void roll_row_execute(int);
 #include "pattern_tools.h"
 static int roll_pattern_index=-1,roll_patterns_state,roll_patterns_pick,roll_patterns_action;
 static uint64_t roll_patterns_epoch;
+static uint64_t roll_pattern_serial;
+static void pattern_separate_selection(int);
 static int64_t roll_patterns_begin,roll_patterns_end;
 static void roll_patterns_open(void),roll_patterns_paint(void*);
 static int roll_patterns_button(unsigned,int),roll_patterns_control(unsigned,unsigned,int),roll_pattern_refresh(void);
@@ -40,9 +42,16 @@ static int roll_midi_button(unsigned),roll_midi_control(unsigned,unsigned);
 static const char *const roll_action_names[]={"Copy","Cut","Paste","Delete","Select all","Select none","Snap starts","Snap ends","Snap both","Grid","Tune / Chop","Show target pad","Insert event","Undo: Shift -","Redo: Shift +","Move / Length / Velocity","Import MIDI","Export MIDI"
 #ifdef MPC_PATTERN_TOOLS_TRIAL
 ,"Parts / Patterns"
+,"Separate selection","Copy selection"
 #endif
 };
 #define ROLL_ACTIONS_COUNT ((int)(sizeof(roll_action_names)/sizeof(roll_action_names[0])))
+static int roll_actions_count(void){
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+ if(!pattern_host||!pattern_host_clip)return ROLL_ACTIONS_COUNT-2;
+#endif
+ return ROLL_ACTIONS_COUNT;
+}
 static const char *roll_grid_name(void){return roll.grid==10?"Off / 1 tick":grid_names[roll.grid];}
 static int roll_sequence_index(void){
  void *things=controller?FIELD(controller,0x248,void*):NULL;
@@ -184,7 +193,7 @@ static void roll_close(void){
  atomic_store(&piano_active,0);roll_actions=roll_editing=0;roll_owner=NULL;
 #ifdef MPC_PATTERN_TOOLS_TRIAL
  if(external)browse_bank=pattern_saved_bank;
- pattern_host=0;pattern_host_id=0;pattern_redraw=NULL;
+ pattern_host=0;pattern_host_id=pattern_host_clip=pattern_split_result=0;pattern_redraw=NULL;pattern_separated=NULL;pattern_rows_held=pattern_rows_used=0;
 #endif
 }
 static void roll_project_reset(void){roll_close();if(roll_ready)pr_reset(&roll);}
@@ -194,6 +203,7 @@ static int roll_refresh(int force){
  if(pattern_host){
   if(roll_patterns_epoch!=pt_epoch()){roll_close();return 0;}
   int index=pt_pattern_index(pattern_host_id);if(index<0){roll_close();return 0;}
+  if(pattern_host_clip&&roll_pattern_serial!=pt_serial()){struct pt_arr_clip c;if(!pt_arr_clip_by_id(pattern_host_clip,&c)||c.pattern!=pattern_host_id){roll_close();return 0;}}
   pt_expect_epoch(roll_patterns_epoch);roll_pattern_index=index;return roll_pattern_refresh();
  }
 #endif
@@ -300,6 +310,7 @@ static void roll_action_run(void){
  }else if(action==15)roll_edit_start();
 #ifdef MPC_PATTERN_TOOLS_TRIAL
  else if(action==18){if(pattern_host)say("Return to Events for Parts / Patterns");else roll_patterns_open();}
+ else if(action==19||action==20)pattern_separate_selection(action==20);
 #endif
 #ifdef MPC_MIDI_TOOLS
  else if(action==16){
@@ -378,7 +389,7 @@ static int roll_button(unsigned code,int event_shift){
   else{int64_t tick=roll.cursor_tick;roll_close();steps=roll_source_steps;FN(0x15814a0,void(*)(void*,int64_t))(controller,tick);edit_tick=tick;cursor=(int)(tick/grid_ticks[grid]);page=cursor/16;invalidate();}
  }else if(code==0x0d){if(event_shift){roll.follow=!roll.follow;pr_follow(&roll,play_tick,was_playing);say(roll.follow?"Follow on":"Follow off");}else if(!roll_editing&&!roll_actions)pr_range(&roll);}
  else if(code==0x0e){
-  if(event_shift){roll_actions=!roll_actions;roll_editing=0;pr_cancel(&roll);}
+  if(event_shift){roll_actions=!roll_actions;roll_action=clamp(roll_action,0,roll_actions_count()-1);roll_editing=0;pr_cancel(&roll);}
   else if(roll_actions)roll_action_run();
   else if(roll_editing){int result=roll.plan.removed_count?pr_apply(&roll):1;roll_editing=0;roll_error(result,"Event edit applied; Undo / Redo available");}
 #ifdef MPC_PATTERN_TOOLS_TRIAL
@@ -398,6 +409,9 @@ static int roll_button(unsigned code,int event_shift){
   if(roll_layer_open(code==BUTTON_CHOP?PR_CHOP:PR_TUNE,pad))roll_editing=roll_actions=0;
  }else if(code==6||code==7){roll_close();return 2;}
  else return 1;
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+ if(pattern_host&&pattern_split_result)return 1; /* Host finalizes without repainting the retired clip. */
+#endif
  repaint();return 1;
 }
 static int roll_control(unsigned cc,unsigned v,int event_shift){
@@ -409,7 +423,7 @@ static int roll_control(unsigned cc,unsigned v,int event_shift){
  if(roll_midi_state)return roll_midi_control(cc,v);
 #endif
  int delta=v>64?(int)v-128:(int)v;
- if(roll_actions){if(cc==0x64)roll_action=clamp(roll_action+delta,0,ROLL_ACTIONS_COUNT-1);else if(cc==0x14)roll_action=ui_list_fader(v,ROLL_ACTIONS_COUNT-1);else if(cc==0x10)roll_action=(int)(v*(unsigned)ROLL_ACTIONS_COUNT/128);repaint();return 1;}
+ if(roll_actions){int count=roll_actions_count();if(cc==0x64)roll_action=clamp(roll_action+delta,0,count-1);else if(cc==0x14)roll_action=ui_list_fader(v,count-1);else if(cc==0x10)roll_action=(int)(v*(unsigned)count/128);repaint();return 1;}
  if(cc==0x64){if(event_shift){pr_zoom(&roll,1,roll.zoom-delta);repaint();return 1;}roll.follow=0;if(!roll_editing){if(roll.note_focus&&!roll.range&&!event_shift&&!roll_data_held)pr_browse(&roll,delta);else{roll_data_begin_move();pr_cursor(&roll,roll.cursor_tick+(int64_t)delta*(event_shift?1:pr_grid_ticks(roll.grid)),roll.cursor_row);if(roll_data_moved)pr_range_apply(&roll);}}
   else {roll_delta_time+=(int64_t)delta*(event_shift?1:pr_grid_ticks(roll.grid));roll_error(pr_edit(&roll,roll_delta_time,roll_delta_row,roll_delta_length,roll_delta_velocity),NULL);}
   repaint();return 1;}
@@ -572,10 +586,15 @@ static void roll_paint(void*g){
  if(roll_pattern_index>=0&&!shift&&!roll_editing&&!roll_actions&&roll.layer==PR_PADS)back_label=pattern_host?"Arrange":"Patterns";
 #endif
  colour(g,WHITE);text(g,back_label,0,6,105,23,14);
- colour(g,shift&&roll.follow?AMBER:WHITE);text(g,shift?(roll.follow?"Follow On":"Follow Off"):roll.range?"End range":"Select range",107,6,105,23,14);
+ const char*range_label=shift?(roll.follow?"Follow On":"Follow Off"):roll.range?"End range":"Select range";
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+ if(pattern_host&&!shift&&!roll_editing&&!roll_actions)range_label=pattern_rows_held?"Pads: rows":"Range / rows";
+#endif
+ colour(g,shift&&roll.follow?AMBER:WHITE);text(g,range_label,107,6,105,23,14);
  const char*primary=roll_row_pending()?"Do It!":shift?"Actions":roll_actions?"Choose":roll_editing?"Apply":roll.layer==PR_PADS&&!pr_selected(&roll)?"Open":"Edit";
 #ifdef MPC_PATTERN_TOOLS_TRIAL
  if(pattern_host&&!roll_row_pending()&&!shift&&!roll_actions&&!roll_editing&&!pr_selected(&roll)&&roll_empty_cell())primary="New";
+ if(pattern_host_clip&&pattern_rows_held&&!shift&&!roll_actions&&!roll_editing&&!roll_row_pending())primary="Separate";
 #endif
  colour(g,AMBER);text(g,primary,214,6,105,23,14);
  char title[80],pad[8];pad_name(roll.sound,pad);
@@ -599,13 +618,13 @@ static void roll_paint(void*g){
   ui_caption(caption,sizeof(caption),sample,18);colour(g,!strcmp(sample,"Empty")?GREY:WHITE);left_text(g,caption,46,34,150,20,14);
   {unsigned nsel=pr_selected(&roll);char cnt[24];snprintf(cnt,sizeof(cnt),nsel?"  %u sel":"",nsel);snprintf(title,sizeof(title),"%s%s%s",roll.layer==PR_PADS?"":roll.layer==PR_TUNE?"Tune ":"Chop ",roll_grid_name(),cnt);}
   colour(g,GREY);right_text(g,title,196,34,118,20,12);}
- if(roll_actions){int first=ui_list_first(roll_action,ROLL_ACTIONS_COUNT,6);
-  for(int i=first;i<ROLL_ACTIONS_COUNT&&i<first+6;++i){int y=61+(i-first)*22;if(i==roll_action){colour(g,0xff303030);rect(g,6,y,302,22);}
+ if(roll_actions){int count=roll_actions_count(),first=ui_list_first(roll_action,count,6);
+  for(int i=first;i<count&&i<first+6;++i){int y=61+(i-first)*22;if(i==roll_action){colour(g,0xff303030);rect(g,6,y,302,22);}
    colour(g,i==roll_action?AMBER:WHITE);left_text(g,roll_action_names[i],12,y,292,22,14);
   }
-  int offset,thumb=ui_list_thumb(first,ROLL_ACTIONS_COUNT,6,132,&offset);
+  int offset,thumb=ui_list_thumb(first,count,6,132,&offset);
   colour(g,0xff303030);rect(g,314,61,2,132);colour(g,AMBER);rect(g,314,61+offset,2,thumb);
-  char position[40];snprintf(position,sizeof position,"Action %d / %d",roll_action+1,ROLL_ACTIONS_COUNT);colour(g,GREY);left_text(g,position,6,200,308,16,11);
+  char position[40];snprintf(position,sizeof position,"Action %d / %d",roll_action+1,count);colour(g,GREY);left_text(g,position,6,200,308,16,11);
   colour(g,AMBER);left_text(g,"DATA / Fader: choose | B3: apply",6,218,308,17,11);return;
  }
  int64_t unit=roll.grid==10?60:pr_grid_ticks(roll.grid);while(roll.span/unit>48)unit*=2;

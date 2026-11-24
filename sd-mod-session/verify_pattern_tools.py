@@ -20,7 +20,7 @@ def execute(target,args,runner,label):
     result=subprocess.run([*runner,str(target),*args],cwd=R,text=True,capture_output=True,timeout=90)
     (O/(target.name+'.log')).write_text(result.stdout+result.stderr);print(target.name,result.stdout+result.stderr,flush=True);result.check_returncode();assert label in result.stdout
     if label=='PASS pattern tools:':assert 'PASS arrangement store:' in result.stdout and 'PASS direct creation Store:' in result.stdout
-    if label=='PASS pattern UI:':assert 'PASS pattern host:' in result.stdout and 'PASS direct unassigned pattern:' in result.stdout
+    if label=='PASS pattern UI:':assert 'PASS pattern host:' in result.stdout and 'PASS direct unassigned pattern:' in result.stdout and 'PASS row extraction host:' in result.stdout
     checks.append(target.name)
 for name,prefix,flags,runner in ([] if a.ui_only else [('host','',[],[]),('host-asan','',['-fsanitize=address,undefined','-fno-sanitize-recover=all'],[]),('arm','aarch64-linux-gnu-',[],['qemu-aarch64','-L',sysroot]),('arm-ubsan','aarch64-linux-gnu-',['-fsanitize=undefined','-static-libubsan','-fno-sanitize-recover=all'],['qemu-aarch64','-L',sysroot])]):
     objects=[compile(s,name,prefix,flags) for s in core+['check_pattern_tools.cc']]

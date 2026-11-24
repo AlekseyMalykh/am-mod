@@ -11,7 +11,9 @@ unsigned step_native_transport_state(void){return transport_state;}
 static int bridge_active;static uint64_t bridge_id;static int64_t bridge_phase;
 static unsigned bridge_controls,bridge_down,bridge_up,bridge_paints,bridge_pads;
 static void(*bridge_redraw)(void);
+static uint64_t bridge_clip;static void(*bridge_separated)(uint64_t);
 int step_pattern_open(uint64_t id,int64_t phase,void(*redraw)(void)){bridge_active=1;bridge_id=id;bridge_phase=phase;bridge_redraw=redraw;return 1;}
+int step_pattern_open_clip(uint64_t id,int64_t phase,void(*redraw)(void),void(*separated)(uint64_t)){struct pt_arr_clip c;if(!pt_arr_clip_by_id(id,&c))return 0;bridge_clip=id;bridge_separated=separated;return step_pattern_open(c.pattern,phase,redraw);}
 int step_pattern_active(void){return bridge_active;}
 void step_pattern_close(void){bridge_active=0;bridge_redraw=NULL;}
 int step_pattern_button(unsigned code,int down,int shifted){(void)shifted;if(down)++bridge_down;else ++bridge_up;if(code==B1&&down)bridge_active=0;return 1;}
@@ -96,10 +98,12 @@ int main(int argc,char**argv){
     press(B1,0);press(B3,1);turn(DATA_ENCODER,1,0);press(B3,0);assert(arrange_menu==2);shot();press(B1,0);
     fclose(draw_trace);draw_trace=timeline_trace;
     puts("PASS screen navigation: fader up selects top, down selects bottom; zoom up increases row size; full menu viewport and scrollbar ends, knobs retain direction");
-    phase="Play/Record held locally; Stop and Shift-B1 Sequential stay native";
+    phase="Play/Record held locally; Stop stays native; Shift B1 toggles Arrange";
     press(0x52,0);press(0x50,0);assert(!song_ui_owns(PHONE_BUTTON,0x51,0,1));
     assert(ops==original_ops&&step_count==original_steps&&!memcmp(source,steps,sizeof steps));
-    uint64_t old_ticket=song_ui_ticket();if(arrange_selected||arrange_range)press(B1,0);press(B1,0);assert(!atomic_load(&arrangement_active));assert(!song_ui_owns(PHONE_BUTTON,B1,1,1));
+    uint64_t old_ticket=song_ui_ticket();press(B1,1);assert(!atomic_load(&arrangement_active));
+    transport_state=3;press(B1,1);assert(!atomic_load(&arrangement_active)&&!atomic_load(&export_menu_active));transport_state=2;
+    press(B1,1);assert(atomic_load(&arrangement_active));press(B1,1);assert(!atomic_load(&arrangement_active));
     unsigned char stale[16]={0};stale[8]=K1;stale[9]=127;
     assert(song_ui_control_ticket(stale,0,old_ticket)&&ops==original_ops);
     stale[8]=B1;stale[9]=1;assert(song_ui_button_ticket(stale,0,old_ticket)&&!atomic_load(&export_menu_active));
@@ -127,6 +131,15 @@ int main(int argc,char**argv){
     action(2);turn(DATA_ENCODER,4,0);action(3);assert(pt_arr_info(&a)&&a.clips==3);struct pt_arr_clip copied;assert(arrange_clip(arrange_selected,&copied)&&copied.pattern==fresh.pattern);
     action(15);assert(pt_count()==3&&arrange_clip(copied.id,&copied)&&copied.pattern!=fresh.pattern);press(MINUS,1);assert(pt_count()==2&&arrange_clip(copied.id,&copied)&&copied.pattern==fresh.pattern);
     assert(ops==original_ops&&step_count==original_steps&&!memcmp(source,steps,sizeof steps));
+    FILE*direct_trace=draw_trace;char separate_path[4096];snprintf(separate_path,sizeof separate_path,"%s-separate.txt",argv[2]);draw_trace=fopen(separate_path,"w");assert(draw_trace);
+    press(B1,0);arrange_cursor=7680;shot();action(13);assert(atomic_load(&arrangement_editor)&&bridge_clip==fresh.id&&bridge_separated);
+    int part_index=pt_pattern_index(fresh.pattern);struct pt_entry part_entry;assert(part_index>=0&&pt_info((unsigned)part_index,&part_entry));
+    struct step_event two[2]={notes[0].event,notes[0].event};two[0].time=0;two[0].data[32]=0;two[1].time=960;two[1].data[32]=1;
+    struct pr_plan addition={0};addition.revision=part_entry.revision;addition.added=two;addition.added_count=2;assert(pt_commit((unsigned)part_index,&addition));
+    struct pr_note selection[2];assert(pt_notes((unsigned)part_index,selection,2,NULL)==2);selection[0].selected=1;uint64_t child=0;
+    assert(pt_arr_separate(fresh.id,fresh.pattern,pt_serial(),selection,2,0,&child));bridge_active=0;bridge_separated(child);
+    struct pt_arr_clip part;struct pt_arr_track part_row;assert(!atomic_load(&arrangement_editor)&&arrange_selected==child&&pt_arr_clip_by_id(child,&part)&&pt_arr_track_at((unsigned)arrange_row,&part_row)&&part_row.id==part.track&&arrange_cursor==part.start);shot();
+    fclose(draw_trace);draw_trace=direct_trace;
     press(B1,0);arrange_cursor=15360;assert(song_ui_owns(PHONE_BUTTON,0x6f,0,1));unsigned char held[16]={0};held[8]=0x6f;held[9]=1;assert(song_ui_button(held,0));turn(DATA_ENCODER,1,0);assert(arrange_range&&arrange_data_held);
     old_ticket=song_ui_ticket();pt_reset();arrange_tick();held[9]=0;assert(song_ui_button_ticket(held,0,old_ticket)&&!arrange_data_held&&!arrange_selected);
     fclose(draw_trace);draw_trace=legacy_trace;
