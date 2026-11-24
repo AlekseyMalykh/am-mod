@@ -128,8 +128,8 @@ def scenario(name, injection='', full_duration=False):
             check(state(stockunit, 'MainPID') == original, 'Preflight failure stopped stock')
             events = (runtime / 'events.txt').read_text()
             check('STOCK_STOP_REQUESTED' not in events, 'Stop requested on rejection')
-            check((root / 'MPC_TRIAL_STATUS/STOPPED BEFORE TEST.wav').exists(), 'Missing rejection marker')
-            check(not (root / 'MPC_TRIAL_STATUS/TEST ENDED.wav').exists(), 'False completion on rejection')
+            check((root / 'AmMod/Status/STOPPED BEFORE TEST.wav').exists(), 'Missing rejection marker')
+            check(not (root / 'AmMod/Status/TEST ENDED.wav').exists(), 'False completion on rejection')
             if injection == 'probe_fail':
                 check('DISK_MOUNTS_READ_ONLY=yes' in (runtime / 'app/probe.txt').read_text(), 'Probe did not reach injected failure')
             if injection == 'systemd_leak':
@@ -161,8 +161,8 @@ def scenario(name, injection='', full_duration=False):
             check(state(prefix + '-clone.service', 'MainPID') == '0', 'Clone remains alive')
             wait_for(lambda: state(prefix + '-bus-proxy.service', 'MainPID') == '0')
             check(state(stockunit, 'MainPID') != original, 'No actual process switch')
-            wait_for(lambda: (root / 'MPC_TRIAL_STATUS/TEST ENDED.wav').exists())
-            check(list((root / 'MPC_TRIAL_STATUS').glob('*.wav')) == [root / 'MPC_TRIAL_STATUS/TEST ENDED.wav'], 'Stale status markers')
+            wait_for(lambda: (root / 'AmMod/Status/TEST ENDED.wav').exists())
+            check(list((root / 'AmMod/Status').glob('*.wav')) == [root / 'AmMod/Status/TEST ENDED.wav'], 'Stale status markers')
             if not injection:
                 check('CLONE_PROCESS_VERIFIED' in events, 'Copy inode never observed')
             if full_duration:

@@ -105,8 +105,16 @@ status() {
     status_sd=${status_report%/autorun/MPC_CLONE_TRIAL.txt}
     [ -d "$status_sd/autorun" ] || return 1
     [ "$(stat -c %d "$status_sd/autorun" 2>/dev/null)" = "$(cat "$R/sd-device")" ] || return 1
-    status_dir="$status_sd/MPC_TRIAL_STATUS"
+    status_dir="$status_sd/AmMod/Status"
+    [ ! -L "$status_sd/AmMod" ] && [ ! -L "$status_dir" ] || return 1
     mkdir -p "$status_dir" || return 1
+    # Earlier releases kept the markers in MPC_TRIAL_STATUS at the card root: remove only our known names, then the folder if empty.
+    if [ -d "$status_sd/MPC_TRIAL_STATUS" ] && [ ! -L "$status_sd/MPC_TRIAL_STATUS" ]; then
+        for status_name in READY RUNNING RETURNING 'TEST ENDED' 'STOPPED BEFORE TEST' 'RECOVERY ERROR'; do
+            rm -f "$status_sd/MPC_TRIAL_STATUS/$status_name.wav"
+        done
+        rmdir "$status_sd/MPC_TRIAL_STATUS" 2>/dev/null || true
+    fi
     cp "$R/status.wav" "$status_dir/.next" || return 1
     # Only our known markers; never delete user samples with a wildcard.
     for status_name in READY RUNNING RETURNING 'TEST ENDED' 'STOPPED BEFORE TEST' 'RECOVERY ERROR'; do

@@ -1,16 +1,22 @@
-# Am MOD r30d beta3 — synth, Input ROUTE, bootloader exit
+# Am MOD r30d beta4 — synth, Input ROUTE, bootloader exit
 
-> **BETA — r30d-beta3.** Compatibility with other mods and boot menus (Stock, SampQOL, D.S.B, SampleBoot, mpc-boot-thingy) is still being tested. Back up your projects and card first. Items marked *pending* passed host/emulator checks but still need a check on a physical MPC.
+> **BETA — r30d-beta4.** Compatibility with other mods and boot menus (Stock, SampQOL, D.S.B, SampleBoot, mpc-boot-thingy) is still being tested. Back up your projects and card first. Items marked *pending* passed host/emulator checks but still need a check on a physical MPC.
 
 For **Akai MPC Sample stock firmware 1.3.0.12**. This release continues r30c-beta1; installed firmware is never rewritten.
 
 ![Synth modules](media/r30d/synth-modules-en.png)
 
+## Fixes in beta4
+
+- **Tidy card root:** the power report and the status markers now live in one folder, `AmMod/` (`AmMod/MPC_POWER_AUDIT.txt`, `AmMod/Status/`), instead of `MPC_POWER_AUDIT.txt` and `MPC_TRIAL_STATUS/` at the card root, so several systems can share a card. The first start removes the old report and the old marker names; your own files are never touched. (Suggested by the SampleBoot author.)
+- **SampleBoot 1.0.3 or later** no longer shows card-root settings files such as `mpcqol.conf` inside the mod's folder, so no `ROOT_FILES=""` change is needed; it remains the workaround for older SampleBoot versions.
+- **Installer 1.5.1:** the SampleBoot message is now a hint for older versions only. Bug-report logs are also collected from the boot-menu folders and SampleBoot's `last-boot.log`.
+
 ## Fixes in beta3
 
 - **SampleBoot:** Am MOD installs to `autorun/mods/AM-Mod/` and starts from the SampleBoot menu. **Exit to bootloader** (Mod Settings → About) now returns to the **SampleBoot menu**, as it does for D.S.B. Checked on a physical MPC.
 - **Boot menu art:** the Am MOD logo appears in the SampleBoot carousel (`sampleboot.png`) and on the D.S.B record (`dsb-record.png`); SampleBoot shows the name “Am MOD”.
-- **Installer 1.5.0** detects SampleBoot and installs into the right folder. If SampleBoot's `ROOT_FILES` setting shows a card-root file such as `mpcqol.conf` inside `mods/`, Am MOD refuses to start (its sandbox check rejects a writable file from the card); the installer warns, and the fix is `ROOT_FILES=""` in `autorun/sampleboot/sampleboot.conf` (SampQOL then does not see its card-root settings).
+- **Installer 1.5.1** detects SampleBoot and installs into the right folder. If SampleBoot's `ROOT_FILES` setting shows a card-root file such as `mpcqol.conf` inside `mods/`, Am MOD refuses to start (its sandbox check rejects a writable file from the card); the installer warns, and the fix is `ROOT_FILES=""` in `autorun/sampleboot/sampleboot.conf` (SampQOL then does not see its card-root settings).
 
 ## Fixes in beta2
 

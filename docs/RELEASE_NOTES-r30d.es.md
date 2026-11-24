@@ -1,10 +1,16 @@
-# Am MOD r30d beta3 — sintetizador, Input ROUTE, salida al cargador
+# Am MOD r30d beta4 — sintetizador, Input ROUTE, salida al cargador
 
-> **BETA — r30d-beta3.** La compatibilidad con otros mods y menús de arranque (Stock, SampQOL, D.S.B, SampleBoot, mpc-boot-thingy) sigue en pruebas. Haz copia de seguridad de tus proyectos y de la tarjeta. Lo marcado como *pendiente* pasó las pruebas en host/emulador, pero aún falta probarlo en un MPC real.
+> **BETA — r30d-beta4.** La compatibilidad con otros mods y menús de arranque (Stock, SampQOL, D.S.B, SampleBoot, mpc-boot-thingy) sigue en pruebas. Haz copia de seguridad de tus proyectos y de la tarjeta. Lo marcado como *pendiente* pasó las pruebas en host/emulador, pero aún falta probarlo en un MPC real.
 
 Para el **Akai MPC Sample con firmware original 1.3.0.12**. Esta versión continúa r30c-beta1; el firmware instalado no se reescribe.
 
 ![Módulos del sintetizador](media/r30d/synth-modules-es.png)
+
+## Correcciones en beta4
+
+- **Raíz de la tarjeta ordenada:** el informe de energía y las marcas de estado ahora están en una sola carpeta, `AmMod/` (`AmMod/MPC_POWER_AUDIT.txt`, `AmMod/Status/`), en lugar de `MPC_POWER_AUDIT.txt` y `MPC_TRIAL_STATUS/` en la raíz, para que varios sistemas compartan la tarjeta. En el primer arranque se eliminan el informe y las marcas antiguas; tus archivos no se tocan. (Sugerencia del autor de SampleBoot.)
+- **SampleBoot 1.0.3 o posterior** ya no muestra archivos de ajustes de la raíz, como `mpcqol.conf`, dentro de la carpeta del mod, así que no hace falta `ROOT_FILES=""`; sigue siendo la solución para versiones anteriores de SampleBoot.
+- **Instalador 1.5.1:** el aviso sobre SampleBoot es ahora solo una pista para versiones antiguas. Los registros para informes de errores también se recogen de las carpetas de los cargadores y de `last-boot.log` de SampleBoot.
 
 ## Correcciones en beta3
 

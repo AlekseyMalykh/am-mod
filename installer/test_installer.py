@@ -315,7 +315,7 @@ class InstallerTest(unittest.TestCase):
     def test_sampleboot_warns_about_card_root_settings_file(self):
         self.sampleboot_card(root_conf=True)
         m.install(self.dsb_package(), self.card_obj(), self.log.append)
-        self.assertTrue(any("mpcqol.conf" in line and "ROOT_FILES" in line for line in self.log))
+        self.assertTrue(any("mpcqol.conf" in line and "ROOT_FILES" in line and "1.0.3" in line for line in self.log))
 
     def test_sampleboot_without_marker_is_not_mistaken_and_old_package_refused(self):
         boot = self.sampleboot_card()
@@ -327,6 +327,16 @@ class InstallerTest(unittest.TestCase):
         with patch.object(m, "backup_card") as backup, self.assertRaises(m.InstallError):
             m.install(self.dsb_package(), self.card_obj(), self.log.append)
         backup.assert_not_called()
+
+    def test_diagnostics_are_found_under_boot_menus(self):
+        self.sampleboot_card()
+        d = self.card / m.SAMPLEBOOT_DIR
+        d.mkdir(parents=True)
+        (d / "MPC_MOD_EVENTS.txt").write_text("events")
+        (self.card / "autorun/sampleboot/last-boot.log").write_text("boot log")
+        files, _ = m.diagnostic_files(self.card_obj())
+        self.assertIn("sd/autorun/mods/AM-Mod/MPC_MOD_EVENTS.txt", files)
+        self.assertIn("sd/autorun/sampleboot/last-boot.log", files)
 
     def test_two_boot_menus_are_refused(self):
         self.dsb_card()

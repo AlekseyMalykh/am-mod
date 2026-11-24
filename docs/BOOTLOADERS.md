@@ -15,7 +15,7 @@ Am MOD runs an application copy from the SD card; it never flashes the MPC. It s
 | mpc-boot-thingy | `autorun/apps/am-mod/autorun/` with `boot.entry` in the parent | choose **AM Mod** | returns to stock firmware |
 | **SampleBoot** (pxcm) | `autorun/mods/AM-Mod/` with `sampleboot.inplace` | choose **Am MOD** in the SampleBoot menu | **returns to the SampleBoot menu** |
 
-The installer 1.5.0 detects the layout and writes to the right folder. It never replaces the boot menu's root `autorun` folder. Use exFAT and an ASCII volume label.
+The installer 1.5.1 detects the layout and writes to the right folder. It never replaces the boot menu's root `autorun` folder. Use exFAT and an ASCII volume label.
 
 ## Exit to bootloader
 
@@ -46,7 +46,7 @@ When you report a boot problem, attach these files and name the boot menu and it
 ## Limits
 
 - Exit to bootloader hands over to **D.S.B** and **SampleBoot**. Returning to mpc-boot-thingy from the mod is not implemented; a common “an OS may return to the loader” convention would need an agreement with that project's author.
-- SampleBoot: if its `ROOT_FILES` setting shows a card-root file (default `mpcqol.conf`, when that file exists) inside `mods/`, Am MOD's sandbox check refuses to start. Set `ROOT_FILES=""` in `autorun/sampleboot/sampleboot.conf`; SampQOL then does not see its card-root settings.
+- SampleBoot **1.0.3 or later** needs no setting. With an older SampleBoot, if its `ROOT_FILES` setting shows a card-root file (default `mpcqol.conf`, when that file exists) inside `mods/`, Am MOD's sandbox check refuses to start: update SampleBoot, or set `ROOT_FILES=""` in `autorun/sampleboot/sampleboot.conf` (SampQOL then does not see its card-root settings).
 - Compatibility with mpc-boot-thingy is still being tested.
 - D.S.B shows the folder name (**AM-Mod**), not the product spelling.
 - In stock mode and on a plain card, the stock firmware has no loader menu; to run stock on a boot-menu card choose its Stock entry or remove the card.
