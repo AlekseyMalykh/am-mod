@@ -145,3 +145,10 @@ inventory с этим proof только при совпадении всех и
 источники вызовов/потоки проверенных entries, затем реальные
 event erase/clear/bulk/history paths. Пока нет основания открывать live чтение
 или считать весь путь New/Load/Program безопасным в работающей программе.
+
+Продолжение: `PATTERN_EVENT_WRITERS_RU.md` — исполнены iterator erase
+`0x27eef10` и exact-key wrapper `0x27ef360`, проверено сохранение независимого
+Pattern после освобождения исходных nodes. Native batching может подавлять
+уведомления при реальном изменении списка: post-change notification не
+подходит как единственная lifetime граница. Полные clear/bulk/history paths
+и потоки по-прежнему не покрыты.
