@@ -2313,7 +2313,8 @@ static int queue_native(void *native,unsigned kind)
     int song_shift=atomic_load(&native_shift_requested)||atomic_load(&native_buttons_down[0x31]);
     if(!naming&&song_ui_owns(kind,FIELD(native,8,unsigned char),song_shift,kind!=PHONE_BUTTON||FIELD(native,9,unsigned char)!=0)){
         e.pad=256u;
-        if(kind==PHONE_BUTTON)e.down=song_shift;
+        e.down=song_shift;
+        e.workflow_ticket=song_ui_ticket();
     }
 #endif
     if (phone_events_push(&e)) return 1;
@@ -2333,6 +2334,9 @@ static int forward_knob_fx(void *event){
  /* A stock FX page can remain enabled behind Step Edit or MIDI Tools.
   * Its fast path must not steal controls from the visible custom owner. */
  if(step_native_owns(cc)||music_ui_owns(cc))return 0;
+#ifdef MPC_SONG_UI
+ if(song_ui_owns(PHONE_CONTROLLER,cc,0,1))return 0;
+#endif
  forward_controller(event);return 1;
 }
 static void close_background_knob_fx(void *event,unsigned owned){
@@ -3076,12 +3080,15 @@ static unsigned process_events(void)
         int current = !atomic_load(&editor_destroyed) && editor &&
             e.generation == atomic_load(&generation) && visible();
         if (e.kind == PHONE_CONTROLLER) {
+#ifdef MPC_SONG_UI
+            if(!(e.pad&256u))
+#endif
             if(forward_knob_fx(e.native))continue;
             if (current && !(seen&1)) { seen|=1; note("FIFO_CONTROLLER_ON_UI"); }
             if (e.pad) {
                 /* Never replay a claimed metadata edit as native audio pitch. */
 #ifdef MPC_SONG_UI
-                if(e.pad&256u){if(!song_ui_control(e.native))forward_controller(e.native);}
+                if(e.pad&256u){if(!song_ui_control_ticket(e.native,e.down,e.workflow_ticket))forward_controller(e.native);}
                 else
 #endif
 #ifdef MPC_REAR_ROUTING
@@ -3115,7 +3122,7 @@ static unsigned process_events(void)
             if(step_confirm_to_native(e.native,e.pad))continue;
             if (current && !(seen&2)) { seen|=2; note("FIFO_BUTTON_ON_UI"); }
 #ifdef MPC_SONG_UI
-            if(e.pad&256u){if(!song_ui_button(e.native,e.down))forward_buttons(e.native);}
+            if(e.pad&256u){if(!song_ui_button_ticket(e.native,e.down,e.workflow_ticket))forward_buttons(e.native);}
             else
 #endif
 #ifdef MPC_REAR_ROUTING

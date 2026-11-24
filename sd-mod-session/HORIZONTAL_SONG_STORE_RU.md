@@ -1,8 +1,9 @@
 # Stage 4b — общий Store и архив горизонтальной аранжировки
 
 Реализовано в ветке `codex/pad-midi-recording`, поверх модели этапа 4a.
-Это слой данных и архивные hooks для будущего экрана Arrange. Сам экран,
-переключение Sequential/Arrange и native playback пока не подключены.
+Это слой данных и архивные hooks аранжировки. Native playback пока
+не подключён. Продолжение: `HORIZONTAL_SONG_UI_RU.md`
+описывает реализованный в 4c экран блоков и переключение Sequential/Arrange.
 Приложение, preload и установочный пакет не собирались.
 
 ## Совместное состояние
@@ -72,7 +73,7 @@ Proof/hashes/logs находятся в `build/pattern-tools/verification.json` 
 roundtrip приложения, реальное аудио/MIDI и устройство требуют дальнейшей
 проверки. Код включён только в opt-in `AM_MOD_PATTERN_TOOLS_TRIAL=1`.
 
-Далее: экран Arrange и переключатель режимов Song, операции блоков с
-encoder/fader и Chop, переход в существующий pattern editor. После этого —
+В 4c добавлены экран Arrange, переключение режимов Song, операции блоков с
+encoder/fader и Chop. Далее — переход в существующий pattern editor, затем
 native playback adapter с проверкой Program/pad mapping, длины Sequence,
 voice ownership и Stop/tails; затем export/mixdown и аппаратные сценарии.

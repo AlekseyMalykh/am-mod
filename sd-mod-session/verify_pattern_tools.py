@@ -6,7 +6,7 @@ R=Path(__file__).resolve().parent;O=R/'build/pattern-tools';O.mkdir(exist_ok=Tru
 stock=Path(a.stock);assert hashlib.sha256(stock.read_bytes()).hexdigest()=='b6584cba76e416e432ad202509099d34373dc2c3d6a8fb625f5678bf0193b508'
 core=['src/pattern_model.cc','src/pattern_library.cc','src/pattern_codec.cc','src/pattern_tools.cc','src/arrangement.cc','src/arrangement_codec.cc','src/midi_event.c','src/piano_roll.c']
 tracked=core+['src/pattern_model.h','src/pattern_library.h','src/pattern_tools.h','src/pattern_roll.inc','src/piano_roll.h','src/piano_roll_native.inc','src/step_native.c','src/phone_native.c','build_mixer_r27r.py','check_pattern_tools.cc','check_pattern_ui_native.c','check_piano_roll_native.c','check_steps.c','check_steps_support.cc','check_steps_support.S','src/step_abi.S','src/step_exceptions.cc','src/step_mute.cc','verify_pattern_tools.py']
-tracked+=['src/arrangement.h','src/midi_event.h','src/step_native.h','src/music_settings.c','src/music_settings.h','src/seq_mutes.c','src/seq_mutes.h','src/shift_badge.h','src/usb_drive_lights.h','src/ui_caption.h','build/phone_hooks.h']
+tracked+=['src/arrangement.h','src/midi_event.h','src/step_native.h','src/song_ui.h','src/music_settings.c','src/music_settings.h','src/seq_mutes.c','src/seq_mutes.h','src/shift_badge.h','src/usb_drive_lights.h','src/ui_caption.h','build/phone_hooks.h']
 digest=lambda:{s:hashlib.sha256((R/s).read_bytes()).hexdigest() for s in tracked}
 before=digest();proof=O/'verification.json';proof.unlink(missing_ok=True);checks=[]
 sysroot=os.environ.get('MPC_QEMU_SYSROOT','/home/user/mpc-rootfs-user-20260808')

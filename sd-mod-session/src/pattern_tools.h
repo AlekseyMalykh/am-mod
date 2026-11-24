@@ -32,6 +32,8 @@ int pt_arr_clip_at(unsigned,struct pt_arr_clip*);
 int pt_pattern_index(uint64_t);
 int pt_arr_add_track(const char*,uint64_t*);
 int pt_arr_add_clip(uint64_t,unsigned,int64_t,int64_t,uint64_t*);
+int pt_arr_copy(uint64_t,uint64_t,int64_t,uint64_t*);
+int pt_arr_paste(const struct pt_arr_clip*,uint64_t,int64_t,uint64_t*);
 int pt_arr_move(uint64_t,uint64_t,int64_t);
 int pt_arr_resize(uint64_t,int64_t);
 int pt_arr_cut(uint64_t,int64_t,uint64_t*);

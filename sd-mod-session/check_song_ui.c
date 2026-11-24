@@ -85,7 +85,7 @@ static void string_ctor(uint64_t *s,const char *text)
     repeats_label+=!strcmp(text,"Repeats");
     if(!strcmp(text,"1"))row_labels|=1;
     if(!strcmp(text,"2"))row_labels|=2;
-    if(strstr(text,"bar ×2"))row_labels|=4;
+    if(strstr(text,"bars ×2"))row_labels|=4;
     if(!strcmp(text,"Step 2 / 3"))row_labels|=8;
     if(!strcmp(text,"Separate WAVs without mixer FX"))stem_help|=1;
     if(!strcmp(text,"Separate WAVs with mixer FX"))stem_help|=2;
@@ -96,7 +96,10 @@ static void button(unsigned code,int down)
 static void knob(int value)
 { unsigned char e[16]={0};e[8]=K1;e[9]=(unsigned char)value;assert(song_ui_control(e)); }
 
-int main(int argc,char **argv)
+#ifndef SONG_UI_PROOF_MAIN
+#define SONG_UI_PROOF_MAIN main
+#endif
+int SONG_UI_PROOF_MAIN(int argc,char **argv)
 {
     assert(argc==2);setbuf(stdout,NULL);
     struct sigaction sa={.sa_sigaction=fault,.sa_flags=SA_SIGINFO};

@@ -68,7 +68,7 @@ if pattern_source_trial:
         hashes[name]=sha((R/name).read_bytes())
 if pattern_tools_trial:
     common.append('-DMPC_PATTERN_TOOLS_TRIAL=1')
-    for name in ('src/pattern_model.h','src/pattern_library.h','src/pattern_tools.h','src/pattern_roll.inc','src/arrangement.h'):
+    for name in ('src/pattern_model.h','src/pattern_library.h','src/pattern_tools.h','src/pattern_roll.inc','src/arrangement.h','src/arrangement_ui.inc'):
         hashes[name]=sha((R/name).read_bytes())
 if pad_midi_trial:
     common.append('-DMPC_PAD_MIDI_RECORDING_TRIAL=1')

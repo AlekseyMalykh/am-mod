@@ -4,7 +4,8 @@
 готовые `Library`/`Pattern` этапа 3, не создаёт второй Piano Roll и не
 запускает новый sequencer clock. Следующий подэтап 4b подключил модель к
 общему Store и архивным hooks под существующим trial flag; см.
-`HORIZONTAL_SONG_STORE_RU.md`. Экран Arrange и native transport ещё не подключены.
+`HORIZONTAL_SONG_STORE_RU.md`. Первый экран блоков реализован в 4c, см.
+`HORIZONTAL_SONG_UI_RU.md`; native transport ещё не подключён.
 
 ## Данные и операции
 
@@ -82,9 +83,9 @@ epoch и актуальность общего Store перед публикац
 
 1. Реализовано в 4b: общий project Store/архив Arrangement + Pattern references,
    проверки удаления и stale publication. См. отдельный протокол Store.
-2. Переключатель Sequential/Arrange и timeline в SongScreen. Связать Chop с
-   `cut_clip`, открытие блока — с существующим pattern editor. Сохранить
-   текущие аппаратные действия Sequential и управление encoder/fader.
+2. Частично реализовано в 4c: переключение Sequential/Arrange, timeline в
+   SongScreen, Chop → `cut_clip`, управление блоками через encoder/fader.
+   Открытие блока в существующем pattern editor ещё предстоит подключить.
 3. Native adapter подготовленного потока. Проверить ограничения длины
    штатной Sequence и представимость инструментальных целей до публикации.
    Первое включение — только на безопасной границе остановленного транспорта;

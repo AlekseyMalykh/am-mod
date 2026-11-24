@@ -110,6 +110,13 @@ int main(){
     pt_archive_save(nullptr,nullptr,original);assert(arrangement_written==future_song.arrangement&&written==library_saved);
     pt_reset();pt_expect_epoch(0);pr_destroy(&roll);
     assert(pt_arr_info(&info)&&!info.tracks&&!info.clips&&!pt_count());
+    assert(pt_capture(notes,3,7680,1,"program",map,outputs,0)&&pt_arr_add_track("Paste",&row));
+    assert(pt_arr_add_clip(row,0,0,15360,&block)&&pt_arr_cut(block,3840,&right));
+    assert(pt_arr_clip_at(1,&clip_view)&&clip_view.id==right&&clip_view.offset==3840);
+    assert(pt_arr_remove(right)&&pt_arr_paste(&clip_view,row,3840,&right));
+    assert(pt_arr_clip_at(1,&clip_view)&&clip_view.offset==3840&&clip_view.length==11520);
+    uint64_t untouched=42;assert(!pt_arr_paste(&clip_view,row,3840,&untouched)&&untouched==42);
+    assert(pt_arr_copy(right,row,15360,&block));pt_reset();
     std::cout<<"PASS arrangement store: shared history, protected references, cut/join, value readers, prepared epoch guard, order-independent archive fields, failed/corrupt/dangling/future loads, reset. Native archive fixtures only.\n";
     std::cout<<"PASS pattern tools: copied source/pads/mixer/manual duplicate split, independent variation, existing Piano Roll edit/copy/paste/delete/history, empty pattern, retained tails, versioned archive roundtrip, legacy/failed/corrupt/duplicate/future fields; "<<failures<<" allocation failures and library limit preserve prior state; source unchanged. Host native archive frame/writer fixtures; hardware not tested.\n";
 }

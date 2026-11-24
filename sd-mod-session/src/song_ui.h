@@ -16,6 +16,12 @@ int song_ui_selected_sequence(void); /* pad-selected sequence on the Song page, 
 int song_ui_owns(unsigned kind,unsigned code,int shift,int down);
 /* Consumer side (UI thread): 1 = handled. */
 int song_ui_control(void *event);
+int song_ui_control_at(void *event,int shift);
+/* Capture with producer ownership. Stale queued gestures are consumed after
+ * a mode change, never replayed as native knob/button actions. */
+uint64_t song_ui_ticket(void);
+int song_ui_control_ticket(void *event,int shift,uint64_t ticket);
+int song_ui_button_ticket(void *event,int shift,uint64_t ticket);
 int song_ui_button(void *event,int shift);
 /* Native button sink for gestures that replay stock presses (Song Export Shift+B2 Stems). */
 void song_ui_set_forward(void(*forward)(void*));

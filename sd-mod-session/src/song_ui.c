@@ -13,6 +13,13 @@ extern int internal_storage_enabled(void) __attribute__((weak));
 #endif
 #include "phone_events.h"
 #include "music_settings.h"
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+#include "pattern_tools.h"
+extern unsigned step_native_transport_state(void) __attribute__((weak));
+static _Atomic unsigned arrangement_active;
+static void arrange_open(void),arrange_close(void),arrange_paint(void*),arrange_tick(void);
+static int arrange_button(unsigned,int),arrange_control(unsigned,unsigned,int);
+#endif
 #ifdef MPC_MIDI_TOOLS
 #include "midi_file_native.h"
 #include "note_native.h"
@@ -64,6 +71,7 @@ static uintptr_t base;
 static void *screen;                     /* UI thread only */
 static _Atomic unsigned shown;           /* producer reads */
 static _Atomic unsigned owned_buttons;   /* bit per claimed button down */
+static _Atomic uint64_t input_epoch=1;
 static _Atomic int selected_sequence=-1; /* published by the UI Timer for the RGB layer */
 static void *export_screen;              /* UI thread only */
 /* Owner of the native Stems naming modal (JUCE UI thread only).
@@ -109,6 +117,13 @@ static unsigned export_items(void){
 static unsigned export_kind(unsigned index){
     unsigned audio=audio_export_items();return index<audio?index:4+index-audio;
 }
+static unsigned song_menu_items(void){
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+    return export_items()+1;
+#else
+    return export_items();
+#endif
+}
 static int song_export_ready(unsigned choice){
 #ifdef MPC_EARLY_STARTUP
     return choice==1u||startup_song_export_ready();
@@ -148,7 +163,14 @@ static int visible(void *p)
 static void repaint(void *p)
 { if (p) FN(0x1149880,void(*)(void*,uint64_t,uint64_t))(p,0,FIELD(p,0x28,uint64_t)); }
 static unsigned button_bit(unsigned code)
-{ return code==B2?1u:code==B3?2u:code==PLUS?4u:code==MINUS?8u:code==B1?16u:0u; }
+{
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+    if(code==0x4b)return 32u;
+    if(code==0x52)return 64u;
+    if(code==0x50)return 128u;
+#endif
+    return code==B2?1u:code==B3?2u:code==PLUS?4u:code==MINUS?8u:code==B1?16u:0u;
+}
 
 void *song_ui_stems_name_editor(void)
 {
@@ -233,6 +255,9 @@ int song_ui_pads_active(void){ return atomic_load(&pads_shown)!=0; }
 int song_ui_owns(unsigned kind,unsigned code,int shift,int down)
 {
     if(kind==PHONE_CONTROLLER){
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+        if(atomic_load(&shown)&&atomic_load(&arrangement_active))return code==DATA_ENCODER||(code>=0x10&&code<=0x12)||code==0x14;
+#endif
         if(code==0x12&&song_ui_stems_modal_visible())return !atomic_load(&native_export_storage);
         if(atomic_load(&shown)&&(code==K1||code==DATA_ENCODER))return 1;
         /* The main DATA encoder (not K1) scrolls Export choices only when
@@ -243,6 +268,12 @@ int song_ui_owns(unsigned kind,unsigned code,int shift,int down)
     unsigned bit=button_bit(code);
     if(!bit) return 0;
     if(!down) return (atomic_load(&owned_buttons)&bit)!=0;
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+    if(atomic_load(&shown)&&atomic_load(&arrangement_active)){
+        atomic_fetch_or(&owned_buttons,bit);return 1;
+    }
+    if(code==0x4b||code==0x52||code==0x50)return 0;
+#endif
     /* Bounded diagnostic of the exact context seen by the input thread.
      * It is intentionally passive: never claim/export based on a guess. */
     if(code==B2){
@@ -408,9 +439,13 @@ static void select_step(int delta)
         FN(0x14e19c0,void(*)(void*,int))((char*)r.controller+0x168,next);
 }
 
-int song_ui_control(void *e)
+int song_ui_control_at(void *e,int shift)
 {
+    (void)shift;
     unsigned cc=FIELD(e,8,unsigned char); int value=FIELD(e,9,unsigned char);
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+    if(atomic_load(&shown)&&atomic_load(&arrangement_active))return arrange_control(cc,(unsigned)value,shift);
+#endif
     if(cc==0x12&&song_ui_stems_modal_visible())return !atomic_load(&native_export_storage);
     if(atomic_load(&clear_pending))return cc==DATA_ENCODER||cc==K1;
     if(cc==DATA_ENCODER && atomic_load(&export_menu_active)){
@@ -421,7 +456,7 @@ int song_ui_control(void *e)
             int previous=(int)atomic_load(&export_choice);
             int next=previous+delta;
             if(next<0) next=0;
-            if(next>(int)export_items()-1) next=(int)export_items()-1;
+            if(next>(int)song_menu_items()-1) next=(int)song_menu_items()-1;
             if(next!=previous){
                 atomic_store(&export_choice,(unsigned)next);
                 repaint(screen);
@@ -444,11 +479,27 @@ int song_ui_control(void *e)
     if(steps) change_repeats(steps);
     return 1;
 }
+int song_ui_control(void *e){return song_ui_control_at(e,(int)atomic_load(&export_shift));}
+uint64_t song_ui_ticket(void){return atomic_load(&input_epoch);}
+int song_ui_control_ticket(void *e,int shift,uint64_t value){
+    if(value!=song_ui_ticket())return 1;
+    return song_ui_control_at(e,shift);
+}
+int song_ui_button_ticket(void *e,int shift,uint64_t value){
+    if(value!=song_ui_ticket()){
+        if(!FIELD(e,9,unsigned char))atomic_fetch_and(&owned_buttons,~button_bit(FIELD(e,8,unsigned char)));
+        return 1;
+    }
+    return song_ui_button(e,shift);
+}
 int song_ui_button(void *e,int shift)
 {
     unsigned code=FIELD(e,8,unsigned char),down=FIELD(e,9,unsigned char)!=0,bit=button_bit(code);
     if(!bit) return 0;
     if(!down){ atomic_fetch_and(&owned_buttons,~bit); return 1; }
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+    if(atomic_load(&shown)&&atomic_load(&arrangement_active))return arrange_button(code,shift);
+#endif
     if(atomic_load(&clear_pending)){
         if(code==B1)close_clear();
         else if(code==B3)confirm_clear();
@@ -463,6 +514,9 @@ int song_ui_button(void *e,int shift)
         }
         if(code==B2||code==PLUS||code==MINUS)return 1;
         if(code==B3){
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+            if(atomic_load(&export_choice)==export_items()){arrange_open();return 1;}
+#endif
             struct song_ref song;
             unsigned selected=export_kind(atomic_load(&export_choice));
             if(!song_ref(&song)||(!song.count&&selected!=5))return 1;
@@ -537,6 +591,9 @@ static void text_at(void *g,const char *s,int x,int y,int w,int h,float height,i
     FN(0x1070d60,void(*)(uint64_t*))(&font);
     FN(0xf0a290,void(*)(uint64_t*))(&string);
 }
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+#include "arrangement_ui.inc"
+#endif
 /* One-time probe (lab/device log): locate the step list rows so the sequence
  * colour can be drawn in each row. Reads only Component parent/bounds/child
  * array; every child pointer must point back to its parent. */
@@ -658,27 +715,35 @@ static void paint(void *p,void *g)
 {
     if(FIELD(p,0,uintptr_t)!=base+SONG_VPTR) return;
     screen=p;
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+    if(atomic_load(&arrangement_active)){arrange_paint(g);return;}
+#endif
     { struct song_ref pr; if(song_ref(&pr)&&pr.count>=1) probe(p); } /* rows exist only once the song has steps */
     struct song_ref r; int seq,rep;
     char line[128];
     if(atomic_load(&export_menu_active)){
         /* Paint after SongScreen children. Cover all of the song list/buttons;
          * the old native Cancel/Mixdown/Sequence modal was never entered. */
-        const unsigned selected=atomic_load(&export_choice)%export_items();
+        const unsigned selected=atomic_load(&export_choice)%song_menu_items();
         int has_ref=song_ref(&r),has_song=has_ref&&r.count>0;
         int has_source=has_song||(has_ref&&export_kind(selected)==5&&FIELD(r.controller,0x1dc,int)>=0&&FIELD(r.controller,0x1dc,int)<128);
         int can_export=has_source&&song_export_ready(export_kind(selected));
-        const char *items[]={"Mixdown","Sequence","Stems without FX","Stems with FX","MIDI song","MIDI sequence"};
+        const char *items[]={"Mixdown","Sequence","Stems without FX","Stems with FX","MIDI song","MIDI sequence","Horizontal Arrange"};
         const char *detail[]={"One stereo WAV","Combine into a sequence",
-                              "Separate WAVs without mixer FX","Separate WAVs with mixer FX","Song steps and repeats as .mid","Pad-selected sequence as .mid"};
+                              "Separate WAVs without mixer FX","Separate WAVs with mixer FX","Song steps and repeats as .mid","Pad-selected sequence as .mid","Pattern blocks / editing trial"};
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+        int arranging=selected==export_items();
+#else
+        int arranging=0;
+#endif
         colour(g,0xff000000u);rect(g,0,0,320,240);
         colour(g,0xff242424u);rect(g,2,2,102,26);rect(g,214,2,105,26);
         colour(g,0xffffffffu);text(g,"Back",2,2,102,25,13.0f);
-        colour(g,can_export?0xffffc247u:0xff777777u);text(g,"Export",214,2,105,25,13.0f);
-        colour(g,0xffffffffu);text_at(g,"Song Export",14,31,292,28,20.0f,0x21);
+        colour(g,can_export||arranging?0xffffc247u:0xff777777u);text(g,arranging?"Open":"Export",214,2,105,25,13.0f);
+        colour(g,0xffffffffu);text_at(g,arranging?"Song Mode":"Song Export",14,31,292,28,20.0f,0x21);
         unsigned first=selected>3?selected-3:0;
-        for(unsigned i=first;i<export_items()&&i<first+4;++i){
-            int y=67+(int)(i-first)*31;unsigned kind=export_kind(i);
+        for(unsigned i=first;i<song_menu_items()&&i<first+4;++i){
+            int y=67+(int)(i-first)*31;unsigned kind=i==export_items()?6:export_kind(i);
             int current=i==selected;
             colour(g,current?0xff302412u:0xff161616u);rect(g,12,y,296,28);
             if(current){colour(g,0xffffc247u);rect(g,12,y,3,28);}
@@ -688,7 +753,7 @@ static void paint(void *p,void *g)
             text_at(g,detail[kind],23,y+16,283,11,10.0f,0x21);
         }
         colour(g,0xff252525u);rect(g,12,198,296,1);
-        colour(g,0xffbbbbbbu);text(g,can_export?"Turn DATA: select   /   B3: export":has_song?"Insert SD card to export":"Insert a sequence before exporting",12,204,296,22,12.0f);
+        colour(g,0xffbbbbbbu);text(g,arranging?"B3: Arrange trial / stop transport first":can_export?"Turn DATA: select   /   B3: export":has_song?"Insert SD card to export":"Insert a sequence before exporting",12,204,296,22,12.0f);
         return;
     }
     if(atomic_load(&clear_pending)){
@@ -729,7 +794,11 @@ static void paint(void *p,void *g)
         colour(g,0xffaaaaaau);text_at(g,"Turn DATA / +/−: select step",112,214,200,19,12.0f,0x21);
     }
 }
-static void forget(void *p){ if(screen==p){ screen=NULL; close_clear(); atomic_store(&shown,0); } }
+static void forget(void *p){ if(screen==p){
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+    arrange_close();
+#endif
+    atomic_fetch_add(&input_epoch,1);screen=NULL; close_clear(); atomic_store(&shown,0); } }
 /* The native Create name dialog is a separate JUCE component tree.
  * Attach only to an ancestor whose paintOverChildren is the pinned native
  * no-op. A different firmware/class or an already-hooked slot is untouched.
@@ -820,6 +889,9 @@ void song_ui_tick(void)
 {
     int v=visible(screen);
     int exporting=visible(export_screen);
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+    if(!v)arrange_close();else if(atomic_load(&arrangement_active))arrange_tick();
+#endif
     unsigned shift=atomic_load(&export_shift);
     /* Log transitions only. If the Export screen is visible but this
      * predicate stays zero, the resulting trace shows the exact failure. */
@@ -894,7 +966,7 @@ void song_ui_tick(void)
     /* If the Song page was closed externally while our local selector was
      * open, discard the selector rather than drawing it on a stale screen. */
     if(!v && atomic_load(&export_menu_active))atomic_store(&export_menu_active,0u);
-    if(v!=(int)atomic_load(&shown)){ atomic_store(&shown,(unsigned)v); knob_last=-1; if(v)report("SONG_SCREEN_VISIBLE"); }
+    if(v!=(int)atomic_load(&shown)){ atomic_fetch_add(&input_epoch,1);atomic_store(&shown,(unsigned)v); knob_last=-1; if(v)report("SONG_SCREEN_VISIBLE"); }
     if(toast_until&&now_ms()>=toast_until){ toast_until=0; repaint(screen); }
     if(!v){ if(atomic_load(&clear_pending))close_clear(); pending_row=-1; last_row=last_repeats=-1; return; } /* keep the last selection for Song Export */
     reserve_song_footer(screen);
