@@ -152,4 +152,7 @@ Pattern после освобождения исходных nodes. Native batch
 уведомления при реальном изменении списка: post-change notification не
 подходит как единственная lifetime граница. Следующая серия исполнила также
 native delta replay `0x27f0ee0`, single replacement и методы DeleteEvent
-execute/reverse. GUI Clear, полный manager history и потоки ещё не покрыты.
+execute/reverse. В дальнейшем добавлен native CommandManager dispatch,
+constructor DeleteEvent mode2, state wrappers и проверка shared ownership
+с history-adapter. GUI Clear, реальный выбор/хранение истории, queue и потоки
+ещё не покрыты.

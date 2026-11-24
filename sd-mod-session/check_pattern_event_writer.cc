@@ -13,8 +13,17 @@ std::uint64_t pattern_event_notified_size(void);
 void*pattern_event_erase(unsigned);void*pattern_event_erase_key(const step_event*);void pattern_event_insert(const step_event*);
 void pattern_event_command_setup(const step_event*);void pattern_event_command(int);
 void pattern_event_delta_setup(const step_event*,const step_event*);void pattern_event_delta(unsigned);
+void pattern_history_setup(void);void*pattern_history_create(const step_event*);
+int pattern_history_dispatch(const void*);void*pattern_history_transaction(void);unsigned pattern_history_dispatches(void);
+int pattern_history_replay(void*,int);
 }
 using namespace am_pattern;
+static std::shared_ptr<void> retained_history;
+static unsigned history_entries;
+extern "C" void pattern_history_retain(void*transaction,const void*shared,int index){
+    assert(transaction==pattern_history_transaction()&&index==0&&!retained_history);
+    retained_history=*static_cast<const std::shared_ptr<void>*>(shared);++history_entries;
+}
 template<class T>T field(const void*p,std::size_t n){T value;std::memcpy(&value,static_cast<const char*>(p)+n,sizeof value);return value;}
 template<class T>void set(void*p,std::size_t n,T value){std::memcpy(static_cast<char*>(p)+n,&value,sizeof value);}
 struct ReadBridge {
@@ -140,6 +149,35 @@ extern "C" int pattern_event_writer_proof(std::uintptr_t image){
         set(list,0x48,unsigned(0));
     }
     assert(pattern_event_notifications()==before_notifications);expect_snapshot(3);
+    pattern_history_setup();
+    unsigned command_destroyed=0;
+    std::shared_ptr<void> owned_command(pattern_history_create(&duplicate),[&](void*p){
+        auto table=*static_cast<std::uintptr_t**>(p);reinterpret_cast<void(*)(void*)>(table[1])(p);++command_destroyed;
+    });
+    std::weak_ptr<void> command_lifetime=owned_command;
+    assert(field<unsigned>(owned_command.get(),0x28)==1&&field<std::uint64_t>(list,0x88)==3);
+    assert(bridge.owner->enter(bridge.context,lease));const auto dispatch_owner=bridge.owner;done.store(false);
+    std::atomic<int>dispatch_result{-1};
+    std::thread dispatch_writer([&]{auto change=domain.change();dispatch_result.store(pattern_history_dispatch(&owned_command));done.store(true);});
+    deadline=std::chrono::steady_clock::now()+std::chrono::seconds(5);
+    while(dispatch_owner->currency()->current()){assert(std::chrono::steady_clock::now()<deadline);std::this_thread::yield();}
+    assert(!done.load()&&!pattern_history_dispatches()&&!history_entries&&field<std::uint64_t>(list,0x88)==3);
+    dispatch_owner->leave(bridge.context,lease);dispatch_writer.join();
+    assert(done.load()&&dispatch_result.load()==0&&pattern_history_dispatches()==1&&history_entries==1);
+    assert(retained_history.get()==owned_command.get()&&field<unsigned>(owned_command.get(),0x28)==0);
+    owned_command.reset();assert(!command_lifetime.expired()&&!command_destroyed);expect_snapshot(2);
+    {auto change=domain.change();assert(pattern_history_replay(retained_history.get(),0)!=0);}expect_snapshot(2);
+    assert(field<unsigned>(retained_history.get(),0x28)==0&&history_entries==1);
+    {auto change=domain.change();assert(pattern_history_replay(retained_history.get(),1)==0);}expect_snapshot(3);
+    assert(field<unsigned>(retained_history.get(),0x28)==1);
+    {auto change=domain.change();assert(pattern_history_replay(retained_history.get(),1)!=0);}expect_snapshot(3);
+    assert(field<unsigned>(retained_history.get(),0x28)==1&&history_entries==1);
+    {auto change=domain.change();assert(pattern_history_replay(retained_history.get(),0)==0);}expect_snapshot(2);
+    assert(field<unsigned>(retained_history.get(),0x28)==0);
+    {auto change=domain.change();assert(pattern_history_replay(retained_history.get(),1)==0);}expect_snapshot(3);
+    assert(same(first,note(0))&&same(duplicate,note(1))&&same(duplicate,note(2)));
+    retained_history.reset();assert(command_lifetime.expired()&&command_destroyed==1);
+    std::cout<<"PASS native event CommandManager: real ctor19cf2b0/dispatch19d0a00/transaction19cc1f0, DeleteEvent ctor19d8ba0 mode2, command state wrappers19c9a50/19c9c40; retained history owns command after caller release, native Undo/Redo changes state and restores duplicates, native virtual destructor runs once. SourceDomain waits before dispatch. History storage/maintenance/monitor are adapters; queue, actual history selection and GUI Clear not certified.\n";
     std::cout<<"PASS native history methods/deltas: actual DeleteEvent vtable execute/undo/redo (inline fixture command; no history manager), 27f0ee0 bulk remove/restore and single replacement, duplicate notes, repeated replay, nested batch counter retained; SourceDomain drains reader before native command. Source snapshot/pattern unchanged. Factory, real history stack, GUI Clear entry, exception rollback and thread contracts not certified.\n";
     std::cout<<"PASS native event writers: actual 27eef10 iterator erase/successor/free/change trees and 27ef360 exact-key wrapper; duplicate occurrences, missing key, last-node header reset, 32 inserts/erases, native batch flag suppresses notifications while mutations still occur; SourceDomain waits for reader, stays closed, explicit republish gives fresh snapshot; original snapshot/extracted pattern unchanged. Notifications are fixtures; other variants, full bulk/history coverage, caller threads and production coverage not certified.\n";
     return 0;
