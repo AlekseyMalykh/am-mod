@@ -273,6 +273,20 @@ native Arrange Play/Stop с реальными владельцами Track/Prog
 Stop/Start, изменение Repeats, сохранение/загрузка. Источником успеха
 должен быть transport/event trace, а не только изменённое число в UI.
 
+Уточнение устройства от пользователя: при Repeats > 1 выполняется один
+проход и переход к следующей строке; бесконечного зацикливания нет.
+При дальнейшем чтении pinned ELF найден native playback view SongMode:
+secondary interface `6d9f578` расположен на `SongMode + 0x98`.
+Getter `1f0cfb0(interface, index)` читает sequence из массива пар по
+`interface + 0xa0/+0xa8`, то есть `SongMode + 0x138/+0x140`;
+`1f0cee0` возвращает число этих пар, `1f0cfe0` проверяет второй int пары
+на ноль. Это отдельное представление от SequenceChain steps +0x30/+0x38.
+Данные должны наблюдаться на настоящем SongMode, прежде чем объявлять
+причину найденной: отсутствие разворачивания повторов пока гипотеза.
+`1f0f570` — constructor, `1f0c260` — destructor thunk, `1f0d9d0` обновляет
+индикацию пэдов; эти функции нельзя выдавать за rebuild playback view
+или вызывать из нового исправления без дополнительного исследования.
+
 Дальнейшее чтение native-кода выявило различие двух кэшей. Проверенные ранее
 `170b060 / 17088c0` принадлежат `SequenceEventListAudioThreadCache`.
 Один из его владельцев — `StepSequencer::NormalMode`; другой —
@@ -340,3 +354,69 @@ Project/Track/Program, native ClipPlayer instance и transport в этом
 через PT_LOAD и показывает RTTI/vtable, прямые BL и кандидаты ADRP+ADD/LDR.
 Это инструмент исследования: прямой вызов или RTTI сами по себе не
 доказывают использование функции в аудиопотоке или время жизни объекта.
+
+### Исправление Repeats в Sample, 25 ноября 2026
+
+Уточнение к исследованию общего `SongMode` выше: Sample использует отдельный
+`AC50SongSequenceController` (RTTI `6e125e8`, primary vtable `6d8ea48`).
+Его список для `SequenceListInterface` — `vector<int>`, а не пары общего
+`SongMode`. Исправлять общий контроллер для этого бага было бы недостаточно.
+
+Обнаружены и исправлены две причины:
+
+- `1578480` заполнял временный список `controller + 0x230` одним номером
+  секвенции на строку, игнорируя второй int `SequenceChain::Step.repeats`.
+  `src/song_repeats.inc`, подключённый из `song_ui.c`, разворачивает именно
+  этот список перед прежней native notification/cache publication.
+- В observer `controller + 0x140` обработчик SetRepeats (virtual `+0x20`)
+  был no-op `1577e50`. Он заменён существующим all-steps-changed handler
+  `1578a00` с правильным this-adjustment. Поэтому K1 и native Undo обновляют
+  не только модель, но и список для транспорта.
+
+Формат Song/XPJ, исходные секвенции и штатные команды редактирования не меняются.
+Установка проверяет исходные инструкции и observer slot. Список ограничен
+штатным лимитом `0x3137` проходов; память выделяется при подготовке на control,
+не в consumer. При отказе выделения публикация не выполняется и прежний
+audio cache остаётся доступен. Native weak guards и очередь не подменяются.
+
+`verify_song_repeats_native.py --stock ...` запускает normal и UBSan в QEMU:
+
+- Сначала воспроизводит баг настоящего native builder: `4,9,2` при `2/3/1`.
+- После установки получает через native notification, отложенную control
+  задачу, native copy, audio swap и native lookup `4,4,9,9,9,2,END`.
+- Выполняет настоящие `SequenceChainSetRepeatsCommand::Apply/Undo`, настоящий
+  notifier и регистрацию observer. Прямого ручного rebuild между Apply/Undo
+  и проверкой нет.
+- Проверяет соседние одинаковые секвенции, замену входной песни, пустую/null
+  песню, 99 повторов, OOM с сохранением прежнего cache и успешную повторную попытку.
+- Реальный обработчик конца секвенции `2120590` читает исправленный список
+  через настоящий Sample virtual getter и запрашивает правильную следующую
+  секвенцию, включая одинаковые соседние проходы и END. При stopped Timeline
+  переход не запрашивается.
+
+Границы проверки: controller/Timeline/queue storage и control executor —
+fixtures; downstream DSP activation и voice flush — явные test sinks.
+Это не проверка слышимого воспроизведения или полного Stop/Start на устройстве.
+`verify_arrangement_ui.py` также прошёл normal, UBSan, baseline Song и проверки
+production-флагов. Приложение/пакет не собирались, карта не изменялась.
+
+### Следующий участок Arrange: native ClipPlayer
+
+В `check_arrangement_native_clip.cc` добавлена проверка настоящих функций
+`296e9c0` (lookup по Track/selector), `20e8040` (ClipPlayer binding),
+`2158f00` (iterator attach), `20f5710` (musical seek) и native detach.
+Итератор читает подготовленные ноты на позициях 0/7680/15360/23040 с исходной
+длительностью 40000. Проверены ссылки на Events `cache + 0x130` и оба блока
+метаданных `cache + 0xf8/+0x2e0`. Во время attach/seek/detach запрещены
+allocations/delete; normal и UBSan проходят, после teardown утечек нет.
+
+Важная деталь Stop: native detach обнуляет source binding итератора `+0x18`,
+но сохраняет старое значение raw cursor `+0x20`. После detach его нельзя
+разыменовывать; проверка не принимает ненулевой cursor за активный источник.
+
+В этой проверке player/iterator/Sequence cache lookup storage остаются
+fixtures; Track — непрочитанный opaque key, Program отсутствует. Нативный
+voice renderer и transport не запущены. Это следующий доказанный участок
+между публикацией нот и проигрывателем, а не готовая привязка к живому проекту.
+GUI Play/Record остаются закрыты до подключения владельца Track/Program,
+нативного transport и остановки/retirement голосов.

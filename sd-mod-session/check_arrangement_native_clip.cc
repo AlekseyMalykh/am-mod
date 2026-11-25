@@ -57,6 +57,51 @@ void*empty_clip(std::uintptr_t image){
     }
     return source;
 }
+void check_player_binding(std::uintptr_t image,void*cache){
+    // Storage for the surrounding player/sequence lookup is a fixture. Run
+    // actual ClipPlayer::setSequence and SequenceEventListIterator attachment;
+    // do not mistake a cache swap for proof that a player reads that cache.
+    alignas(8) unsigned char player[0x1b0]{},sequence[0x2a8]{},head[24]{},node[32]{},
+        owner[16]{},context[0xe0]{},iterator[0x80]{},track[8]{};
+    clip_put(sequence,0x2a0,static_cast<void*>(head));
+    clip_put(head,0,static_cast<void*>(node));clip_put(node,0,static_cast<void*>(head));
+    clip_put(node,16,static_cast<void*>(track));clip_put(node,24,static_cast<void*>(owner));
+    clip_put(owner,8,cache);clip_put(player,0x100,static_cast<void*>(track));
+    clip_put(player,0x1a0,static_cast<void*>(context));clip_put(player,0x1a8,static_cast<void*>(context+sizeof context));
+    clip_put(context,8,static_cast<void*>(iterator));
+    clip_put(iterator,0,image+0x6da4f08);
+    auto*listener=reinterpret_cast<void*(*)(std::size_t)>(image+0xb51418)(0x40);
+    reinterpret_cast<void(*)(void*,void*,void*)>(image+0x236b140)(listener,iterator+8,iterator);
+    clip_put(iterator,16,listener);
+    reinterpret_cast<void(*)(void*)>(image+0x27e5490)(iterator+0x28);
+    const auto empty_note=field<step_event>(iterator,0x28);
+    assert(reinterpret_cast<void*(*)(void*,void*,unsigned)>(image+0x296e9c0)(sequence,track,0)==cache);
+    auto all=live_blocks.load(),native=native_blocks.load(),bytes=native_bytes.load();
+    clip_consumer=true;native_alloc_observer=clip_no_allocate;native_delete_observer=clip_no_delete;
+    reinterpret_cast<void(*)(void*,void*)>(image+0x20e8040)(player,sequence);
+    assert(field<void*>(iterator,24)==static_cast<unsigned char*>(cache)+0x130);
+    assert(field<void*>(context,0)==static_cast<unsigned char*>(cache)+0xf8);
+    assert(field<void*>(context,16)==static_cast<unsigned char*>(cache)+0x2e0);
+    assert(field<void*>(iterator,32)!=static_cast<unsigned char*>(cache)+0x130+0x68);
+    for(std::int64_t tick: {std::int64_t(0),std::int64_t(7680),std::int64_t(15360),std::int64_t(23040)}){
+        reinterpret_cast<void(*)(void*,std::int64_t)>(image+0x20f5710)(iterator,tick);
+        auto note=field<step_event>(iterator,0x28);
+        assert(note.time==tick&&(note.type&255)==3);
+        am_midi_event decoded{};
+        assert(am_midi_event_copy(&note,reinterpret_cast<am_midi_choice_get>(image+0x27e4230),AM_MIDI_EVENT_NOTE_ON,&decoded));
+        assert(decoded.duration==40000&&decoded.source_note==50);
+    }
+    reinterpret_cast<void(*)(void*,void*)>(image+0x20e8040)(player,nullptr);
+    assert(!field<void*>(iterator,24)&&!field<void*>(context,0)&&!field<void*>(context,16));
+    // Native detach leaves the raw cursor value at +0x20 untouched; +0x18
+    // is the authoritative source binding. Never dereference the old cursor.
+    assert(field<unsigned>(context,24)==4);
+    assert(same_note(field<step_event>(iterator,0x28),empty_note));
+    native_alloc_observer=nullptr;native_delete_observer=nullptr;clip_consumer=false;
+    assert(live_blocks==all&&native_blocks==native&&native_bytes==bytes);
+    reinterpret_cast<void(*)(void*)>(image+0x2159430)(iterator);
+    std::puts("PASS native ClipPlayer lookup/iterator attach, musical seek and detach; no allocations/deletes (player/lookup storage fixture)");
+}
 }
 
 extern "C" int check_arrangement_material(std::uintptr_t image){
@@ -115,6 +160,7 @@ extern "C" int check_arrangement_material(std::uintptr_t image){
     assert(field<std::uint64_t>(body,0x130+0x88)==7);
     for(unsigned i=0;i<7;++i)
         assert(origins.origin(static_cast<const unsigned char*>(nodes[i])+0x20)->event==i+1);
+    check_player_binding(image,body);
     // Stop may cancel an accepted publication before the consumer reaches it.
     // Exercise stock slot cancellation with the REAL unique-owner manager:
     // skip swap, keep the old notes and retire the unused packet on control.

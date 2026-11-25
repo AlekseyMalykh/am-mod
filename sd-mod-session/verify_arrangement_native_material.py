@@ -70,6 +70,13 @@ if a.queue:
     proof.write_text(json.dumps(data,indent=2)+'\n')
 if a.clip:
     data=json.loads(proof.read_text())
+    data.update(native_clip_player_bind_function='0x20e8040',
+        native_clip_lookup_function='0x296e9c0',native_clip_player_attach_detach_tested=True,
+        native_clip_iterator_attach_function='0x2158f00',native_clip_iterator_seek_function='0x20f5710',
+        native_clip_iterator_notes_read_tested=True,native_clip_player_storage_fixture=True,
+        native_clip_sequence_lookup_storage_fixture=True,native_clip_iterator_storage_fixture=True,
+        native_clip_bind_seek_detach_allocations_forbidden=True,
+        native_track_program_lifetime_proven=False,transport_connected=False)
     data.update(native_clip_cache_full_constructor_tested=True,
         native_clip_cache_ctor='0x2974cf0',native_clip_cache_dtor='0x27c2ac0',
         native_clip_cache_source=None,native_clip_cache_track=None,
