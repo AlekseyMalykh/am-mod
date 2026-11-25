@@ -1,8 +1,9 @@
 """Focused audition lifecycle, native private Preview, UI and routing checks."""
 from pathlib import Path
-import hashlib,json,subprocess
+import argparse,hashlib,json,subprocess
 R=Path(__file__).resolve().parent;O=R/'build/browser-audition';O.mkdir(parents=True,exist_ok=True)
-stock=R.parent/'extracted_v1.3.0/partitions/part3/usr/bin/MPC Sample'
+p=argparse.ArgumentParser();p.add_argument('--stock',type=Path,default=R.parent/'extracted_v1.3.0/partitions/part3/usr/bin/MPC Sample');stock=p.parse_args().stock
+assert hashlib.sha256(stock.read_bytes()).hexdigest()=='b6584cba76e416e432ad202509099d34373dc2c3d6a8fb625f5678bf0193b508'
 tracked=['src/seq_audition.c','src/seq_audition.h','src/workflow_ui.c','check_seq_audition.c','check_private_preview.c','check_feature_routes.c','check_workflow.c','src/workflow_abi.S','src/browser_tree.c','src/browser_tree.h',Path(__file__).name]
 sha=lambda s:hashlib.sha256((R/s).read_bytes()).hexdigest();before={s:sha(s) for s in tracked};checks=[]
 for name,cc,flags,runner in [('host','gcc',[],[]),('asan','gcc',['-fsanitize=address,undefined','-fno-sanitize-recover=all'],[]),('arm','aarch64-linux-gnu-gcc',[],['qemu-aarch64','-L','/home/user/mpc-rootfs-user-20260808']),('arm-ubsan','aarch64-linux-gnu-gcc',['-fsanitize=undefined','-static-libubsan','-fno-sanitize-recover=all'],['qemu-aarch64','-L','/home/user/mpc-rootfs-user-20260808'])]:

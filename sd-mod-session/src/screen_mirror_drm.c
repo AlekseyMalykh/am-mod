@@ -25,6 +25,8 @@ static struct mirror_buffer buffers[8];
 struct mirror_display {int fd;uint32_t crtc;};
 static struct mirror_display displays[4];
 static unsigned char frame[MIRROR_BMP_BYTES];
+static unsigned char published_frame[MIRROR_BMP_BYTES];
+static int published_valid;
 static uint64_t last_frame;
 static pthread_mutex_t lock=PTHREAD_MUTEX_INITIALIZER;
 static pthread_once_t native_once=PTHREAD_ONCE_INIT;
@@ -72,6 +74,9 @@ static void encode_frame(const unsigned char *pixels,unsigned pitch,unsigned bit
 
 static void publish_frame(void)
 {
+    /* A static LCD must not generate RAM filesystem writes at capture rate. */
+    if(published_valid&&!memcmp(frame,published_frame,sizeof(frame))&&
+       !access(SCREEN_MIRROR_FRAME,F_OK))return;
     static const char staging[]=SCREEN_MIRROR_FRAME ".tmp";
     int fd=open(staging,O_WRONLY|O_CREAT|O_TRUNC|O_NOFOLLOW|O_CLOEXEC,0600);
     if(fd<0)return;
@@ -85,6 +90,7 @@ static void publish_frame(void)
     int closed=close(fd);
     if(closed||done!=sizeof(frame)||access(SCREEN_MIRROR_FLAG,F_OK)||
        rename(staging,SCREEN_MIRROR_FRAME))unlink(staging);
+    else {memcpy(published_frame,frame,sizeof(frame));published_valid=1;}
 }
 
 static void capture_buffer(int fd,uint32_t crtc)
@@ -94,7 +100,7 @@ static void capture_buffer(int fd,uint32_t crtc)
     struct timespec time;
     clock_gettime(CLOCK_MONOTONIC,&time);
     uint64_t now=(uint64_t)time.tv_sec*1000+(unsigned long)time.tv_nsec/1000000;
-    if(crtc&&now-last_frame>=180){
+    if(crtc&&now-last_frame>=40){
         if(access(SCREEN_MIRROR_FLAG,F_OK))goto done;
         int query=-1;
         for(unsigned i=0;i<sizeof(buffers)/sizeof(buffers[0]);++i)
@@ -148,7 +154,7 @@ static void*mirror_worker(void*unused)
             pthread_mutex_lock(&lock);memcpy(current,displays,sizeof(current));pthread_mutex_unlock(&lock);
             for(unsigned i=0;i<4;++i)if(current[i].crtc)capture_buffer(current[i].fd,current[i].crtc);
         }
-        usleep(200000);
+        usleep(40000);
     }
     return NULL;
 }

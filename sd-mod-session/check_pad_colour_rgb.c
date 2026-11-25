@@ -15,6 +15,8 @@ int music_ui_palette_light(unsigned pad,uint64_t *out){(void)pad;(void)out;retur
 static int sample_visible=1,seq_visible,bank,levels_on,steps_on,events_visible,inside_rgb,compressor_visible;
 static unsigned transport,queries,calls,levels_type,levels_origin;static int native_workflow;
 static int browser_selected=-1;
+static int replacement_active;
+int workflow_replacement_active(void){return replacement_active;}
 static unsigned char source_things[0x700];static int source_program,source_instrument,source_index=37;
 void*note_native_context(void){assert(!inside_rgb);return source_things;}
 static int source_lookup(void*p,void*i){assert(p==&source_program&&i==&source_instrument);return source_index;}
@@ -138,7 +140,15 @@ int main(void){
  assert((uint32_t)dimmed==PAD_DANGER&&dimmed!=selected_light);
  browser_selected=1;send_step_lights();atomic_store(&pad_colour_target_phase,0);native_rgb(1,0x000080);assert(sent[1]==PAD_SELECT);
  browser_selected=2;send_step_lights();atomic_store(&pad_colour_target_phase,0);native_rgb(2,0);assert(sent[2]==PAD_SELECT); /* Empty selected browser pad must light too. */
- browser_selected=-1;
+ replacement_active=1;browser_selected=5;send_step_lights();
+ native_rgb(0,0xffffff);native_rgb(1,0xff0000);native_rgb(5,0);
+ uint64_t replacement_light;
+ assert(pad_colour_light(5,&replacement_light)&&replacement_light==pad_light(PAD_FREE,.8f));
+ assert(pad_colour_light(0,&replacement_light)&&replacement_light==pad_light(music_pad_rgb(0),.18f));
+ assert(pad_colour_light(1,&replacement_light)&&replacement_light==pad_light(music_pad_rgb(1),.18f));
+ bank=1;send_step_lights();native_rgb(5,0xffffff);
+ assert(pad_colour_light(5,&replacement_light)&&replacement_light==pad_light(0,0));
+ bank=0;replacement_active=0;browser_selected=-1;
  /* Device log r27q-fix5 (Sample Copy 0x20a7): source = pulsing green 003000..00e800
   * with 000000 off phases; chosen target = ff0000 whether free or occupied. */
  native_workflow=2;send_step_lights();atomic_store(&pad_colour_target_phase,0);native_rgb(1,0x003000);

@@ -63,6 +63,15 @@ static _Atomic unsigned consumed_rear;
 #endif
 #endif
 #include "music_ui.h"
+static void synth_keys_button_refresh(void);
+extern uint64_t am_synth_pad_info(unsigned,unsigned*) __attribute__((weak));
+static int sample_synth_input(void){
+#ifdef MPC_MIXER_LIVE
+    return mixer_control_synth_input();
+#else
+    return 0;
+#endif
+}
 #ifdef MPC_PAD_EQ
 #include "filter_spectrum.h"
 #endif
@@ -265,6 +274,7 @@ extern int startup_project_loading(void) __attribute__((weak));
 extern int workflow_startup_loading(void) __attribute__((weak));
 extern int workflow_browser_shown(void) __attribute__((weak));
 extern unsigned workflow_native_muted(void) __attribute__((weak));
+extern int workflow_replacement_active(void) __attribute__((weak));
 static _Atomic unsigned pad_colour_native_muted;
 /* Startup project load (after the app is up): one running pad, left to
  * right and top to bottom (13..16, 9..12, 5..8, 1..4), in the Play
@@ -1424,7 +1434,7 @@ static void tick(void *unused)
 #endif
     unsigned tail=tail_mode();
     atomic_store(&tail_layout,tail);workflow_tail_tick(tail!=0);
-    {static int last_synth=-1;int now=(mixer_control_synth_input())?1:0;if(now!=last_synth){last_synth=now;synth_keys_button_refresh();}} /* 16 Levels on Sample Record follows Synth */
+    {static int last_synth=-1;int now=sample_synth_input()?1:0;if(now!=last_synth){last_synth=now;synth_keys_button_refresh();}} /* 16 Levels on Sample Record follows Synth */
     send_step_lights();send_record_light();mixer_button_sync();
     music_lighting_tick();
     if(action_batch)atomic_fetch_sub(&ui_dispatching,1);
@@ -2676,7 +2686,7 @@ static void buttons(void *event)
 #endif
     /* 16 Levels on the Sample Record screen toggles the synth pad keyboard (no MIDI keyboard needed). */
     if(native_code==0x28&&am_synth_keys_set&&am_synth_keys_get&&rear_mic_screen_visible&&rear_mic_screen_visible()){
-        if(native_down&&mixer_control_synth_input()){am_synth_keys_set(!am_synth_keys_get());synth_keys_button_refresh();}
+        if(native_down&&sample_synth_input()){am_synth_keys_set(!am_synth_keys_get());synth_keys_button_refresh();}
         return; /* without Synth as the source the button does nothing on Sample Record */
     }
     if(tuner_button(native_code,native_down))return;
@@ -3508,6 +3518,12 @@ static int pad_colour_light(unsigned pad,uint64_t *out){
             if(!used){*out=pad_light(0,0);return 1;}
             *out=raw==0xff0000u||muted?pad_light(PAD_DANGER,.80f):pad_light(music_pad_rgb((unsigned)bank*16+pad),.70f);return 1;
         }
+        /* Replacement target is pinned across playing and bank changes.
+         * Ignore every native cursor marker while other pads still play. */
+        if(kind==1&&workflow_replacement_active&&workflow_replacement_active()){
+            *out=atomic_load(&pad_colour_native_selected)==(int)index?
+                pad_light(PAD_FREE,.8f):pad_light(used?music_pad_rgb(index):0,used?.18f:0);return 1;
+        }
         /* Sample browser (kind 1): selected load pad. */
         if(kind==1&&atomic_load(&pad_colour_native_selected)==(int)index){
             *out=pad_source_light(used?music_pad_rgb((unsigned)bank*16+pad):0,phase);return 1;
@@ -3907,14 +3923,20 @@ static void send_step_lights(void)
 }
 static int mixer_buttons_active(void)
 {
+#ifdef MPC_MIXER_LIVE
     struct mixer_control *c=mixer_session_control(mixer_ui_session);
     return c&&mixer_control_active(c);
+#else
+    return 0;
+#endif
 }
 /* Mixer uses only Mute among the blue buttons: Mute glows dimly until pressed,
  * 16 Levels, Chop and Loop stay dark. */
 static unsigned mixer_button_value(unsigned code,unsigned value)
 {
+#ifdef MPC_MIXER_LIVE
     if(code==0x28||code==0x4a){unsigned keys=0,pick=0;if(mixer_synth_open(&keys,&pick))return (code==0x28?keys:pick)?2u:1u;} /* lit on the Synth page */
+#endif
     if(code==0x28||code==0x4b||code==0x4a)return 0; /* 16 Levels, Chop, Loop */
     if(code==0x2b&&!value)return 1;
     return value;
@@ -3954,7 +3976,7 @@ static void synth_keys_button_refresh(void)
     uintptr_t s=atomic_load(&button_sender);
     if(!s)return;
     unsigned v=atomic_load(&native_button_lights[0x28]);
-    if(rear_mic_screen_visible&&rear_mic_screen_visible())v=(mixer_control_synth_input())?(synth_keys_on_screen()?2u:1u):0u;
+    if(rear_mic_screen_visible&&rear_mic_screen_visible())v=sample_synth_input()?(synth_keys_on_screen()?2u:1u):0u;
     ORIG(H_BUTTON_LIGHT,void(*)(void*,unsigned,unsigned))((void*)s,v,0x28);
 }
 static void button_light(void *s,unsigned value,unsigned code)
@@ -3976,7 +3998,7 @@ static void button_light(void *s,unsigned value,unsigned code)
         }
     }
     if(code==0x28&&rear_mic_screen_visible&&rear_mic_screen_visible()) /* Sample Record: lit only with Synth as the source (bright while its keyboard is on) */
-        value=(mixer_control_synth_input())?(synth_keys_on_screen()?2u:1u):0u;
+        value=sample_synth_input()?(synth_keys_on_screen()?2u:1u):0u;
     ORIG(H_BUTTON_LIGHT,void(*)(void*,unsigned,unsigned))(s,value,code);
 }
 static void send_record_light(void)

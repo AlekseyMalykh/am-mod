@@ -158,6 +158,7 @@ static unsigned master_binding_count;
 static int volume_ready,volume_shown;static uint64_t volume_shown_at;
 static _Atomic unsigned volume_owned;
 static _Atomic unsigned audition_owned;
+static _Atomic unsigned audition_result_pads;
 static unsigned audition_button_pair;
 static void locate_tick(void);
 static char query_text[PHONE_MAX_CHARS*4+1];
@@ -449,6 +450,23 @@ static int load_pad_index(void){
  void*t=note_native_context();if(!t)return -1;
  unsigned n=__atomic_load_n((unsigned*)((char*)t+0x5f8),__ATOMIC_ACQUIRE);return n<128?(int)n:-1;
 }
+/* The destination of an active replacement is independent of the last pad
+ * played. Read the locked value snapshot only on the UI thread. */
+static int replacement_pad(void){
+ struct seq_audition_view v={0};
+ return seq_audition_view&&seq_audition_view(&v)&&v.pad<128?(int)v.pad:-1;
+}
+static int replacement_destination(void){
+ int pinned=replacement_pad();if(pinned>=0)return pinned;
+ if(search&&results&&result_pad_ready&&result_pad<128)return (int)result_pad;
+ return load_pad_index();
+}
+static void finish_replacement(const char*why){
+ int pad=replacement_pad();void*t=note_native_context();
+ if(pad>=0&&t)FN(0x28f9d60,void(*)(void*,int))(t,pad);
+ if(pad>=0){result_pad=(unsigned)pad;result_pad_ready=1;}
+ if(seq_audition_off)seq_audition_off(why);
+}
 static void start_search(void){search_preview_stop();search=1;results=0;selected=fault=0;int n=load_pad_index();result_pad_ready=n>=0;if(result_pad_ready)result_pad=(unsigned)n;void*m=FIELD(files,0xff0+0x188,void*);void*b=m?FIELD(m,0x30,void*):NULL;uint64_t directory=0;
  /* Model+38 is its last asynchronous listing cache, not necessarily the
   * displayed folder. Use BrowserLogic::GetCurrentDirectory, as native row
@@ -491,7 +509,7 @@ static void publish_palette(void){
  if(atomic_load(&dead_files))return;
  struct phone_input p=query;uint64_t now=now_ms();for(unsigned i=0;i<16;++i)if(feedback[i]>now)p.held|=1u<<i;
  for(unsigned i=0;i<16;++i){uint64_t light=search&&!results&&query.enabled?phone_light(&p,i+1):0;
-  if(search&&results&&sample_browser()){unsigned bank=(unsigned)step_native_browser_bank(-1);if(bank<8){void*t=note_native_context();void*program=t?FIELD(t,0xb8,void*):NULL;void*instrument=program?FN(0x286bbe0,void*(*)(void*,int))(program,(int)(bank*16+i)):NULL;int used=instrument&&FN(0x2804760,int(*)(void*))(instrument),target=result_pad_ready&&result_pad==bank*16+i;light=pad_operation_colour(bank*16+i,used,target,0,0,now);}}
+  if(search&&results&&sample_browser()){unsigned bank=(unsigned)step_native_browser_bank(-1);if(bank<8){void*t=note_native_context();void*program=t?FIELD(t,0xb8,void*):NULL;void*instrument=program?FN(0x286bbe0,void*(*)(void*,int))(program,(int)(bank*16+i)):NULL;int used=instrument&&FN(0x2804760,int(*)(void*))(instrument),pinned=replacement_pad(),target=pinned>=0?pinned==(int)(bank*16+i):result_pad_ready&&result_pad==bank*16+i;light=pinned>=0?(target?pad_light(PAD_FREE,.8f):pad_target_colour(bank*16+i,used,0,0,now)):pad_operation_colour(bank*16+i,used,target,0,0,now);}}
   if(atomic_exchange(&palette[i],light)!=light)atomic_fetch_add(&palette_generation,1);
  }
 }
@@ -502,7 +520,7 @@ static void choose_result(void){
  void*service=FIELD(files,0x120,void*);int context=FIELD(files,0x1388,int);
  /* Exactly the stock primary action. Its callback retains its own File if
   * it starts an asynchronous load. No custom deserializer or path rewrite. */
- if(context==FILE_SAMPLES){if(seq_audition_off)seq_audition_off("load");void*t=note_native_context();if(!t||!result_pad_ready){FN(0xf0a290,void(*)(uint64_t*))(&chosen.file);browser_say("Choose a destination pad");return;}FN(0x28f9d60,void(*)(void*,int))(t,(int)result_pad);FN(0x14fc5a0,void(*)(void*,const void*))(service,&chosen);browser_say("Sample load requested; keep browsing");}
+ if(context==FILE_SAMPLES){finish_replacement("load");void*t=note_native_context();if(!t||!result_pad_ready){FN(0xf0a290,void(*)(uint64_t*))(&chosen.file);browser_say("Choose a destination pad");return;}FN(0x28f9d60,void(*)(void*,int))(t,(int)result_pad);FN(0x14fc5a0,void(*)(void*,const void*))(service,&chosen);browser_say("Sample load requested; keep browsing");}
  else if(context==FILE_PROJECTS){clear_project_confirm();FN(0xf187a0,void(*)(void*,const void*))(&project_candidate,&chosen);project_confirm=1;}
  FN(0xf0a290,void(*)(uint64_t*))(&chosen.file);
 }
@@ -586,6 +604,7 @@ int workflow_native_occupied(void){return atomic_load(&native_occupied);}
 unsigned workflow_native_muted(void){return atomic_load(&native_muted);}
 int workflow_native_pad_colours(void){return (int)atomic_load(&native_colours);}
 int workflow_native_selected(void){return atomic_load(&native_selected);}
+int workflow_replacement_active(void){return atomic_load(&audition_owned)!=0;}
 int workflow_active(void){return atomic_load(&active)||atomic_load(&copy_bank_held);}
 int workflow_blocks_sample_controls(void){return atomic_load(&custom)||atomic_load(&button_routes)||atomic_load(&split_forwarded)||batch_job||batch_leaving;}
 int workflow_jobs_busy(void){return batch_job||mono_job;}
@@ -688,6 +707,7 @@ int workflow_tick(void){
  project_cleanup_tick();
  if(seq_audition_tick)seq_audition_tick(current_program(),audition_program(),files&&visible(files)&&sample_browser());
  atomic_store(&audition_owned,files&&visible(files)&&sample_browser()&&seq_audition_active&&seq_audition_active());
+ atomic_store(&audition_result_pads,search&&results&&!project_confirm&&!delete_confirm&&!batch&&!mono);
  autoload_tick();
  startup_repaint_tick();
 #ifdef MPC_PROJECT_RECOVERY
@@ -753,7 +773,7 @@ int workflow_tick(void){
  }}
  atomic_store(&native_occupied,occupied_mask);atomic_store(&native_muted,muted_mask);
  int selection=-1;
- if(native_kind==1)selection=load_pad_index();
+ if(native_kind==1){selection=replacement_pad();if(selection<0)selection=load_pad_index();}
  atomic_store(&native_selected,selection);
  atomic_store(&native_colours,atomic_load(&custom)?0u:native_kind);
  atomic_store(&button_routes,(copy_visible?1u:0u)|(v?2u:0u));
@@ -771,6 +791,9 @@ int workflow_owns(unsigned kind,unsigned code){
  if(kind==2&&code==0x00&&(atomic_load(&button_routes)&2u))return 1; /* Knob FX over the browser */
  if(kind==2&&code==0x0e&&atomic_load(&split_forwarded))return 1;
  if(!atomic_load(&active))return 0;
+ /* During replacement the pads remain musical, including search results.
+  * Load destination and LEDs use the captured pad, not native selection. */
+ if(kind==3&&atomic_load(&audition_owned)&&atomic_load(&audition_result_pads))return 0;
  if(atomic_load(&custom))return 1;
  if(kind==1&&code==0x12&&atomic_load(&volume_owned))return 1;
  if(kind==1&&code==0x11&&atomic_load(&audition_owned))return 1;
@@ -838,7 +861,7 @@ int workflow_control(void*e,uint64_t ticket){
  filter();search_preview_update();publish_palette();repaint(files);return 1;
 }
 static void audition_toggle(void){
- char msg[48]="";int pad=load_pad_index();
+ char msg[48]="";int pad=replacement_destination();
  if(!seq_audition_toggle){browser_say("Audition unavailable");return;}
  if(pad<0){browser_say("Tap a pad first");return;}
  int r=seq_audition_toggle(current_program(),(unsigned)pad,audition_program(),msg,sizeof(msg));
@@ -902,7 +925,7 @@ int workflow_button(void*e,uint64_t ticket){
  if(!search&&shift&&code==0x0c&&sample_browser()){if(down){audition_button_pair=1;audition_toggle();}return 1;} /* Shift+B1: Seq Audition. */
  if(search&&results&&shift&&code==0x0c&&sample_browser()){if(down){audition_button_pair=1;audition_toggle();}return 1;} /* Same gesture in search results; B1 alone still cancels. */
  if(!search&&shift&&code==0x0d)return 1; /* Eject is reserved for stock after Mod Off. */
- if(!search&&code==0x6f&&down&&!shift&&sample_browser()&&selected_audio&&seq_audition_off)seq_audition_off("load selected file");
+ if(!search&&code==0x6f&&down&&!shift&&sample_browser()&&selected_audio)finish_replacement("load selected file");
  if(!search){if(code==0x0e&&shift){if(down)start_search();return 1;}
   /* Stock toggles auto-preview but may leave the current one-shot voice
    * ringing. Stop that voice as well; if toggled On, native selection calls

@@ -3,6 +3,7 @@
 #include <assert.h>
 #include <stdarg.h>
 #include <stdlib.h>
+#include <sys/stat.h>
 static uint32_t gpu[2][MIRROR_WIDTH*MIRROR_HEIGHT],cpu[2][MIRROR_WIDTH*MIRROR_HEIGHT];
 static uint32_t presented=100;
 static unsigned begins,ends,maps,queries;
@@ -41,7 +42,11 @@ int main(void){
  errno=ERANGE;capture();assert(errno==ERANGE);pixel(255,0,0);assert(begins==1&&ends==1&&maps==1&&queries==2);
  /* The queued blue buffer is not scanned out yet: keep the completed red
   * buffer. Then a quiet/modal screen updates without another PageFlip. */
- capture();pixel(255,0,0);presented=101;capture();pixel(0,0,255);
+ struct stat first,unchanged;assert(!stat(SCREEN_MIRROR_FRAME,&first));
+ capture();pixel(255,0,0);assert(!stat(SCREEN_MIRROR_FRAME,&unchanged));assert(first.st_ino==unchanged.st_ino);
+ /* A lost RAM frame must be republished even if LCD pixels did not change. */
+ unlink(SCREEN_MIRROR_FRAME);capture();pixel(255,0,0);
+ presented=101;capture();pixel(0,0,255);
  unlink(SCREEN_MIRROR_FRAME);presented=100;change_during_copy=1;capture();assert(access(SCREEN_MIRROR_FRAME,F_OK));change_during_copy=0;
  assert(begins==ends);
  fail_map=1;capture();assert(access(SCREEN_MIRROR_FRAME,F_OK)&&begins==ends);fail_map=0;

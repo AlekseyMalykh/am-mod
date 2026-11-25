@@ -43,6 +43,7 @@ int workflow_native_pad_colours(void);
 void workflow_want_occupancy(void); /* Compute occupancy of the browser bank on the next tick. */
 int workflow_native_occupied(void); /* atomic16-bit mask, -1 unavailable */
 int workflow_native_selected(void); /* UI-published absolute browser destination, -1 unavailable */
+int workflow_replacement_active(void); /* numeric producer-safe replacement state */
 /* UI thread: actual browser/Copy/Batch/Mono ownership, excluding the
  * ordinary Sample host observed for the optional Chop actions. */
 int workflow_blocks_sample_controls(void);

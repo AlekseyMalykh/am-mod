@@ -11,7 +11,7 @@ void seq_audition_preview(int on){if(on)++preview_notifications;}
 int seq_audition_knob(unsigned value){assert(value==80);++knob_calls;return 1;}
 int seq_audition_view(struct seq_audition_view*out){*out=(struct seq_audition_view){2,2,0,-2,5};return swap_on;}
 static unsigned large_note,status_badge,load_restores;
-void seq_audition_off(const char*why){assert(!strcmp(why,"load selected file"));swap_on=0;++load_restores;}
+void seq_audition_off(const char*why){assert(!strcmp(why,"load selected file")||!strcmp(why,"load"));swap_on=0;++load_restores;}
 static void audition_text(void*g,const uint64_t*s,int x,int y,int w,int h,int flags,int lines,float scale){
  const char*t=(char*)(uintptr_t)*s;
  if(!strcmp(t,"D")){assert(x==107&&y==212&&height>=25&&w==105&&h==26);++large_note;}
@@ -64,8 +64,19 @@ int main(int argc,char**argv){assert(argc==2);struct sigaction sa={0};sa.sa_siga
  audition_panels((void*)1);assert(large_note==1&&status_badge==1);
  for(unsigned n=0;n<2;++n){void*p=file_root+(n?0x11d0:0xff0);FIELD(p,0x18,void*)=file_root;FIELD(p,0x24,int)=n?198:38;FIELD(p,0x2c,int)=n?38:160;}
  browser_path_layout(file_root);assert(FIELD(file_root,0xff0+0x24,int)==58&&FIELD(file_root,0xff0+0x2c,int)==140&&FIELD(file_root,0x11d0+0x24,int)==38&&FIELD(file_root,0x11d0+0x2c,int)==20);
+ /* Playing a different pad (including another bank) changes native selection,
+  * but the replacement must load into the captured absolute pad 5. */
+ stub(0x28f9d60,select_pad);__builtin___clear_cache((char*)base+0x28f9d60,(char*)base+0x28f9d80);
+ browser_context_live=1;selected_pad=79;result_pad=79;result_pad_ready=1;
+ search=results=1;swap_on=0;assert(replacement_destination()==79);
+ swap_on=1;assert(replacement_destination()==5);search=results=0;
  FIELD(file_root,0x100,void*)=surface_controls;atomic_store(&selected_audio,1);unsigned char load_event[16]={0};load_event[8]=0x6f;load_event[9]=1;
  assert(!workflow_button(load_event,workflow_ticket())&&!swap_on&&load_restores==1);
+ assert(selected_pad==5&&result_pad==5&&result_pad_ready);
+ swap_on=1;selected_pad=127;result_pad=127;finish_replacement("load");
+ assert(!swap_on&&selected_pad==5&&result_pad==5&&load_restores==2);
+ /* No active replacement preserves the user's ordinary destination. */
+ selected_pad=79;result_pad=79;finish_replacement("load");assert(selected_pad==79&&result_pad==79);
  puts("PASS Swap/Preview playing and stopped: native candidate load always runs; only private voice is silenced during Play; K2 owns Orig Note, 25px note/status panels and upper folder path resize the native list");
  atomic_store(&preview_allowed,0);assert(!workflow_preview_worker(payload));
  puts("PASS actual native SampleFileAudition20bd5d0 ->20bd210 -> private instrument20: one-shot/Loop Off, exact selected slice copied to private layer, natural completion20bc9c0 resets replay, single-voice replacement, native force-stop20bc8b0 and refcounts; source retained; UI/property/final audio receivers remain fixtures");

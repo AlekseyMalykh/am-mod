@@ -50,6 +50,13 @@ int main(void){
  /* stale program: no write */
  set(pad_inst,0x1000,100,9000);assert(seq_audition_toggle(prog,5,aprog,msg,sizeof msg)==1);
  seq_audition_tick((void*)&msg,aprog,1);assert(!seq_audition_active());assert(F(L(pad_inst),0x4a8,uintptr_t)==0x3000);
+ /* New/Load may hide the browser and change Program in the same UI tick.
+  * Stale Program wins over restoring the old browser destination. */
+ set(pad_inst,0x1000,100,9000);assert(seq_audition_toggle(prog,5,aprog,msg,sizeof msg)==1);
+ seq_audition_tick((void*)&msg,aprog,0);assert(!seq_audition_active());assert(F(L(pad_inst),0x4a8,uintptr_t)==0x3000);
+ set(pad_inst,0x1000,100,9000);assert(seq_audition_toggle(prog,5,aprog,msg,sizeof msg)==1);
+ seq_audition_save_begin();seq_audition_tick((void*)&msg,aprog,0);assert(!seq_audition_active());seq_audition_save_end();
+ assert(F(L(pad_inst),0x4a8,uintptr_t)==0x1000);
  /* browser exit restores */
  set(pad_inst,0x1000,100,9000);assert(seq_audition_toggle(prog,5,aprog,msg,sizeof msg)==1);seq_audition_tick(prog,aprog,0);
  assert(F(L(pad_inst),0x4a8,uintptr_t)==0x1000&&!seq_audition_active());

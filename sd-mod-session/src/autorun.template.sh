@@ -979,8 +979,8 @@ for unlimited_unit in supervisor bus-proxy; do
 done
 systemctl start "$U-bus-proxy.service" || fail PROXY_START_FAILED
 proxy_wait=0
-while [ ! -S "$R/proxy/system_bus_socket" ] && [ "$proxy_wait" -lt 5 ]; do
-    sleep 1
+while [ ! -S "$R/proxy/system_bus_socket" ] && [ "$proxy_wait" -lt 50 ]; do
+    sleep 0.1
     proxy_wait=$((proxy_wait+1))
 done
 [ -S "$R/proxy/system_bus_socket" ] || fail PROXY_SOCKET_MISSING

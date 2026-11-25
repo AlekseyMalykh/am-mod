@@ -216,9 +216,9 @@ out:unlock();return r;
 }
 void seq_audition_tick(void*current_program,void*audition_program,int browser_visible){
  lock();grave_drain();if(atomic_exchange(&A.preview_resume,0)&&A.active)A.preview_paused=0;
- if(A.active&&!A.hold){
+ if(A.active&&current_program!=A.program){A.swapped=0;say("STALE_NO_WRITE","project/program changed");drop_all();}
+ else if(A.active&&!A.hold){
   if(!browser_visible){restore_locked("browser exit");drop_all();say("OFF","browser exit");}
-  else if(current_program!=A.program){A.swapped=0;say("STALE_NO_WRITE","project/program changed");drop_all();}
   else if(!A.preview_paused)take_candidate(audition_program);
  }
  unlock();
