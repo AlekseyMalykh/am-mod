@@ -626,8 +626,15 @@ static void roll_paint(void*g){
   int pad_colour=title_pad>=0&&title_pad<128?music_pad_colour((unsigned)title_pad):0;
   colour(g,pad_colour?0xff000000u|music_pad_rgb((unsigned)title_pad):AMBER);left_text(g,pad,6,34,40,20,15);
   ui_caption(caption,sizeof(caption),sample,18);colour(g,!strcmp(sample,"Empty")?GREY:WHITE);left_text(g,caption,46,34,150,20,14);
-  {unsigned nsel=pr_selected(&roll);char cnt[24];snprintf(cnt,sizeof(cnt),nsel?"  %u sel":"",nsel);snprintf(title,sizeof(title),"%s%s%s",roll.layer==PR_PADS?"":roll.layer==PR_TUNE?"Tune ":"Chop ",roll_grid_name(),cnt);}
-  colour(g,GREY);right_text(g,title,196,34,118,20,12);}
+  /* Right: which sequence is edited (grid is on K2). Patterns show their name on the left already. */
+  {unsigned nsel=pr_selected(&roll);char cnt[24],seq[16]="";snprintf(cnt,sizeof(cnt),nsel?"  %u sel":"",nsel);
+   int seq_index=-1;{uintptr_t w;if(sequence&&!((uintptr_t)sequence&7)&&safe_word((uintptr_t)sequence+0x480,&w))seq_index=(int)(uint32_t)w;}
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+   if(roll_pattern_index>=0)seq_index=-1;
+#endif
+   if(seq_index>=0&&seq_index<128)snprintf(seq,sizeof(seq),"Seq %02d",seq_index+1);
+   snprintf(title,sizeof(title),"%s%s%s",roll.layer==PR_PADS?"":roll.layer==PR_TUNE?"Tune ":"Chop ",seq[0]?seq:roll_grid_name(),cnt);}
+  colour(g,WHITE);right_text(g,title,196,34,118,20,12);}
  if(roll_actions){int count=roll_actions_count(),first=ui_list_first(roll_action,count,6);
   for(int i=first;i<count&&i<first+6;++i){int y=61+(i-first)*22;if(i==roll_action){colour(g,0xff303030);rect(g,6,y,302,22);}
    colour(g,i==roll_action?AMBER:WHITE);left_text(g,roll_action_names[i],12,y,292,22,14);
@@ -651,6 +658,15 @@ static void roll_paint(void*g){
   pos=position(t);
   colour(g,pos.beat==0&&!pos.tick?0xffa0a0a0:0xff505050);rect(g,x,70,1,120);
   if(!pos.tick&&x-last_label>=45&&x<285){char stamp[24];snprintf(stamp,sizeof(stamp),"%d.%d",pos.bar+1,pos.beat+1);colour(g,WHITE);left_text(g,stamp,x+2,57,42,12,10);last_label=x;}
+ }
+ {   /* Cursor position (bar.beat.tick) above the row names, same musical counting as the ruler. */
+  struct bbt cur;int64_t t=roll.cursor_tick<0?0:roll.cursor_tick;
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+  if(roll_pattern_index>=0){cur.bar=(int)(t/3840);cur.beat=(int)(t%3840/960);cur.tick=(int)(t%960);}else
+#endif
+  cur=position(t);
+  char stamp[48];snprintf(stamp,sizeof(stamp),"%d.%d.%03d",cur.bar+1,cur.beat+1,cur.tick);
+  colour(g,0xff000000);rect(g,0,55,69,14);colour(g,AMBER);left_text(g,stamp,3,57,66,12,10);
  }
  for(int row=roll.top;row<roll.row_count&&row<roll.top+roll.rows_visible;++row){int y=roll_y(row);if(y<70)continue;
   colour(g,0xff303030);rect(g,0,y,310,1);char label[64];int value=roll.rows[row];
