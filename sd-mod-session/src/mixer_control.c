@@ -855,16 +855,26 @@ int mixer_control_synth_input(void){return input_fx_mode&&input_fx_mode()==2;}
 static void rear_custom_monitor_on(void){
     if(!rear_native_source||rear_native_source()!=1||!rear_setting||!rear_set_setting)return;
     rear_set_setting(0,REAR_ENABLED,1);
-    {   /* Monitor follows the Rear mode: Rear L hears the left jack only, Rear R the right one, the rest both. */
-        unsigned m=rear_setting(0,REAR_MODE);
-        for(unsigned ch=0;ch<2;++ch){
-            unsigned want=m==REAR_LEFT?ch==0:m==REAR_RIGHT?ch==1:1;
-            if(rear_setting(ch,REAR_MONITOR)!=want)rear_set_setting(ch,REAR_MONITOR,want);
-        }
-    }
+    /* Per-jack monitor switches are independent saved signal controls.
+     * Enabling the master monitor or changing record mode must preserve them. */
 }
 const char*mixer_input_row_apply(unsigned row,int delta,int mode,unsigned value)
 {
+    if(row>=9&&row<=14){
+        if(input_kind()!=1||!rear_setting||!rear_set_setting)return "Select Rear input";
+        unsigned ch=(row-9)/3,column=(row-9)%3;
+        unsigned field=column==0?REAR_LEVEL:column==1?REAR_PAN:REAR_MONITOR;
+        int max=column==2?1:100,cur=(int)rear_setting(ch,field);
+        int next=mode==2?(column==0?100:column==1?(ch?100:0):1):
+            mode==1?(int)(value*(unsigned)(max+1)/128):cur+delta;
+        next=next<0?0:next>max?max:next;
+        if(!rear_set_setting(ch,field,(unsigned)next))return "Rear control unavailable";
+        if(column==2&&next){
+            rear_custom_monitor_on();
+            if(!rear_native_monitor_set||!rear_native_monitor_set(2))return "Monitor unavailable";
+        }
+        return NULL;
+    }
     if(row==0)return NULL; /* Tuner: display only */
     if(row==7){
         float cur=-40.f;if(!rear_native_threshold||!rear_native_threshold(&cur)||!rear_native_threshold_set)return "Threshold: not available";

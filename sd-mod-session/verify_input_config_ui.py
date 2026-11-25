@@ -1,8 +1,8 @@
 """Pinned native callsite and monitor indicator, AArch64/QEMU; no card writes."""
 from pathlib import Path
-import hashlib,json,subprocess
+import hashlib,json,subprocess,os
 R=Path(__file__).resolve().parent;O=R/'build/input-config-ui';O.mkdir(parents=True,exist_ok=True)
-stock=R.parent/'extracted_v1.3.0/partitions/part3/usr/bin/MPC Sample'
+stock=Path(os.environ.get('MPC_RUNTIME_ROOT',str(R.parent)))/'extracted_v1.3.0/partitions/part3/usr/bin/MPC Sample'
 assert hashlib.sha256(stock.read_bytes()).hexdigest()=='b6584cba76e416e432ad202509099d34373dc2c3d6a8fb625f5678bf0193b508'
 tracked=['check_rear_ui.c','src/rear_ui.c','src/music_settings.h','check_input_config_ui.c',Path(__file__).name]
 sha=lambda p:hashlib.sha256((R/p).read_bytes()).hexdigest();before={p:sha(p) for p in tracked}

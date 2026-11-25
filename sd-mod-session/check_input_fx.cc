@@ -2,7 +2,12 @@
  * backend, archive and native renderer are fixtures; no hardware is claimed. */
 #define MPC_MIXER_LIVE 1
 #include "src/input_fx.cc"
+#pragma GCC diagnostic push
+/* Both optional functions are defined above in this single-TU fixture.
+ * Production compiles the two units separately and retains weak checks. */
+#pragma GCC diagnostic ignored "-Waddress"
 #include "src/rear_native.cc"
+#pragma GCC diagnostic pop
 #include <cassert>
 #include <chrono>
 #include <thread>

@@ -50,6 +50,7 @@ hashes = {s: sha((R / s).read_bytes()) for s in sources + ['build_mixer_r27r.py'
 for name in ('src/midi_file.h','src/midi_file_native.h','src/piano_roll_midi.inc'):hashes[name]=sha((R/name).read_bytes())
 hashes['src/usb_drive_lights.h']=sha((R/'src/usb_drive_lights.h').read_bytes())
 hashes['src/internal_storage.h']=sha((R/'src/internal_storage.h').read_bytes())
+hashes['src/song_repeats.inc']=sha((R/'src/song_repeats.inc').read_bytes())
 for name in ('src/ui_list_geometry.h','src/resample_fast_native.h'):hashes[name]=sha((R/name).read_bytes())
 hashes['src/pattern_phone_lifecycle.inc']=sha((R/'src/pattern_phone_lifecycle.inc').read_bytes())
 for name in ('src/seq_mutes.h','src/seq_audition.h','src/midi_wire.h','src/midi_voice.h','src/midi_route.h','src/midi_live.inc'):hashes[name]=sha((R/name).read_bytes())

@@ -4,6 +4,7 @@
 #include "check_rear_ui.c"
 #undef main
 int rear_native_monitor(void){return 0;}
+int rear_native_mic_waiting(void){return 0;}
 void rear_ui_wake(void){}
 void rear_audio_meters(float p[2]){p[0]=p[1]=0;}
 unsigned rear_record_state(void){return REAR_IDLE;}

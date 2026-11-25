@@ -1034,6 +1034,15 @@ static void route_row(const struct mixer_view_state*s,unsigned row,char*lab,unsi
     static const char*const modes[]={"Stereo","Rear L","Rear R","L+R Split","L+R Mix"};
     unsigned point,track,wet;rec_values(&point,&track,&wet);
     switch(row){
+    case 9:case 10:case 11:case 12:case 13:case 14:{
+        unsigned ch=(row-9)/3,field=(row-9)%3;
+        unsigned v=rear_setting?rear_setting(ch,field==0?REAR_LEVEL:field==1?REAR_PAN:REAR_MONITOR):0;
+        snprintf(lab,labn,"Rear %c %s",ch?'R':'L',field==0?"level":field==1?"pan":"monitor");
+        if(field==0)snprintf(val,valn,"%u %%",v);
+        else if(field==2)snprintf(val,valn,"%s",v?"On":"Off");
+        else if(v==50)snprintf(val,valn,"Centre");
+        else snprintf(val,valn,"%c %u",v<50?'L':'R',v<50?50-v:v-50);
+        break;}
     case 0:{double cents;snprintf(lab,labn,"Tuner >");tuner_read(val,valn,&cents);break;}
     case 1:{int m=rear_native_monitor?rear_native_monitor():0;
         snprintf(lab,labn,"Monitor");snprintf(val,valn,"%s",m==2?"On":m==1?"Auto":"Off");break;}
@@ -1080,7 +1089,7 @@ static void input_route_rows(const struct mixer_view_state*s,const struct resamp
         if(edit)rect(p,85,y+rh-1,rw,1,AMBER);
         text(p,lab,92,y,100,rh,13,locked?GREY:on?AMBER:WHITE,0);
         if(edit)snprintf(shown,sizeof shown,"< %s >",val);else snprintf(shown,sizeof shown,"%s",val);
-        text(p,shown,196,y,rw-86,rh,13,locked?GREY:on?AMBER:WHITE,1);
+        text(p,shown,196,y,rw-111,rh,13,locked?GREY:on?AMBER:WHITE,1);
     }
     if(rows>vis){ /* scroll bar */
         int th=(int)shown_rows*pitch-1,ty=60;

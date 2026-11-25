@@ -1,8 +1,8 @@
 #include "src/rear_ui.c"
 #include <assert.h>
-static unsigned settings[2][6],bank,occupied[8],starts,stops,busy,repeat,fx,monitor_on,last_overwrite;
+static unsigned settings[2][6],bank,occupied[8],starts,stops,busy,repeat,fx,monitor_on,last_overwrite,shifted;
 int music_ui_repeat_active(void){return repeat;}
-int music_ui_shift_active(void){return 0;}
+int music_ui_shift_active(void){return shifted!=0;}
 int music_ui_knob_fx_active(void){return fx!=0;}
 unsigned rear_setting(unsigned c,unsigned f){return settings[c][f];}
 int rear_set_setting(unsigned c,unsigned f,unsigned v){settings[c][f]=v;return 1;}
@@ -50,5 +50,13 @@ int main(void){
  busy=1;e[8]=0x51;e[9]=1;assert(rear_ui_button(e));
  atomic_store(&open_panel,0);atomic_store(&visible_roots,0);e[9]=0;
  assert(rear_ui_button(e)&&!record_stop_owned&&!held[0x51]);
+ /* Input B2 opens signal routing without changing recording mode or pads. */
+ atomic_store(&visible_roots,1);settings[0][REAR_MODE]=REAR_STEREO;
+ button(0x0d);assert(open_panel&&!panel_on_record&&settings[0][REAR_MODE]==REAR_STEREO);
+ unsigned captures=starts;rear_ui_pad(1,1);assert(starts==captures&&!rear_ui_pad_owns());
+ button(0x0c);assert(!open_panel);
+ button(0x6c);assert(open_panel&&!panel_on_record);button(0x0c);
+ atomic_store(&visible_roots,2);shifted=1;button(0x0d);assert(!open_panel&&!to_seq);
+ shifted=0;button(0x0d);assert(to_seq&&!open_panel);button(0x0d);assert(!to_seq&&!open_panel);
  puts("PASS Rear recording Stop owns down/up through completion; idle Stop passes; mono/dual selection, occupied confirmation, monitor and FX/Repeat priority");return 0;
 }

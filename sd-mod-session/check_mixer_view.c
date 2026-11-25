@@ -219,6 +219,11 @@ int main(int argc,char**argv)
     project.input.fx.count=1;assert(fx_catalog_stage(3,s.rate,&project.input.fx.stage[0]));
     paint_trace(argv[1],"input-fx",&s,&painter);
     s.fx_parameters=1;paint_trace(argv[1],"input-fx-parameters",&s,&painter);
+    s.fx_parameters=0;s.input_tab=2;s.cursor=4;s.input_edit=1;
+    paint_trace(argv[1],"input-rear-left",&s,&painter);
+    s.cursor=7;paint_trace(argv[1],"input-rear-right",&s,&painter);
+    s.input_edit=0;s.cursor=14;paint_trace(argv[1],"input-rear-bottom",&s,&painter);
+    for(unsigned row=0;row<mixer_view_input_rows(1);++row){s.cursor=row;mixer_view_paint(&s,&painter);}
     s.master=0;s.selected=1u<<2;
     s.page=MIXER_OVERVIEW;s.fx_parameters=0;s.fx_signal=NULL;
     s.now_ms=1251;na=0;mixer_view_paint(&s,&painter);assert(na==9);
