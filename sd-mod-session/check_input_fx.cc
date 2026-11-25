@@ -71,16 +71,21 @@ int main(){
  for(unsigned n=0;n<101;++n)for(unsigned ch=0;ch<2;++ch){unsigned char b[3];assert(std::fread(b,1,3,f)==3);unsigned u=b[0]|unsigned(b[1])<<8|unsigned(b[2])<<16;int pcm=(u&0x800000)?int(u)-0x1000000:int(u);assert(std::fabs(float(pcm)/8388607.f-(ch?.0625f:-.015625f))<2e-7f);}
  std::fclose(f);
  rear_record_release(0);assert(!rmdir(directory));assert(selected_channel(REAR_MIX,0)&&!selected_channel(REAR_MIX,1));
- /* Rear's own monitor must add the same post-FX PCM, exactly once. */
+ /* Rear, owned by the mod: its Level/Pan/Mon L/R mix replaces the native input PCM before
+  * original(), so the native monitor (engine output -> Mixer Master, meters, main out) carries
+  * it; nothing is added to the buffer afterwards. Not owned: native PCM is left as for Mic. */
  rear_set_setting(0,REAR_MODE,REAR_STEREO);rear_set_setting(0,REAR_ENABLED,1);
  for(unsigned ch=0;ch<2;++ch){rear_set_setting(ch,REAR_MONITOR,1);rear_set_setting(ch,REAR_LEVEL,100);rear_set_setting(ch,REAR_PAN,ch?100:0);}
- monitor_active.store(1);main_gain.store(1);current_main_gain=0;
  for(unsigned i=0;i<16;++i)render();
- assert(std::fabs(l[511]-1.025f)<.00002f&&std::fabs(r[511]-.8375f)<.00002f);
+ assert(std::fabs(received[0][511]-.125f)<2e-5f&&std::fabs(received[1][511]+.0625f)<2e-5f&&l[511]==.9f&&r[511]==.9f);
+ rear_set_setting(1,REAR_MONITOR,0);for(unsigned i=0;i<16;++i)render();
+ assert(std::fabs(received[0][511]-.125f)<2e-5f&&std::fabs(received[1][511])<2e-5f);
+ rear_set_setting(1,REAR_MONITOR,1);rear_set_setting(0,REAR_PAN,50);rear_set_setting(0,REAR_LEVEL,50);for(unsigned i=0;i<16;++i)render();
+ assert(std::fabs(received[0][511]-.0441942f)<2e-5f&&std::fabs(received[1][511]-(.0441942f-.0625f))<2e-5f);
  test_model.input.fx_bypass=1;settle();for(unsigned i=0;i<16;++i)render();
- assert(std::fabs(l[511]-1.15f)<.00002f&&std::fabs(r[511]-.775f)<.00002f);
- monitor_active.store(0);render();assert(l[511]==.9f&&r[511]==.9f);
- puts("PASS Input FX monitoring: Mic/USB native callback receives Wet PCM; Rear monitor adds post-FX stereo once, Bypass restores dry, monitor Off adds nothing");
+ assert(std::fabs(received[0][511]-.0883883f)<2e-5f&&std::fabs(received[1][511]-(.0883883f-.125f))<2e-5f);
+ rear_set_setting(0,REAR_ENABLED,0);render();assert(received[0][511]==.25f&&received[1][511]==-.125f&&l[511]==.9f&&r[511]==.9f);
+ puts("PASS Rear monitoring: owned Rear reaches the native monitor (Mixer Master) as post-FX Level/Pan/Mon L/R mix before original(), nothing added after; not owned stays native");
  for(auto&lane:lanes){lane.active.store(0);fx_exchange_destroy(lane.x.exchange(nullptr));}assert(created==destroyed);
  puts("PASS independent Input FX at common Mic/USB/Rear callback, mono/stereo/additional pairs, live clock, bypass, Stock bypass and Rear Pan/Level -> FX -> one stereo WAV; main playback never enters recording; no RT allocation/destruction");
 }

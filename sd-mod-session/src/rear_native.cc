@@ -38,10 +38,8 @@ uintptr_t image;
 struct Session;
 std::atomic<Session *> session{nullptr};
 std::atomic<unsigned> input_active{0}, monitor_active{0};
-std::atomic<float> main_gain{0.f};
 std::atomic<float> synth_main_gain{1.f}; /* master volume for the synth's direct output (unknown reads as full) */
 float synth_current_gain = 1.f;
-float current_main_gain = 0.f;
 float raw[2][8192];
 float monitoring[2][8192],mixed_input[2][8192];
 thread_local void *monitor_feedback_blocked = nullptr;
@@ -341,6 +339,25 @@ extern "C" void *rear_native_process(void *thread, void *position, void *buffer,
     if (capture) {
         if (FIELD(buffer,0x128,unsigned char)&1) std::memset(raw,0,sizeof(raw));
         else { std::memcpy(raw[0],pcm[0],(size_t)frames*sizeof(float)); std::memcpy(raw[1],pcm[1],(size_t)frames*sizeof(float)); }
+        /* Rear is heard through the native monitor, like Mic: the native monitor feeds the engine
+         * output, which the Mixer takes into Master (meters, compressor, main out, headphones).
+         * Monitoring added after original() reached only the headphones. So the Rear mix
+         * (Level / Pan / Mon L/R per jack) is built here, before original(); the mod's own Rear
+         * recorder keeps the copy in raw (dry for L, R and Split; prepared for L+R Mix). */
+        std::memset(monitoring[0],0,(size_t)frames*sizeof(float));
+        std::memset(monitoring[1],0,(size_t)frames*sizeof(float));
+        bool own = rear_setting(0,REAR_ENABLED) != 0;
+        rear_audio_process_prepared(raw[0],raw[1],monitoring[0],monitoring[1],(unsigned)frames,44100,own,prepared_mix);
+        bool silent = true;
+        if (own) for (int ch = 0; ch < 2; ++ch) {
+            std::memcpy(pcm[ch],monitoring[ch],(size_t)frames*sizeof(float));
+            for (int n = 0; n < frames && silent; ++n) silent = monitoring[ch][n] == 0.f;
+        }
+        if (own) {
+            for (int ch = 2; ch < channels && ch < 8 && silent; ++ch)
+                if (pcm[ch]) for (int n = 0; n < frames && silent; ++n) silent = pcm[ch][n] == 0.f;
+            FIELD(buffer,0x128,unsigned char) = silent ? 1 : 0;
+        }
     }
     void *result=original(thread,position,buffer);
     if (synth_direct > 0 && !monitor_active.load(std::memory_order_acquire) && (!am_synth_direct_out || am_synth_direct_out())) {
@@ -355,21 +372,6 @@ extern "C" void *rear_native_process(void *thread, void *position, void *buffer,
             }
             FIELD(buffer,0x128,unsigned char) = 0;
         }
-    }
-    if (!capture) return result;
-    pcm = FIELD(buffer,0x10,float **);
-    bool monitor = monitor_active.load(std::memory_order_acquire) != 0;
-    std::memset(monitoring[0],0,(size_t)frames*sizeof(float));
-    std::memset(monitoring[1],0,(size_t)frames*sizeof(float));
-    rear_audio_process_prepared(raw[0],raw[1],monitoring[0],monitoring[1],(unsigned)frames,44100,monitor,prepared_mix);
-    if (monitor && pcm && FIELD(buffer,0,int)>=2) {
-        float target_gain = main_gain.load(std::memory_order_relaxed);
-        for (int n = 0; n < frames; ++n) {
-            current_main_gain += (target_gain - current_main_gain) * .004525f;
-            for (int ch = 0; ch < FIELD(buffer,0,int); ++ch)
-                if (pcm[ch]) pcm[ch][n] += monitoring[ch&1][n] * (ch < 2 ? current_main_gain : 1.f);
-        }
-        FIELD(buffer,0x128,unsigned char) = 0;
     }
     return result;
 }
@@ -497,8 +499,13 @@ extern "C" void rear_native_tick(int visible) {
     bool available = s->recorder && FIELD(s->recorder,0,uintptr_t) == image+0x6d8de80;
     void *recorder=available?FIELD(s->recorder,0x88,void *):nullptr;
     bool have_monitor=recorder&&FIELD(recorder,0,uintptr_t)==image+0x6da3008;
+    /* Rear always runs through the mod's Rear mix (Level / Pan / Mon L/R), which is then heard
+     * through the native monitor; switch it on here so no screen has to do it first. */
+    if (rear && !enabled && rear_set_setting(0,REAR_ENABLED,1)) enabled = true;
     if (have_monitor) {
-        bool suppress = rear && enabled;
+        /* The native monitor is no longer replaced for Rear; this only restores it once
+         * after an older session state had suppressed it. */
+        bool suppress = false;
         if (suppress || s->monitor_suppressed) {
             void *previous = monitor_feedback_blocked;
             monitor_feedback_blocked = properties;
@@ -509,12 +516,11 @@ extern "C" void rear_native_tick(int visible) {
         s->monitor_suppressed = suppress;
     }
     input_active.store(rear,std::memory_order_release);
-    bool custom_monitor = rear && have_monitor && enabled && (monitor==2||(monitor==1&&visible));
+    bool custom_monitor = false; /* Rear monitoring is native now (see rear_native_process) */
     {float gm = workflow_main_output_gain(); synth_main_gain.store(gm < 0.f ? 1.f : gm, std::memory_order_relaxed);}
-    if (custom_monitor) main_gain.store(std::fmax(0.f, workflow_main_output_gain()), std::memory_order_relaxed);
     monitor_active.store(custom_monitor,std::memory_order_release);
     {static int last_log=-1;int key=(source&7)|((monitor&3)<<3)|(enabled?32:0)|(custom_monitor?64:0)|(have_monitor?128:0)|(visible?256:0);
-     if(key!=last_log){last_log=key;std::fprintf(stderr,"REAR_MONITOR source=%d monitor=%d enabled=%d have_native_monitor=%d visible=%d custom=%d suppress_native=%d\n",source,monitor,enabled?1:0,have_monitor?1:0,visible?1:0,custom_monitor?1:0,(rear&&enabled)?1:0);}}
+     if(key!=last_log){last_log=key;std::fprintf(stderr,"REAR_MONITOR source=%d monitor=%d enabled=%d have_native_monitor=%d visible=%d custom=%d suppress_native=%d\n",source,monitor,enabled?1:0,have_monitor?1:0,visible?1:0,custom_monitor?1:0,0);}}
     unsigned state = rear_record_state();
     if (s->phase.load(std::memory_order_acquire)==2) {
         if ((source != 1 || !model(s)) && state >= REAR_PREPARING && state <= REAR_FINISHING) rear_record_cancel();
