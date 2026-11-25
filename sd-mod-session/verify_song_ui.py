@@ -8,7 +8,7 @@ sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
 assert sha(stock)=='b6584cba76e416e432ad202509099d34373dc2c3d6a8fb625f5678bf0193b508'
 root=os.environ.get('MPC_QEMU_SYSROOT','/home/user/mpc-rootfs-user-20260808')
 out=R/'build/song-ui';out.mkdir(parents=True,exist_ok=True)
-sources=['check_song_ui.c','src/song_ui.c','src/song_ui.h','check_fx_native.c','verify_song_ui.py']
+sources=['check_song_ui.c','src/song_ui.c','src/song_repeats.inc','src/song_ui.h','check_fx_native.c','verify_song_ui.py']
 hashes={n:sha(R/n) for n in sources}
 checks=[]
 for name,flags in [('normal',[]),('ubsan',['-fsanitize=undefined','-static-libubsan','-fno-sanitize-recover=all'])]:

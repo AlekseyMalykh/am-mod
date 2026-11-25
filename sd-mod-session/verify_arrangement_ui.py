@@ -9,6 +9,7 @@ core=['src/pattern_tools.cc','src/arrangement.cc','src/arrangement_codec.cc','sr
 core+=['src/arrangement_native_material.cc']
 tracked=core+['src/song_ui.c','src/song_ui.h','src/arrangement_ui.inc','src/pattern_tools.h','src/arrangement.h','src/arrangement_native_plan.h','src/pattern_model.h','src/pattern_library.h','src/piano_roll.h','src/step_native.h','src/midi_event.h','src/phone_events.h','src/music_settings.h','src/startup_project.h','src/mixer_stems.h','src/phone_native.c','build_mixer_r27r.py','build/phone_hooks.h','check_arrangement_ui.c','check_song_ui.c','check_fx_native.c','verify_arrangement_ui.py']
 tracked+=['src/ui_list_geometry.h']
+tracked+=['src/song_repeats.inc']
 tracked+=['src/arrangement_native_material.h']
 digest=lambda:{s:sha(R/s) for s in tracked};before=digest();proof=O/'verification.json';proof.unlink(missing_ok=True)
 sysroot=os.environ.get('MPC_QEMU_SYSROOT','/home/user/mpc-rootfs-user-20260808');checks=[]

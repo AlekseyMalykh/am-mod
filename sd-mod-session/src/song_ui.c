@@ -1045,6 +1045,8 @@ void song_ui_tick(void)
     }
 }
 
+#include "song_repeats.inc"
+
 int song_ui_install(void)
 {
     uintptr_t *slots[6]={(uintptr_t*)(base+SONG_VPTR+SLOT_PAINT),(uintptr_t*)(base+SONG_VPTR),(uintptr_t*)(base+SONG_VPTR+8),
@@ -1056,6 +1058,7 @@ int song_ui_install(void)
     if(sysconf(_SC_PAGESIZE)!=4096) return 0;
     void *page=(void*)((uintptr_t)slots[0]&~(uintptr_t)4095);
     for(unsigned i=1;i<6;++i) if(((uintptr_t)slots[i]&~(uintptr_t)4095)!=(uintptr_t)page) return 0;
+    if(!song_repeats_install(base))return 0;
     if(mprotect(page,4096,PROT_READ|PROT_WRITE)) return 0;
     for(unsigned i=0;i<6;++i) *slots[i]=callbacks[i];
     if(mprotect(page,4096,PROT_READ)) _exit(121);
