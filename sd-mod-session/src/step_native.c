@@ -665,8 +665,11 @@ static int insert_with_fallback(unsigned pad,int64_t tick)
     controller=old_c;sequence=old_s;event_list=old_e;length=old_l;
     return r;
 }
-static _Atomic unsigned pending_pad_note;      /* pad+1, waiting for the Step controller */
-static _Atomic int64_t pending_pad_tick;
+/* To Seq notes waiting for the Step controller (UI thread only). Several takes may wait; each keeps
+ * the sequence that was current when it was recorded and is dropped if another sequence is open. */
+#define PENDING_PAD_NOTES 16
+static struct {unsigned pad;int64_t tick;uintptr_t sequence;} pending_notes[PENDING_PAD_NOTES];
+static unsigned pending_count;
 static int insert_pad_note_at(unsigned pad,int64_t tick)
 {
     if(!controller||pad>=128||length<=0||tick<0)return 0;
@@ -677,21 +680,25 @@ static int insert_pad_note_at(unsigned pad,int64_t tick)
     {char text[96];snprintf(text,sizeof text,"TO_SEQ pad=%u tick=%lld length=%lld",pad,(long long)tick,(long long)length);report(text);}
     return add_event(&e);
 }
-int step_native_insert_pad_note(unsigned pad)
+/* tick < 0: current position. sequence: the project's current sequence pointer (0 unknown), compared only. */
+int step_native_insert_pad_note_at(unsigned pad,int64_t tick,uintptr_t current_sequence)
 {
-    if(pad>=128||!atomic_load(&clock_running)||!atomic_load(&clock_valid)){char text[96];snprintf(text,sizeof text,"TO_SEQ skipped run=%d valid=%d",(int)atomic_load(&clock_running),(int)atomic_load(&clock_valid));report(text);return -1;}
-    int64_t tick=(int64_t)atomic_load(&clock_tick);
-    if(!controller){
+    if(pad>=128||((tick<0)&&(!atomic_load(&clock_running)||!atomic_load(&clock_valid)))){char text[96];snprintf(text,sizeof text,"TO_SEQ skipped run=%d valid=%d",(int)atomic_load(&clock_running),(int)atomic_load(&clock_valid));report(text);return -1;}
+    {char text[128];int64_t now=(int64_t)atomic_load(&clock_tick);snprintf(text,sizeof text,"TO_SEQ request pad=%u start=%lld now=%lld late=%lld",pad,(long long)tick,(long long)now,(long long)(tick<0?0:now-tick));report(text);}
+    if(tick<0)tick=(int64_t)atomic_load(&clock_tick);
+    if(controller&&(!current_sequence||(uintptr_t)sequence==current_sequence))return insert_pad_note_at(pad,tick);
+    {
         int via=insert_with_fallback(pad,tick);
         {char text[96];snprintf(text,sizeof text,"TO_SEQ fallback pad=%u result=%d",pad,via);report(text);}
         if(via==1)return 1;
-        /* Keep the start position and insert when the Step screen returns. */
-        atomic_store(&pending_pad_tick,tick);atomic_store(&pending_pad_note,pad+1);
-        {char text[96];snprintf(text,sizeof text,"TO_SEQ pending pad=%u tick=%lld",pad,(long long)tick);report(text);}
-        return 2;
     }
-    return insert_pad_note_at(pad,tick);
+    /* Keep the start position and insert when the Step controller is available again. */
+    if(pending_count>=PENDING_PAD_NOTES){report("TO_SEQ pending full: note dropped");return 0;}
+    pending_notes[pending_count].pad=pad;pending_notes[pending_count].tick=tick;pending_notes[pending_count].sequence=current_sequence;++pending_count;
+    {char text[128];snprintf(text,sizeof text,"TO_SEQ pending pad=%u tick=%lld seq=%#lx waiting=%u",pad,(long long)tick,(unsigned long)current_sequence,pending_count);report(text);}
+    return 2;
 }
+int step_native_insert_pad_note(unsigned pad){return step_native_insert_pad_note_at(pad,-1,0);}
 int step_native_browser_bank(int bank)
 {
     if(bank>=0&&bank<8)set_sound_bank(bank);
@@ -1624,7 +1631,7 @@ int step_native_tick(void)
     if (!on_ui()) return 0;
     if(picker_preview_wait&&!workflow_event_preview_pending()){picker_preview_wait=0;picker_probe("PAD_DONE",picker_audition_pad);}
     if (atomic_exchange(&dead,0)) { root=NULL;controller=NULL;steps=menu=showing=0;reset_mute();invalidate(); }
-    if (atomic_exchange(&project_reset,0)) { atomic_store(&pending_pad_note,0);roll_project_reset();atomic_store(&write_armed,0);atomic_store(&toggle_armed,0);sound_initialized=0;clip_valid=0;steps=want_steps=menu=0;last_sequence=NULL;reset_mute();invalidate(); }
+    if (atomic_exchange(&project_reset,0)) { pending_count=0;roll_project_reset();atomic_store(&write_armed,0);atomic_store(&toggle_armed,0);sound_initialized=0;clip_valid=0;steps=want_steps=menu=0;last_sequence=NULL;reset_mute();invalidate(); }
     if (atomic_exchange(&queue_fault,0)) { roll_close();atomic_store(&write_armed,0);atomic_store(&toggle_armed,0);steps=want_steps=menu=0;reset_mute();invalidate();say("Steps stopped: input queue full"); }
 #ifdef MPC_PATTERN_TOOLS_TRIAL
     if(pattern_host){showing=0;publish();if(roll_refresh(0))roll_palette();return 0;}
@@ -1644,9 +1651,15 @@ int step_native_tick(void)
     void *program=things ? FIELD(things,0xb8,void*) : NULL;
     event_list=FIELD(controller,0xc0,void*);
     length=sequence ? FN(0x29571f0,int64_t(*)(void*))(sequence) : 0;
-    {unsigned pending=atomic_exchange(&pending_pad_note,0);
-     if(pending&&length>0){int r=insert_pad_note_at(pending-1,(int64_t)atomic_load(&pending_pad_tick));
-        {char text[64];snprintf(text,sizeof text,"TO_SEQ pending applied result=%d",r);report(text);}}}
+    if(pending_count&&length>0){
+        for(unsigned i=0;i<pending_count;++i){
+            if(pending_notes[i].sequence&&pending_notes[i].sequence!=(uintptr_t)sequence){
+                char text[128];snprintf(text,sizeof text,"TO_SEQ pending dropped pad=%u: recorded in seq=%#lx, open seq=%#lx",pending_notes[i].pad,(unsigned long)pending_notes[i].sequence,(unsigned long)(uintptr_t)sequence);report(text);continue;}
+            int r=insert_pad_note_at(pending_notes[i].pad,pending_notes[i].tick);
+            char text[96];snprintf(text,sizeof text,"TO_SEQ pending applied pad=%u tick=%lld result=%d",pending_notes[i].pad,(long long)pending_notes[i].tick,r);report(text);
+        }
+        pending_count=0;
+    }
     if (!event_list || !program || length<=0 || length>960*128*64) { stop_picker_audition();preview_gate_set(NULL,NULL);showing=0;steps=menu=0;publish();return 0; }
     if(menu!=3&&picker_muted)picker_set_muted(0);
     if(menu || !steps)reset_mute();

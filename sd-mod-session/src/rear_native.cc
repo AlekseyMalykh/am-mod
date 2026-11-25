@@ -291,8 +291,33 @@ int guarded_tick(void *p) {
 }
 extern "C" unsigned rear_ui_to_seq(void) __attribute__((weak));
 extern "C" unsigned step_native_transport_playing(void) __attribute__((weak));
-namespace { std::atomic<unsigned> mic_state_now{0}; std::atomic<int> mic_screen_visible{0}; }
+/* step_native.h has no C++ guards: reach the C symbol under another name, weak for the test harnesses. */
+extern "C" int64_t am_step_clock_ticks(uint64_t *,unsigned *) __asm__("step_native_clock_ticks") __attribute__((weak));
+namespace {
+std::atomic<unsigned> mic_state_now{0}; std::atomic<int> mic_screen_visible{0};
+/* To Seq: sequence position at the audio block where the take really starts (threshold crossed),
+ * instead of where the UI later notices it. Native recorder (Mic/USB/Rear Stereo) and mod Rear recorder. */
+std::atomic<float> hit_threshold{0.f};
+std::atomic<int64_t> hit_tick{-1};
+std::atomic<unsigned> hit_serial{0};
+bool hit_native_done = false;
+unsigned hit_last_rear_state = 0;
+void note_hit() {
+    if (!am_step_clock_ticks) return;
+    uint64_t serial = 0; unsigned running = 0;
+    int64_t t = am_step_clock_ticks(&serial,&running);
+    if (!running || t < 0) return;
+    hit_tick.store(t,std::memory_order_relaxed); hit_serial.fetch_add(1,std::memory_order_release);
+}
+}
 extern "C" int rear_native_mic_waiting(void) { return mic_state_now.load() == 1; }
+extern "C" int rear_native_take_hit(int64_t *tick) {
+    static unsigned seen;
+    unsigned n = hit_serial.load(std::memory_order_acquire);
+    if (n == seen) return 0;
+    seen = n; if (tick) *tick = hit_tick.load(std::memory_order_relaxed);
+    return 1;
+}
 extern "C" void *rear_native_process(void *thread, void *position, void *buffer,rear_render_fn original) {
 #ifdef MPC_RECORD_CHAIN_BYPASS
     return original(thread,position,buffer);
@@ -359,6 +384,24 @@ extern "C" void *rear_native_process(void *thread, void *position, void *buffer,
             FIELD(buffer,0x128,unsigned char) = silent ? 1 : 0;
         }
     }
+    {   /* To Seq start position (see note_hit). Only on the first crossing of an armed take. */
+        bool seq = rear_ui_to_seq && rear_ui_to_seq();
+        unsigned armed = mic_state_now.load(std::memory_order_acquire);
+        if (armed != 1) hit_native_done = false;
+        else if (seq && !hit_native_done && pcm && channels >= 1 && frames > 0 && frames <= 8192 &&
+                 step_native_transport_playing && step_native_transport_playing()) {
+            float thr = hit_threshold.load(std::memory_order_relaxed);
+            bool silent_block = FIELD(buffer,0x128,unsigned char) & 1;
+            if (thr <= 0.f) { hit_native_done = true; note_hit(); }   /* no threshold: the take starts with Play */
+            else if (!silent_block)
+                for (int n = 0; n < frames && !hit_native_done; ++n)
+                    for (int ch = 0; ch < channels && ch < 2; ++ch)
+                        if (pcm[ch] && std::fabs(pcm[ch][n]) >= thr) { hit_native_done = true; note_hit(); break; }
+        }
+        unsigned rs = rear_record_state();
+        if (seq && rs == REAR_RECORDING && hit_last_rear_state != REAR_RECORDING) note_hit();
+        hit_last_rear_state = rs;
+    }
     void *result=original(thread,position,buffer);
     if (synth_direct > 0 && !monitor_active.load(std::memory_order_acquire) && (!am_synth_direct_out || am_synth_direct_out())) {
         /* Synth is heard even when the input is not monitored: add it to the output buffer like the monitor path does. */
@@ -405,7 +448,8 @@ extern "C" void am_record_state_seen(void *screen,int state) {
         void *b = a ? FIELD(a,96,void *) : nullptr;
         if (b) pad = static_cast<unsigned>(FIELD(b,8552,int));
     }
-    std::fprintf(stderr,"MIC_STATE state=%d pad=%u\n",state,pad);
+    {float db=-999.f;auto*ss=session.load();if(ss&&ss->properties_input)db=FIELD(ss->properties_input,0x44,float);
+     std::fprintf(stderr,"MIC_STATE state=%d pad=%u threshold=%.1f playing=%u\n",state,pad,(double)db,step_native_transport_playing?step_native_transport_playing():0u);}
 #ifdef MPC_RECORD_DIAGNOSTICS
     auto*s=session.load();unsigned target=s&&s->recorder?FIELD(s->recorder,0x118,unsigned):128;
     unsigned prev=probe_state.exchange((unsigned)state);
@@ -494,6 +538,8 @@ extern "C" void rear_native_tick(int visible) {
     if (!properties) return;
     int source = FIELD(properties,0x24,int), monitor = FIELD(properties,0x98,int);
     s->source.store(source); s->monitor.store(monitor);
+    {float db = FIELD(properties,0x44,float);
+     hit_threshold.store(!std::isfinite(db) || db <= -96.f ? 0.f : std::pow(10.f,db/20.f),std::memory_order_relaxed);}
     bool rear = source == 1;
     bool enabled = rear_setting(0,REAR_ENABLED) != 0;
     bool available = s->recorder && FIELD(s->recorder,0,uintptr_t) == image+0x6d8de80;
@@ -575,6 +621,24 @@ extern "C" int rear_native_threshold_set(float db) {
     if(FIELD((void*)(image+0x13bbb20),0,uint32_t)!=0xd503233fu)return 0;
     float cur=FIELD(s->properties_input,0x44,float);if(!std::isfinite(cur)||cur<-120.f||cur>6.f)return 0;
     if(cur!=db)native<void(*)(void *,float)>(0x13bbb20)(static_cast<char *>(s->properties_input)+0x28,db);
+    return 1;
+}
+/* Raw stock Threshold (may be very low / -inf = no threshold) and exact restore of a saved value. */
+/* Project's current sequence pointer (things+0x1c8, the field the Step controller reads), compared only. */
+extern "C" uintptr_t rear_native_current_sequence(void) {
+    auto *s=session.load(); if(!s||!s->live.load()) return 0;
+    void *things=FIELD(s->copy,0x78,void *);
+    return things ? FIELD(things,0x1c8,uintptr_t) : 0;
+}
+extern "C" int rear_native_threshold_raw(float *db) {
+    auto *s=session.load(); if(!s||!s->live.load()||!s->properties_input||!db) return 0;
+    *db=FIELD(s->properties_input,0x44,float); return 1;
+}
+extern "C" int rear_native_threshold_restore(float db) {
+    auto *s=session.load();
+    if(!s||!s->live.load()||!s->properties_input||std::isnan(db)||db>6.f)return 0;
+    if(FIELD((void*)(image+0x13bbb20),0,uint32_t)!=0xd503233fu)return 0;
+    if(FIELD(s->properties_input,0x44,float)!=db)native<void(*)(void *,float)>(0x13bbb20)(static_cast<char *>(s->properties_input)+0x28,db);
     return 1;
 }
 extern "C" int rear_native_monitor() { auto *s = session.load(); return s ? s->monitor.load() : 0; }

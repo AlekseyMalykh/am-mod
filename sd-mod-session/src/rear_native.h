@@ -40,6 +40,10 @@ void rear_ui_pad(unsigned pad, int down);
 int rear_ui_pad_owns(void);
 int rear_ui_waiting_for_play(void);
 int rear_native_mic_waiting(void);
+int rear_native_take_hit(int64_t *tick);       /* To Seq: sequence tick where the last take started (once per take) */
+uintptr_t rear_native_current_sequence(void);  /* compare only */
+int rear_native_threshold_raw(float *db);       /* stock Threshold as stored, no range check */
+int rear_native_threshold_restore(float db);    /* write back a value read with rear_native_threshold_raw */
 int rear_ui_light(unsigned pad, uint64_t *colour);
 void rear_ui_fault(void);
 #ifdef __cplusplus

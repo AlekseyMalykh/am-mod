@@ -286,8 +286,28 @@ int rear_ui_install(uintptr_t base){
     return 1;
 }
 int rear_ui_input_config_visible(void){return (atomic_load(&visible_roots)&1u)!=0;}
-extern int step_native_insert_pad_note(unsigned) __attribute__((weak));
+extern int step_native_insert_pad_note_at(unsigned,int64_t,uintptr_t) __attribute__((weak));
 extern int rear_native_mic_event(unsigned *);
+/* To Seq: one take start = one note, at the position where the take started (audio thread), else now. */
+static int to_seq_insert(unsigned pad,int64_t start){
+    uintptr_t seq=rear_native_current_sequence();
+    return step_native_insert_pad_note_at?step_native_insert_pad_note_at(pad,start,seq):-2;
+}
+/* To Seq waits for Play: until then the input is held silent, which a threshold of -inf / very low would
+ * still accept, so the take would start before Play. Raise it to -60 dB while waiting; restore exactly. */
+static void to_seq_threshold(int waiting){
+    static int raised;static float saved;
+    if(waiting&&!raised){
+        float db;
+        if(rear_native_threshold_raw(&db)&&!(db>-60.f)&&rear_native_threshold_set(-60.f)){
+            saved=db;raised=1;fprintf(stderr,"TO_SEQ threshold %.1f -> -60 dB until Play\n",(double)db);}
+    }else if(!waiting&&raised){
+        float cur=0.f;raised=0;
+        if(rear_native_threshold_raw(&cur)&&cur==-60.f)
+            fprintf(stderr,"TO_SEQ threshold restored %.1f result=%d\n",(double)saved,rear_native_threshold_restore(saved));
+        else fprintf(stderr,"TO_SEQ threshold changed by user (%.1f), not restored\n",(double)cur);
+    }
+}
 int rear_ui_tick(void){
     if(atomic_exchange(&fault,0))close_panel();
     unsigned visible_mask=0;
@@ -299,10 +319,16 @@ int rear_ui_tick(void){
     rear_native_tick((visible_mask&2)!=0);
     {static int shown;uint64_t until=atomic_load(&play_notice_until);int active=until&&now_ms_ui()<until;if(shown&&!active)repaint();shown=active;}
     {static int waiting;int now=rear_ui_waiting_for_play();if(now!=waiting)repaint();waiting=now;}
+    to_seq_threshold(atomic_load(&to_seq)&&(visible_mask&2)&&!rear_native_busy()&&
+        !(step_native_transport_playing&&step_native_transport_playing()));
+    static int64_t start_tick=-1;static uint64_t start_at;int64_t start=-1;
+    {int64_t t;if(rear_native_take_hit(&t)){start_tick=t;start_at=now_ms_ui();}}
+    if(start_tick>=0&&now_ms_ui()-start_at<2000)start=start_tick; /* a start older than 2 s belongs to no take */
+    int used_start=0;
     {unsigned mic_pad;
      if(rear_native_mic_event(&mic_pad)&&atomic_load(&to_seq)){
-       int result=step_native_insert_pad_note?step_native_insert_pad_note(mic_pad):-2;
-       fprintf(stderr,"TO_SEQ mic pad=%u result=%d\n",mic_pad,result);}}
+       int result=to_seq_insert(mic_pad,start);used_start=1;
+       fprintf(stderr,"TO_SEQ mic pad=%u start=%lld result=%d\n",mic_pad,(long long)start,result);}}
     {   /* To Seq: the recorder just got its signal -> put the target pad(s) into the playing sequence. */
         static unsigned last_status;
         unsigned status=rear_native_status();
@@ -310,12 +336,13 @@ int rear_ui_tick(void){
             unsigned selected=atomic_load(&selected_mask)?atomic_load(&selected_mask):mask();
             for(unsigned ch=0;ch<2;++ch)if(selected&(1u<<ch)){
                 unsigned pad=rear_setting(ch,REAR_TARGET);
-                int result=step_native_insert_pad_note?step_native_insert_pad_note(pad):-2;
-                fprintf(stderr,"TO_SEQ pad=%u result=%d\n",pad,result);
+                int result=to_seq_insert(pad,start);used_start=1;
+                fprintf(stderr,"TO_SEQ pad=%u start=%lld result=%d\n",pad,(long long)start,result);
             }
         }
         last_status=status;
     }
+    if(used_start)start_tick=-1;
     {static int last_keys=-1;int keys=synth_keys_knobs()?1:0;if(keys!=last_keys){last_keys=keys;if(visible_mask&2)repaint();}} /* K panels switch between Source and the synth keyboard settings */
     {static int k2_busy;uint64_t until=atomic_load(&k2_until);int now=until&&now_ms_ui()<until;if((now||k2_busy)&&(visible_mask&2))repaint();k2_busy=now;}
     {static int last_shift=-1;int sh=music_ui_shift_active()!=0;if(sh!=last_shift){last_shift=sh;if(visible_mask&2)repaint();}} /* Shift badge and the shifted K1/K3 values follow the button */
