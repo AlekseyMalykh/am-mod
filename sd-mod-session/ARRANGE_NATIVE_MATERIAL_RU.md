@@ -141,3 +141,42 @@ callback на управляющей стороне. Проверены пуст
 сценарии — fixtures. Полный native constructor кэша, настоящая ThreadQueues,
 Track/Program lease, транспорт и GUI Play этим тестом не подтверждены.
 Production reader admission и Play/Record Arrange остаются закрытыми.
+
+## Штатная очередь: bounded publication
+
+`arrangement_native_queue.h/.cc` добавляет публикацию через реальный
+`0x2b59300`, используя уже исследованный в `pattern_request.cc` протокол.
+Под штатным recursive producer mutex выполняются reclaim `0x2b58c70` и
+проверка свободного слота. Только после неё вызывается stock cache copy.
+Удержание producer mutex исключает заполнение другим producer; consumer
+может лишь освобождать слоты. Путь штатного post, способный ждать или
+выполнить задачу inline при переполнении, не допускается.
+
+При публикации сравниваются полное назначение и состояние транспорта.
+`clear_native_cache` принимает сохранённую идентичность назначения отдельно:
+поздний Stop не должен очищать заново разрешённый cache нового проекта.
+Изменение Playing/Recording допускается для очистки того же назначения.
+Проверяется и истёкший native weak self. Результат `ok` означает постановку,
+а не применение источника: Start требует отдельного порядка/подтверждения.
+
+`verify_arrangement_native_material.py --queue --stock ...` выполняет
+неподменённые post, runner `0x2b59200/0x2b59160`, reclaim и recursive mutex.
+Consumer запускается отдельным потоком. Проверяются копии и origin после
+освобождения producer, хвосты, allocation failures, переполнение с включённым
+штатным inline policy без выполнения callback в producer, wrap-around,
+Stopped, устаревшие назначения и guard, отменённый до consumer.
+Внутри runner запрещены allocations и native delete; retired tree освобождает
+reclaim на управляющем владельце.
+
+Storage кольца, оболочка cache, provider `NativeCacheOwner` и метаданные
+назначения пока fixtures. Provider обязан реально удерживать native объекты,
+сериализовать смену назначения/teardown и обновлять destination revision при
+замене cache/Track/Program. В production он не зарегистрирован. Замена такого
+lease только проверкой epoch не допускается. Полный constructor cache,
+привязка к driver transport и защита Track/Program ещё не подтверждены.
+
+При исследовании Track найдено уведомление удаления и отдельные async
+счётчики ожидания. Они не объявлены общим lease Track. Штатный
+`TrackingPointer<Track/Program>` обнуляет pointer при удалении, но сам по себе
+не удерживает объект между чтением pointer и использованием. Эти механизмы
+нельзя использовать как доказательство готовности GUI Play.

@@ -43,7 +43,7 @@ assert not pad_midi_probe or pad_midi_trial, 'VM probe requires explicit trial b
 if pad_midi_trial:sources += ['src/pad_midi_note.c','src/synth_sequence.c','src/synth_binding.c','src/synth_archive.cc']
 if synth_native_trial:sources += ['src/synth_route.c','src/synth_accept_native.cc']
 if pattern_source_trial:sources += ['src/pattern_source.cc','src/pattern_lifecycle.cc']
-if pattern_tools_trial:sources += ['src/pattern_model.cc','src/pattern_library.cc','src/pattern_codec.cc','src/pattern_tools.cc','src/arrangement.cc','src/arrangement_codec.cc','src/arrangement_native_plan.cc','src/arrangement_native_material.cc']
+if pattern_tools_trial:sources += ['src/pattern_model.cc','src/pattern_library.cc','src/pattern_codec.cc','src/pattern_tools.cc','src/arrangement.cc','src/arrangement_codec.cc','src/arrangement_native_plan.cc','src/arrangement_native_material.cc','src/arrangement_native_queue.cc']
 if pgm_probe:sources += ['src/program_native_probe.cc']
 sha = lambda b: hashlib.sha256(b).hexdigest()
 hashes = {s: sha((R / s).read_bytes()) for s in sources + ['build_mixer_r27r.py', 'build/phone_hooks.h', 'src/shift_badge.h', 'src/mod_build.h', 'src/spectrum_plot.h', 'src/screen_mirror_frame.h', 'src/usb_audio.h', 'src/fx_layout.inc', 'src/fx_visual.inc', 'src/fx_catalog.h', 'src/fx_amp_models.inc', 'src/piano_roll.h', 'src/piano_input.inc', 'src/poly_record.h', 'src/batch_copy.h', 'src/piano_roll_native.inc', 'src/midi_event.h', 'src/midi_context.h', 'src/midi_native.h', 'src/sample_live_tuner.h']}
@@ -73,7 +73,7 @@ if pattern_source_trial:
         hashes[name]=sha((R/name).read_bytes())
 if pattern_tools_trial:
     common.append('-DMPC_PATTERN_TOOLS_TRIAL=1')
-    for name in ('src/pattern_model.h','src/pattern_library.h','src/pattern_tools.h','src/pattern_roll.inc','src/pattern_host.inc','src/arrangement.h','src/arrangement_native_plan.h','src/arrangement_native_material.h','src/arrangement_ui.inc'):
+    for name in ('src/pattern_model.h','src/pattern_library.h','src/pattern_tools.h','src/pattern_roll.inc','src/pattern_host.inc','src/arrangement.h','src/arrangement_native_plan.h','src/arrangement_native_material.h','src/arrangement_native_queue.h','src/arrangement_ui.inc'):
         hashes[name]=sha((R/name).read_bytes())
 if pad_midi_trial:
     common.append('-DMPC_PAD_MIDI_RECORDING_TRIAL=1')
