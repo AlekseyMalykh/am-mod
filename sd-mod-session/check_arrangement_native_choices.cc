@@ -1,8 +1,11 @@
 /* Called only by the ARM pinned-ELF fixture. Real inline factory/getter/setter;
  * no Project, Track, audio backend or fabricated packed choice layout. */
 #include "src/arrangement_native_plan.h"
+#include "src/arrangement_native_material.h"
 #include <cassert>
 #include <cstring>
+#include <set>
+#include <tuple>
 extern "C" int check_arrangement_native_choices(std::uintptr_t image){
     using namespace am_pattern;
     auto factory=reinterpret_cast<step_event(*)(unsigned,std::int64_t,std::int64_t,unsigned,unsigned,float)>(image+0x27e54d0);
@@ -42,7 +45,22 @@ extern "C" int check_arrangement_native_engine_plan(std::uintptr_t image,void*us
     destination.program_key="native-synth-program";destination.sequence_ticks=30720;destination.transport_valid=true;
     destination.pad_to_note[15]=50;destination.note_to_pad[50]=15;
     NativeArrangementPlan plan;assert(prepare_native_plan(prepared,destination,get,plan)==NativePlanResult::ok);
-    std::vector<step_event>notes;for(const auto&n:plan.notes)notes.push_back(n.native);
-    consume(user,notes.data(),(unsigned)notes.size(),destination.sequence_ticks);
+    std::shared_ptr<const NativePlaybackMaterial>material;
+    assert(NativePlaybackMaterial::prepare(image,plan,material)==NativeMaterialResult::ok);
+    /* Native material must survive the compiler's source values. Read its
+     * stock-ordered tree with the actual native iterator; delivery/clock in
+     * consume remain fixtures, not a production frame scheduler. */
+    plan=NativeArrangementPlan();prepared=PreparedArrangement();library=Library();
+    auto events=static_cast<const unsigned char*>(material->events());
+    const void*node;std::memcpy(&node,events+0x78,sizeof node);std::vector<step_event>notes;
+    std::set<std::tuple<Id,Id,Id,std::uint64_t>>origins;
+    while(node!=events+0x68){assert(notes.size()<max_events);step_event n;
+        std::memcpy(&n,static_cast<const unsigned char*>(node)+0x20,sizeof n);notes.push_back(n);
+        const auto*origin=material->origin(static_cast<const unsigned char*>(node)+0x20);
+        assert(origin&&origin->native.time==n.time&&origin->native.type==n.type&&!std::memcmp(origin->native.data,n.data,37));
+        assert(origins.emplace(origin->track,origin->clip,origin->event,origin->cycle).second);
+        node=reinterpret_cast<void*(*)(const void*)>(image+0xb51738)(node);}
+    assert(notes.size()==7&&origins.size()==7);
+    consume(user,notes.data(),(unsigned)notes.size(),material->plan().destination.sequence_ticks);
     return 1;
 }

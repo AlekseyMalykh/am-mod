@@ -65,10 +65,15 @@ int pt_archive_read(void*,void*,int(*)(void*,void*));
 #include "arrangement.h"
 #include "arrangement_native_plan.h"
 namespace am_pattern {
+class NativePlaybackMaterial;
 int pt_prepare_song(PreparedArrangement&);
 bool pt_prepared_current(const PreparedArrangement&);
 int pt_prepare_native_plan(const NativeDestination&,NativeArrangementPlan&);
 bool pt_native_plan_current(const NativeArrangementPlan&,const NativeDestination&);
+/* Control owner only; independent native Events, no transport/destination lease.
+ * Rechecks Store currency after native preparation. Failure preserves out;
+ * replacement destroys previous native material outside the Store mutex. */
+int pt_prepare_native_material(const NativeDestination&,std::shared_ptr<const NativePlaybackMaterial>&);
 }
 #endif
 #endif

@@ -3,7 +3,9 @@ from pathlib import Path
 import hashlib,json,os,subprocess
 R=Path(__file__).resolve().parent;O=R/'build/arrangement-separate';O.mkdir(exist_ok=True)
 sources=['src/pattern_tools.cc','src/pattern_library.cc','src/pattern_model.cc','src/pattern_codec.cc','src/arrangement.cc','src/arrangement_codec.cc','src/arrangement_native_plan.cc','src/midi_event.c','src/piano_roll.c','check_arrangement_separate.cc']
+sources+=['src/arrangement_native_material.cc']
 tracked=sources+['src/pattern_tools.h','src/pattern_library.h','src/pattern_model.h','src/arrangement.h','src/arrangement_native_plan.h','src/piano_roll.h','src/step_native.h','src/midi_event.h','verify_arrangement_separate.py']
+tracked+=['src/arrangement_native_material.h']
 digest=lambda:{n:hashlib.sha256((R/n).read_bytes()).hexdigest() for n in tracked};before=digest();proof=O/'verification.json';proof.unlink(missing_ok=True);checks=[]
 for name,prefix,flags,runner in [('host','',[],[]),('host-asan','',['-fsanitize=address,undefined','-fno-sanitize-recover=all'],[]),('arm','aarch64-linux-gnu-',[],['qemu-aarch64','-L',os.environ.get('MPC_QEMU_SYSROOT','/home/user/mpc-rootfs-user-20260808')]),('arm-ubsan','aarch64-linux-gnu-',['-fsanitize=undefined','-static-libubsan','-fno-sanitize-recover=all'],['qemu-aarch64','-L',os.environ.get('MPC_QEMU_SYSROOT','/home/user/mpc-rootfs-user-20260808')])]:
  objs=[]

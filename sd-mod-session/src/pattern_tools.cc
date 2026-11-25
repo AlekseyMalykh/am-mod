@@ -1,4 +1,5 @@
 #include "pattern_tools.h"
+#include "arrangement_native_material.h"
 #include "pattern_library.h"
 #include <atomic>
 #include <algorithm>
@@ -226,11 +227,27 @@ int pt_prepare_native_plan(const NativeDestination&destination,NativeArrangement
     value.store_receipt=receipt;
     out=std::move(value);error[0]=0;return 1;
 }catch(const std::exception&e){set_error(e.what());return 0;}}
-bool pt_native_plan_current(const NativeArrangementPlan&plan,const NativeDestination&destination){
-    std::lock_guard<std::mutex>lock(mutex);if(!current||current->mode==2||current->arr_mode==2||!plan.store_receipt||plan.store_receipt!=serial.load())return false;
+static bool native_plan_current_locked(const NativeArrangementPlan&plan,const NativeDestination&destination){
+    if(!current||current->mode==2||current->arr_mode==2||!plan.store_receipt||plan.store_receipt!=serial.load())return false;
     PreparedArrangement metadata;metadata.project_epoch=epoch.load();metadata.arrangement_revision=current->song.revision;
     metadata.library_revision=current->library.revision;metadata.length=current->song.length;return plan.matches(metadata,destination);
 }
+bool pt_native_plan_current(const NativeArrangementPlan&plan,const NativeDestination&destination){
+    std::lock_guard<std::mutex>lock(mutex);return native_plan_current_locked(plan,destination);
+}
+int pt_prepare_native_material(const NativeDestination&destination,std::shared_ptr<const NativePlaybackMaterial>&out){try{
+    NativeArrangementPlan plan;if(!pt_prepare_native_plan(destination,plan))return 0;
+    std::shared_ptr<const NativePlaybackMaterial>value;
+    auto result=NativePlaybackMaterial::prepare(image,plan,value);
+    if(result!=NativeMaterialResult::ok)throw std::runtime_error(result==NativeMaterialResult::unsupported?"Native Events ABI unavailable":
+        result==NativeMaterialResult::allocation_failed?"Arrange native material: out of memory":"Arrange native material refused");
+    {
+        std::lock_guard<std::mutex>lock(mutex);
+        if(!native_plan_current_locked(plan,destination))throw std::runtime_error("Song changed: prepare again");
+        out.swap(value);error[0]=0;
+    }
+    return 1; /* Retired value is released after the Store lock, on this owner. */
+}catch(const std::exception&e){set_error(e.what());return 0;}}
 }
 extern "C" void pt_archive_save(void*data,void*a,void(*original)(void*,void*)){
     auto s=snapshot();std::string payload=s->mode==2?s->opaque:s->mode==1?library_encode(s->library):"";
