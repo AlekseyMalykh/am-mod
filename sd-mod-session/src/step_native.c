@@ -652,14 +652,34 @@ void step_native_find_controller(void *screen)
     }
     fprintf(stderr,"CTL_SCAN none\n");
 }
+/* The stock Step controller is one long-lived object built by AC50Core at start-up (constructor
+ * 1580d80 called from 14ee2b0, stored at core+0x678; its +0x240 is core+0x588, +0x248 CurrentThings).
+ * The Seq screen only borrows it, so it is usable from Sample Record without visiting Seq. */
+static void *core_step_controller(void)
+{
+    if(!base)return NULL;
+    void *app=FIELD(base,0x71e3dc8,void*);
+    if(!app||FIELD(app,0,uintptr_t)!=base+0x6e07288)return NULL;
+    void *audio=FIELD(app,0xd8,void*);
+    if(!audio||FIELD(audio,0,uintptr_t)!=base+0x6e0c430)return NULL;
+    void *core=FIELD(audio,0x148,void*);
+    if(!core||FIELD(core,0,uintptr_t)!=base+0x6e0cf38)return NULL;
+    void *c=FIELD(core,0x678,void*);
+    return c&&FIELD(c,0,uintptr_t)==base+CONTROLLER_VPTR?c:NULL;
+}
 static int insert_with_fallback(unsigned pad,int64_t tick)
 {
     void *c=fallback_controller;
-    if(!c||FIELD(c,0,uintptr_t)!=base+CONTROLLER_VPTR)return -3;
+    if(!c||FIELD(c,0,uintptr_t)!=base+CONTROLLER_VPTR)c=core_step_controller();
+    if(!c)return -3;
     void *things=FIELD(c,0x248,void*),*seq=things?FIELD(things,0x1c8,void*):NULL;
     if(!seq)return -4;
+    /* Current clip's event list, as the controller binding resolves it (1583290: things+0x3d0 -> +0x688). */
+    void *clip=FIELD(things,0x3d0,void*),*list=clip?(char*)clip+0x688:NULL,*bound=FIELD(c,0xc0,void*);
+    {char text[128];snprintf(text,sizeof text,"TO_SEQ core controller list=%s",!list?"none":bound==list?"bound":"rebound");report(text);}
+    if(!list)return -5;
     void *old_c=controller,*old_s=sequence,*old_e=event_list;int64_t old_l=length;
-    controller=c;sequence=seq;event_list=FIELD(c,0xc0,void*);
+    controller=c;sequence=seq;event_list=list;
     length=FN(0x29571f0,int64_t(*)(void*))(seq);
     int r=insert_pad_note_at(pad,tick);
     controller=old_c;sequence=old_s;event_list=old_e;length=old_l;
