@@ -3,6 +3,7 @@ Never installs a bootloader, writes a card, or publishes a release.
 """
 from pathlib import Path,PurePosixPath
 import argparse,hashlib,io,json,re,subprocess,sys,tempfile,zipfile
+from usb_drive_boot_package import transform as usb_boot_transform
 R=Path(__file__).resolve().parent
 sys.path.insert(0,str(R.parent/'installer'))
 from mpc_mod_installer import Package,AUTORUN_CHECK_SALT
@@ -17,6 +18,24 @@ AM-Mod архив не заменяет. Обычный установщик Am 
 Кнопка питания: B1 Cancel, B2 Bootloader, B3 Power off. B2/B3 сначала сохраняют
 копию проекта Projects/Mod-Exit-Last.xpj. Ошибка сохранения оставляет мод включённым.
 В About остаются версия и ссылка на исходники.
+
+Rear Input: Input settings → выбрать Rear → B2 Routing.
+K1: общий Monitor Off/Auto/On; B2/B3: независимые Mon L/Mon R.
+K2/K3: Pan L/R; Shift+K2/K3: Level L/R. Pad Bank + K2/K3 сбрасывает параметр.
+Также Mixer → Input → ROUTE содержит отдельные строки уровня, панорамы и
+мониторинга Rear L и Rear R, с прокруткой DATA. Общий Monitor сохраняет выбор каналов.
+Из Sample Record убран Shift+B2 Routing; B2 по-прежнему включает To Seq.
+Pan/Level в Stereo/Left/Right/Split относятся к мониторингу; режим L+R Mix
+также записывает настроенную стереосмесь. Monitor Off не выключает запись.
+
+Исправлены Repeats обычного Sequential Song Mode: native список учитывает
+повторы и обновляется при изменении Repeats/Undo. Проверено в ARM QEMU;
+слышимое воспроизведение на устройстве ещё не проверялось.
+
+SD Card Access: исправлено освобождение и восстановление привязки SampleBoot
+(autorun/mods/<имя>). Сохранена поддержка D.S.B (autorun/os/<имя>) и обычного
+запуска без загрузчика. Проверены реальные exFAT loop-образы и откат ошибок;
+USB-передача с физического устройства требует проверки.
 
 Для тестирования используйте копию проекта: Projects общая для двух модов;
 стабильная версия при пересохранении может потерять новые расширения Arrange.
@@ -64,6 +83,11 @@ def main():
  files=dict(original);oldlib=sha(files['phone-input.so']);files['phone-input.so']=library
  launcher=files['mod-launcher.sh'];needle=('SAVE_IO_SHA='+oldlib).encode();assert launcher.count(needle)==1
  files['mod-launcher.sh']=launcher.replace(needle,('SAVE_IO_SHA='+sha(library)).encode())
+ # Keep host SD handoff compatible with SampleBoot's mods/<name> overmount.
+ files['usb-drive-boot.sh']=(R/'src/usb_drive_boot.sh').read_bytes()
+ files['mod-launcher.sh']=usb_boot_transform(files['mod-launcher.sh'].decode(),
+     sha(files['usb-drive.sh']),sha(files['usb-drive-boot.sh'])).encode()
+ subprocess.run(['sh','-n'],input=files['usb-drive-boot.sh'],check=True)
  entry=files['autorun.sh'];oldcontroller=sha(original['mod-launcher.sh']).encode();assert entry.count(oldcontroller)==1
  entry=entry.replace(oldcontroller,sha(files['mod-launcher.sh']).encode())
  assert entry.count(b'ENTRY_BEGIN revision=r30d-beta4')==1
@@ -80,17 +104,22 @@ def main():
   for n,b in files.items():z.writestr('autorun/'+n,b)
  validated=Package(flat.getvalue(),'candidate.zip');assert validated.revision==VERSION
  checks={}
- for directory in ('power-button','power-native','about-power','synth-live-native','arrangement-native-plan','pattern-tools','arrangement-ui','arrangement-separate'):
+ for directory in ('power-button','power-native','about-power','synth-live-native','arrangement-native-plan','pattern-tools','arrangement-ui','arrangement-separate',
+                   'song-repeats-native','rear-input-route','rear-mix-input-fx','input-config-ui','mixer-step1','usb-drive-boot','usb-drive-sampleboot'):
   path=R/'build'/directory/'verification.json';data=json.loads(path.read_text());assert data['passed'],directory
   for n,h in data['sources_sha256'].items():assert sha((R/n).read_bytes())==h,(directory,n)
   checks[directory]=data
+ for directory in ('usb-drive-boot','usb-drive-sampleboot'):
+  data=json.loads((R/'build'/directory/'shared-verification.json').read_text());assert data['passed'] and data['shared_mounts']
+  for n,h in data['sources_sha256'].items():assert sha((R/n).read_bytes())==h,(directory,n)
+  checks[directory+'-shared']=data
  source={}
  # Include current source plus frozen link manifest/header and verification.
  for path in sorted((R/'src').rglob('*')):
   if path.is_file():source[path.relative_to(R).as_posix()]=path.read_bytes()
  for pattern in ('build*.py','render*.py','check*.c','check*.cc','check*.S','check*.inc','verify*.py','*RU.md'):
   for path in R.glob(pattern):source[path.name]=path.read_bytes()
- for n in ('package_arrange_sampleboot.py','check_fx_native.c','build/r23a/build-info.json','build/phone_hooks.h','build/pad_lighting_project.h'):
+ for n in ('package_arrange_sampleboot.py','usb_drive_boot_package.py','check_fx_native.c','build/r23a/build-info.json','build/phone_hooks.h','build/pad_lighting_project.h'):
   source[n]=(R/n).read_bytes()
  source['compile-verification.json']=(O/'compile-verification.json').read_bytes()
  source['base-verification.json']=(O/'base-verification.json').read_bytes()

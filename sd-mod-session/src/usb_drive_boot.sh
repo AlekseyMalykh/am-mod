@@ -1,5 +1,5 @@
 #!/bin/sh
-# Host-only D.S.B in-place binds. Source after usb_drive.sh's context helpers.
+# Host-only D.S.B / SampleBoot in-place binds. Source after context helpers.
 # No recursive, force or lazy unmounts. Unknown mounts remain the responsibility
 # of their owner and are rejected by the normal exclusive-volume check.
 BOOT_VIEW=/run/hs-boot/autorun
@@ -29,9 +29,69 @@ boot_view_valid() {
         }' "$PROC/self/mountinfo") || return 1
 }
 boot_os_root_valid() {
-    case "$boot_root" in /autorun/os/*) ;; *) return 1 ;; esac
-    boot_leaf=${boot_root#/autorun/os/}
+    case "$boot_root" in
+        /autorun/os/*) boot_kind=dsb; boot_leaf=${boot_root#/autorun/os/} ;;
+        /autorun/mods/*) boot_kind=sampleboot; boot_leaf=${boot_root#/autorun/mods/} ;;
+        *) return 1 ;;
+    esac
     case "$boot_leaf" in ''|.|..|*[!A-Za-z0-9._-]*) return 1 ;; esac
+}
+sampleboot_loader_valid() {
+    for sampleboot_file in "$1/autorun/autorun.sh" "$1/autorun/sampleboot/sampleboot.sh"; do
+        [ -f "$sampleboot_file" ] && [ ! -L "$sampleboot_file" ] &&
+            [ "$(readlink -f "$sampleboot_file")" = "$sampleboot_file" ] || return 1
+    done
+    grep -q SAMPLEBOOT "$1/autorun/autorun.sh"
+}
+sampleboot_view_close() {
+    sampleboot_view="$D/sampleboot-view"
+    if boot_mounted "$sampleboot_view"; then
+        boot_row "$sampleboot_view" / || return 1
+        umount "$sampleboot_view" || return 1
+    fi
+    rm -f "$D/boot-sampleboot-view"
+}
+sampleboot_binds_detach() {
+    boot_step=sampleboot-am-marker
+    boot_marker "$sd/autorun" || return 1
+    # Non-recursive view of the card root exposes the loader hidden by the
+    # module overmount. Validate both the loader and the physical module inode
+    # before removing that one known bind. No loader file is modified.
+    boot_step=sampleboot-card-view
+    sampleboot_view="$D/sampleboot-view"
+    [ ! -L "$sampleboot_view" ] && ! boot_mounted "$sampleboot_view" || return 1
+    mkdir -p "$sampleboot_view" || return 1
+    [ "$(readlink -f "$sampleboot_view")" = "$sampleboot_view" ] || return 1
+    touch "$D/boot-sampleboot-view" || return 1
+    mount --bind "$sd" "$sampleboot_view" || return 1
+    boot_step=sampleboot-identity
+    sampleboot_valid=0
+    if sampleboot_loader_valid "$sampleboot_view" &&
+        boot_marker "$sampleboot_view$boot_root" &&
+        [ "$(stat -c '%d:%i' "$sd/autorun")" = "$(stat -c '%d:%i' "$sampleboot_view$boot_root")" ]; then
+        sampleboot_valid=1
+    fi
+    sampleboot_view_close || return 1
+    [ "$sampleboot_valid" = 1 ] || return 1
+    boot_step=sampleboot-record-state
+    printf '%s\n' "$boot_root" > "$D/boot-os-root" || return 1
+    cd / || return 1
+    boot_step=sampleboot-unmount-am
+    umount "$sd/autorun" || return 1
+    printf 'USB_DRIVE_SAMPLEBOOT_RELEASED module=%s\n' "$boot_root"
+}
+sampleboot_binds_restore() {
+    if boot_mounted "$sd/autorun"; then
+        boot_row "$sd/autorun" "$boot_root" || return 1
+    else
+        sampleboot_loader_valid "$sd" && boot_marker "$sd$boot_root" || return 1
+        [ -d "$sd/autorun" ] && [ ! -L "$sd/autorun" ] || return 1
+        mount --bind "$sd$boot_root" "$sd/autorun" || return 1
+        boot_row "$sd/autorun" "$boot_root" || return 1
+    fi
+    boot_marker "$sd/autorun" || return 1
+    rm -f "$D/boot-os-root"
+    printf 'USB_DRIVE_SAMPLEBOOT_RESTORED module=%s\n' "$boot_root"
 }
 boot_marker() {
     [ -d "$1" ] && [ ! -L "$1" ] && [ "$(readlink -f "$1")" = "$1" ] || return 1
@@ -47,6 +107,7 @@ bootloader_binds_detach() {
     boot_os_root_valid || return 1
     boot_step=am-mount
     boot_row "$sd/autorun" "$boot_root" || return 1
+    if [ "$boot_kind" = sampleboot ]; then sampleboot_binds_detach; return $?; fi
     boot_step=loader-view-mount
     boot_view_valid || return 1
     boot_step=loader-view-path
@@ -99,10 +160,12 @@ bootloader_binds_prepare() {
     return 1
 }
 bootloader_binds_restore() {
+    if [ -f "$D/boot-sampleboot-view" ]; then sampleboot_view_close || return 1; fi
     [ -f "$D/boot-os-root" ] || return 0
     [ ! -L "$D/boot-os-root" ] || return 1
     boot_root=$(cat "$D/boot-os-root") || return 1
     boot_os_root_valid || return 1
+    if [ "$boot_kind" = sampleboot ]; then sampleboot_binds_restore; return $?; fi
     if boot_mounted "$sd/autorun"; then
         # A failed first unmount left the original complete mapping intact.
         boot_row "$sd/autorun" "$boot_root" && boot_view_valid || return 1
