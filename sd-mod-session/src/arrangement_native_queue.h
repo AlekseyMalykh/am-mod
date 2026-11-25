@@ -26,6 +26,11 @@ struct NativeCacheBinding {
     std::uintptr_t image=0;void*cache=nullptr,*queues=nullptr;
     NativeDestination destination;
 };
+/* This adapter targets SequenceEventListAudioThreadCache (0x6d906c8).
+ * The stock sequence ClipPlayer instead consumes ClipAudioThreadCache
+ * (0x6dbbad8), including clip metadata as well as notes. Its constructor,
+ * guard layout and swap differ. Do not bind that type here or reinterpret
+ * this receipt as proof of ClipPlayer publication. See --clip native proof. */
 /* Actual control owner only. enter must serialize cache/queue teardown and
  * destination changes and keep native objects alive through leave. An epoch
  * comparison, GUI pointer or snapshot alone is NOT such a lease. No provider

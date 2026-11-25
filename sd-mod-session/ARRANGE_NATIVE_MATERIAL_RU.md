@@ -228,3 +228,65 @@ Play/Record Arrange остаются закрытыми; сборка прило
 Сохранение только raw Events поэтому не удерживает исходный map object.
 Тип и покрытие strong handle ещё нужно подтвердить; это не доказательство
 удержания Track или Program.
+
+## Уточнение реального пути проигрывателя
+
+Дальнейшее чтение native-кода выявило различие двух кэшей. Проверенные ранее
+`170b060 / 17088c0` принадлежат `SequenceEventListAudioThreadCache`.
+Один из его владельцев — `StepSequencer::NormalMode`; другой —
+`ArpeggiatorMidiFilter`. Это не подтверждение подключения списка нот к
+проигрывателю секвенций. Существующий адаптер оставлен с проверкой своего
+типа и не принимает `ClipAudioThreadCache`.
+
+В штатном выборе секвенции `Sequencer` вызывает `20fb5d0` на `ClipPlayers`.
+Тот вызывает `20e8040` для отдельных `ClipPlayer`. Эта функция получает
+кэш выбранной партии через `296e9c0(sequence_cache, track, selector)` и
+передаёт `cache + 0x130` в `SequenceEventListIterator` через `2158f00`.
+Дополнительно она сохраняет ссылки на метаданные `cache + 0xf8` и
+`cache + 0x2e0`. Следовательно, одного дерева нот недостаточно:
+владелец метаданных клипа должен жить вместе с ним.
+
+RTTI подтверждает `SequenceAudioThreadCache` (`6dbe058`, constructor
+`2971180`) и `ClipAudioThreadCache` (`6dbbad8`). Для последнего проверен
+настоящий constructor `2974cf0(this, queues, source, track, selector)`
+и non-deleting destructor `27c2ac0`; размер `0x3d8` подтверждает deleting
+destructor `27c3210`. Это отдельный тип от ранее проверенной оболочки.
+
+`verify_arrangement_native_material.py --clip --stock ...` выполняет:
+
+- Полные native constructor/destructor `ClipAudioThreadCache` с null
+  source/Track. Оболочка, weak guard и вложенные объекты не подделываются.
+- Constructor отдельного native `Holder<UnsafeClipCache>` размером `0x298`
+  через `2973b50`. Ноты вставляются в его собственный Events по смещению
+  `0x98`, пока источник никому не опубликован.
+- Настоящие native post/runner/reclaim и штатный manager `27bdeb0` со
+  swap `27c7ff0`. Consumer работает отдельным потоком; любые C++/native
+  allocations и native delete в нём запрещены.
+- Семь нот, включая четыре одинаковых события: адреса узлов, музыкальные
+  байты и хвост `63040` сохраняются после swap. Очистка переносит старое
+  дерево в retired source; освобождение выполняется при control reclaim.
+  Индекс принадлежности сохраняет разные track/clip/event для одинаковых
+  нот после удаления producer material, swap и reclaim старого source.
+- Удаление cache до выполнения callback с последующим заполнением его
+  storage значением `0xa5`: истёкший настоящий guard исключает обращение к
+  удалённой оболочке; manager освобождает source при reclaim.
+- Десять allocation-failure points полного constructor: stock landing pads
+  освобождают частично созданные объекты, утечек не остаётся.
+
+Важное различие ABI: native weak-self `ClipAudioThreadCache + 0x28`
+указывает на guard info `cache + 0x338`, а не на начало wrapper. Это
+проверено constructor, а не предполагается по макету event-list cache.
+
+Ring storage и ThreadQueues storage остаются fixtures. Настоящих
+Project/Track/Program, native ClipPlayer instance и transport в этом
+изолированном тесте нет. Null-source метаданные не объявляются пригодными
+для музыкального воспроизведения произвольной аранжировки. Нужен отдельный
+адаптер именно clip cache, сохранение его метаданных и привязка к реальному
+владельцу проигрывателя с защитой объектов при Stop/New/Load. GUI Play/Record
+не включены, приложение и пакет для карты не собирались.
+
+Для воспроизводимого поиска адресов добавлен read-only инструмент
+`lab/inspect_arrange_native.py`. Он проверяет SHA pinned ELF, переводит VA
+через PT_LOAD и показывает RTTI/vtable, прямые BL и кандидаты ADRP+ADD/LDR.
+Это инструмент исследования: прямой вызов или RTTI сами по себе не
+доказывают использование функции в аудиопотоке или время жизни объекта.

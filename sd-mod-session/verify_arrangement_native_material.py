@@ -1,8 +1,8 @@
 """Real stock Events ownership/cleanup, isolated ARM/QEMU; no Project or app build."""
 from pathlib import Path
 import argparse,ast,hashlib,json,os,subprocess
-p=argparse.ArgumentParser();p.add_argument('--stock',required=True);variant=p.add_mutually_exclusive_group();variant.add_argument('--cache',action='store_true');variant.add_argument('--queue',action='store_true');a=p.parse_args()
-R=Path(__file__).resolve().parent;stock=Path(a.stock).resolve();O=R/'build'/('arrangement-native-queue' if a.queue else 'arrangement-native-cache' if a.cache else 'arrangement-native-material');O.mkdir(parents=True,exist_ok=True)
+p=argparse.ArgumentParser();p.add_argument('--stock',required=True);variant=p.add_mutually_exclusive_group();variant.add_argument('--cache',action='store_true');variant.add_argument('--queue',action='store_true');variant.add_argument('--clip',action='store_true');a=p.parse_args()
+R=Path(__file__).resolve().parent;stock=Path(a.stock).resolve();O=R/'build'/('arrangement-native-clip' if a.clip else 'arrangement-native-queue' if a.queue else 'arrangement-native-cache' if a.cache else 'arrangement-native-material');O.mkdir(parents=True,exist_ok=True)
 expected='b6584cba76e416e432ad202509099d34373dc2c3d6a8fb625f5678bf0193b508'
 assert hashlib.sha256(stock.read_bytes()).hexdigest()==expected
 sources=['src/arrangement_native_material.cc','src/midi_event.c','check_arrangement_material_fixture.c','check_arrangement_native_material.cc']
@@ -17,6 +17,9 @@ if a.queue:
     sources[sources.index('check_arrangement_native_material.cc')]='check_arrangement_native_queue.cc'
     sources+=['src/arrangement_native_queue.cc']
     tracked+=['check_arrangement_native_queue.cc','src/arrangement_native_queue.cc','src/arrangement_native_queue.h']
+if a.clip:
+    sources[sources.index('check_arrangement_native_material.cc')]='check_arrangement_native_clip.cc'
+    tracked+=['check_arrangement_native_clip.cc']
 digest=lambda:{s:hashlib.sha256((R/s).read_bytes()).hexdigest() for s in tracked}
 before=digest();proof=O/'verification.json';proof.unlink(missing_ok=True);checks=[]
 for name,extra in [('normal',[]),('ubsan',['-fsanitize=undefined','-static-libubsan','-fno-sanitize-recover=all'])]:
@@ -29,6 +32,10 @@ for name,extra in [('normal',[]),('ubsan',['-fsanitize=undefined','-static-libub
     (O/(name+'.log')).write_text(result.stdout+result.stderr);print(name,result.stdout+result.stderr,flush=True);result.check_returncode();assert all(label in result.stdout for label in ['PASS native Arrange material:','PASS material Store bridge:','PASS native Holder lifetime:']);checks.append(name)
     if a.cache:assert 'PASS native cache handoff:' in result.stdout
     if a.queue:assert 'PASS native Arrange queue:' in result.stdout and 'PASS confirmed native swap:' in result.stdout
+    if a.clip:
+        assert 'PASS stock ClipAudioThreadCache constructor/destructor' in result.stdout
+        assert 'PASS stock clip cache queue:' in result.stdout
+        assert 'PASS stock clip constructor failures: 10 allocation points, no leaks' in result.stdout
 tree=ast.parse((R/'build_mixer_r27r.py').read_text())
 common=next(ast.literal_eval(n.value) for n in tree.body if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='common' for t in n.targets))
 for source in ['src/arrangement_native_material.cc','src/pattern_tools.cc']+(['src/arrangement_native_queue.cc'] if a.queue else []):
@@ -58,4 +65,21 @@ if a.queue:
         dropped_receipt_lifetime_tested=True,cancel_during_native_swap_tested=True,
         native_change_receiver='test-only pause after real swap, before return',
         reused_cache_address_expired_guard_tested=True)
+    proof.write_text(json.dumps(data,indent=2)+'\n')
+if a.clip:
+    data=json.loads(proof.read_text())
+    data.update(native_clip_cache_full_constructor_tested=True,
+        native_clip_cache_ctor='0x2974cf0',native_clip_cache_dtor='0x27c2ac0',
+        native_clip_cache_source=None,native_clip_cache_track=None,
+        native_clip_cache_queues_storage_fixture=True,
+        native_clip_cache_wrapper_fixture=False,
+        native_clip_cache_swap='0x27c7ff0',native_clip_cache_manager='0x27bdeb0',
+        native_clip_source_ctor='0x2973b50',native_clip_source_size=0x298,
+        native_clip_cache_size=0x3d8,native_clip_constructor_allocation_failures=10,
+        native_clip_swap_and_clear_tested=True,native_clip_expired_guard_tested=True,
+        native_clip_duplicates_and_tail_tested=True,
+        native_clip_origin_index_after_producer_release_tested=True,
+        native_clip_consumer_allocation_and_delete_forbidden=True,
+        separate_consumer_thread=True,
+        native_clip_player_connected=False)
     proof.write_text(json.dumps(data,indent=2)+'\n')
