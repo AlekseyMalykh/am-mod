@@ -176,6 +176,7 @@ static int roll_commit(void *user,const struct pr_plan *plan){
 }
 static void roll_close(void){
 #ifdef MPC_PATTERN_TOOLS_TRIAL
+ atomic_store(&pattern_lights_active,0);
  int external=pattern_host;
 #else
  int external=0;
@@ -561,11 +562,20 @@ static void roll_palette(void){
     selected=roll.rows[roll.cursor_row]==value;
    }
    if(near_note>=0){brightness=.85f;near_chosen=roll.notes[near_note].selected;}
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+   /* Row selection spans the entire pattern and survives bank changes. A
+    * selected row must be visible even when its notes are away from cursor. */
+   if(pattern_host&&pattern_rows_held)for(unsigned i=0;i<roll.count;++i)
+    if(roll.notes[i].selected&&(roll.layer==PR_PADS?roll.notes[i].sound:pr_note_row(&roll,roll.notes+i))==value){near_chosen=1;break;}
+#endif
    if(roll_show_transport())for(unsigned i=0;i<roll.count;++i){const struct pr_note *n=roll.notes+i;int row=roll.layer==PR_PADS?n->sound:pr_note_row(&roll,n);
     if(row==value&&!(n->event.type&0x200)&&play_tick>=n->event.time&&play_tick<n->event.time+FIELD(&n->event,0x28,int64_t)){playing=1;break;}}
   }
   atomic_store(&lights[pad],playing?pad_light(PAD_PLAYHEAD,.95f):near_chosen?pad_light(0xffffffu,1.f):selected?pad_selection_light(hue?hue:PAD_SELECT,brightness,phase):pad_light(hue,brightness));
  }
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+ if(pattern_host)atomic_store(&pattern_lights_active,1u+(unsigned)(roll.layer==PR_PADS?browse_bank:roll.sound/16));
+#endif
 }
 static int roll_x(int64_t tick){return 70+(int)((tick-roll.left)*240/roll.span);}
 static int roll_y(int row){return 190-(row-roll.top+1)*roll.row_height;}
@@ -607,7 +617,7 @@ static void roll_paint(void*g){
  {int title_pad=roll.layer==PR_PADS?(roll.cursor_row>=0&&roll.cursor_row<roll.row_count?roll.rows[roll.cursor_row]:-1):roll.sound;
   char caption[64],sample[513];
 #ifdef MPC_PATTERN_TOOLS_TRIAL
-  if(roll_pattern_index>=0){struct pt_entry e;pt_info((unsigned)roll_pattern_index,&e);strcpy(pad,"PAT");snprintf(sample,sizeof sample,"%s",e.name);}
+  if(roll_pattern_index>=0){struct pt_entry e;pt_info((unsigned)roll_pattern_index,&e);if(pattern_host&&roll.layer==PR_PADS)snprintf(pad,sizeof pad,"P:%c",'A'+browse_bank);else strcpy(pad,"PAT");snprintf(sample,sizeof sample,"%s",e.name);}
   else
 #endif
   if(title_pad>=0&&title_pad<128){pad_name(title_pad,pad);read_sample_for_pad(title_pad,sample);}

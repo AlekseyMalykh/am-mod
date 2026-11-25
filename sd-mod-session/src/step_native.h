@@ -34,6 +34,8 @@ int step_pattern_button(unsigned code,int down,int shift);
 int step_pattern_control(unsigned cc,unsigned value,int shift);
 int step_pattern_pad(unsigned pad,int shift);
 int step_pattern_paint(void *graphics,int shift);
+int step_pattern_light(unsigned pad,uint64_t *light); /* RGB thread: numeric snapshot only */
+int step_pattern_bank(void); /* numeric snapshot: physical sound bank 0..7, -1 outside host */
 #endif
 /* UI thread: Tune pitches currently flashed from sequence playback. */
 int step_native_playback_pitches(int *out,int max);

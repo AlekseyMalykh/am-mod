@@ -71,6 +71,9 @@
 static _Atomic unsigned piano_active;
 #ifdef MPC_PATTERN_TOOLS_TRIAL
 static int pattern_host;
+/* RGB thread reads only this publication and numeric palette entries. The
+ * external editor deliberately does not publish a native Events ticket. */
+static _Atomic unsigned pattern_lights_active; /* 0=closed; 1..8=physical banks A..H */
 static int pattern_saved_bank;
 static uint64_t pattern_host_id;
 static uint64_t pattern_host_clip;
@@ -439,7 +442,7 @@ static void invalidate(void)
 static void repaint(void)
 {
 #ifdef MPC_PATTERN_TOOLS_TRIAL
-    if(pattern_host){if(on_ui()&&pattern_redraw)pattern_redraw();return;}
+    if(pattern_host){if(on_ui()){roll_palette();if(pattern_redraw)pattern_redraw();}return;}
 #endif
     if (root && on_ui()) FN(0x1149880,void(*)(void*,uint64_t,uint64_t))(root,0,FIELD(root,0x28,uint64_t));
 }
@@ -1624,7 +1627,7 @@ int step_native_tick(void)
     if (atomic_exchange(&project_reset,0)) { atomic_store(&pending_pad_note,0);roll_project_reset();atomic_store(&write_armed,0);atomic_store(&toggle_armed,0);sound_initialized=0;clip_valid=0;steps=want_steps=menu=0;last_sequence=NULL;reset_mute();invalidate(); }
     if (atomic_exchange(&queue_fault,0)) { roll_close();atomic_store(&write_armed,0);atomic_store(&toggle_armed,0);steps=want_steps=menu=0;reset_mute();invalidate();say("Steps stopped: input queue full"); }
 #ifdef MPC_PATTERN_TOOLS_TRIAL
-    if(pattern_host){showing=0;publish();roll_refresh(0);return 0;}
+    if(pattern_host){showing=0;publish();if(roll_refresh(0))roll_palette();return 0;}
 #endif
     if(menu!=3){stop_picker_audition();preview_gate_set(NULL,NULL);}
     int previous_showing=showing;

@@ -64,11 +64,14 @@ int main(int argc,char**argv){
  atomic_store(&clock_valid,1);atomic_store(&clock_running,0);atomic_store(&clock_recording,0);
  struct pt_entry host_entry;assert(pt_info(variation,&host_entry));
  assert(step_pattern_open(host_entry.id,240,host_redraw)&&step_pattern_active()&&roll.cursor_tick==240);
- int host_sound=roll.notes[0].sound;for(int i=0;i<host_sound/16;++i)host_press(0x23,0);
+ int host_sound=roll.notes[0].sound;assert(browse_bank==roll.rows[roll.cursor_row]/16);
+ while(browse_bank!=host_sound/16)host_press(0x23,0);
  assert(step_pattern_pad((unsigned)host_sound%16,0)&&roll.rows[roll.cursor_row]==host_sound&&!roll_input_held&&roll_audition<0);
  host_press(0x6f,0);assert(!roll_data_held); /* both physical DATA edges reach the host */
  for(unsigned i=0;i<roll.count;++i)roll.notes[i].selected=0;
  assert(!step_native_tick()&&step_pattern_active());assert(step_pattern_paint((void*)1,0));
+ uint64_t host_light=0;assert(!step_native_ticket()&&step_pattern_light((unsigned)host_sound%16,&host_light)&&host_light==atomic_load(&lights[host_sound%16]));
+ assert(!step_pattern_light(16,&host_light)&&!step_pattern_light(0,NULL));
  host_press(BUTTON_LEVELS,0);assert(roll.layer==PR_TUNE);assert(step_pattern_paint((void*)1,0));
  struct pr_note host_before[PR_MAX_EVENTS],host_after[PR_MAX_EVENTS];int host_count=pt_notes(variation,host_before,PR_MAX_EVENTS,NULL);assert(host_count>0);
  host_action(4);assert(pr_selected(&roll)==(unsigned)host_count);host_press(0x0e,0);assert(roll_editing);
@@ -80,7 +83,7 @@ int main(int argc,char**argv){
  host_action(12);assert(roll.count==(unsigned)host_count+1);assert(step_pattern_paint((void*)1,0));
  host_action(18);assert(!roll_patterns_state&&step_pattern_active());
  host_press(BUTTON_PLAY,0);host_press(BUTTON_RECORD,0);assert(step_pattern_active());
- host_press(0x0c,0);assert(roll.layer==PR_PADS);host_press(0x0c,0);assert(!step_pattern_active()&&host_redraws&&browse_bank==5);
+ host_press(0x0c,0);assert(roll.layer==PR_PADS);host_press(0x0c,0);assert(!step_pattern_active()&&host_redraws&&browse_bank==5&&!step_pattern_light(0,&host_light));
  assert(step_pattern_open(host_entry.id,0,host_redraw));assert(variation>0&&pt_remove(0));assert(step_pattern_active()&&roll_pattern_index==(int)variation-1);
  host_press(BUTTON_MINUS,1);assert(step_pattern_active()&&roll_pattern_index==(int)variation);
  pt_reset();assert(!step_pattern_active()&&!pattern_host);
@@ -127,6 +130,29 @@ int main(int argc,char**argv){
  assert(pt_history(-1)&&step_pattern_open_clip(block_id,0,host_redraw,host_separated));assert(pt_arr_variation(block_id)&&!step_pattern_active());
  assert(step_pattern_pad(0,0));assert(step_pattern_open_clip(block_id,0,host_redraw,host_separated));assert(step_pattern_button(0x0d,1,0));pt_reset();assert(!step_pattern_active());assert(step_pattern_button(0x0d,0,0)&&!pattern_rows_held);
  fclose(draw_file);draw_file=saved_trace;
+ /* Select rows across all eight banks while native Events pointers remain
+  * poisoned. Bank gestures must not change the native bank model, and the
+  * detached part must contain the same physical pads, not local pad numbers. */
+ pt_reset();pt_expect_epoch(pt_epoch());
+ struct pr_note bank_notes[3]={0};const int bank_sounds[]={0,17,127};
+ for(unsigned i=0;i<3;++i){bank_notes[i].selected=1;bank_notes[i].sound=bank_sounds[i];bank_notes[i].event=FN(0x27e54d0,struct step_event(*)(unsigned,int64_t,int64_t,unsigned,unsigned,float))((unsigned)bank_sounds[i],960,10000,100,0,.8f);}
+ assert(pt_capture(bank_notes,3,7680,1,"bank-ui",identity,direct,2)&&pt_arr_add_track("Banks",&row_id)&&pt_arr_add_clip(row_id,0,0,7680,&block_id));
+ separated_clip=0;assert(step_pattern_open_clip(block_id,0,host_redraw,host_separated)&&browse_bank==0);
+ assert(step_pattern_button(0x0d,1,0)&&step_pattern_pad(0,0)&&pr_selected(&roll)==1);
+ assert(step_pattern_light(0,&host_light)&&host_light==pad_light(0xffffffu,1.f)); /* selected away from cursor */
+ host_press(0x23,0);assert(browse_bank==1&&step_pattern_bank()==1&&pr_selected(&roll)==1);assert(step_pattern_pad(1,0)&&pr_selected(&roll)==2);
+ host_press(0x23,1);assert(browse_bank==0&&step_pattern_light(0,&host_light)&&host_light==pad_light(0xffffffu,1.f));
+ host_press(0x23,1);assert(browse_bank==7&&step_pattern_bank()==7);assert(step_pattern_pad(15,0)&&pr_selected(&roll)==3);
+ host_press(0x23,0);assert(browse_bank==0);assert(step_pattern_pad(0,0)&&pr_selected(&roll)==2);
+ assert(step_pattern_button(0x0d,0,0)&&!roll.range);host_action(19);
+ assert(separated_clip&&!step_pattern_light(0,&host_light)&&step_pattern_bank()==-1&&browse_bank==5);
+ assert(pt_arr_clip_by_id(separated_clip,&moved));int bank_index=pt_pattern_index(moved.pattern);struct pr_note bank_part[3];
+ assert(bank_index>=0&&pt_notes((unsigned)bank_index,bank_part,3,NULL)==2&&bank_part[0].sound==17&&bank_part[1].sound==127);
+ assert(step_pattern_open_clip(separated_clip,0,host_redraw,host_separated)&&browse_bank==1);
+ host_press(BUTTON_LEVELS,0);assert(roll.layer==PR_TUNE);host_press(0x23,0);assert(roll_pad_page==1&&step_pattern_bank()==1);
+ assert(step_pattern_light(0,&host_light)&&host_light==atomic_load(&lights[0]));host_press(0x23,1);assert(roll_pad_page==0);
+ pt_reset();assert(!step_pattern_active()&&!step_pattern_light(0,&host_light)&&browse_bank==5);
+ puts("PASS pattern pad layout: published numeric RGB without native Events ticket, Pad banks A-H and reverse wrap, selection across banks and away from cursor, physical pad identities preserved on Separate, Tune pages and reset/close restore previous bank");
  puts("PASS row extraction host: hold B2 + Pads toggles full Pad/Tune rows, no audition, existing range tap, invalid row ignored, Separate/Copy actions close only after safe external repaint and return numeric clip ID, other references unchanged, stale rebind/reset rejected with invalid native Events pointers");
  assert(browse_bank==5);browse_bank=old_bank;
  root=old_root;controller=old_controller;sequence=old_sequence;event_list=old_list;

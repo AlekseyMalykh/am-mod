@@ -14,8 +14,14 @@ int step_pattern_open(uint64_t id,int64_t phase,void(*redraw)(void)){
  message[0]=0;pt_expect_epoch(roll_patterns_epoch);atomic_store(&piano_active,1);
  if(!roll_refresh(1)){roll_close();return 0;}
  pr_view_layer(&roll,PR_PADS,roll.rows[0]);pr_cursor(&roll,phase%entry.length,0);
+ browse_bank=roll.rows[roll.cursor_row]/16;
  say(pt_pattern_assigned((unsigned)index)?"Shared pattern: edits affect all its blocks":"Unassigned instrument; editable draft only");return 1;
 }
+int step_pattern_light(unsigned pad,uint64_t *light){
+ if(pad>=16||!light||!atomic_load(&pattern_lights_active))return 0;
+ *light=atomic_load(&lights[pad]);return 1;
+}
+int step_pattern_bank(void){return (int)atomic_load(&pattern_lights_active)-1;}
 int step_pattern_open_clip(uint64_t id,int64_t phase,void(*redraw)(void),void(*separated)(uint64_t)){
  struct pt_arr_clip clip;uint64_t receipt=pt_serial();
  if(!separated||!pt_arr_clip_by_id(id,&clip)||pt_serial()!=receipt)return 0;

@@ -8,6 +8,7 @@ core=['src/pattern_model.cc','src/pattern_library.cc','src/pattern_codec.cc','sr
 tracked=core+['src/pattern_model.h','src/pattern_library.h','src/pattern_tools.h','src/pattern_roll.inc','src/piano_roll.h','src/piano_roll_native.inc','src/step_native.c','src/phone_native.c','build_mixer_r27r.py','check_pattern_tools.cc','check_arrangement_native_choices.cc','check_pattern_ui_native.c','check_piano_roll_native.c','check_steps.c','check_steps_support.cc','check_steps_support.S','src/step_abi.S','src/step_exceptions.cc','src/step_mute.cc','verify_pattern_tools.py']
 tracked+=['src/arrangement.h','src/arrangement_native_plan.h','src/pattern_host.inc','src/midi_event.h','src/step_native.h','src/song_ui.h','src/phone_events.h','src/music_settings.c','src/music_settings.h','src/seq_mutes.c','src/seq_mutes.h','src/shift_badge.h','src/usb_drive_lights.h','src/ui_caption.h','build/phone_hooks.h']
 tracked+=['src/ui_list_geometry.h']
+tracked+=['check_pattern_rgb.c','check_pad_colour_rgb.c','src/phone_input.c','src/mixer_leds.h','src/mixer_control.h']
 digest=lambda:{s:hashlib.sha256((R/s).read_bytes()).hexdigest() for s in tracked}
 before=digest();proof=O/'verification.json';proof.unlink(missing_ok=True);checks=[]
 sysroot=os.environ.get('MPC_QEMU_SYSROOT','/home/user/mpc-rootfs-user-20260808')
@@ -32,6 +33,10 @@ for name,extra in [('ui',[]),('ui-ubsan',['-fsanitize=undefined','-static-libubs
     target=O/name;run(['aarch64-linux-gnu-g++',*extra,*objects,'-Wl,--gc-sections','-ldl','-pthread','-lm','-o',str(target)])
     execute(target,[str(stock),str(O/(name+'-draw.txt'))],['qemu-aarch64','-L',sysroot],'PASS pattern UI:')
 # Parse build flags as data: never import/execute a build script.
+for name,extra in [('pattern-rgb',[]),('pattern-rgb-ubsan',['-fsanitize=undefined','-static-libubsan','-fno-sanitize-recover=all'])]:
+    target=O/name
+    run(['aarch64-linux-gnu-gcc','-std=c11','-O1','-g','-Wall','-Wextra','-Werror','-Ibuild','-mbranch-protection=standard','-ffunction-sections','-fdata-sections','-Wl,--gc-sections',*extra,'check_pattern_rgb.c','src/phone_input.c','src/music_settings.c','-pthread','-ldl','-lm','-o',str(target)])
+    execute(target,[],['qemu-aarch64','-L',sysroot],'PASS pattern RGB:')
 tree=ast.parse((R/'build_mixer_r27r.py').read_text());common=next(ast.literal_eval(n.value) for n in tree.body if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='common' for t in n.targets))
 for flags in [[],['-DMPC_PATTERN_TOOLS_TRIAL=1'],['-DMPC_PATTERN_TOOLS_TRIAL=1','-DMPC_PAD_MIDI_RECORDING_TRIAL=1','-DMPC_SYNTH_NATIVE_PLAYBACK_TRIAL=1','-DMPC_PATTERN_SOURCE_TRIAL=1']]:
     for source in ['src/step_native.c','src/phone_native.c']:run(['aarch64-linux-gnu-gcc','-std=c11',*common,'-DMPC_MIDI_EVENTS=1',*flags,'-c',source,'-o',str(O/('production-'+str(len(flags))+'-'+Path(source).stem+'.o'))])

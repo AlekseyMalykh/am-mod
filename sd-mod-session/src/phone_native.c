@@ -528,6 +528,10 @@ static const uint32_t synth_palette[6]={0xb060ffu,0x4090ffu,0x40d070u,0xffc247u,
 extern uint64_t am_synth_pad_info(unsigned,unsigned*) __attribute__((weak));
 static void mixer_bank_lights_tracks(int tracks)
 {
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+    int pattern_bank=step_pattern_bank();
+    if(pattern_bank>=0&&pattern_bank<8)tracks=1<<pattern_bank;
+#endif
     if(!native_bank_light)return;
     pthread_mutex_lock(&bank_light_lock);
     if(bank_light_tracks!=tracks){
@@ -3582,6 +3586,11 @@ static void rgb(void *s,uint32_t colour,unsigned pad)
             uint32_t packed=FN(0x23b00c0,uint32_t(*)(const uint64_t*))(&palette_colour);
             send_pad_rgb(s,packed,pad);return;
         }
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+        if(step_pattern_light(pad,&palette_colour)){
+            send_pad_rgb(s,FN(0x23b00c0,uint32_t(*)(const uint64_t*))(&palette_colour),pad);return;
+        }
+#endif
 #ifdef MPC_KNOB_RESET
         if((knob_reset_ticket()&2)&&atomic_load(&pad_bank_held_long)){ORIG(H_RGB,void(*)(void*,uint32_t,unsigned))(s,colour,pad);return;}
 #endif
@@ -3653,6 +3662,10 @@ static void lights_diagnostic(void){
     char owners[17];unsigned raw_mask=0;
     for(unsigned i=0;i<16;++i){
         uint64_t l;char o='-';
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+        if(step_pattern_light(i,&l))o='R';
+        else
+#endif
         if(workflow_light(i,&l))o='W';
         else if(atomic_load(&pad_colour_native_workflow)&&pad_colour_light(i,&l))o='N';
 #ifdef MPC_CHORDS
@@ -3794,6 +3807,9 @@ static void send_step_lights(void)
     uint64_t palette_epoch=workflow_palette_generation();
     int force_palette=palette_epoch!=workflow_generation;workflow_generation=palette_epoch;
     uint64_t workflow_probe;int workflow_colours=workflow_light(0,&workflow_probe);
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+    workflow_colours|=step_pattern_light(0,&workflow_probe);
+#endif
 #ifdef MPC_STOCK_RESAMPLE
     static uint64_t resample_generation;
     uint64_t resample_epoch=resample_ui_palette_generation();
@@ -3831,7 +3847,11 @@ static void send_step_lights(void)
     }
     for(unsigned i=0;i<16;++i) {
         uint64_t light;unsigned bit=1u<<i;
-        if (synth_keys_light(i,&light) || music_ui_transfer_light(i,&light) || music_ui_palette_light(i,&light) || settings_pad_light(i,&light) ||
+        if (music_ui_transfer_light(i,&light) || music_ui_palette_light(i,&light) || settings_pad_light(i,&light) ||
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+            step_pattern_light(i,&light) ||
+#endif
+            synth_keys_light(i,&light) ||
 
 #ifdef MPC_REAR_ROUTING
             rear_ui_light(i,&light) ||

@@ -68,13 +68,13 @@ int main(int argc,char**argv){
     int64_t held_cursor=arrange_cursor,held_left=arrange_left;int held_row=arrange_row;uint64_t held_block=arrange_selected,held_ticket=song_ui_ticket();
     action(13);
     assert(atomic_load(&arrangement_editor)&&bridge_id==right.pattern&&bridge_phase==2880);
-    assert(song_ui_pattern_pads());song_ui_pattern_pad(3,1,held_ticket);assert(!bridge_pads);song_ui_pattern_pad(3,1,song_ui_ticket());assert(bridge_pads==1);
+    assert(song_ui_pattern_pads()&&!song_ui_pads_active());song_ui_pattern_pad(3,1,held_ticket);assert(!bridge_pads);song_ui_pattern_pad(3,1,song_ui_ticket());assert(bridge_pads==1);
     unsigned char old_movement[16]={0};old_movement[8]=DATA_ENCODER;old_movement[9]=1;
     assert(song_ui_control_ticket(old_movement,0,held_ticket)&&!bridge_controls);
     turn(DATA_ENCODER,1,0);press(0x6f,0);press(B2,0);assert(bridge_controls==1&&bridge_down==2&&bridge_up==3&&!arrange_menu);
     paint(screen_obj,(void*)0x10);assert(bridge_paints==1);
     press(B1,0);assert(!atomic_load(&arrangement_editor)&&!bridge_active);
-    assert(!song_ui_pattern_pads());song_ui_pattern_pad(3,1,song_ui_ticket());assert(bridge_pads==1);
+    assert(!song_ui_pattern_pads()&&song_ui_pads_active());song_ui_pattern_pad(3,1,song_ui_ticket());assert(bridge_pads==1);
     assert(arrange_cursor==held_cursor&&arrange_left==held_left&&arrange_row==held_row&&arrange_selected==held_block);
     press(MINUS,1);assert(pt_arr_info(&a)&&a.clips==1);press(PLUS,1);assert(pt_arr_info(&a)&&a.clips==2);
     press(0x6f,0);turn(DATA_ENCODER,125,0);assert(arrange_cursor==0);press(0x6f,0);action(7);assert(pt_arr_info(&a)&&a.clips==1);shot();

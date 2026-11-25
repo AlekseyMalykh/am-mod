@@ -270,7 +270,12 @@ void song_ui_stems_name_closed(void)
 void song_ui_init(uintptr_t b){ base=b; }
 int song_ui_active(void){ return atomic_load(&shown)!=0; }
 int song_ui_selected_sequence(void){ return atomic_load(&selected_sequence); }
-int song_ui_pads_active(void){ return atomic_load(&pads_shown)!=0; }
+int song_ui_pads_active(void){
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+    if(atomic_load(&shown)&&atomic_load(&arrangement_active)&&atomic_load(&arrangement_editor))return 0;
+#endif
+    return atomic_load(&pads_shown)!=0;
+}
 #ifdef MPC_PATTERN_TOOLS_TRIAL
 int song_ui_pattern_pads(void){return atomic_load(&shown)&&atomic_load(&arrangement_active)&&atomic_load(&arrangement_editor);}
 void song_ui_pattern_pad(unsigned pad,int shifted,uint64_t value){
