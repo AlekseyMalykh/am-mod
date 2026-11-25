@@ -420,3 +420,64 @@ voice renderer и transport не запущены. Это следующий д�
 между публикацией нот и проигрывателем, а не готовая привязка к живому проекту.
 GUI Play/Record остаются закрыты до подключения владельца Track/Program,
 нативного transport и остановки/retirement голосов.
+
+### Передача разработки после Arrange Test 4 — 25 ноября 2026
+
+Рабочая ветка: `codex/pad-midi-recording`. Продолжать её, не переносить весь
+экспериментальный Arrange в стабильную ветку без отдельного решения пользователя.
+
+Последние изменения:
+
+- `a54e1bb`: исправление двух причин Repeats в native Sample controller,
+  `src/song_repeats.inc`, подключение через `src/song_ui.c`.
+- `5338944`: проверка native ClipPlayer attach/seek/detach. Это тест реальных
+  функций на fixture storage, не подключённое воспроизведение из интерфейса.
+- `d37a6c5`: Rear Routing доступен через Input → Rear → B2. K1 — общий
+  Monitor Off/Auto/On, B2/B3 — Mon L/R, K2/K3 — Pan L/R,
+  Shift+K2/K3 — Level L/R. Отдельные строки добавлены также в
+  Mixer → Input → Route. Общий Monitor больше не перезаписывает выбор каналов.
+  Shift+B2 Routing удалён из Sample Record; B2 To Seq сохранён. Исправлена
+  ширина поля значения Route, выходившего за правую границу экрана.
+- `a9ff03a`: исправлен SD Card Access под SampleBoot. На карте Test 3 логи
+  содержали `USB_DRIVE_BOOTLOADER_FAILED step=os-root` и
+  `BOOTLOADER_BIND_BUSY`: старый helper признавал только `/autorun/os/...`,
+  тогда как SampleBoot использует `/autorun/mods/...`.
+  В `src/usb_drive_boot.sh` добавлена отдельная транзакция SampleBoot со
+  временным нерекурсивным видом корня карты, проверкой inode модуля и
+  восстановлением bind. Обычный запуск и D.S.B сохранены; чужие mounts
+  не снимаются. `package_arrange_sampleboot.py` обновляет helper и его
+  закреплённый SHA в launcher, затем пересчитывает внешние контрольные суммы.
+
+Проверки, завершённые до установки: `verify_rear_input_route.py` normal/UBSan;
+`verify_rear_mix_input_fx.py` host/ARM/UBSan; `verify_input_config_ui.py`;
+`verify_mixer_step1.py` host/ASan/ARM/UBSan с отрисовкой всех строк Rear;
+`verify_usb_drive_boot.py` и `verify_usb_drive_sampleboot.py` на настоящих
+exFAT loop-образах в изолированном mount namespace, private/shared;
+15 сценариев `check_usb_drive.py`; актуальные обязательные проверки
+Pattern/Piano Roll/Arrange и полный preload constructor/input routes в QEMU.
+Пакет проверяет SHA исходников и отклоняет устаревшие verification manifests.
+
+Собран и записан на карту **Am MOD Arrange Test 4**:
+
+- Модуль: `D:\autorun\mods\AM-Mod-Arrange-Test4`.
+- Стабильные `AM-Mod`, `SampQOL`, загрузчик и предыдущий Test 3 сохранены.
+- Сверены 1007 новых файлов и 211 существующих файлов `autorun`.
+- Архив: `build/arrange-sampleboot-test4/am-mod-r30d-arrange-test4-sampleboot.zip`.
+- SHA256 архива: `91266b51c7b609c5de363d98ef13eb5e6e11520183afe1c323e9124f6a60f0c6`.
+- SHA256 библиотеки: `26985d9dd38b30131b2502848b0759c21fe0d23769ca4098785a81c702828e6f`.
+- Подтверждение записи: `build/arrange-sampleboot-test4/card-install-verification.json`.
+  Каталог `build` локальный, не хранится в Git. Исходники и проверки включены
+  также в `SOURCE-Arrange-Test4` на карте.
+
+Пользователь разрешил эту сборку и немедленную запись на карту. Работа на
+физическом MPC после установки ещё не проверена: отдельно проверить Rear
+monitoring, Repeats и повторный вход/выход SD Card Access.
+
+**Главное незавершённое:** Play/Stop/Record Arrange в GUI по-прежнему не
+подключены. Не снимать блокировку кнопок на основании успешного material/cache
+теста. Нужны реальный owner и защита Track/Program/Project, правильные метаданные
+ClipAudioThreadCache, упорядоченный запуск native transport после публикации,
+Stop/отмена pending Start, retirement голосов/NoteOff и New/Load. Старый
+`NativeCacheOwner` в `arrangement_native_queue` относится к другому типу cache
+и не является готовым владельцем ClipPlayer. Штатные секвенции и Sequential
+Song Mode должны сохранять прежний workflow и формат; новый Piano Roll не нужен.
