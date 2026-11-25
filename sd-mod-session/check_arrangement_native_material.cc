@@ -7,12 +7,15 @@
 #include <cstring>
 #include <new>
 #include <cstddef>
+#include <atomic>
+#include <chrono>
+#include <thread>
 namespace {
 long fail_after=-1;
 void(*native_alloc_observer)()=nullptr;
 void(*native_delete_observer)()=nullptr;
 std::uint64_t store_row=0;unsigned retire_reads=0;
-std::size_t live_blocks=0,native_blocks=0,native_bytes=0,peak_native_bytes=0;
+std::atomic<std::size_t>live_blocks{0},native_blocks{0},native_bytes{0},peak_native_bytes{0};
 struct alignas(std::max_align_t) Allocation {std::size_t bytes;bool native;};
 void*allocate(std::size_t n,bool native){
     if(fail_after==0)throw std::bad_alloc();
@@ -20,7 +23,8 @@ void*allocate(std::size_t n,bool native){
     auto*p=static_cast<Allocation*>(std::malloc(sizeof(Allocation)+(n?n:1)));
     if(!p)throw std::bad_alloc();
     p->bytes=n;p->native=native;++live_blocks;
-    if(native){++native_blocks;native_bytes+=n;peak_native_bytes=std::max(peak_native_bytes,native_bytes);}
+    if(native){++native_blocks;auto bytes=native_bytes.fetch_add(n)+n;auto peak=peak_native_bytes.load();
+        while(peak<bytes&&!peak_native_bytes.compare_exchange_weak(peak,bytes)){} }
     return p+1;
 }
 void release(void*p)noexcept{
@@ -47,7 +51,7 @@ void reset_during_prepare(){pt_reset();}
 void inspect_during_retire(){pt_arrangement state{};assert(pt_arr_info(&state));++retire_reads;}
 std::vector<step_event>read(std::uintptr_t image,const NativePlaybackMaterial&material){
     const auto*source=static_cast<const unsigned char*>(material.events());
-    assert(field<std::uintptr_t>(source,0)==image+0x6dbbcc0);
+    assert(field<std::uintptr_t>(source,0)==image+0x6d8c0e8);
     auto*end=source+0x68;const void*node=field<const void*>(source,0x78);
     std::vector<step_event>events;std::vector<unsigned char>seen(material.plan().notes.size());
     while(node!=end){assert(events.size()<max_events);events.push_back(field<step_event>(node,0x20));
@@ -75,7 +79,7 @@ extern "C" void*check_native_symbol(const char*name,void*original){
 }
 extern "C" int check_arrangement_material(std::uintptr_t image){
     using Material=NativePlaybackMaterial;using Code=NativeMaterialResult;
-    const auto baseline=live_blocks;assert(!native_blocks&&!native_bytes);
+    const auto baseline=live_blocks.load();assert(!native_blocks&&!native_bytes);
     {
         NativeArrangementPlan plan;auto&d=plan.destination;
         d.project_epoch=7;d.routing_revision=2;d.destination_revision=3;d.program_key="owned-native-events";
@@ -98,7 +102,7 @@ extern "C" int check_arrangement_material(std::uintptr_t image){
         assert(reinterpret_cast<std::int64_t(*)(const void*)>(image+0x27eb1d0)(material->events())==63040);
         auto held=material;material.reset();auto saved=stored;
         assert(read(image,*held).size()==7); // consumer retains source after producer drops it
-        auto refuse=[&](const NativeArrangementPlan&bad){auto old=held;auto blocks=live_blocks;
+        auto refuse=[&](const NativeArrangementPlan&bad){auto old=held;auto blocks=live_blocks.load();
             assert(Material::prepare(image,bad,held)==Code::invalid&&held==old&&blocks==live_blocks);};
         auto bad=plan;bad.notes[0].native.type=4;refuse(bad);bad=plan;bad.notes[0].native.type|=0x100u;refuse(bad);
         bad=plan;bad.notes[0].native.data[32]=49;refuse(bad);bad=plan;bad.notes[0].pad=128;refuse(bad);
@@ -106,9 +110,11 @@ extern "C" int check_arrangement_material(std::uintptr_t image){
         bad=plan;bad.destination.playing=true;refuse(bad);bad=plan;bad.destination.note_to_pad[50]=-1;refuse(bad);
         bad=plan;bad.notes.back().native.time=d.sequence_ticks;refuse(bad);bad=plan;bad.notes[1].native.time=-1;refuse(bad);
         bad=plan;std::int64_t overflow=INT64_MAX;std::memcpy(bad.notes.back().native.data+24,&overflow,8);refuse(bad);
-        auto*word=reinterpret_cast<std::uint32_t*>(image+0x27eb120);auto original=*word;*word^=1;
-        auto old=held;assert(Material::prepare(image,plan,held)==Code::unsupported&&held==old);*word=original;
-        auto blocks=live_blocks;auto nodes=native_blocks;unsigned failures=0;bool succeeded=false;
+        for(auto offset:{0x27eb120u,0x170a2f0u,0x14c4a20u,0x14c4c88u,0x6d8c0e8u}){
+            auto*word=reinterpret_cast<std::uint32_t*>(image+offset);auto original=*word;*word^=1;
+            auto old=held;assert(Material::prepare(image,plan,held)==Code::unsupported&&held==old);*word=original;
+        }
+        auto blocks=live_blocks.load();auto nodes=native_blocks.load();unsigned failures=0;bool succeeded=false;
         for(long point=0;point<256;++point){
             std::shared_ptr<const Material>out=held;fail_after=point;
             auto code=Material::prepare(image,plan,out);fail_after=-1;
@@ -120,10 +126,32 @@ extern "C" int check_arrangement_material(std::uintptr_t image){
         for(unsigned i=0;i<after.size();++i)assert(!std::memcmp(&after[i],&saved[i],sizeof(step_event)));
         auto empty=plan;empty.notes.clear();std::shared_ptr<const Material>nothing;
         assert(Material::prepare(image,empty,nothing)==Code::ok&&read(image,*nothing).empty());
+        {
+            std::shared_ptr<const Material>source;assert(Material::prepare(image,plan,source)==Code::ok);
+            auto*events=static_cast<const unsigned char*>(source->events());void*lease=nullptr;
+            /* Copy the real native lifetime control with its own helper. No
+             * guessed refcount increment and no extra C++ Material owner. */
+            reinterpret_cast<void(*)(void*,const void*)>(image+0x13b35c0)(&lease,events+0x150);
+            assert(lease&&__atomic_load_n(static_cast<unsigned*>(lease)+2,__ATOMIC_ACQUIRE)==2);
+            std::atomic<unsigned>go{0},done{0};
+            std::thread retire([&](std::shared_ptr<const Material>owned){
+                while(!go.load(std::memory_order_acquire))std::this_thread::yield();
+                owned.reset();done.store(1,std::memory_order_release);
+            },source);
+            source.reset();go.store(1,std::memory_order_release);
+            const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(5);
+            const auto*flag=reinterpret_cast<const unsigned*>(events+0x158);
+            while(!done.load(std::memory_order_acquire)&&!(__atomic_load_n(flag,__ATOMIC_ACQUIRE)&2u)
+                  &&std::chrono::steady_clock::now()<deadline)std::this_thread::yield();
+            assert(!done.load()&&(__atomic_load_n(flag,__ATOMIC_ACQUIRE)&3u)==2u);
+            assert(reinterpret_cast<std::int64_t(*)(const void*)>(image+0x27eb1d0)(events)==63040);
+            reinterpret_cast<void(*)(void*)>(image+0x123bca0)(lease);retire.join();assert(done.load());
+            puts("PASS native Holder lifetime: actual native destructor waits for native source lease; tree remains readable during retirement and is released after last lease; no Project/Track lease claimed");
+        }
         auto large=plan;large.notes.assign(max_events+1,plan.notes[0]);refuse(large);large.notes.resize(max_events);
         {std::shared_ptr<const Material>limit;assert(Material::prepare(image,large,limit)==Code::ok);
             assert(field<std::uint64_t>(limit->events(),0x88)==max_events);}
-        std::printf("PASS native Arrange material: real Events ctor/insert/comparator/iterator/tail query/dtor, duplicates and inline choices, retained owner, atomic failures (%u allocation points), no native destination pointers; peak native allocations %zu bytes\n",failures,peak_native_bytes);
+        std::printf("PASS native Arrange material: real Events ctor/insert/comparator/iterator/tail query/dtor, duplicates and inline choices, retained owner, atomic failures (%u allocation points), no native destination pointers; peak native allocations %zu bytes\n",failures,peak_native_bytes.load());
     }
     assert(live_blocks==baseline&&!native_blocks&&!native_bytes);
     {

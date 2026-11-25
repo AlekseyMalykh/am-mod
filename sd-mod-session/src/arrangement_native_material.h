@@ -4,7 +4,9 @@
 #include <memory>
 namespace am_pattern {
 enum class NativeMaterialResult {ok,invalid,unsupported,allocation_failed,native_failure};
-/* Owns a standalone stock Events object, never a Project/Track/Program/Clip.
+/* Owns a standalone stock SafeLifetime::Holder<UnsafeSequenceEventList>,
+ * never a Project/Track/Program/Clip. The Holder is the type consumed by the
+ * native audio cache; its retirement fence waits for native source leases.
  * Build/release on the control/native owner, never in an audio callback.
  * Retain this owner until every native iterator/user of events() is finished.
  * Shared ownership protects this material only; it is not a destination lease
@@ -32,9 +34,9 @@ private:
     NativePlaybackMaterial(std::uintptr_t image,const NativeArrangementPlan&plan):image_(image),plan_(plan){}
     std::uintptr_t image_;
     NativeArrangementPlan plan_;
-    /* Stock deleting destructor 27ee0d0 passes exactly 0x148 to sized delete.
-     * The non-deleting destructor owns all internal trees/listeners. */
-    alignas(8) std::array<unsigned char,0x148>storage_{};
+    /* Holder deleting destructor 14c4ba0 passes 0x160 to sized delete;
+     * its 0x148-byte Unsafe base retains the stock event-tree ABI. */
+    alignas(8) std::array<unsigned char,0x160>storage_{};
     struct Link {std::uintptr_t event;unsigned note;};
     std::vector<Link>links_;
     bool constructed_=false;

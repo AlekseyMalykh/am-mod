@@ -7,10 +7,14 @@
 ## Владение источником
 
 `src/arrangement_native_material.h/.cc` создают самостоятельный штатный Events:
-constructor `0x27eb120`, insertion `0x27ee5d0`, non-deleting destructor
-`0x27edba0`. Размер `0x148` подтверждён deleting destructor `0x27ee0d0`,
-передающим этот размер в sized delete. Проверяются entry fingerprints и
-vtable `0x6dbbcc0`. Внешний C++ owner содержит весь объект и освобождает его
+первоначально исследован `UnsafeSequenceEventList` (`0x148`, ctor `0x27eb120`,
+destructor `0x27edba0`). Для штатного audio cache источник расширен настоящим
+`SafeLifetime::Holder<UnsafeSequenceEventList>`: constructor `0x170a2f0`,
+non-deleting destructor `0x14c4a20`, vtable `0x6d8c0e8`. Размер Holder `0x160`
+подтверждён его deleting destructor `0x14c4ba0`, передающим этот размер в
+sized delete. Insertion остаётся `0x27ee5d0`, основной event-tree ABI не
+меняется. Проверяются fingerprints обоих слоёв. Внешний C++ owner содержит
+весь объект и освобождает его
 внутренние деревья штатным деструктором; пользовательский Clip/Sequence
 не изменяется, фиктивный Clip вокруг частично заполненных полей не создаётся.
 
@@ -21,6 +25,21 @@ plan после подготовки. Consumer обязан удерживать
 или iterator использует Events. Создание и последнее освобождение выполняются
 на control/native owner, не на audio thread. Shared ownership этого источника
 не даёт lease на назначение и не разрешает Start.
+
+RTTI штатного кода подтверждает типы
+`UnsafeAudioThreadCache<SafeLifetime::Holder<UnsafeSequenceEventList>, ...>`
+и `SequenceEventListAudioThreadCache` (vtable `0x6d906c8`). Это точка
+дальнейшего подключения: cache/source switching и его очереди пока
+исследуются, production cache этим этапом не создаётся.
+
+В QEMU реальный native helper `0x13b35c0` удерживает lifetime control Holder,
+C++ owner целиком передаётся потоку уничтожения, а настоящий destructor
+останавливается на штатном fence. Пока reader lease удерживается, native
+tail query читает исходное дерево; release `0x123bca0` разрешает завершение
+уничтожения. В этом тесте не подменяются destructor, fence, release, syscall
+или дерево. Это защита native-источника; origin/plan API всё ещё требует
+C++ owner, а назначение Track/Program — отдельной гарантии. Последнее
+освобождение Holder способно ждать читателей и запрещено на audio thread.
 
 Перед native allocation повторно проверяются inline tag-3, физический пэд,
 взаимное назначение pad/note, длина, порядок onset, границы и overflow gate,
@@ -68,11 +87,11 @@ contracts. Program/Track destination по-прежнему требует отд
 и UBSan проходы настоящих ctor/insert/comparator/iterator/tail query/dtor.
 Проверены равные ноты с разными origin, пустой контейнер, 32768 событий,
 отказ на 32769, удержание после отпускания producer, ошибки ABI/данных и
-19 allocation-failure points с сохранением output и освобождением native
+20 allocation-failure points с сохранением output и освобождением native
 nodes. Для реальных исключений в частной ELF image регистрируется её
 `.eh_frame`; production registration и патчи не добавляются.
 
-Пик учитываемых native allocations в limit-сценарии — 2 884 288 байт.
+Пик учитываемых native allocations в limit-сценарии — 2 884 384 байт.
 Это измерение тестовых native allocations, включая удерживаемый маленький
 контейнер и временные узлы; оно не включает C++ plan/origin index, накладные
 расходы allocator и остальное приложение и не заменяет замер на MPC.

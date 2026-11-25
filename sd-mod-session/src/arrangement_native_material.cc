@@ -34,15 +34,23 @@ bool NativePlaybackMaterial::compatible(std::uintptr_t image)noexcept{
     const std::uint32_t dtor[]={0xd503233f,0xd10203ff,0xd0022e61,0x91330021};
     const std::uint32_t deleting[]={0xd503233f,0xa9be7bfd,0x910003fd,0xf9000bf3,0xaa0003f3,0x97fffeaf,0xaa1303e0,0xd2802901};
     const std::uint32_t insert[]={0xd503233f,0xd10383ff,0xd0024ba2,0xf941cc42};
+    const std::uint32_t holder_ctor[]={0xd503233f,0xa9bd7bfd,0x910003fd,0xa90153f3,0xaa0003f3,0xf90013f5,0x91052275,0x94438385};
+    const std::uint32_t holder_dtor[]={0xd503233f,0xa9be7bfd,0x9002c641,0x9103a021,0x910003fd,0xa90153f3};
+    const std::uint32_t holder_size=0xd2802c01;
     return !std::memcmp(reinterpret_cast<const void*>(image+0x27eb120),ctor,sizeof ctor)
         &&!std::memcmp(reinterpret_cast<const void*>(image+0x27edba0),dtor,sizeof dtor)
         &&!std::memcmp(reinterpret_cast<const void*>(image+0x27ee0d0),deleting,sizeof deleting)
         &&!std::memcmp(reinterpret_cast<const void*>(image+0x27ee5d0),insert,sizeof insert)
         &&field<std::uintptr_t>(reinterpret_cast<const void*>(image+0x6dbbcc0),0)==image+0x27edba0
-        &&field<std::uintptr_t>(reinterpret_cast<const void*>(image+0x6dbbcc0),8)==image+0x27ee0d0;
+        &&field<std::uintptr_t>(reinterpret_cast<const void*>(image+0x6dbbcc0),8)==image+0x27ee0d0
+        &&!std::memcmp(reinterpret_cast<const void*>(image+0x170a2f0),holder_ctor,sizeof holder_ctor)
+        &&!std::memcmp(reinterpret_cast<const void*>(image+0x14c4a20),holder_dtor,sizeof holder_dtor)
+        &&!std::memcmp(reinterpret_cast<const void*>(image+0x14c4c88),&holder_size,sizeof holder_size)
+        &&field<std::uintptr_t>(reinterpret_cast<const void*>(image+0x6d8c0e8),0)==image+0x14c4a20
+        &&field<std::uintptr_t>(reinterpret_cast<const void*>(image+0x6d8c0e8),8)==image+0x14c4ba0;
 }
 NativePlaybackMaterial::~NativePlaybackMaterial(){
-    if(constructed_)fn<void(*)(void*)>(image_,0x27edba0)(storage_.data());
+    if(constructed_)fn<void(*)(void*)>(image_,0x14c4a20)(storage_.data());
 }
 const NativeBoundNote*NativePlaybackMaterial::origin(const void*native_event)const noexcept{
     const auto key=reinterpret_cast<std::uintptr_t>(native_event);
@@ -57,7 +65,7 @@ NativeMaterialResult NativePlaybackMaterial::prepare(std::uintptr_t image,const 
         std::shared_ptr<NativePlaybackMaterial>value(new NativePlaybackMaterial(image,plan));
         value->links_.reserve(plan.notes.size());
         auto*events=value->storage_.data();
-        fn<void(*)(void*)>(image,0x27eb120)(events);value->constructed_=true;
+        fn<void(*)(void*)>(image,0x170a2f0)(events);value->constructed_=true;
         for(unsigned i=0;i<value->plan_.notes.size();++i){
             auto*node=fn<void*(*)(void*,const void*)>(image,0x27ee5d0)(events,&value->plan_.notes[i].native);
             if(!node||node==events+0x68)return NativeMaterialResult::native_failure;
