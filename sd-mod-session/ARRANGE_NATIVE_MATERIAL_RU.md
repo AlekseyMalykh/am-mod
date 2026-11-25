@@ -272,6 +272,14 @@ destructor `27c3210`. Это отдельный тип от ранее пров�
   удалённой оболочке; manager освобождает source при reclaim.
 - Десять allocation-failure points полного constructor: stock landing pads
   освобождают частично созданные объекты, утечек не остаётся.
+- Отмена queued публикации через `2b59000` с отдельным ключом сессии:
+  чужой ключ ничего не отменяет; свой исключает swap, прежние семь нот
+  остаются в кэше. Настоящий manager удаляет отменённый пакет только при
+  control reclaim, consumer ничего не освобождает. Это проверка native
+  механизма отмены, а не подключённая обработка кнопки Stop в приложении.
+- Allocation failures отдельного пакета `0x298`, включая его raw allocation:
+  landing pads очищают члены, helper освобождает raw storage при исключении;
+  полностью созданный пакет освобождает штатный manager. Утечек нет.
 
 Важное различие ABI: native weak-self `ClipAudioThreadCache + 0x28`
 указывает на guard info `cache + 0x338`, а не на начало wrapper. Это

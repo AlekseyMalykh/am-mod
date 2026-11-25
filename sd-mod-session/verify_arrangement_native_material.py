@@ -35,6 +35,8 @@ for name,extra in [('normal',[]),('ubsan',['-fsanitize=undefined','-static-libub
     if a.clip:
         assert 'PASS stock ClipAudioThreadCache constructor/destructor' in result.stdout
         assert 'PASS stock clip cache queue:' in result.stdout
+        assert 'PASS stock clip publication cancel:' in result.stdout
+        assert 'PASS stock clip packet failures:' in result.stdout
         assert 'PASS stock clip constructor failures: 10 allocation points, no leaks' in result.stdout
 tree=ast.parse((R/'build_mixer_r27r.py').read_text())
 common=next(ast.literal_eval(n.value) for n in tree.body if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='common' for t in n.targets))
@@ -79,6 +81,9 @@ if a.clip:
         native_clip_swap_and_clear_tested=True,native_clip_expired_guard_tested=True,
         native_clip_duplicates_and_tail_tested=True,
         native_clip_origin_index_after_producer_release_tested=True,
+        native_clip_session_key_cancel_tested=True,
+        native_clip_cancel_preserves_previous_source_tested=True,
+        native_clip_packet_constructor_failure_cleanup_tested=True,
         native_clip_consumer_allocation_and_delete_forbidden=True,
         separate_consumer_thread=True,
         native_clip_player_connected=False)

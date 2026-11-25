@@ -38,17 +38,23 @@ struct ClipQueue {
         assert(!pthread_mutex_destroy(reinterpret_cast<pthread_mutex_t*>(queues+0x220)));
     }
 };
-void post_clip(ClipQueue&queue,void*cache,void*source){
+void post_clip(ClipQueue&queue,void*cache,void*source,std::uintptr_t key=0){
     auto*control=field<unsigned char*>(cache,0x30);assert(control);
     __atomic_fetch_add(reinterpret_cast<unsigned*>(control+12),1u,__ATOMIC_ACQ_REL);
     struct Action {std::uintptr_t invoke,manage;const void*payload[3];};
     Action action{queue.image+0x27c7ff0,queue.image+0x27bdeb0,{source,cache,control}};
     assert(reinterpret_cast<int(*)(void*,void*,std::uintptr_t)>(queue.image+0x2b59300)
-        (queue.queues+0x1d8,&action,0)&255);
+        (queue.queues+0x1d8,&action,key)&255);
 }
 void*empty_clip(std::uintptr_t image){
     void*source=reinterpret_cast<void*(*)(std::size_t)>(image+0xb51418)(0x298);
-    reinterpret_cast<void(*)(void*)>(image+0x2973b50)(source);
+    try{reinterpret_cast<void(*)(void*)>(image+0x2973b50)(source);}
+    catch(...){
+        // Stock landing pads destroy constructed members, not the caller's
+        // allocation used by this placement constructor.
+        reinterpret_cast<void(*)(void*,std::size_t)>(image+0xb51408)(source,0x298);
+        throw;
+    }
     return source;
 }
 }
@@ -109,6 +115,26 @@ extern "C" int check_arrangement_material(std::uintptr_t image){
     assert(field<std::uint64_t>(body,0x130+0x88)==7);
     for(unsigned i=0;i<7;++i)
         assert(origins.origin(static_cast<const unsigned char*>(nodes[i])+0x20)->event==i+1);
+    // Stop may cancel an accepted publication before the consumer reaches it.
+    // Exercise stock slot cancellation with the REAL unique-owner manager:
+    // skip swap, keep the old notes and retire the unused packet on control.
+    auto held=live_blocks.load();auto native_held=native_blocks.load();
+    auto*cancelled=static_cast<unsigned char*>(empty_clip(image));
+    auto replacement=make(70,120,960,100,2,.5f);
+    assert(reinterpret_cast<void*(*)(void*,const void*)>(image+0x27ee5d0)(cancelled+0x98,&replacement));
+    const std::uintptr_t key=reinterpret_cast<std::uintptr_t>(body);
+    auto write=field<std::uint64_t>(queue.queues+0x1d8,0x20);assert(write<4);
+    post_clip(queue,body,cancelled,key);
+    auto native_posted=native_blocks.load();assert(native_posted>native_held);
+    // A mismatching session cannot cancel another session's publication.
+    assert(!reinterpret_cast<int(*)(void*,std::uintptr_t)>(image+0x2b59000)(queue.slots[write],key+4));
+    assert(reinterpret_cast<int(*)(void*,std::uintptr_t)>(image+0x2b59000)(queue.slots[write],key)==1);
+    queue.run();
+    assert(native_blocks==native_posted&&field<std::uint64_t>(body,0x130+0x88)==7);
+    for(unsigned i=0;i<7;++i)
+        assert(same_note(field<step_event>(static_cast<const unsigned char*>(nodes[i])+0x20,0),original[i]));
+    queue.reclaim();assert(live_blocks==held&&native_blocks==native_held);
+    std::puts("PASS stock clip publication cancel: matching key only, old source preserved, native packet retired on control");
     origins=NativePlaybackOriginIndex{};
     post_clip(queue,body,empty_clip(image));queue.run();
     assert(!field<std::uint64_t>(body,0x130+0x88));
@@ -133,6 +159,19 @@ extern "C" int check_arrangement_material(std::uintptr_t image){
     }
     assert(constructed&&failures>=4);
     std::printf("PASS stock clip constructor failures: %u allocation points, no leaks\n",failures);
+    failures=0;constructed=false;
+    for(long point=0;point<64;++point){
+        fail_after=point;
+        try{
+            void*packet=empty_clip(image);fail_after=-1;constructed=true;
+            const void*payload[]={packet,nullptr,nullptr};
+            reinterpret_cast<int(*)(int,const void*,void*)>(image+0x27bdeb0)(1,payload,nullptr);
+        }catch(const std::bad_alloc&){fail_after=-1;++failures;}
+        assert(live_blocks==before&&native_blocks==native_before);
+        if(constructed)break;
+    }
+    assert(constructed&&failures>=4);
+    std::printf("PASS stock clip packet failures: %u allocation points, no leaks\n",failures);
     std::puts("PASS stock ClipAudioThreadCache constructor/destructor; no playback binding claimed");
     std::puts("PASS stock clip cache queue: actual source constructor, manager, swap and retirement; consumer allocation/delete forbidden");
     return 0;
