@@ -31,6 +31,7 @@ public:
     static NativeMaterialResult prepare(std::uintptr_t image,const NativeArrangementPlan&,
         std::shared_ptr<const NativePlaybackMaterial>&out)noexcept;
 private:
+    friend class NativePlaybackOriginIndex;
     NativePlaybackMaterial(std::uintptr_t image,const NativeArrangementPlan&plan):image_(image),plan_(plan){}
     std::uintptr_t image_;
     NativeArrangementPlan plan_;
@@ -40,6 +41,24 @@ private:
     struct Link {std::uintptr_t event;unsigned note;};
     std::vector<Link>links_;
     bool constructed_=false;
+};
+/* Value metadata for the stock cache's separate event copy. Build on its
+ * serialized control owner BEFORE queueing the audio swap, while both trees
+ * are leased and immutable. Native tree swap retains the copied node addresses.
+ * This index owns its metadata, not either native tree/cache or destination;
+ * it never grants admission to playback. Scope lookups to the corresponding
+ * playback generation so a recycled address cannot identify another source.
+ * Build/replacement/destruction allocate or free C++ storage: control only. */
+class NativePlaybackOriginIndex {
+public:
+    const NativeBoundNote*origin(const void*native_event)const noexcept;
+    std::size_t size()const noexcept{return links_.size();}
+    static NativeMaterialResult prepare(const NativePlaybackMaterial&,
+        const void*leased_copy,NativePlaybackOriginIndex&)noexcept;
+private:
+    NativeArrangementPlan plan_;
+    struct Link {std::uintptr_t event;unsigned note;};
+    std::vector<Link>links_;
 };
 }
 #endif

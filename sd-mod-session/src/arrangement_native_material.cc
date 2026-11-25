@@ -78,4 +78,42 @@ NativeMaterialResult NativePlaybackMaterial::prepare(std::uintptr_t image,const 
     }catch(const std::bad_alloc&){return NativeMaterialResult::allocation_failed;}
     catch(...){return NativeMaterialResult::native_failure;}
 }
+const NativeBoundNote*NativePlaybackOriginIndex::origin(const void*event)const noexcept{
+    auto key=reinterpret_cast<std::uintptr_t>(event);
+    auto found=std::lower_bound(links_.begin(),links_.end(),key,[](const Link&a,std::uintptr_t b){return a.event<b;});
+    return found!=links_.end()&&found->event==key?&plan_.notes[found->note]:nullptr;
+}
+NativeMaterialResult NativePlaybackOriginIndex::prepare(const NativePlaybackMaterial&source,
+    const void*leased_copy,NativePlaybackOriginIndex&out)noexcept{
+    try{
+        if(!source.constructed_||!leased_copy||leased_copy==source.events())return NativeMaterialResult::invalid;
+        if(!NativePlaybackMaterial::compatible(source.image_))return NativeMaterialResult::unsupported;
+        const auto*copy=static_cast<const unsigned char*>(leased_copy);const auto*original=source.storage_.data();
+        auto count=source.plan_.notes.size();
+        if(count>max_events||field<std::uintptr_t>(copy,0)!=source.image_+0x6d8c0e8
+           ||field<std::uint64_t>(copy,0x88)!=count||field<std::uint64_t>(original,0x88)!=count)return NativeMaterialResult::invalid;
+        NativePlaybackOriginIndex value;value.plan_=source.plan_;value.links_.reserve(count);
+        const void*a=field<const void*>(original,0x78),*b=field<const void*>(copy,0x78);
+        const void*ae=original+0x68,*be=copy+0x68;
+        auto next=fn<const void*(*)(const void*)>(source.image_,0xb51738);
+        /* Stock RB-tree copy preserves in-order occurrence identity, including
+         * equal keys. Do not re-sort values or collapse identical notes: those
+         * may belong to different musical tracks/clips. ABI padding is unused. */
+        for(unsigned i=0;i<count;++i){
+            if(!a||!b||a==ae||b==be)return NativeMaterialResult::invalid;
+            auto*event=static_cast<const unsigned char*>(a)+0x20;
+            auto*copied=static_cast<const unsigned char*>(b)+0x20;
+            auto note=source.origin(event);if(!note)return NativeMaterialResult::invalid;
+            auto c=field<step_event>(copied,0);
+            if(c.time!=note->native.time||c.type!=note->native.type||std::memcmp(c.data,note->native.data,37))return NativeMaterialResult::invalid;
+            Link link{reinterpret_cast<std::uintptr_t>(copied),unsigned(note-source.plan_.notes.data())};value.links_.push_back(link);
+            a=next(a);b=next(b);
+        }
+        if(a!=ae||b!=be)return NativeMaterialResult::invalid;
+        std::sort(value.links_.begin(),value.links_.end(),[](const Link&a,const Link&b){return a.event<b.event;});
+        for(unsigned i=1;i<value.links_.size();++i)if(value.links_[i-1].event==value.links_[i].event)return NativeMaterialResult::invalid;
+        out=std::move(value);return NativeMaterialResult::ok;
+    }catch(const std::bad_alloc&){return NativeMaterialResult::allocation_failed;}
+    catch(...){return NativeMaterialResult::native_failure;}
+}
 }
