@@ -3,6 +3,25 @@
 #include "arrangement_native_material.h"
 namespace am_pattern {
 enum class NativeQueueResult {ok,busy,unavailable,invalid,unsupported,stale,allocation_failed,native_failure};
+enum class NativeQueuePhase {empty,pending,running,applied,cancelled};
+struct NativeQueueState;
+/* Control-owned receipt. applied confirms an actual stock tree swap, not
+ * just a queue barrier. It is historical completion, NOT a live destination
+ * lease or permission to Start: revalidate Project/Track/Program on its owner.
+ * cancel denies future Start; it cannot undo a swap already running/applied.
+ * Retain metadata through voice retirement; release receipts on control only. */
+class NativeQueueReceipt {
+public:
+    NativeQueuePhase phase()const noexcept;
+    void cancel()noexcept;
+    const NativeDestination*destination()const noexcept;
+    /* Immutable index prepared before consumer visibility. No tree lease;
+     * use only for this session/generation, including its retained tails. */
+    const NativePlaybackOriginIndex*origins()const noexcept;
+private:
+    friend struct NativeQueueAccess;
+    std::shared_ptr<NativeQueueState>state_;
+};
 struct NativeCacheBinding {
     std::uintptr_t image=0;void*cache=nullptr,*queues=nullptr;
     NativeDestination destination;
@@ -13,6 +32,9 @@ struct NativeCacheBinding {
  * is installed in production until native lifecycle coverage is confirmed.
  * enter/leave must not retain Store/render locks: reclaim destroys old trees.
  * destination_revision must change with cache/Track/Program identity.
+ * Binding identity is immutable for the native cache guard's lifetime: retire
+ * the old cache before replacing its destination; never repurpose a live cache
+ * for another identity. Otherwise an already queued callback could target it.
  * This contract covers this publication, not queued transport or Track voices. */
 class NativeCacheOwner {
 public:
@@ -36,5 +58,11 @@ NativeQueueResult publish_native_cache(NativeCacheOwner&,const NativePlaybackMat
  * since changed. A late Stop must never clear a newly resolved Project/cache.
  * expected is the session's retained value, not a fresh current snapshot. */
 NativeQueueResult clear_native_cache(NativeCacheOwner&,const NativeDestination&expected)noexcept;
+/* Confirmed path: prebuild a separately owned stock Holder and origin index,
+ * then queue one closure that runs the SAME stock swap and acknowledges it.
+ * A full queue/error preserves out and the prior source. No global hooks.
+ * All native/C++ preparation and eventual destruction happen on control. */
+NativeQueueResult publish_native_cache(NativeCacheOwner&,const NativePlaybackMaterial&,NativeQueueReceipt&out)noexcept;
+NativeQueueResult clear_native_cache(NativeCacheOwner&,const NativeDestination&expected,NativeQueueReceipt&out)noexcept;
 }
 #endif

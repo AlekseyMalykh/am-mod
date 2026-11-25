@@ -28,7 +28,7 @@ for name,extra in [('normal',[]),('ubsan',['-fsanitize=undefined','-static-libub
     result=subprocess.run(['qemu-aarch64','-L',os.environ.get('MPC_QEMU_SYSROOT','/home/user/mpc-rootfs-user-20260808'),str(target),str(stock)],cwd=R,text=True,capture_output=True,timeout=90)
     (O/(name+'.log')).write_text(result.stdout+result.stderr);print(name,result.stdout+result.stderr,flush=True);result.check_returncode();assert all(label in result.stdout for label in ['PASS native Arrange material:','PASS material Store bridge:','PASS native Holder lifetime:']);checks.append(name)
     if a.cache:assert 'PASS native cache handoff:' in result.stdout
-    if a.queue:assert 'PASS native Arrange queue:' in result.stdout
+    if a.queue:assert 'PASS native Arrange queue:' in result.stdout and 'PASS confirmed native swap:' in result.stdout
 tree=ast.parse((R/'build_mixer_r27r.py').read_text())
 common=next(ast.literal_eval(n.value) for n in tree.body if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='common' for t in n.targets))
 for source in ['src/arrangement_native_material.cc','src/pattern_tools.cc']+(['src/arrangement_native_queue.cc'] if a.queue else []):
@@ -53,5 +53,9 @@ if a.queue:
         native_queue='0x2b59300',native_runner='0x2b59200/0x2b59160',native_reclaim='0x2b58c70',
         separate_consumer_thread=True,full_queue_no_inline_tested=True,ring_reuse_tested=True,
         native_cache_copy_allocation_failures_tested=True,audio_allocation_forbidden=True,
-        production_owner_provider_installed=False)
+        production_owner_provider_installed=False,native_confirmed_swap_receipt_tested=True,
+        preconsumer_origin_index_tested=True,native_slot_purge_tested=True,
+        dropped_receipt_lifetime_tested=True,cancel_during_native_swap_tested=True,
+        native_change_receiver='test-only pause after real swap, before return',
+        reused_cache_address_expired_guard_tested=True)
     proof.write_text(json.dumps(data,indent=2)+'\n')

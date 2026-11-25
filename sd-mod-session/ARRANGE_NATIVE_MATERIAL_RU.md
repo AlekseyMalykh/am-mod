@@ -180,3 +180,51 @@ lease только проверкой epoch не допускается. Пол�
 `TrackingPointer<Track/Program>` обнуляет pointer при удалении, но сам по себе
 не удерживает объект между чтением pointer и использованием. Эти механизмы
 нельзя использовать как доказательство готовности GUI Play.
+
+## Подтверждение применения и подготовленный пакет
+
+Перегрузки `publish_native_cache` / `clear_native_cache` с
+`NativeQueueReceipt` дают состояния Empty, Pending, Running, Applied,
+Cancelled. Applied отмечает выполненный stock swap, а не прохождение
+дополнительного barrier в очереди. Пакет заранее создаёт отдельный штатный
+Holder в native heap, наполняет его штатным insert и строит origin index
+до публикации closure. Поэтому consumer может работать сразу: создавать
+индекс чтением уже опубликованного кольца больше не требуется.
+
+Closure выполняет настоящий `0x17088c0`. Перед вызовом она удерживает native
+strong pin кэша, чтобы внутренний weak-lock штатного swap не мог истечь
+между проверкой и исполнением. Job удерживает weak control до reclaim;
+последнее освобождение control block, дерева и C++ state не происходит
+в consumer. После swap native Holder пакета содержит прежнее дерево кэша,
+которое удаляет управляющий reclaim. Индекс продолжает соответствовать
+перемещённым узлам и владеет метаданными независимо от исходного Material.
+
+Подтверждённый путь использует один слот. Полное кольцо, allocation failure
+и ошибка назначения сохраняют прежний receipt и источник. Нельзя заменить
+тот же receipt, пока он Pending/Running. Drop UI receipt безопасен, поскольку
+job остаётся в native queue. Native purge без выполнения callback переводит
+Pending в Cancelled при reclaim, а не выдаёт ложный Applied.
+
+Cancel не обещает откат: до Running он исключает swap, но во время/после
+swap может лишь запретить будущий Start. Тогда нужна отдельная очистка.
+Applied — историческое подтверждение; перед Start всё равно обязательны
+актуальное поколение сессии/Store и настоящий lease Project/Track/Program.
+Для одного native guard идентичность назначения неизменна: provider обязан
+retire старый cache при смене назначения, а не переназначать живой cache.
+
+В `--queue` normal/UBSan проверены 20 allocation-failure points подготовки,
+удаление receipt до callback, cancel до исполнения и во время настоящего
+swap, native slot purge, полное кольцо и повторное использование адреса
+wrapper с новым guard до исполнения старого callback. Test-only change
+receiver останавливает swap после изменения дерева, до возврата, и проверяет
+Running; native swap, queue, runner, fences и reclaim не подменяются.
+Кэш/его provider и метаданные назначения по-прежнему fixtures; driver transport,
+настоящий native constructor кэша и lifetime Track/Program не подключены.
+Play/Record Arrange остаются закрытыми; сборка приложения и SD не выполнялись.
+
+Для следующего исследования binding зафиксирован native getter: `2957ae0`
+получает пару object/control через `29579e0`, возвращает `object + 0x688`
+и отпускает control. Вариант `2957b60` передаёт пару через hidden return x8.
+Сохранение только raw Events поэтому не удерживает исходный map object.
+Тип и покрытие strong handle ещё нужно подтвердить; это не доказательство
+удержания Track или Program.
