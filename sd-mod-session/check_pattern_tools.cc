@@ -99,6 +99,13 @@ int main(){
     native_destination.program_key="program";native_destination.sequence_ticks=info.length;native_destination.transport_valid=true;
     for(unsigned i=0;i<128;++i){native_destination.pad_to_note[i]=map[i];native_destination.note_to_pad[(unsigned)map[i]]=int(i);}
     NativeArrangementPlan native_plan;assert(pt_prepare_native_plan(native_destination,native_plan)&&native_plan.notes.size()==4&&pt_native_plan_current(native_plan,native_destination));
+    assert(native_plan.store_receipt==pt_serial());
+    assert(pt_arr_track_state(row,1,0)&&!pt_native_plan_current(native_plan,native_destination));
+    assert(pt_history(-1)&&pt_prepared_current(ready)&&!pt_native_plan_current(native_plan,native_destination));
+    /* Same revisions and immutable Store object after Undo/Redo must not
+     * resurrect a plan admitted by an earlier asynchronous Start gesture. */
+    assert(pt_history(1)&&pt_history(-1)&&pt_prepared_current(ready)&&!pt_native_plan_current(native_plan,native_destination));
+    assert(pt_prepare_native_plan(native_destination,native_plan)&&native_plan.store_receipt==pt_serial()&&pt_native_plan_current(native_plan,native_destination));
     auto wrong_destination=native_destination;wrong_destination.playing=true;assert(!pt_prepare_native_plan(wrong_destination,native_plan)&&native_plan.notes.size()==4&&!pt_native_plan_current(native_plan,wrong_destination));
     assert(pt_arr_cut(block,3840,&right)&&!pt_prepared_current(ready));assert(pt_arr_join(block,right));
     assert(!pt_native_plan_current(native_plan,native_destination));

@@ -114,12 +114,41 @@ fixtures. Подтверждена обработка скомпилирован
 
 `verify_pattern_tools.py` проверяет Store bridge, отказ running destination,
 stale после cut/join/reset и прежние Piano Roll/архивные сценарии.
+Дополнительно plan теперь получает runtime `store_receipt`: любое изменение
+Store, включая Undo/Redo с возвратом к тому же объекту и revisions, требует
+новой подготовки. Receipt проверяется и после компиляции перед публикацией,
+и в `pt_native_plan_current`. Это защита устаревшего запроса Start, не
+удержание Project/Program; XPJ и библиотечный формат не меняются.
 `verify_arrangement_ui.py` сохраняет регрессию Arrange и Sequential/Export.
 Proof/logs/hashes: `build/arrangement-native-plan/verification.json`,
 `build/pattern-tools/verification.json`, `build/arrangement-ui/verification.json`.
 Native Engine/DSP proof: `build/synth-live-native/verification.json`.
 
 ## Следующая граница подключения
+
+### Проверка штатного входа секвенсора
+
+Сценарий 2/4/8 тактов теперь подаёт семь событий через настоящий
+`0x211a230(engine, time, frame_offset, track, event)`. Этот вход дополнительно
+проходит native политику Track и далее вызывает общий `0x2119d00` с source=2,
+mask=`0x7ffffffe`. Проверены прежние три одновременные ноты, Synth PCM,
+перекрытия, хвосты и отмена, в том числе с установленными fast-render и phone
+gate. В тесте разрешающий preview receiver отделён от сценария, в котором
+этот же receiver специально запрещает событие.
+
+Position conversion `0x2142f00`, record-state query `0x2133800` и notification
+`0x21560f0` в этом проходе заменяются fixture-службами; после прохода исходные
+16 байт каждого entry восстанавливаются в частной ELF image. Исходный файл
+MPC Sample не изменяется. Подача On по времени всё ещё fixture, Play в Arrange
+не подключён. Это следующий подтверждённый участок штатного тракта, а не
+проверка реального транспорта или удержания объектов.
+
+При исследовании также уточнены точки подключения: `0x2114c00` заполняет
+position snapshot и сам не является драйвером событий. Путь
+`0x2125960 → 0x2124ad0 → 0x211bf70` обслуживает очереди отложенного ввода и
+может обращаться к recorder; подменять его готовыми нотами Arrange без
+доказанного контракта нельзя. Ни один из этих новых адресов не подключён
+production-хуком этого этапа.
 
 Нужен native sink на штатном executor с реальным удержанием назначения,
 а не только счётчиком epoch. Он должен создавать собственный playback

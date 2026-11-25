@@ -25,6 +25,9 @@ struct NativeBoundNote {
 struct NativeArrangementPlan {
     NativeDestination destination;
     std::uint64_t arrangement_revision=0,library_revision=0;
+    /* Runtime Store receipt, assigned only by pt_prepare_native_plan. Zero
+     * for the standalone compiler. Not serialized and not a native lease. */
+    std::uint64_t store_receipt=0;
     std::vector<NativeBoundNote>notes;
     bool matches(const PreparedArrangement&,const NativeDestination&)const;
 };

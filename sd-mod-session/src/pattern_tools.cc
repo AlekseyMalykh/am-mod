@@ -209,6 +209,7 @@ int pt_prepare_song(PreparedArrangement&out){try{auto generation=epoch.load();if
 }catch(const std::exception&e){set_error(e.what());return 0;}}
 bool pt_prepared_current(const PreparedArrangement&prepared){std::lock_guard<std::mutex>lock(mutex);return current&&prepared.matches(epoch.load(),current->song,current->library);}
 int pt_prepare_native_plan(const NativeDestination&destination,NativeArrangementPlan&out){try{
+    const auto receipt=serial.load();
     PreparedArrangement prepared;if(!pt_prepare_song(prepared))return 0;
     NativeArrangementPlan value;auto result=prepare_native_plan(prepared,destination,getter(),value);
     if(result!=NativePlanResult::ok){
@@ -221,11 +222,12 @@ int pt_prepare_native_plan(const NativeDestination&destination,NativeArrangement
         throw std::runtime_error(reason);
     }
     std::lock_guard<std::mutex>lock(mutex);
-    if(!current||!prepared.matches(epoch.load(),current->song,current->library))throw std::runtime_error("Song changed: prepare again");
+    if(!current||serial.load()!=receipt||!prepared.matches(epoch.load(),current->song,current->library))throw std::runtime_error("Song changed: prepare again");
+    value.store_receipt=receipt;
     out=std::move(value);error[0]=0;return 1;
 }catch(const std::exception&e){set_error(e.what());return 0;}}
 bool pt_native_plan_current(const NativeArrangementPlan&plan,const NativeDestination&destination){
-    std::lock_guard<std::mutex>lock(mutex);if(!current||current->mode==2||current->arr_mode==2)return false;
+    std::lock_guard<std::mutex>lock(mutex);if(!current||current->mode==2||current->arr_mode==2||!plan.store_receipt||plan.store_receipt!=serial.load())return false;
     PreparedArrangement metadata;metadata.project_epoch=epoch.load();metadata.arrangement_revision=current->song.revision;
     metadata.library_revision=current->library.revision;metadata.length=current->song.length;return plan.matches(metadata,destination);
 }

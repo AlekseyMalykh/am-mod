@@ -71,7 +71,7 @@ static void notification(void*owner,int changed){
 }
 static void *instrument_get(void*p,int pad){assert(p==program_data&&pad==15);return instrument_data;}
 static int sample_exists(void*p){assert(p==instrument_data);return occupied;}
-static unsigned drain_gate(void*filter,unsigned kind,unsigned flags){(void)filter;(void)flags;assert(kind==3);++drain_filter_count;return drain_gate_open;}
+static unsigned drain_gate(void*filter,unsigned kind,unsigned flags){(void)filter;(void)flags;assert(kind==2||kind==3);++drain_filter_count;return drain_gate_open;}
 static void drain_tail(void*owner,unsigned offset,unsigned flags){(void)owner;(void)offset;(void)flags;++drain_tail_count;}
 static void position_notice(void*owner,uint64_t code,uint64_t count,const void*position){(void)owner;(void)position;assert(code==16&&count==1);}
 static void position_sink(void*owner,unsigned offset,void*out,uint64_t tick){(void)owner;(void)offset;(void)out;(void)tick;++position_count;}
@@ -103,9 +103,15 @@ static void due(void*scheduler,const struct step_event*event,uint64_t end){
 }
 #include "check_synth_repeat.inc"
 extern int check_arrangement_native_engine_plan(uintptr_t,void*,void(*)(void*,const struct step_event*,unsigned,int64_t));
-static int phone_gate_fixture,phone_preview_calls;
+static int phone_gate_fixture,phone_preview_calls,phone_preview_veto=1;
 static int phone_preview(void*track,const struct step_event*event,unsigned tag){
- assert(track&&event);++phone_preview_calls;return tag==0x7ffffffe;
+ assert(track&&event);++phone_preview_calls;return phone_preview_veto&&tag==0x7ffffffe;
+}
+static unsigned arrangement_no_record(void*mode){(void)mode;return 0;}
+static uint64_t arrangement_position(void*clock){assert(clock==music_data);return 0;}
+static unsigned arrangement_notice_count;
+static void arrangement_notice(void*owner,uint64_t tick,uint64_t position,const struct step_event*event){
+ (void)owner;(void)tick;assert(!position&&event&&(event->type&255u)==3u);++arrangement_notice_count;
 }
 static void arrangement_drain_until(void*scheduler,uint64_t until){
  /* The low-level native due path accepts its exact heap boundary. Passing a
@@ -130,18 +136,36 @@ static void arrangement_engine_probe(void*scheduler,const struct step_event*even
   puts("PASS preserved phone Engine gate: muted On and preview receiver veto return through signed LR before native allocation; no Synth voice");
  }
  assert(count==7&&length==30720&&!count_synth());
+ /* The stock sequence entry has two additional Track-policy branches and
+  * sequencer position/notification services, before/after the common Engine.
+  * Services remain fixtures: do not mistake this for a native frame clock or
+  * a retained Project/Track lease. Restore all private-image patches below. */
+ unsigned char saved_record[16],saved_position[16],saved_notice[16];
+ memcpy(saved_record,(void*)(base+0x2133800),16);memcpy(saved_position,(void*)(base+0x2142f00),16);memcpy(saved_notice,(void*)(base+0x21560f0),16);
+ patch(0x2133800,arrangement_no_record);patch(0x2142f00,arrangement_position);patch(0x21560f0,arrangement_notice);
+ struct step_event events_before[7];memcpy(events_before,events,sizeof events_before);
+ /* Rejecting the stock input policy must suppress sound while preserving
+  * the stock notification path. Do not bypass it with common Engine calls. */
+ unsigned old_backend=backend_count;drain_gate_open=0;phone_preview_veto=0;
+ FN(0x211a230,void(*)(void*,int64_t,uint64_t,void*,const struct step_event*))(scheduler,10000,96,track_data,events);
+ assert(!count_synth()&&backend_count==old_backend);
+ unsigned notices_before=arrangement_notice_count;
  const uint64_t origin=10000;double energy=0;unsigned initial=0;
  for(unsigned i=0;i<count;++i){
   uint64_t now=origin+(uint64_t)events[i].time;
   arrangement_drain_until(scheduler,now);
   unsigned expected=0;for(unsigned j=0;j<i;++j){int64_t duration;memcpy(&duration,events[j].data+24,8);expected+=events[j].time+duration>events[i].time;}
   assert(count_synth()==expected);memcpy(music_data+200,&now,8);
-  drain_gate_open=1;FN(0x2119d00,am_synth_engine_event_fn)(scheduler,96,track_data,events+i,3,0);drain_gate_open=0;
+  drain_gate_open=1;FN(0x211a230,void(*)(void*,int64_t,uint64_t,void*,const struct step_event*))(scheduler,(int64_t)now,96,track_data,events+i);drain_gate_open=0;
   assert(count_synth()==expected+1);if(!events[i].time)++initial;
   float left[256]={0},right[256]={0};am_synth_render_add(left,right,256);
   for(unsigned f=0;f<256;++f){assert(isfinite(left[f])&&isfinite(right[f]));energy+=fabsf(left[f])+fabsf(right[f]);}
  }
  assert(initial==3&&energy>0);
+ assert(arrangement_notice_count==notices_before+count);phone_preview_veto=1;
+ assert(!memcmp(events_before,events,sizeof events_before));
+ memcpy((void*)(base+0x2133800),saved_record,16);memcpy((void*)(base+0x2142f00),saved_position,16);memcpy((void*)(base+0x21560f0),saved_notice,16);
+ __builtin___clear_cache((char*)base+0x2133800,(char*)base+0x2156100);
  arrangement_drain_until(scheduler,origin+(uint64_t)length);
  assert(count_synth()==1); /* the second 4-bar part retains its long tail */
  FN(0x211e610,am_synth_track_cancel_fn)(scheduler,track_data);assert(!count_synth());
@@ -149,7 +173,7 @@ static void arrangement_engine_probe(void*scheduler,const struct step_event*even
  assert(am_synth_owned_reset()); /* isolate later legacy DSP assertions, including release envelopes */
  struct am_synth_state state;for(unsigned i=0;i<500;++i){render();if(!am_synth_peek(&state)||!state.voices)break;}
  assert(!am_synth_peek(&state)||!state.voices);
- puts("PASS Arrange Engine: compiled parallel 2/4/8 parts -> seven real Engine dispatches, three simultaneous On, native due heap, nonzero Synth PCM, tail beyond arrangement end and native Track cancellation; fixture transport/delivery, no Arrange UI Start or sample-audio proof.");
+ puts("PASS Arrange Engine: compiled parallel 2/4/8 parts -> seven stock sequence-input 211a230 calls through real Engine dispatch, three simultaneous On, native due heap, nonzero Synth PCM, tail beyond arrangement end and native Track cancellation; fixture transport/delivery/services, no Arrange UI Start or sample-audio proof.");
 }
 int main(int argc,char**argv){
  assert(argc==2||argc==3);struct sigaction sa={.sa_sigaction=synth_fault,.sa_flags=SA_SIGINFO};sigaction(SIGSEGV,&sa,NULL);sigaction(SIGILL,&sa,NULL);sigaction(SIGABRT,&sa,NULL);sigaction(SIGALRM,&sa,NULL);
