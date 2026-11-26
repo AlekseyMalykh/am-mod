@@ -1360,17 +1360,11 @@ static int add_event(const struct step_event *e)
 extern int am_arrange_render(const char*,const int*,int,struct step_event*,unsigned,unsigned*,int64_t*);
 extern const char*pt_error(void);
 static struct step_event render_added[8192],render_removed[8192];
-int step_native_render_arrangement(int confirm,char*msg,unsigned msg_size)
+/* Shared writer: whole arrangement into (seq,list). seq_index is for messages only. */
+static int render_into(void *c,void *things,void *seq,void *list,int confirm,char*msg,unsigned msg_size)
 {
-    if(!msg||!msg_size)return -1;
-    msg[0]=0;
-    if(!on_ui()){snprintf(msg,msg_size,"Arrange render: wrong thread");return -1;}
-    if(atomic_load(&clock_running)||atomic_load(&clock_recording)){snprintf(msg,msg_size,"Stop transport first");return -1;}
-    void *c=core_step_controller();
-    void *things=c?FIELD(c,0x248,void*):NULL,*program=things?FIELD(things,0xb8,void*):NULL;
-    void *seq=things?FIELD(things,0x1c8,void*):NULL,*clip=things?FIELD(things,0x3d0,void*):NULL;
-    if(!c||!program||!seq||!clip){snprintf(msg,msg_size,"No current sequence");return -1;}
-    void *list=(char*)clip+0x688;
+    void *program=FIELD(things,0xb8,void*);
+    if(!program||!seq||!list){snprintf(msg,msg_size,"Sequence has no event list");return -1;}
     const char *key=FIELD(program,0xdc8,const char*);
     if(!key||!key[0]||strnlen(key,128)>=128){snprintf(msg,msg_size,"Program identity unavailable");return -1;}
     int map[128];for(unsigned pad=0;pad<128;++pad)map[pad]=FN(0x157f800,int(*)(void*,int))(c,(int)pad);
@@ -1386,7 +1380,7 @@ int step_native_render_arrangement(int confirm,char*msg,unsigned msg_size)
         node=FN(0xb51738,void*(*)(void*))(node);}
      if(node!=end){snprintf(msg,msg_size,"Sequence list unreadable");return -1;}}
     int seq_index=FIELD(seq,0x480,int);
-    if(removed&&!confirm){snprintf(msg,msg_size,"Seq %02d has %u notes: choose again to replace",seq_index+1,removed);return -2;}
+    if(removed&&!confirm){snprintf(msg,msg_size,"Seq %02d has %u notes: press again to replace",seq_index+1,removed);return -2;}
     void *old_c=controller,*old_s=sequence,*old_e=event_list;int64_t old_l=length;
     controller=c;sequence=seq;event_list=list;
     int ok=1;
@@ -1401,8 +1395,40 @@ int step_native_render_arrangement(int confirm,char*msg,unsigned msg_size)
     controller=old_c;sequence=old_s;event_list=old_e;length=old_l;
     {char text[128];snprintf(text,sizeof text,"ARRANGE_RENDER seq=%d bars=%d song=%lld added=%u removed=%u ok=%d",seq_index+1,bars,(long long)song,added,removed,ok);report(text);}
     if(!ok){snprintf(msg,msg_size,"Native write failed");return -1;}
-    snprintf(msg,msg_size,"Seq %02d: %u notes, %d bars. Undo: Shift -",seq_index+1,added,bars);
+    snprintf(msg,msg_size,"Seq %02d: %u notes, %d bars",seq_index+1,added,bars);
     return (int)added;
+}
+int step_native_render_arrangement(int confirm,char*msg,unsigned msg_size)
+{
+    if(!msg||!msg_size)return -1;
+    msg[0]=0;
+    if(!on_ui()){snprintf(msg,msg_size,"Arrange render: wrong thread");return -1;}
+    if(atomic_load(&clock_running)||atomic_load(&clock_recording)){snprintf(msg,msg_size,"Stop transport first");return -1;}
+    void *c=core_step_controller();
+    void *things=c?FIELD(c,0x248,void*):NULL;
+    void *seq=things?FIELD(things,0x1c8,void*):NULL,*clip=things?FIELD(things,0x3d0,void*):NULL;
+    if(!c||!seq||!clip){snprintf(msg,msg_size,"No current sequence");return -1;}
+    int r=render_into(c,things,seq,(char*)clip+0x688,confirm,msg,msg_size);
+    if(r>=0){size_t n=strlen(msg);snprintf(msg+n,msg_size-n,". Undo: Shift -");}
+    return r;
+}
+/* Arrange playback slot: render into sequence `slot` of `sequencer` (the Song screen's
+ * sequencer), found by index; its clip for the Program track must already exist. */
+int step_native_render_arrangement_slot(void *sequencer,int slot,int confirm,char*msg,unsigned msg_size)
+{
+    if(!msg||!msg_size)return -1;
+    msg[0]=0;
+    if(!on_ui()){snprintf(msg,msg_size,"Arrange render: wrong thread");return -1;}
+    if(atomic_load(&clock_running)||atomic_load(&clock_recording)){snprintf(msg,msg_size,"Stop transport first");return -1;}
+    void *c=core_step_controller();
+    void *things=c?FIELD(c,0x248,void*):NULL,*track=things?FIELD(things,0x368,void*):NULL;
+    if(!c||!things||!track||!sequencer||slot<0||slot>=128){snprintf(msg,msg_size,"Arrange slot unavailable");return -1;}
+    void *seq=FN(0x2909be0,void*(*)(void*,int))(sequencer,slot);
+    if(!seq||FIELD(seq,0,uintptr_t)!=base+0x6ecdff0){snprintf(msg,msg_size,"Seq %d unavailable",slot+1);return -1;}
+    void *list=FN(0x2957ae0,void*(*)(void*,void*,int))(seq,track,0);
+    {char text[96];snprintf(text,sizeof text,"ARRANGE_SLOT seq=%d list=%d",slot+1,list!=NULL);report(text);}
+    if(!list){snprintf(msg,msg_size,"Seq %d is empty: record any note into it once",slot+1);return -1;}
+    return render_into(c,things,seq,list,confirm,msg,msg_size);
 }
 /* The stock sequencer plays from the event list, so while the picker drops the original
  * note, that event is muted with the stock mute bit (native, Undo-able) and restored on exit. */

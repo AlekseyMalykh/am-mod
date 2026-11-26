@@ -31,7 +31,7 @@ extern unsigned step_native_transport_state(void) __attribute__((weak));
 static _Atomic unsigned arrangement_active;
 static _Atomic unsigned arrangement_editor;
 static void arrange_open(void),arrange_close(void),arrange_paint(void*),arrange_tick(void);
-static int arrange_button(unsigned,int),arrange_control(unsigned,unsigned,int);
+static int arrange_button(unsigned,int),arrange_control(unsigned,unsigned,int),arrange_forwarded_release(unsigned);
 static void arrange_release(unsigned);
 #endif
 #ifdef MPC_MIDI_TOOLS
@@ -536,6 +536,7 @@ int song_ui_button(void *e,int shift)
     if(!bit) return 0;
     if(!down){ atomic_fetch_and(&owned_buttons,~bit);
 #ifdef MPC_PATTERN_TOOLS_TRIAL
+        if(arrange_forwarded_release(code))return 0; /* press went to the stock transport */
         if(atomic_load(&arrangement_editor)&&step_pattern_button)step_pattern_button(code,0,shift);
         else if(atomic_load(&arrangement_active))arrange_release(code);
 #endif

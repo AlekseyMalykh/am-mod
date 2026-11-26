@@ -19,8 +19,95 @@ static const char*const arrange_actions[]={"Add track","Insert pattern","Copy bl
 extern int step_native_render_arrangement(int,char*,unsigned) __attribute__((weak));
 static uint64_t arrange_render_confirm_until;
 #define ARRANGE_ACTIONS ((int)(sizeof arrange_actions/sizeof *arrange_actions))
+/* ---- Arrange v2 stage 1b: Play/Stop through the stock Song transport ----
+ * Play renders the whole arrangement into the Arrange slot (Seq 128), temporarily
+ * replaces the current Song's steps with [Seq 128 x1] using the same native chain
+ * commands as this Song screen, selects step 0 and forwards Play. Stop, the end of
+ * playback or leaving Arrange restore the user's steps and row. UI thread only. */
+#define ARRANGE_SLOT 127
+extern int step_native_render_arrangement_slot(void*,int,int,char*,unsigned) __attribute__((weak));
+extern void phone_native_inject_button(unsigned,unsigned) __attribute__((weak));
+static int arrange_play_state; /* 0 idle, 1 waiting for swapped song, 2 playing, 3 stopping */
+static int arrange_saved_seq[512],arrange_saved_rep[512],arrange_saved_count=-1,arrange_saved_row;
+static void *arrange_saved_song,*arrange_saved_sequencer;static uint64_t arrange_saved_epoch;
+static uint64_t arrange_play_forward_until; /* our injected Play passes to the stock Song */
+static unsigned arrange_forwarded; /* 1 Play, 2 Stop: press forwarded, let its release through too */
+static int arrange_forwarded_release(unsigned code){
+    unsigned bit=code==0x52?1u:code==0x51?2u:0u;
+    if(!bit||!(arrange_forwarded&bit))return 0;
+    arrange_forwarded&=~bit;return 1;
+}
+static uint64_t arrange_play_deadline,arrange_play_confirm_until;
+static int arrange_was_running;
+static int arrange_song_alive(void*sequencer,void*song){
+    if(!sequencer||!song)return 0;
+    if(FIELD(sequencer,0x1270,void*)==song)return 1;
+    unsigned n=FIELD(sequencer,0x126c,unsigned);void**songs=FIELD(sequencer,0x1260,void**);
+    for(unsigned i=0;songs&&i<n&&i<64;++i)if(songs[i]==song)return 1;
+    return 0;
+}
+static void arrange_song_restore(void){
+    if(arrange_saved_count<0)return;
+    void *sequencer=arrange_saved_sequencer,*song=arrange_saved_song;
+    if(arrange_saved_epoch!=pt_epoch()||!arrange_song_alive(sequencer,song)){report("ARRANGE_PLAY restore skipped: project changed");arrange_saved_count=-1;return;}
+    void *ctx;FN(0x19a0b50,void(*)(void**,void*))(&ctx,sequencer);
+    FN(0x19a3a40,void(*)(void**,void*))(&ctx,song);
+    for(int i=0;i<arrange_saved_count;++i){
+        FN(0x19a0b50,void(*)(void**,void*))(&ctx,sequencer);
+        FN(0x19a2d20,void(*)(void**,void*,long,int,int))(&ctx,song,(long)i,arrange_saved_seq[i],arrange_saved_rep[i]);
+    }
+    pending_row=arrange_saved_row;pending_count=arrange_saved_count;pending_until=now_ms()+1500;
+    {char m[96];snprintf(m,sizeof m,"ARRANGE_PLAY restored steps=%d row=%d",arrange_saved_count,arrange_saved_row);report(m);}
+    arrange_saved_count=-1;arrange_saved_song=arrange_saved_sequencer=NULL;
+}
+static void arrange_play_stop(int inject_stop){
+    if(inject_stop&&(arrange_play_state==2||arrange_play_state==3)&&phone_native_inject_button){phone_native_inject_button(0x51,1);phone_native_inject_button(0x51,0);}
+    arrange_play_state=0;arrange_was_running=0;
+    arrange_song_restore();
+}
+static void arrange_play_start(void){
+    struct song_ref r;
+    if(!song_ref(&r)){say("Song unavailable");return;}
+    if(r.count>512){say("Song has too many steps");return;}
+    if(!step_native_render_arrangement_slot||!phone_native_inject_button){say("Playback unavailable in this build");return;}
+    uint64_t now=now_ms();
+    char msg[96];int rr=step_native_render_arrangement_slot(r.sequencer,ARRANGE_SLOT,arrange_play_confirm_until&&now<arrange_play_confirm_until,msg,sizeof msg);
+    arrange_play_confirm_until=rr==-2?now+6000:0;
+    if(rr<0){say(msg);return;}
+    /* Save the user's steps, then swap in the single Arrange step. */
+    arrange_saved_count=r.count;arrange_saved_row=r.row;arrange_saved_song=r.song;arrange_saved_sequencer=r.sequencer;arrange_saved_epoch=pt_epoch();
+    for(int i=0;i<r.count;++i)step_at(&r,i,&arrange_saved_seq[i],&arrange_saved_rep[i]);
+    void *ctx;FN(0x19a0b50,void(*)(void**,void*))(&ctx,r.sequencer);
+    FN(0x19a3a40,void(*)(void**,void*))(&ctx,r.song);
+    FN(0x19a0b50,void(*)(void**,void*))(&ctx,r.sequencer);
+    FN(0x19a2d20,void(*)(void**,void*,long,int,int))(&ctx,r.song,0L,ARRANGE_SLOT,1);
+    arrange_play_state=1;arrange_play_deadline=now+1500;
+    {char m[128];snprintf(m,sizeof m,"ARRANGE_PLAY swap saved=%d row=%d %s",arrange_saved_count,arrange_saved_row,msg);report(m);}
+    say("Arrange: preparing playback");
+}
+/* Called every UI tick while Arrange is open. */
+static void arrange_play_tick(void){
+    unsigned transport=step_native_transport_state?step_native_transport_state():0;
+    int running=(transport&3u)==3u;
+    if(arrange_play_state==1){
+        struct song_ref r;int seq=-1,rep=0;
+        int ready=song_ref(&r)&&r.count==1&&step_at(&r,0,&seq,&rep)&&seq==ARRANGE_SLOT;
+        if(ready){
+            FN(0x14e19c0,void(*)(void*,int))((char*)r.controller+0x168,0);
+            arrange_play_forward_until=now_ms()+400;phone_native_inject_button(0x52,1);phone_native_inject_button(0x52,0);
+            arrange_play_state=2;arrange_was_running=0;arrange_play_deadline=now_ms()+3000;
+            report("ARRANGE_PLAY started");say("Arrange playing (Stop to return)");
+        }else if(now_ms()>arrange_play_deadline){report("ARRANGE_PLAY swap timeout");say("Playback failed: song not ready");arrange_play_stop(0);}
+    }else if(arrange_play_state==2){
+        if(running)arrange_was_running=1;
+        else if(arrange_was_running||now_ms()>arrange_play_deadline){report("ARRANGE_PLAY stopped");arrange_play_stop(0);say("Arrange stopped");}
+    }else if(arrange_play_state==3){
+        if(!running||now_ms()>arrange_play_deadline){report("ARRANGE_PLAY stopped by Stop");arrange_play_stop(0);say("Arrange stopped");}
+    }
+}
 static int arrange_clamp(int x,int lo,int hi){return x<lo?lo:x>hi?hi:x;}
 static void arrange_close(void){
+    if(arrange_play_state)arrange_play_stop(1);
     if(atomic_exchange(&arrangement_editor,0)&&step_pattern_close)step_pattern_close();
     if(atomic_exchange(&arrangement_active,0))atomic_fetch_add(&input_epoch,1);
     arrange_menu=0;arrange_selected=0;memset(&arrange_clipboard,0,sizeof arrange_clipboard);
@@ -49,6 +136,7 @@ static int arrange_target(struct pt_arr_clip*out){
     return 0;
 }
 static void arrange_tick(void){
+    if(arrange_play_state)arrange_play_tick();
     if(arrange_epoch!=pt_epoch()){arrange_new_length=3840;arrange_close();say("Project changed: reopen Arrange");repaint(screen);return;}
     struct pt_arrangement a;if(!pt_arr_info(&a)){arrange_close();return;}
     if(atomic_load(&arrangement_editor)&&(!step_pattern_active||!step_pattern_active())){
@@ -158,7 +246,11 @@ static int arrange_button(unsigned code,int shifted){
     if(atomic_load(&arrangement_editor)){step_pattern_button(code,1,shifted);arrange_tick();repaint(screen);return 1;}
     if(code==B1&&shifted){arrange_close();say("Sequential Song");repaint(screen);return 1;}
     if(code==B3&&shifted&&!arrange_editing){arrange_menu=arrange_menu?0:1;arrange_pick=0;arrange_data_held=0;repaint(screen);return 1;}
-    if(code==0x52||code==0x50){say("Arrange playback/record not connected");return 1;}
+    if(code==0x52&&now_ms()<arrange_play_forward_until){arrange_forwarded|=1u;return 0;} /* our injected Play goes to the stock Song */
+    if(code==0x52&&!shifted){if(arrange_play_state)say("Arrange is playing");else arrange_play_start();repaint(screen);return 1;}
+    if(code==0x51&&arrange_play_state==1){arrange_play_stop(0);say("Arrange playback cancelled");repaint(screen);return 1;}
+    if(code==0x51&&arrange_play_state==2){arrange_play_state=3;arrange_play_deadline=now_ms()+2000;arrange_forwarded|=2u;return 0;} /* stock Stop, restore when stopped */
+    if(code==0x50){say("Arrange record not connected yet");return 1;}
     if((code==PLUS||code==MINUS)&&shifted){arrange_editing=0;arrange_result(pt_history(code==MINUS?-1:1));return 1;}
     if(code==B1){if(arrange_editing){arrange_editing=0;arrange_row=arrange_edit_row;arrange_cursor=arrange_edit_cursor;arrange_left=arrange_edit_left;say("Block edit cancelled");}else if(arrange_menu)arrange_menu=0;else if(arrange_selected||arrange_range){arrange_selected=0;arrange_range=0;}else{arrange_close();say("Sequential Song");}arrange_data_held=0;repaint(screen);return 1;}
     if(arrange_editing){if(code==B3){int ok=pt_arr_edit_clip(arrange_draft.id,arrange_draft.track,arrange_draft.start,arrange_draft.length,arrange_edit_revision);if(ok){arrange_editing=0;arrange_new_length=arrange_draft.length;}arrange_result(ok);}return 1;}
