@@ -658,14 +658,13 @@ void step_native_find_controller(void *screen)
 static void *core_step_controller(void)
 {
     if(!base)return NULL;
-    void *app=FIELD(base,0x71e3dc8,void*);
-    if(!app||FIELD(app,0,uintptr_t)!=base+0x6e07288)return NULL;
-    void *audio=FIELD(app,0xd8,void*);
-    if(!audio||FIELD(audio,0,uintptr_t)!=base+0x6e0c430)return NULL;
-    void *core=FIELD(audio,0x148,void*);
-    if(!core||FIELD(core,0,uintptr_t)!=base+0x6e0cf38)return NULL;
-    void *c=FIELD(core,0x678,void*);
-    return c&&FIELD(c,0,uintptr_t)==base+CONTROLLER_VPTR?c:NULL;
+    /* Read through safe_word: test fixtures map no real application objects. */
+    uintptr_t app,audio,core,c,v;
+    if(!safe_word(base+0x71e3dc8,&app)||!app||(app&7)||!safe_word(app,&v)||v!=base+0x6e07288)return NULL;
+    if(!safe_word(app+0xd8,&audio)||!audio||(audio&7)||!safe_word(audio,&v)||v!=base+0x6e0c430)return NULL;
+    if(!safe_word(audio+0x148,&core)||!core||(core&7)||!safe_word(core,&v)||v!=base+0x6e0cf38)return NULL;
+    if(!safe_word(core+0x678,&c)||!c||(c&7)||!safe_word(c,&v)||v!=base+CONTROLLER_VPTR)return NULL;
+    return (void*)c;
 }
 static int insert_with_fallback(unsigned pad,int64_t tick)
 {
@@ -1697,9 +1696,43 @@ int step_native_light(unsigned pad,uint64_t *light)
     if (!(t&(T_STEPS|T_PICKER))) return 0;
     *light=atomic_load(&lights[pad]); return 1;
 }
+/* Arrange 1b probe (read-only, UI thread): when the current sequence changes, log every int field
+ * equal to its index in the sequencer and CurrentThings, so the "current sequence" property can be
+ * found on the device. Reads go through safe_word; nothing is written. */
+static void seq_select_probe(void)
+{
+    static int last=-2;
+    void *c=core_step_controller();
+    void *things=c?FIELD(c,0x248,void*):NULL,*seq=things?FIELD(things,0x1c8,void*):NULL;
+    uintptr_t w;int index=-1;
+    if(seq&&!((uintptr_t)seq&7)&&safe_word((uintptr_t)seq+0x480,&w))index=(int)(uint32_t)w;
+    if(index==last)return;
+    int previous=last;last=index;
+    if(index<0||index>=128||previous<0)return;
+    uintptr_t app=0,audio=0,corew=0,tempo=0,seqr=0;
+    safe_word(base+0x71e3dc8,&app);
+    if(app)safe_word(app+0xd8,&audio);
+    if(audio)safe_word(audio+0x148,&corew);
+    if(corew)safe_word(corew+0x588,&tempo);
+    if(tempo)safe_word(tempo+0x28,&seqr);
+    void *core=(void*)corew,*sequencer=(void*)seqr;
+    struct {const char*name;void*p;unsigned size;} areas[]={{"sequencer",sequencer,0x1400},{"things",things,0x600},{"core",core,0x800}};
+    for(unsigned a=0;a<3;++a){
+        if(!areas[a].p)continue;
+        char line[480];int n=snprintf(line,sizeof line,"SEQ_SELECT_PROBE %d->%d %s:",previous+1,index+1,areas[a].name);
+        for(unsigned off=0;off<areas[a].size&&n<440;off+=8){
+            if(!safe_word((uintptr_t)areas[a].p+off,&w))break;
+            uint32_t lo=(uint32_t)w,hi=(uint32_t)(w>>32);
+            if(lo==(uint32_t)index)n+=snprintf(line+n,sizeof line-n," +%x",off);
+            if(hi==(uint32_t)index)n+=snprintf(line+n,sizeof line-n," +%x",off+4);
+        }
+        fprintf(stderr,"%s\n",line);
+    }
+}
 int step_native_tick(void)
 {
     if (!on_ui()) return 0;
+    seq_select_probe();
     if(picker_preview_wait&&!workflow_event_preview_pending()){picker_preview_wait=0;picker_probe("PAD_DONE",picker_audition_pad);}
     if (atomic_exchange(&dead,0)) { root=NULL;controller=NULL;steps=menu=showing=0;reset_mute();invalidate(); }
     if (atomic_exchange(&project_reset,0)) { pending_count=0;roll_project_reset();atomic_store(&write_armed,0);atomic_store(&toggle_armed,0);sound_initialized=0;clip_valid=0;steps=want_steps=menu=0;last_sequence=NULL;reset_mute();invalidate(); }
