@@ -20,6 +20,10 @@ static const int arrange_order[]={17,14,1, 13,2,3,4,5,6,7,15,10, 0,8,9,18, 11,12
 #define ARRANGE_ORDER_COUNT ((int)(sizeof arrange_order/sizeof *arrange_order))
 static uint64_t arrange_multi[512];static unsigned arrange_multi_count;static int arrange_anchor_row;
 static int arrange_is_multi(uint64_t id){for(unsigned i=0;i<arrange_multi_count;++i)if(arrange_multi[i]==id)return 1;return 0;}
+static uint32_t arrange_block_rgb(uint64_t pattern){
+    int p=pt_pattern_index(pattern),s=p>=0?pt_link_seq((unsigned)p):-1;
+    if(s>=0)return music_identity_rgb((unsigned)music_sequence_colour((unsigned)s));
+    static const uint32_t pal[]={0xffc247u,0x00c8ffu,0xff70b8u,0x98ff00u,0x8830ffu,0xff6000u,0x00ffb0u,0xffe000u};return pal[pattern%8];}
 static void arrange_bbt(int64_t t,char*out,size_t n){if(t<0)t=0;snprintf(out,n,"%lld.%lld",(long long)(t/3840+1),(long long)(t%3840/960+1));}
 extern int phone_native_stop_held(void) __attribute__((weak));
 /* Stage 1 of Arrange v2: whole song into the current stock sequence (one Undo). */
@@ -45,7 +49,9 @@ static int arrange_forwarded_release(unsigned code){
     arrange_forwarded&=~bit;return 1;
 }
 static uint64_t arrange_play_deadline,arrange_play_confirm_until;
-static int arrange_was_running,arrange_play_retries;
+static int arrange_was_running,arrange_play_retries,arrange_ss_held;
+static int64_t arrange_play_from;
+extern void step_native_set_render_from(int64_t) __attribute__((weak));
 static uint64_t arrange_play_retry_at;static int64_t arrange_play_end,arrange_play_last_tick;
 /* ---- Arrange v2 stage 2: live Seq blocks. Refreshed from the stock sequence before
  * Play and before opening the block, so a re-recorded sequence sounds in Arrange. ---- */
@@ -139,10 +145,10 @@ static void arrange_song_restore(void){
 }
 static void arrange_play_stop(int inject_stop){
     if(inject_stop&&(arrange_play_state==2||arrange_play_state==3)&&phone_native_inject_button){phone_native_inject_button(0x51,1);phone_native_inject_button(0x51,0);}
-    arrange_play_state=0;arrange_was_running=0;
+    arrange_play_state=0;arrange_was_running=0;arrange_play_from=0;if(step_native_set_render_from)step_native_set_render_from(0);
     arrange_song_restore();
 }
-static void arrange_play_start(void){
+static void arrange_play_start(int64_t from){
     struct song_ref r;
     if(!song_ref_any(&r)){
         void*ctl=screen?FIELD(screen,0x110,void*):NULL,*sq=ctl?FIELD(ctl,0x260,void*):NULL;
@@ -151,11 +157,13 @@ static void arrange_play_start(void){
         report(m);say("Song unavailable");return;}
     if(r.count>512){say("Song has too many steps");return;}
     arrange_sync_links(r.sequencer);
+    if(from>0&&!step_native_set_render_from){say("Play from cursor unavailable");return;}
+    arrange_play_from=from>0?from:0;if(step_native_set_render_from)step_native_set_render_from(arrange_play_from);
     if(!step_native_render_arrangement_slot||!phone_native_inject_button){say("Playback unavailable in this build");return;}
     uint64_t now=now_ms();
     char msg[96];int rr=step_native_render_arrangement_slot(r.sequencer,ARRANGE_SLOT,1,msg,sizeof msg); /* service slot: always overwrite */
     arrange_play_confirm_until=rr==-2?now+6000:0;
-    if(rr<0){say(msg);return;}
+    if(rr<0){arrange_play_from=0;if(step_native_set_render_from)step_native_set_render_from(0);say(msg);return;}
     /* Save the user's steps, then swap in the single Arrange step. */
     arrange_saved_count=r.count;arrange_saved_row=r.row;arrange_saved_song=r.song;arrange_saved_sequencer=r.sequencer;arrange_saved_epoch=pt_epoch();
     for(int i=0;i<r.count;++i)step_at(&r,i,&arrange_saved_seq[i],&arrange_saved_rep[i]);
@@ -191,13 +199,13 @@ static void arrange_play_tick(void){
         /* Stop at the end of the last block, or when the stock Song wraps around. */
         if(running&&step_native_clock_ticks){unsigned run=0;int64_t tick=step_native_clock_ticks(NULL,&run);
             int wrapped=arrange_play_last_tick>=0&&tick+960<arrange_play_last_tick;
-            if(run&&((arrange_play_end>0&&tick>=arrange_play_end)||wrapped)){
+            if(run&&((arrange_play_end>0&&tick+arrange_play_from>=arrange_play_end)||wrapped)){
                 char m[80];snprintf(m,sizeof m,"ARRANGE_PLAY end tick=%lld end=%lld wrap=%d",(long long)tick,(long long)arrange_play_end,wrapped);report(m);
                 arrange_play_stop(1);say("Arrange finished");return;}
             if(run)arrange_play_last_tick=tick;}
         if(running&&step_native_clock_ticks){static uint64_t last;uint64_t t=now_ms();if(t-last>=40){last=t;
             struct pt_arrangement a;unsigned run=0;int64_t tick=step_native_clock_ticks(NULL,&run);
-            if(run&&pt_arr_info(&a)&&a.length>0){tick%=a.length;if(tick<arrange_left||tick>arrange_left+arrange_span)arrange_left=tick-arrange_span/8>0?tick-arrange_span/8:0;}
+            if(run&&pt_arr_info(&a)&&a.length>0){tick=(tick+arrange_play_from)%a.length;if(tick<arrange_left||tick>arrange_left+arrange_span)arrange_left=tick-arrange_span/8>0?tick-arrange_span/8:0;}
             repaint(screen);}}
         else if(arrange_was_running||now_ms()>arrange_play_deadline){report("ARRANGE_PLAY stopped");arrange_play_stop(0);say("Arrange stopped");}
     }else if(arrange_play_state==3){
@@ -306,6 +314,7 @@ static void arrange_begin_edit(void){
     say("Preview: DATA time / Fader track / K3 length");repaint(screen);
 }
 static void arrange_release(unsigned code){
+    if(code==0x07){arrange_ss_held=0;return;}
     if(code!=0x6f||!arrange_data_held)return;
     arrange_data_held=0;
     if(!arrange_data_moved){struct pt_arr_clip c;arrange_range=0;arrange_multi_count=0;if(arrange_selected)arrange_selected=0;else if(arrange_target(&c))arrange_selected=c.id;}
@@ -366,10 +375,10 @@ static int arrange_button(unsigned code,int shifted){
     if(code==B1&&shifted){arrange_close();say("Sequential Song");repaint(screen);return 1;}
     if(code==B3&&shifted&&!arrange_editing){arrange_menu=arrange_menu?0:1;arrange_pick=0;arrange_data_held=0;repaint(screen);return 1;}
     if(code==0x52&&now_ms()<arrange_play_forward_until){arrange_forwarded|=1u;return 0;} /* our injected Play goes to the stock Song */
-    if(code==0x52&&!shifted){
+    if(code==0x52){
         if(arrange_play_state){unsigned tr=step_native_transport_state?step_native_transport_state():0;
             if((tr&3u)!=3u&&arrange_play_state!=1){report("ARRANGE_PLAY stale state cleared");arrange_play_stop(0);}}
-        if(arrange_play_state)say("Arrange is playing");else arrange_play_start();repaint(screen);return 1;}
+        if(arrange_play_state)say("Arrange is playing");else arrange_play_start(shifted?arrange_cursor:0);repaint(screen);return 1;}
     if(code==0x51&&arrange_play_state==1){arrange_play_stop(0);say("Arrange playback cancelled");repaint(screen);return 1;}
     if(code==0x51&&arrange_play_state==2){arrange_play_state=3;arrange_play_deadline=now_ms()+2000;arrange_forwarded|=2u;return 0;} /* stock Stop, restore when stopped */
     if(code==0x50){say("Arrange record not connected yet");return 1;}
@@ -392,6 +401,12 @@ static int arrange_button(unsigned code,int shifted){
         else{int ok=pt_arr_remove(c.id);if(ok&&arrange_selected==c.id)arrange_selected=0;arrange_result(ok);}
         return 1;
     }
+    if(code==0x07){arrange_ss_held=1;return 1;} /* Sample Select held: DATA scrolls time, fader scrolls tracks */
+    if(code==0x6f&&shifted&&!arrange_menu){
+        if(arrange_multi_count>1)say("Open one block at a time");
+        else{struct pt_arr_clip c;if(arrange_multi_count==1&&arrange_clip(arrange_multi[0],&c))arrange_selected=c.id;
+            if(arrange_target(&c)){arrange_multi_count=0;arrange_edit_pattern();}else say("No block here");}
+        repaint(screen);return 1;}
     if(code==0x6f&&!arrange_menu){arrange_data_held=1;arrange_data_moved=0;arrange_anchor=arrange_cursor;arrange_anchor_row=arrange_row;return 1;}
     if(code==B2){if(arrange_menu)arrange_menu=0;else{arrange_range=!arrange_range;arrange_anchor=arrange_cursor;arrange_anchor_row=arrange_row;arrange_selected=0;arrange_multi_count=0;}repaint(screen);return 1;}
     if(code==0x4b){if(!arrange_menu)arrange_cut();repaint(screen);return 1;}
@@ -427,6 +442,10 @@ static int arrange_control(unsigned cc,unsigned value,int shifted){
         if(arrange_cursor>arrange_left+arrange_span)arrange_left=arrange_cursor-arrange_span;
         repaint(screen);return 1;
     }
+    if(arrange_ss_held&&!arrange_menu&&(cc==DATA_ENCODER||cc==0x14)){
+        if(cc==DATA_ENCODER){arrange_left+=(int64_t)delta*(arrange_span/8>0?arrange_span/8:960);if(arrange_left<0)arrange_left=0;if(arrange_left>a.length-arrange_span)arrange_left=a.length-arrange_span>0?a.length-arrange_span:0;}
+        else{int max=a.tracks>(unsigned)arrange_rows?(int)a.tracks-arrange_rows:0;arrange_top=max-(int)value*max/127;}
+        repaint(screen);return 1;}
     if(arrange_data_held&&!arrange_menu&&(cc==DATA_ENCODER||cc==0x14)&&!shifted){arrange_data_moved=1;arrange_range=1;arrange_selected=0;}
     if(arrange_menu){int n=arrange_menu==1?ARRANGE_ACTIONS:arrange_menu==2?(int)pt_count():arrange_menu==4?arrange_new_count+1:0;
         if(n){if(cc==DATA_ENCODER)arrange_pick=arrange_clamp(arrange_pick+delta,0,n-1);else if(cc==0x14)arrange_pick=ui_list_fader(value,n-1);else if(cc==K1)arrange_pick=(int)value*(n-1)/127;}
@@ -480,16 +499,28 @@ static void arrange_paint(void*g){
             char name[48];snprintf(name,sizeof name,"%s%.7s",t.muted?"M ":t.solo?"S ":"",t.name);colour(g,index==(unsigned)arrange_row?0xffffc247u:0xffffffffu);text_at(g,name,3,y,66,h-1,11,0x21);
             for(unsigned j=0;j<a.clips;++j){struct pt_arr_clip c;if(!pt_arr_clip_at(j,&c))continue;if(arrange_editing&&c.id==arrange_draft.id)c=arrange_draft;if(c.track!=t.id||c.start>=arrange_left+arrange_span||c.start+c.length<=arrange_left)continue;
                 int x=c.start<arrange_left?72:arrange_x(c.start),end=c.start+c.length>arrange_left+arrange_span?312:arrange_x(c.start+c.length);if(end<=x)end=x+1;
-                colour(g,c.muted||t.muted?0xff333333u:0xff344451u);rect(g,x,y+2,end-x,h-5);
-                colour(g,c.id==arrange_selected||arrange_is_multi(c.id)?0xffffc247u:0xff71c1e8u);rect(g,x,y+2,end-x,arrange_is_multi(c.id)?h-5:2);
-                struct pt_entry e;int p=pt_pattern_index(c.pattern);if(end-x>24&&p>=0&&pt_info((unsigned)p,&e)){colour(g,0xffffffffu);text_at(g,e.name,x+2,y+5,end-x-3,h-9,11,0x21);}
+                uint32_t rgb=c.muted||t.muted?0x555555u:arrange_block_rgb(c.pattern);
+                uint32_t fill=((rgb>>16&255)/5)<<16|((rgb>>8&255)/5)<<8|(rgb&255)/5;
+                int sel=c.id==arrange_selected||arrange_is_multi(c.id),bh=h-5,w=end-x;
+                colour(g,0xff000000u|fill);rect(g,x,y+2,w,bh);
+                colour(g,sel?0xffffc247u:0xff000000u|rgb);int line=sel?2:1;
+                rect(g,x,y+2,w,line);rect(g,x,y+2+bh-line,w,line);if(c.start>=arrange_left)rect(g,x,y+2,line,bh);if(c.start+c.length<=arrange_left+arrange_span)rect(g,end-line,y+2,line,bh);
+                struct pt_entry e;int p=pt_pattern_index(c.pattern);if(w>24&&p>=0&&pt_info((unsigned)p,&e)){colour(g,0xffffffffu);text(g,e.name,x+2,y+3,w-4,bh-2,11);}
             }
-            if(arrange_range&&(int)index>=(arrange_anchor_row<arrange_row?arrange_anchor_row:arrange_row)&&(int)index<=(arrange_anchor_row<arrange_row?arrange_row:arrange_anchor_row)){int64_t left=arrange_anchor<arrange_cursor?arrange_anchor:arrange_cursor,right=(arrange_anchor>arrange_cursor?arrange_anchor:arrange_cursor)+arrange_grid;int x=left<arrange_left?72:arrange_x(left),end=right>arrange_left+arrange_span?312:arrange_x(right);if(end>x&&x<312&&end>72){colour(g,0xffffc247u);rect(g,x,y,end-x,1);rect(g,x,y+h-2,end-x,1);}}
         }
+        if(arrange_range){int r0=arrange_anchor_row<arrange_row?arrange_anchor_row:arrange_row,r1=arrange_anchor_row<arrange_row?arrange_row:arrange_anchor_row;
+            int v0=r0<arrange_top?arrange_top:r0,v1=r1>arrange_top+arrange_rows-1?arrange_top+arrange_rows-1:r1;
+            int64_t left=arrange_anchor<arrange_cursor?arrange_anchor:arrange_cursor,right=(arrange_anchor>arrange_cursor?arrange_anchor:arrange_cursor)+arrange_grid;
+            int x=left<arrange_left?72:arrange_x(left),end=right>arrange_left+arrange_span?312:arrange_x(right);
+            if(v0<=v1&&end>x&&x<312&&end>72){int y0=76+(v0-arrange_top)*h,y1=76+(v1-arrange_top+1)*h-2;colour(g,0xffffc247u);
+                if(r0>=arrange_top)rect(g,x,y0,end-x,2);
+                if(r1<=arrange_top+arrange_rows-1)rect(g,x,y1-1,end-x,2);
+                if(left>=arrange_left)rect(g,x,y0,2,y1-y0+1);
+                if(right<=arrange_left+arrange_span)rect(g,end-2,y0,2,y1-y0+1);}}
         for(int i=0;i<=4;++i){int x=72+60*i;char beat[24];arrange_bbt(arrange_left+arrange_span*i/4,beat,sizeof beat);colour(g,0xff777777u);text_at(g,beat,x<290?x:283,59,34,14,10,0x21);colour(g,0xff444444u);rect(g,x,75,1,121);}
         if(arrange_cursor>=arrange_left&&arrange_cursor<=arrange_left+arrange_span){colour(g,0xffffc247u);rect(g,arrange_x(arrange_cursor),73,1,124);}
         if(arrange_play_state==2&&step_native_clock_ticks){unsigned run=0;int64_t tick=step_native_clock_ticks(NULL,&run);
-            if(run&&a.length>0){tick%=a.length;if(tick>=arrange_left&&tick<=arrange_left+arrange_span){colour(g,0xffffffffu);rect(g,arrange_x(tick),73,2,124);}}}
+            if(run&&a.length>0){tick=(tick+arrange_play_from)%a.length;if(tick>=arrange_left&&tick<=arrange_left+arrange_span){colour(g,0xffffffffu);rect(g,arrange_x(tick),73,2,124);}}}
         if(!a.tracks){colour(g,0xffffffffu);text(g,"B3 New: create a pattern",8,108,304,25,16);}
         int offset,thumb=ui_list_thumb(arrange_top,(int)a.tracks,arrange_rows,120,&offset);
         colour(g,0xff303030u);rect(g,315,76,2,120);colour(g,0xffffc247u);rect(g,315,76+offset,2,thumb);

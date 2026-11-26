@@ -93,5 +93,6 @@ int step_pattern_paint(void*g,int shifted){
  if(!step_pattern_active())return 0;
  shift=shifted;
  if(message[0]&&milliseconds()>=message_until)message[0]=0;
+ if(roll_show_transport())pr_follow(&roll,roll_transport_tick(),1); /* Follow while the song plays inside this block */
  roll_paint(g);return 1;
 }

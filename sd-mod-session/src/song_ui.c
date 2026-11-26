@@ -188,6 +188,7 @@ static unsigned button_bit(unsigned code)
     if(code==0x09)return 2048u;
     if(code==0x23)return 4096u;
     if(code==0x2b)return 8192u;
+    if(code==0x07)return 16384u;
 #endif
     return code==B2?1u:code==B3?2u:code==PLUS?4u:code==MINUS?8u:code==B1?16u:0u;
 }
@@ -307,7 +308,8 @@ int song_ui_owns(unsigned kind,unsigned code,int shift,int down)
     if(!down) return (atomic_load(&owned_buttons)&bit)!=0;
 #ifdef MPC_PATTERN_TOOLS_TRIAL
     if(atomic_load(&shown)&&atomic_load(&arrangement_active)){
-        if(bit>=256u&&code!=0x6f&&code!=0x09&&!atomic_load(&arrangement_editor))return 0;
+        if(code==0x07&&atomic_load(&arrangement_editor))return 0;
+        if(bit>=256u&&code!=0x6f&&code!=0x09&&code!=0x07&&!atomic_load(&arrangement_editor))return 0;
         atomic_fetch_or(&owned_buttons,bit);return 1;
     }
     if(bit>=32u)return 0;

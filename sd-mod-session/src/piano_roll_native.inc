@@ -16,6 +16,7 @@ static int roll_pattern_insert_pending;
 #ifdef MPC_PATTERN_TOOLS_TRIAL
 static int roll_song_valid;static int64_t roll_song_start,roll_song_length,roll_song_offset;
 static int roll_song_local(int64_t song,int64_t*local){
+ song+=render_from;
  if(!roll_song_valid||roll.length<=0||song<roll_song_start||song>=roll_song_start+roll_song_length)return 0;
  *local=(roll_song_offset+(song-roll_song_start))%roll.length;return 1;}
 static int64_t roll_song_time(int64_t local){return roll_song_valid?roll_song_start-roll_song_offset+local:local;}
@@ -649,10 +650,12 @@ static void roll_paint(void*g){
   colour(g,pad_colour?0xff000000u|music_pad_rgb((unsigned)title_pad):AMBER);left_text(g,pad,6,34,40,20,15);
   ui_caption(caption,sizeof(caption),sample,18);colour(g,!strcmp(sample,"Empty")?GREY:WHITE);left_text(g,caption,46,34,150,20,14);
   /* Right: which sequence is edited (grid is on K2). Patterns show their name on the left already. */
-  {unsigned nsel=pr_selected(&roll);char cnt[24],seq[16]="";snprintf(cnt,sizeof(cnt),nsel?"  %u sel":"",nsel);
+  {unsigned nsel=pr_selected(&roll);char cnt[24],seq[48]="";snprintf(cnt,sizeof(cnt),nsel?"  %u sel":"",nsel);
    int seq_index=-1;{uintptr_t w;if(sequence&&!((uintptr_t)sequence&7)&&safe_word((uintptr_t)sequence+0x480,&w))seq_index=(int)(uint32_t)w;}
 #ifdef MPC_PATTERN_TOOLS_TRIAL
    if(roll_pattern_index>=0)seq_index=-1;
+   if(roll_pattern_index>=0&&roll_song_valid){int64_t a=roll_song_start,b=roll_song_start+roll_song_length;
+    snprintf(seq,sizeof(seq),"%d.%d-%d.%d",(int)(a/3840+1),(int)(a%3840/960+1),(int)(b/3840+1),(int)(b%3840/960+1));}
 #endif
    if(seq_index>=0&&seq_index<128)snprintf(seq,sizeof(seq),"Seq %02d",seq_index+1);
    snprintf(title,sizeof(title),"%s%s%s",roll.layer==PR_PADS?"":roll.layer==PR_TUNE?"Tune ":"Chop ",seq[0]?seq:roll_grid_name(),cnt);}
