@@ -338,7 +338,12 @@ int song_ui_owns(unsigned kind,unsigned code,int shift,int down)
 
 /* ---- native model access (UI thread) ---- */
 struct song_ref { void *controller,*sequencer,*song; int row,count; };
-static int song_ref(struct song_ref *r)
+static int song_ref_core(struct song_ref *r,int allow_empty);
+static int song_ref(struct song_ref *r){return song_ref_core(r,0);}
+/* Arrange playback swaps steps of a Song that may still be empty (no step vector yet). */
+static int song_ref_any(struct song_ref *r) __attribute__((unused));
+static int song_ref_any(struct song_ref *r){return song_ref_core(r,1);}
+static int song_ref_core(struct song_ref *r,int allow_empty)
 {
     memset(r,0,sizeof(*r));
     if(!screen) return 0;
@@ -352,6 +357,7 @@ static int song_ref(struct song_ref *r)
         r->song=FIELD(r->sequencer,0x1260,void**)[index];
     if(!r->song) return 0;
     char *begin=FIELD(r->song,0x30,char*),*end=FIELD(r->song,0x38,char*);
+    if(allow_empty&&!begin&&!end){r->count=0;r->row=FN(0x3b71e80,int(*)(void*))((char*)screen+0x798);return 1;}
     if(!begin||end<begin||(end-begin)%8) return 0;
     r->count=(int)((end-begin)/8);
     r->row=FN(0x3b71e80,int(*)(void*))((char*)screen+0x798);

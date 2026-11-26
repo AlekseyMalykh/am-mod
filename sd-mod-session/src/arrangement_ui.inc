@@ -67,7 +67,11 @@ static void arrange_play_stop(int inject_stop){
 }
 static void arrange_play_start(void){
     struct song_ref r;
-    if(!song_ref(&r)){say("Song unavailable");return;}
+    if(!song_ref_any(&r)){
+        void*ctl=screen?FIELD(screen,0x110,void*):NULL,*sq=ctl?FIELD(ctl,0x260,void*):NULL;
+        char m[160];snprintf(m,sizeof m,"ARRANGE_PLAY song_ref failed screen=%d ctl=%d seqr=%d index=%d songs=%u default=%d",
+            screen!=NULL,ctl!=NULL,sq!=NULL,sq?FIELD(sq,0xb38,int):-9,sq?FIELD(sq,0x126c,unsigned):0u,sq?FIELD(sq,0x1270,void*)!=NULL:0);
+        report(m);say("Song unavailable");return;}
     if(r.count>512){say("Song has too many steps");return;}
     if(!step_native_render_arrangement_slot||!phone_native_inject_button){say("Playback unavailable in this build");return;}
     uint64_t now=now_ms();
@@ -91,7 +95,7 @@ static void arrange_play_tick(void){
     int running=(transport&3u)==3u;
     if(arrange_play_state==1){
         struct song_ref r;int seq=-1,rep=0;
-        int ready=song_ref(&r)&&r.count==1&&step_at(&r,0,&seq,&rep)&&seq==ARRANGE_SLOT;
+        int ready=song_ref_any(&r)&&r.count==1&&step_at(&r,0,&seq,&rep)&&seq==ARRANGE_SLOT;
         if(ready){
             FN(0x14e19c0,void(*)(void*,int))((char*)r.controller+0x168,0);
             arrange_play_forward_until=now_ms()+400;phone_native_inject_button(0x52,1);phone_native_inject_button(0x52,0);
