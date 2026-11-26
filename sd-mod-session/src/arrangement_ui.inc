@@ -38,7 +38,8 @@ static int arrange_forwarded_release(unsigned code){
     arrange_forwarded&=~bit;return 1;
 }
 static uint64_t arrange_play_deadline,arrange_play_confirm_until;
-static int arrange_was_running;
+static int arrange_was_running,arrange_play_retries;
+static uint64_t arrange_play_retry_at;static int64_t arrange_play_end,arrange_play_last_tick;
 /* ---- Arrange v2 stage 2: live Seq blocks. Refreshed from the stock sequence before
  * Play and before opening the block, so a re-recorded sequence sounds in Arrange. ---- */
 extern int64_t step_native_clock_ticks(uint64_t*,unsigned*) __attribute__((weak));
@@ -170,10 +171,23 @@ static void arrange_play_tick(void){
             FN(0x14e19c0,void(*)(void*,int))((char*)r.controller+0x168,0);
             arrange_play_forward_until=now_ms()+400;phone_native_inject_button(0x52,1);phone_native_inject_button(0x52,0);
             arrange_play_state=2;arrange_was_running=0;arrange_play_deadline=now_ms()+3000;
+            arrange_play_retries=2;arrange_play_retry_at=now_ms()+600;arrange_play_last_tick=-1;
+            {struct pt_arrangement a;arrange_play_end=0;if(pt_arr_info(&a))for(unsigned j=0;j<a.clips;++j){struct pt_arr_clip c;if(pt_arr_clip_at(j,&c)&&!c.muted&&c.start+c.length>arrange_play_end)arrange_play_end=c.start+c.length;}}
             report("ARRANGE_PLAY started");say("Arrange playing (Stop to return)");
         }else if(now_ms()>arrange_play_deadline){report("ARRANGE_PLAY swap timeout");say("Playback failed: song not ready");arrange_play_stop(0);}
     }else if(arrange_play_state==2){
         if(running)arrange_was_running=1;
+        /* The stock Song sometimes ignores the first injected Play: press it again. */
+        if(!running&&!arrange_was_running&&arrange_play_retries>0&&now_ms()>=arrange_play_retry_at&&phone_native_inject_button){
+            --arrange_play_retries;arrange_play_retry_at=now_ms()+600;arrange_play_deadline=now_ms()+3000;
+            arrange_play_forward_until=now_ms()+400;phone_native_inject_button(0x52,1);phone_native_inject_button(0x52,0);report("ARRANGE_PLAY retry Play");}
+        /* Stop at the end of the last block, or when the stock Song wraps around. */
+        if(running&&step_native_clock_ticks){unsigned run=0;int64_t tick=step_native_clock_ticks(NULL,&run);
+            int wrapped=arrange_play_last_tick>=0&&tick+960<arrange_play_last_tick;
+            if(run&&((arrange_play_end>0&&tick>=arrange_play_end)||wrapped)){
+                char m[80];snprintf(m,sizeof m,"ARRANGE_PLAY end tick=%lld end=%lld wrap=%d",(long long)tick,(long long)arrange_play_end,wrapped);report(m);
+                arrange_play_stop(1);say("Arrange finished");return;}
+            if(run)arrange_play_last_tick=tick;}
         if(running&&step_native_clock_ticks){static uint64_t last;uint64_t t=now_ms();if(t-last>=40){last=t;
             struct pt_arrangement a;unsigned run=0;int64_t tick=step_native_clock_ticks(NULL,&run);
             if(run&&pt_arr_info(&a)&&a.length>0){tick%=a.length;if(tick<arrange_left||tick>arrange_left+arrange_span)arrange_left=tick-arrange_span/8>0?tick-arrange_span/8:0;}
