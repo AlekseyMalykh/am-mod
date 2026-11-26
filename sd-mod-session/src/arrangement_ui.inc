@@ -50,7 +50,14 @@ static int arrange_forwarded_release(unsigned code){
 }
 static uint64_t arrange_play_deadline,arrange_play_confirm_until;
 static int arrange_was_running,arrange_play_retries,arrange_ss_held,arrange_detached;
-static int64_t arrange_play_from;
+static int64_t arrange_play_from,arrange_play_to;
+static uint64_t arrange_play_ready_at; /* the audio thread picks up the rewritten Seq 128 a little later */
+static int arrange_loop,arrange_roll_loop,arrange_play_looping; /* lane / block editor; independent */
+static uint64_t arrange_editor_clip;
+extern void step_native_set_render_range(int64_t,int64_t) __attribute__((weak));
+static int arrange_clip(uint64_t,struct pt_arr_clip*);static int arrange_target(struct pt_arr_clip*);
+static int64_t arrange_song_tick(int64_t tick){return arrange_play_from+(arrange_play_to>arrange_play_from?tick%(arrange_play_to-arrange_play_from):tick);}
+static int arrange_loop_lit(void){return atomic_load(&arrangement_editor)?arrange_roll_loop:arrange_loop;}
 extern void step_native_set_render_from(int64_t) __attribute__((weak));
 static uint64_t arrange_play_retry_at;static int64_t arrange_play_end,arrange_play_last_tick;
 /* ---- Arrange v2 stage 2: live Seq blocks. Refreshed from the stock sequence before
@@ -145,7 +152,7 @@ static void arrange_song_restore(void){
 }
 static void arrange_play_stop(int inject_stop){
     if(inject_stop&&(arrange_play_state==2||arrange_play_state==3)&&phone_native_inject_button){phone_native_inject_button(0x51,1);phone_native_inject_button(0x51,0);}
-    arrange_play_state=0;arrange_was_running=0;arrange_play_from=0;if(step_native_set_render_from)step_native_set_render_from(0);
+    arrange_play_state=0;arrange_was_running=0;arrange_play_from=arrange_play_to=0;arrange_play_looping=0;if(step_native_set_render_from)step_native_set_render_from(0);
     arrange_song_restore();
 }
 static void arrange_play_start(int64_t from){
@@ -158,20 +165,32 @@ static void arrange_play_start(int64_t from){
     if(r.count>512){say("Song has too many steps");return;}
     arrange_sync_links(r.sequencer);
     if(from>0&&!step_native_set_render_from){say("Play from cursor unavailable");return;}
-    arrange_play_from=from>0?from:0;if(step_native_set_render_from)step_native_set_render_from(arrange_play_from);
+    int64_t to=0;int looping=atomic_load(&arrangement_editor)?arrange_roll_loop:arrange_loop;
+    if(looping){ /* Loop window snapped to bars: editor = its block, lane = range / selection / block / whole song */
+        int64_t ls=-1,le=-1;struct pt_arr_clip c;struct pt_arrangement a;pt_arr_info(&a);
+        if(atomic_load(&arrangement_editor)){if(arrange_clip(arrange_editor_clip,&c)){ls=c.start;le=c.start+c.length;}}
+        else if(arrange_range){ls=arrange_anchor<arrange_cursor?arrange_anchor:arrange_cursor;le=(arrange_anchor>arrange_cursor?arrange_anchor:arrange_cursor)+arrange_grid;}
+        else if(arrange_multi_count){for(unsigned i=0;i<arrange_multi_count;++i)if(arrange_clip(arrange_multi[i],&c)){if(ls<0||c.start<ls)ls=c.start;if(c.start+c.length>le)le=c.start+c.length;}}
+        else if(arrange_target(&c)){ls=c.start;le=c.start+c.length;}
+        if(ls<0){ls=0;le=0;for(unsigned j=0;j<a.clips;++j)if(pt_arr_clip_at(j,&c)&&c.start+c.length>le)le=c.start+c.length;}
+        ls=ls/3840*3840;le=(le+3839)/3840*3840;if(le<=ls)le=ls+3840;
+        if(!step_native_set_render_range){say("Loop unavailable in this build");return;}
+        from=ls;to=le;}
+    arrange_play_from=from>0?from:0;arrange_play_to=to;arrange_play_looping=to>0;
+    if(step_native_set_render_range)step_native_set_render_range(arrange_play_from,arrange_play_to);else if(step_native_set_render_from)step_native_set_render_from(arrange_play_from);
     if(!step_native_render_arrangement_slot||!phone_native_inject_button){say("Playback unavailable in this build");return;}
     uint64_t now=now_ms();
     char msg[96];int rr=step_native_render_arrangement_slot(r.sequencer,ARRANGE_SLOT,1,msg,sizeof msg); /* service slot: always overwrite */
     arrange_play_confirm_until=rr==-2?now+6000:0;
-    if(rr<0){arrange_play_from=0;if(step_native_set_render_from)step_native_set_render_from(0);say(msg);return;}
+    if(rr<0){arrange_play_from=arrange_play_to=0;arrange_play_looping=0;if(step_native_set_render_from)step_native_set_render_from(0);say(msg);return;}
     /* Save the user's steps, then swap in the single Arrange step. */
     arrange_saved_count=r.count;arrange_saved_row=r.row;arrange_saved_song=r.song;arrange_saved_sequencer=r.sequencer;arrange_saved_epoch=pt_epoch();
     for(int i=0;i<r.count;++i)step_at(&r,i,&arrange_saved_seq[i],&arrange_saved_rep[i]);
     void *ctx;FN(0x19a0b50,void(*)(void**,void*))(&ctx,r.sequencer);
     FN(0x19a3a40,void(*)(void**,void*))(&ctx,r.song);
     FN(0x19a0b50,void(*)(void**,void*))(&ctx,r.sequencer);
-    FN(0x19a2d20,void(*)(void**,void*,long,int,int))(&ctx,r.song,0L,ARRANGE_SLOT,1);
-    arrange_play_state=1;arrange_play_deadline=now+1500;
+    FN(0x19a2d20,void(*)(void**,void*,long,int,int))(&ctx,r.song,0L,ARRANGE_SLOT,arrange_play_looping?64:1); /* loop = Seq 128 repeated */
+    arrange_play_state=1;arrange_play_deadline=now+1800;arrange_play_ready_at=now+300;
     {char m[128];snprintf(m,sizeof m,"ARRANGE_PLAY swap saved=%d row=%d %s",arrange_saved_count,arrange_saved_row,msg);report(m);}
     say("Arrange: preparing playback");
 }
@@ -181,7 +200,7 @@ static void arrange_play_tick(void){
     int running=(transport&3u)==3u;
     if(arrange_play_state==1){
         struct song_ref r;int seq=-1,rep=0;
-        int ready=song_ref_any(&r)&&r.count==1&&step_at(&r,0,&seq,&rep)&&seq==ARRANGE_SLOT;
+        int ready=now_ms()>=arrange_play_ready_at&&song_ref_any(&r)&&r.count==1&&step_at(&r,0,&seq,&rep)&&seq==ARRANGE_SLOT;
         if(ready){
             FN(0x14e19c0,void(*)(void*,int))((char*)r.controller+0x168,0);
             arrange_play_forward_until=now_ms()+400;phone_native_inject_button(0x52,1);phone_native_inject_button(0x52,0);
@@ -198,14 +217,14 @@ static void arrange_play_tick(void){
             arrange_play_forward_until=now_ms()+400;phone_native_inject_button(0x52,1);phone_native_inject_button(0x52,0);report("ARRANGE_PLAY retry Play");}
         /* Stop at the end of the last block, or when the stock Song wraps around. */
         if(running&&step_native_clock_ticks){unsigned run=0;int64_t tick=step_native_clock_ticks(NULL,&run);
-            int wrapped=arrange_play_last_tick>=0&&tick+960<arrange_play_last_tick;
-            if(run&&((arrange_play_end>0&&tick+arrange_play_from>=arrange_play_end)||wrapped)){
+            int wrapped=!arrange_play_looping&&arrange_play_last_tick>=0&&tick+960<arrange_play_last_tick;
+            if(run&&!arrange_play_looping&&((arrange_play_end>0&&tick+arrange_play_from>=arrange_play_end)||wrapped)){
                 char m[80];snprintf(m,sizeof m,"ARRANGE_PLAY end tick=%lld end=%lld wrap=%d",(long long)tick,(long long)arrange_play_end,wrapped);report(m);
                 arrange_play_stop(1);say("Arrange finished");return;}
             if(run)arrange_play_last_tick=tick;}
         if(running&&step_native_clock_ticks){static uint64_t last;uint64_t t=now_ms();if(t-last>=40){last=t;
             struct pt_arrangement a;unsigned run=0;int64_t tick=step_native_clock_ticks(NULL,&run);
-            if(run&&pt_arr_info(&a)&&a.length>0){tick=(tick+arrange_play_from)%a.length;if(tick<arrange_left||tick>arrange_left+arrange_span)arrange_left=tick-arrange_span/8>0?tick-arrange_span/8:0;}
+            if(run&&pt_arr_info(&a)&&a.length>0){tick=arrange_song_tick(tick)%a.length;if(tick<arrange_left||tick>arrange_left+arrange_span)arrange_left=tick-arrange_span/8>0?tick-arrange_span/8:0;}
             repaint(screen);}}
         else if(arrange_was_running||now_ms()>arrange_play_deadline){report("ARRANGE_PLAY stopped");arrange_play_stop(0);say("Arrange stopped");}
     }else if(arrange_play_state==3){
@@ -280,6 +299,7 @@ static void arrange_separated(uint64_t id){
 static void arrange_edit_pattern(void){
     struct pt_arr_clip c;struct pt_entry p;
     if(!arrange_target(&c)){say("Choose a block to edit");return;}
+    arrange_editor_clip=c.id;
     {int i=pt_pattern_index(c.pattern);struct song_ref r;if(i>=0&&pt_link_seq((unsigned)i)>=0&&song_ref_any(&r))arrange_sync_links(r.sequencer);}
     int index=pt_pattern_index(c.pattern);
     if(index<0||!pt_info((unsigned)index,&p)){say("Pattern unavailable");return;}
@@ -370,6 +390,10 @@ static int arrange_button(unsigned code,int shifted){
     arrange_tick();if(!atomic_load(&arrangement_active))return 1;
     pt_expect_epoch(arrange_epoch);
     int in_editor=atomic_load(&arrangement_editor);
+    if(code==0x4a&&!shifted){int*l=in_editor?&arrange_roll_loop:&arrange_loop;*l=!*l;
+        say(*l?(in_editor?"Block loop on: Play loops this block":"Loop on: range / selection / block / song"):"Loop off");
+        if(arrange_play_state)say(*l?"Loop applies from the next Play":"Loop off from the next Play");
+        repaint(screen);return 1;}
     if(in_editor&&code!=0x52&&code!=0x51){step_pattern_button(code,1,shifted);arrange_tick();repaint(screen);return 1;}
     if(in_editor&&shifted){step_pattern_button(code,1,shifted);arrange_tick();repaint(screen);return 1;}
     if(code==B1&&shifted){arrange_close();say("Sequential Song");repaint(screen);return 1;}
@@ -520,7 +544,7 @@ static void arrange_paint(void*g){
         for(int i=0;i<=4;++i){int x=72+60*i;char beat[24];arrange_bbt(arrange_left+arrange_span*i/4,beat,sizeof beat);colour(g,0xff777777u);text_at(g,beat,x<290?x:283,59,34,14,10,0x21);colour(g,0xff444444u);rect(g,x,75,1,121);}
         if(arrange_cursor>=arrange_left&&arrange_cursor<=arrange_left+arrange_span){colour(g,0xffffc247u);rect(g,arrange_x(arrange_cursor),73,1,124);}
         if(arrange_play_state==2&&step_native_clock_ticks){unsigned run=0;int64_t tick=step_native_clock_ticks(NULL,&run);
-            if(run&&a.length>0){tick=(tick+arrange_play_from)%a.length;if(tick>=arrange_left&&tick<=arrange_left+arrange_span){colour(g,0xffffffffu);rect(g,arrange_x(tick),73,2,124);}}}
+            if(run&&a.length>0){tick=arrange_song_tick(tick)%a.length;if(tick>=arrange_left&&tick<=arrange_left+arrange_span){colour(g,0xffffffffu);rect(g,arrange_x(tick),73,2,124);}}}
         if(!a.tracks){colour(g,0xffffffffu);text(g,"B3 New: create a pattern",8,108,304,25,16);}
         int offset,thumb=ui_list_thumb(arrange_top,(int)a.tracks,arrange_rows,120,&offset);
         colour(g,0xff303030u);rect(g,315,76,2,120);colour(g,0xffffc247u);rect(g,315,76+offset,2,thumb);

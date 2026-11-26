@@ -16,7 +16,7 @@ static int roll_pattern_insert_pending;
 #ifdef MPC_PATTERN_TOOLS_TRIAL
 static int roll_song_valid;static int64_t roll_song_start,roll_song_length,roll_song_offset;
 static int roll_song_local(int64_t song,int64_t*local){
- song+=render_from;
+ song=render_from+(render_to>render_from?song%(render_to-render_from):song);
  if(!roll_song_valid||roll.length<=0||song<roll_song_start||song>=roll_song_start+roll_song_length)return 0;
  *local=(roll_song_offset+(song-roll_song_start))%roll.length;return 1;}
 static int64_t roll_song_time(int64_t local){return roll_song_valid?roll_song_start-roll_song_offset+local:local;}

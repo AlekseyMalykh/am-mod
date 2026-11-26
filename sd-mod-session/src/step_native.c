@@ -1361,8 +1361,9 @@ extern int am_arrange_render(const char*,const int*,int,struct step_event*,unsig
 extern const char*pt_error(void);
 static struct step_event render_added[8192],render_removed[8192];
 /* Shift+Play in Arrange: render only from this song tick, shifted to 0. Also offsets the block-editor playhead. */
-static int64_t render_from;
-void step_native_set_render_from(int64_t from){render_from=from>0?from:0;}
+static int64_t render_from,render_to; /* render_to>0: loop window [from,to), Seq 128 is exactly its length */
+void step_native_set_render_range(int64_t from,int64_t to){render_from=from>0?from:0;render_to=to>render_from?to:0;}
+void step_native_set_render_from(int64_t from){step_native_set_render_range(from,0);}
 /* Shared writer: whole arrangement into (seq,list). seq_index is for messages only. */
 static int render_into(void *c,void *things,void *seq,void *list,int confirm,char*msg,unsigned msg_size)
 {
@@ -1374,8 +1375,8 @@ static int render_into(void *c,void *things,void *seq,void *list,int confirm,cha
     unsigned added=0;int64_t song=0;
     int r=am_arrange_render(key,map,0,render_added,8192,&added,&song);
     if(r<=0){snprintf(msg,msg_size,"%s",pt_error()[0]?pt_error():"Arrange render refused");return -1;}
-    if(render_from>0){unsigned k=0;for(unsigned i=0;i<added;++i)if(render_added[i].time>=render_from){struct step_event e=render_added[i];e.time-=render_from;render_added[k++]=e;}
-        added=k;song-=render_from;if(song<=0){snprintf(msg,msg_size,"Nothing after the cursor");return -1;}}
+    if(render_from>0||render_to>0){unsigned k=0;for(unsigned i=0;i<added;++i)if(render_added[i].time>=render_from&&(!render_to||render_added[i].time<render_to)){struct step_event e=render_added[i];e.time-=render_from;render_added[k++]=e;}
+        added=k;song=render_to?render_to-render_from:song-render_from;if(song<=0){snprintf(msg,msg_size,"Nothing after the cursor");return -1;}}
     int64_t bar=3840;int bars=(int)((song+bar-1)/bar);
     if(bars<1||bars>128){snprintf(msg,msg_size,"Song is %d bars: max 128",bars);return -1;}
     unsigned removed=0;

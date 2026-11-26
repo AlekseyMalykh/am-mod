@@ -189,6 +189,7 @@ static unsigned button_bit(unsigned code)
     if(code==0x23)return 4096u;
     if(code==0x2b)return 8192u;
     if(code==0x07)return 16384u;
+    if(code==0x4a)return 32768u;
 #endif
     return code==B2?1u:code==B3?2u:code==PLUS?4u:code==MINUS?8u:code==B1?16u:0u;
 }
@@ -281,6 +282,11 @@ int song_ui_pads_active(void){
 /* Arrange owns the pads: in the block editor they play/choose rows, on the lane they choose a sequence. */
 int song_ui_pattern_pads(void){return atomic_load(&shown)&&atomic_load(&arrangement_active)&&atomic_load(&arrangement_editor);}
 /* Arrange lane: the pad still selects the sequence natively; Arrange also asks to add it. */
+/* Loop LED while Arrange is on screen: lane and block editor have separate loops. */
+static int arrange_loop_lit(void);
+int song_ui_button_light(unsigned code,unsigned*value){
+    if(code!=0x4a||!value||!atomic_load(&shown)||!atomic_load(&arrangement_active))return 0;
+    *value=arrange_loop_lit()?2u:0u;return 1;}
 int song_ui_arrange_lane(void){return atomic_load(&shown)&&atomic_load(&arrangement_active)&&!atomic_load(&arrangement_editor);}
 static void arrange_pad(unsigned pad,int shifted);
 void song_ui_pattern_pad(unsigned pad,int shifted,uint64_t value){
@@ -309,7 +315,7 @@ int song_ui_owns(unsigned kind,unsigned code,int shift,int down)
 #ifdef MPC_PATTERN_TOOLS_TRIAL
     if(atomic_load(&shown)&&atomic_load(&arrangement_active)){
         if(code==0x07&&atomic_load(&arrangement_editor))return 0;
-        if(bit>=256u&&code!=0x6f&&code!=0x09&&code!=0x07&&!atomic_load(&arrangement_editor))return 0;
+        if(bit>=256u&&code!=0x6f&&code!=0x09&&code!=0x07&&code!=0x4a&&!atomic_load(&arrangement_editor))return 0;
         atomic_fetch_or(&owned_buttons,bit);return 1;
     }
     if(bit>=32u)return 0;

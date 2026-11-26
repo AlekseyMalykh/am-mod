@@ -243,6 +243,7 @@ static _Atomic unsigned bank_pad_owned;
 static _Atomic unsigned native_shift_requested,native_mute_mode;
 static _Atomic unsigned tail_layout,tail_pads,stop_requested;
 int phone_native_stop_held(void){return atomic_load(&stop_requested)!=0;}
+extern int song_ui_button_light(unsigned code,unsigned*value) __attribute__((weak));
 #ifdef MPC_PAD_MIDI_RECORDING_TRIAL
 static _Atomic unsigned synth_record_stop_serial;
 #endif
@@ -3990,7 +3991,7 @@ static void button_light(void *s,unsigned value,unsigned code)
     if (code<128) {
         if(code==0x2b)observe_mute_indicator(value);
         atomic_store(&button_sender,(uintptr_t)s);atomic_store(&native_button_lights[code],value);
-        unsigned replacement;if(
+        unsigned replacement;if((song_ui_button_light&&song_ui_button_light(code,&replacement))||
 #ifdef MPC_CHORDS
             chords_ui_button_light(code,&replacement)||
 #endif
@@ -4008,11 +4009,11 @@ static void button_light(void *s,unsigned value,unsigned code)
 }
 static void send_record_light(void)
 {
-    static unsigned owned[5],last[5];const unsigned codes[5]={0x50,0x49,0x28,0x4b,0x2b};
+    static unsigned owned[6],last[6];const unsigned codes[6]={0x50,0x49,0x28,0x4b,0x2b,0x4a};
     uintptr_t s=atomic_load(&button_sender);unsigned value;
     if (!s) return;
-    for(unsigned i=0;i<5;++i) {
-        if (
+    for(unsigned i=0;i<6;++i) {
+        if ((song_ui_button_light&&song_ui_button_light(codes[i],&value))||
 #ifdef MPC_CHORDS
             chords_ui_button_light(codes[i],&value)||
 #endif
