@@ -265,3 +265,27 @@ extern "C" int pt_archive_read(void*data,void*json,int(*original)(void*,void*)){
     struct Scope {~Scope(){transaction=nullptr;}}scope;transaction=&pending;
     int ok=original(data,json);if(pending.failure)std::rethrow_exception(pending.failure);if(ok)publish(std::move(pending.value));return ok;
 }
+/* Arrange v2 stage 1: the whole song as native note events for ONE stock sequence
+ * (MPC Sample has one Program per project, so all rows merge safely). Uses the
+ * existing preparation (clip windows, mutes/solo) and native plan (pad -> current
+ * note). Control/UI owner only. Returns 1 ok, 0 refused (pt_error), -1 too many. */
+extern "C" int am_arrange_render(const char*program_key,const int pad_to_note[128],int transport_running,
+                                 struct step_event*out,unsigned capacity,unsigned*count,int64_t*length){
+    using namespace am_pattern;
+    if(!program_key||!pad_to_note||!out||!count||!length){set_error("Arrange render: invalid call");return 0;}
+    try{
+        PreparedArrangement prepared;if(!pt_prepare_song(prepared))return 0;
+        NativeDestination d;d.project_epoch=prepared.project_epoch;d.routing_revision=1;d.destination_revision=1;
+        d.program_key=program_key;d.sequence_ticks=prepared.length;d.transport_valid=true;d.playing=transport_running!=0;
+        int owners[128];for(int&o:owners)o=-1;
+        for(unsigned pad=0;pad<128;++pad){int note=pad_to_note[pad];d.pad_to_note[pad]=note>=0&&note<128?note:-1;
+            if(note>=0&&note<128)owners[note]=owners[note]==-1?(int)pad:-2;}
+        for(unsigned n=0;n<128;++n)d.note_to_pad[n]=owners[n]>=0?owners[n]:-1;
+        NativeArrangementPlan plan;if(!pt_prepare_native_plan(d,plan))return 0;
+        if(plan.notes.size()>capacity){set_error("Arrange render: too many notes");return -1;}
+        for(std::size_t i=0;i<plan.notes.size();++i)out[i]=plan.notes[i].native;
+        *count=(unsigned)plan.notes.size();*length=prepared.length;error[0]=0;return 1;
+    }catch(const std::bad_alloc&){set_error("Arrange render: out of memory");return 0;}
+    catch(const std::exception&e){set_error(e.what());return 0;}
+    catch(...){set_error("Arrange render failed");return 0;}
+}

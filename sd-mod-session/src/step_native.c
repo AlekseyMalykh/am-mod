@@ -1354,6 +1354,57 @@ static int add_event(const struct step_event *e)
     if (!run_set_command(&c)) {say("Native add failed");return 0;}
     report("ADD_EVENT native_Undo inline_payload_preserved no_removal_set");return 1;
 }
+/* Arrange v2 stage 1: replace the notes of the CURRENT sequence with the whole arrangement
+ * (one Undo step, plus the stock Bars command when the length must change). UI owner,
+ * transport stopped. Returns notes written (>=0), or -1 with msg. confirm=0 refuses a
+ * sequence that already has notes and reports how many (-2). */
+extern int am_arrange_render(const char*,const int*,int,struct step_event*,unsigned,unsigned*,int64_t*);
+extern const char*pt_error(void);
+static struct step_event render_added[8192],render_removed[8192];
+int step_native_render_arrangement(int confirm,char*msg,unsigned msg_size)
+{
+    if(!msg||!msg_size)return -1;
+    msg[0]=0;
+    if(!on_ui()){snprintf(msg,msg_size,"Arrange render: wrong thread");return -1;}
+    if(atomic_load(&clock_running)||atomic_load(&clock_recording)){snprintf(msg,msg_size,"Stop transport first");return -1;}
+    void *c=core_step_controller();
+    void *things=c?FIELD(c,0x248,void*):NULL,*program=things?FIELD(things,0xb8,void*):NULL;
+    void *seq=things?FIELD(things,0x1c8,void*):NULL,*clip=things?FIELD(things,0x3d0,void*):NULL;
+    if(!c||!program||!seq||!clip){snprintf(msg,msg_size,"No current sequence");return -1;}
+    void *list=(char*)clip+0x688;
+    const char *key=FIELD(program,0xdc8,const char*);
+    if(!key||!key[0]||strnlen(key,128)>=128){snprintf(msg,msg_size,"Program identity unavailable");return -1;}
+    int map[128];for(unsigned pad=0;pad<128;++pad)map[pad]=FN(0x157f800,int(*)(void*,int))(c,(int)pad);
+    unsigned added=0;int64_t song=0;
+    int r=am_arrange_render(key,map,0,render_added,8192,&added,&song);
+    if(r<=0){snprintf(msg,msg_size,"%s",pt_error()[0]?pt_error():"Arrange render refused");return -1;}
+    int64_t bar=3840;int bars=(int)((song+bar-1)/bar);
+    if(bars<1||bars>128){snprintf(msg,msg_size,"Song is %d bars: max 128",bars);return -1;}
+    unsigned removed=0;
+    {void *end=(char*)list+0x68,*node=FIELD(list,0x78,void*);unsigned budget=65536;
+     while(node&&node!=end&&budget--){const struct step_event*e=(void*)((char*)node+0x20);
+        if(musical(e)){if(removed>=8192){snprintf(msg,msg_size,"Sequence has too many notes");return -1;}render_removed[removed++]=*e;}
+        node=FN(0xb51738,void*(*)(void*))(node);}
+     if(node!=end){snprintf(msg,msg_size,"Sequence list unreadable");return -1;}}
+    int seq_index=FIELD(seq,0x480,int);
+    if(removed&&!confirm){snprintf(msg,msg_size,"Seq %02d has %u notes: choose again to replace",seq_index+1,removed);return -2;}
+    void *old_c=controller,*old_s=sequence,*old_e=event_list;int64_t old_l=length;
+    controller=c;sequence=seq;event_list=list;
+    int ok=1;
+    if(FIELD(seq,0x200,int)!=bars){
+        void *context=FIELD(c,0x240,void*),*manager=context?FIELD(context,0x60,void*):NULL;
+        ok=step_set_bars(base,manager,seq,bars);
+    }
+    length=FN(0x29571f0,int64_t(*)(void*))(seq);
+    if(ok&&length<song)ok=0;
+    if(ok){struct add_context ac={0};ac.bulk=1;ac.bulk_removed=render_removed;ac.bulk_removed_count=removed;
+        ac.bulk_added=render_added;ac.bulk_added_count=added;ac.bulk_title="Arrange to Sequence";ok=run_set_command(&ac);}
+    controller=old_c;sequence=old_s;event_list=old_e;length=old_l;
+    {char text[128];snprintf(text,sizeof text,"ARRANGE_RENDER seq=%d bars=%d song=%lld added=%u removed=%u ok=%d",seq_index+1,bars,(long long)song,added,removed,ok);report(text);}
+    if(!ok){snprintf(msg,msg_size,"Native write failed");return -1;}
+    snprintf(msg,msg_size,"Seq %02d: %u notes, %d bars. Undo: Shift -",seq_index+1,added,bars);
+    return (int)added;
+}
 /* The stock sequencer plays from the event list, so while the picker drops the original
  * note, that event is muted with the stock mute bit (native, Undo-able) and restored on exit. */
 static int picker_set_muted(int on)

@@ -14,7 +14,10 @@ static int64_t arrange_edit_cursor,arrange_edit_left;
 static const int64_t arrange_grids[]={240,480,960,1920,3840};
 static const char*const arrange_actions[]={"Add track","Insert pattern","Copy block","Paste block",
     "Move selected here","Extend one cycle","Trim end to cursor","Join next block",
-    "Mute track","Solo track","Delete block","Song +16 beats","Song -16 beats","Open pattern","New empty pattern","Create variation"};
+    "Mute track","Solo track","Delete block","Song +16 beats","Song -16 beats","Open pattern","New empty pattern","Create variation","Render to current seq"};
+/* Stage 1 of Arrange v2: whole song into the current stock sequence (one Undo). */
+extern int step_native_render_arrangement(int,char*,unsigned) __attribute__((weak));
+static uint64_t arrange_render_confirm_until;
 #define ARRANGE_ACTIONS ((int)(sizeof arrange_actions/sizeof *arrange_actions))
 static int arrange_clamp(int x,int lo,int hi){return x<lo?lo:x>hi?hi:x;}
 static void arrange_close(void){
@@ -138,6 +141,13 @@ static void arrange_execute(void){
     else if(arrange_pick==13){arrange_edit_pattern();return;}
     else if(arrange_pick==14){arrange_new_pattern();return;}
     else if(arrange_pick==15){if(!have_clip){say("Choose a block first");return;}ok=pt_arr_variation(c.id);}
+    else if(arrange_pick==16){
+        if(!step_native_render_arrangement){say("Render unavailable in this build");return;}
+        struct timespec ts;clock_gettime(CLOCK_MONOTONIC,&ts);uint64_t now=(uint64_t)ts.tv_sec*1000+(uint64_t)ts.tv_nsec/1000000;
+        char msg[96];int r=step_native_render_arrangement(arrange_render_confirm_until&&now<arrange_render_confirm_until,msg,sizeof msg);
+        arrange_render_confirm_until=r==-2?now+6000:0;
+        say(msg);if(r>=0)arrange_menu=0;return;
+    }
     else ok=pt_arr_length(a.length+(arrange_pick==11?15360:-15360));
     if(ok)arrange_menu=0;
     arrange_result(ok);

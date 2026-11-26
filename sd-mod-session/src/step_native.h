@@ -44,6 +44,8 @@ int64_t step_native_clock_ticks(uint64_t *serial,unsigned *running);
 /* Sample Record > To Seq: add a note of pad at tick (<0: now) to the playing sequence. current_sequence
  * (0 unknown) is the project's sequence when the take started; a pending note is kept for that one. */
 int step_native_insert_pad_note_at(unsigned pad,int64_t tick,uintptr_t current_sequence);
+/* Arrange: whole song into the current sequence (UI, stopped). >=0 notes, -1 error, -2 needs confirm. */
+int step_native_render_arrangement(int confirm,char*msg,unsigned msg_size);
 int step_native_bank_or_last(void); /* last valid bank (0 before the first). */
 int step_native_browser_bank(int bank); /* UI only; -1 reads, 0..7 selects bank. */
 int step_native_active(void);
