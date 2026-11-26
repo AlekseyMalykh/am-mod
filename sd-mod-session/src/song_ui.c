@@ -543,7 +543,7 @@ int song_ui_button(void *e,int shift)
     if(!down){ atomic_fetch_and(&owned_buttons,~bit);
 #ifdef MPC_PATTERN_TOOLS_TRIAL
         if(arrange_forwarded_release(code))return 0; /* press went to the stock transport */
-        if(atomic_load(&arrangement_editor)&&step_pattern_button)step_pattern_button(code,0,shift);
+        if(atomic_load(&arrangement_editor)&&step_pattern_button&&code!=0x52&&code!=0x51)step_pattern_button(code,0,shift);
         else if(atomic_load(&arrangement_active))arrange_release(code);
 #endif
         return 1;

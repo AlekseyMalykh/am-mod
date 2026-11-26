@@ -309,7 +309,9 @@ static void arrange_execute(void){
 static int arrange_button(unsigned code,int shifted){
     arrange_tick();if(!atomic_load(&arrangement_active))return 1;
     pt_expect_epoch(arrange_epoch);
-    if(atomic_load(&arrangement_editor)){step_pattern_button(code,1,shifted);arrange_tick();repaint(screen);return 1;}
+    int in_editor=atomic_load(&arrangement_editor);
+    if(in_editor&&code!=0x52&&code!=0x51){step_pattern_button(code,1,shifted);arrange_tick();repaint(screen);return 1;}
+    if(in_editor&&shifted){step_pattern_button(code,1,shifted);arrange_tick();repaint(screen);return 1;}
     if(code==B1&&shifted){arrange_close();say("Sequential Song");repaint(screen);return 1;}
     if(code==B3&&shifted&&!arrange_editing){arrange_menu=arrange_menu?0:1;arrange_pick=0;arrange_data_held=0;repaint(screen);return 1;}
     if(code==0x52&&now_ms()<arrange_play_forward_until){arrange_forwarded|=1u;return 0;} /* our injected Play goes to the stock Song */
