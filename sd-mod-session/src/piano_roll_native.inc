@@ -11,6 +11,7 @@ static void *roll_owner;
 static int roll_reference_note=-1;
 static uint64_t roll_tune_lights;
 static int roll_pad_rows[16],roll_pad_page,roll_audition=-1;
+static int roll_pattern_insert_pending; /* pattern editor: pad chose a row, click/B3 adds the event */
 static unsigned roll_input_held;
 static int roll_data_held,roll_data_moved; /* DATA held: encoder + fader draw a selection area */
 static void roll_data_begin_move(void){if(roll_data_held&&!roll_data_moved){roll.anchor_tick=roll.cursor_tick;roll.anchor_row=roll.cursor_row;roll.range=1;roll_data_moved=1;}}
@@ -343,6 +344,7 @@ static int roll_empty_cell(void){
 #endif
 static int roll_button(unsigned code,int event_shift){
  if(!atomic_load(&piano_active))return 0;
+ int insert_pending=roll_pattern_insert_pending;roll_pattern_insert_pending=0;(void)insert_pending;
 #ifdef MPC_PATTERN_TOOLS_TRIAL
  if(roll_patterns_state)return roll_patterns_button(code,event_shift);
  if(roll_pattern_index>=0){
@@ -397,7 +399,11 @@ static int roll_button(unsigned code,int event_shift){
   else if(pattern_host&&!pr_selected(&roll)&&roll_empty_cell()){roll_action=12;roll_action_run();}
 #endif
   else if(roll.layer==PR_PADS&&!pr_selected(&roll))roll_enter();else roll_edit_start();
- }else if(code==0x6f){if(roll_actions)roll_action_run();else if(!roll_editing){roll_data_held=1;roll_data_moved=0;}} /* selects on release unless the area was drawn */
+ }else if(code==0x6f){if(roll_actions)roll_action_run();
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+  else if(insert_pending&&pattern_host&&!roll_editing&&!pr_selected(&roll)&&roll_empty_cell()){roll_action=12;roll_action_run();}
+#endif
+  else if(!roll_editing){roll_data_held=1;roll_data_moved=0;}} /* selects on release unless the area was drawn */
  else if(code==BUTTON_MINUS||code==BUTTON_PLUS){if(!roll_editing&&!roll_actions)pr_cursor(&roll,roll.cursor_tick,roll.cursor_row+(code==BUTTON_PLUS?1:-1));}
  else if(code==BUTTON_ERASE){roll_editing=roll_actions=0;roll_erase_held=1;roll_erase_used=0;} /* Erase alone deletes the selection on release; Erase + pad clears a row. */
  else if(code==0x23){
@@ -493,7 +499,9 @@ static void roll_pad(unsigned pad,int pad_shift){
 #ifdef MPC_PATTERN_TOOLS_TRIAL
  if(roll_patterns_state)return;
  if(roll_pattern_index>=0){
-  if(pad<16){int value=roll.layer==PR_PADS?browse_bank*16+(int)pad:roll_pad_rows[pad];if(roll.layer==PR_PADS&&value>=0&&value<128){roll.pinned[value]=1;pr_rows(&roll);}int row=pr_row_index(&roll,value);if(row>=0){pr_cursor(&roll,roll.cursor_tick,row);if(pad_shift)pr_select(&roll,1);}}
+  if(pad<16){int value=roll.layer==PR_PADS?browse_bank*16+(int)pad:roll_pad_rows[pad];if(roll.layer==PR_PADS&&value>=0&&value<128){roll.pinned[value]=1;pr_rows(&roll);}int row=pr_row_index(&roll,value);if(row>=0){pr_cursor(&roll,roll.cursor_tick,row);if(pad_shift)pr_select(&roll,1);
+   else if(!roll_editing&&!roll_actions&&!pr_selected(&roll)&&roll_empty_cell()){char name[16],msg[64];if(roll.layer==PR_PADS)pad_name(value,name);else snprintf(name,sizeof name,"Row");
+    snprintf(msg,sizeof msg,"%s: click or B3 adds the event here",name);say(msg);roll_pattern_insert_pending=1;}}}
   repaint();return;
  }
 #endif

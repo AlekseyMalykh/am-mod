@@ -171,7 +171,7 @@ static int last_row=-1,last_repeats=-1;
 
 static uint64_t now_ms(void)
 { struct timespec t; clock_gettime(CLOCK_MONOTONIC,&t); return (uint64_t)t.tv_sec*1000u+(uint64_t)t.tv_nsec/1000000u; }
-static void report(const char*m){ if(log_count++<64)fprintf(stderr,"SONG_UI %s\n",m); }
+static void report(const char*m){ if(log_count++<2000)fprintf(stderr,"SONG_UI %s\n",m); }
 static int visible(void *p)
 { return p && FN(0x112fd50,int(*)(void*))(p) && !FN(0x112f6b0,int(*)(void*))(p); }
 static void repaint(void *p)
@@ -277,9 +277,15 @@ int song_ui_pads_active(void){
     return atomic_load(&pads_shown)!=0;
 }
 #ifdef MPC_PATTERN_TOOLS_TRIAL
+/* Arrange owns the pads: in the block editor they play/choose rows, on the lane they choose a sequence. */
 int song_ui_pattern_pads(void){return atomic_load(&shown)&&atomic_load(&arrangement_active)&&atomic_load(&arrangement_editor);}
+/* Arrange lane: the pad still selects the sequence natively; Arrange also asks to add it. */
+int song_ui_arrange_lane(void){return atomic_load(&shown)&&atomic_load(&arrangement_active)&&!atomic_load(&arrangement_editor);}
+static void arrange_pad(unsigned pad,int shifted);
 void song_ui_pattern_pad(unsigned pad,int shifted,uint64_t value){
-    if(value==song_ui_ticket()&&song_ui_pattern_pads()&&step_pattern_pad)step_pattern_pad(pad,shifted);
+    if(value!=song_ui_ticket()||!atomic_load(&shown)||!atomic_load(&arrangement_active))return;
+    if(atomic_load(&arrangement_editor)){if(step_pattern_pad)step_pattern_pad(pad,shifted);}
+    else arrange_pad(pad,shifted);
 }
 #endif
 

@@ -23,7 +23,8 @@ uint64_t song_ui_ticket(void);
 int song_ui_control_ticket(void *event,int shift,uint64_t ticket);
 int song_ui_button_ticket(void *event,int shift,uint64_t ticket);
 #ifdef MPC_PATTERN_TOOLS_TRIAL
-int song_ui_pattern_pads(void); /* numeric producer snapshot, no GUI access */
+int song_ui_pattern_pads(void);
+int song_ui_arrange_lane(void); /* numeric producer snapshot, no GUI access */
 void song_ui_pattern_pad(unsigned pad,int shift,uint64_t ticket); /* UI owner */
 #endif
 int song_ui_button(void *event,int shift);

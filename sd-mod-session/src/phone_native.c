@@ -2945,6 +2945,10 @@ static void pad_event(void *event)
         e.workflow_ticket=song_ui_ticket();if(!phone_events_push(&e))queue_failed();
         return;
     }
+    if(down&&!owned&&!atomic_load(&naming_active)&&song_ui_arrange_lane()){ /* not consumed: native still selects the sequence */
+        struct phone_event e={0};e.kind=PHONE_SONG_PATTERN_PAD;e.pad=pad;e.down=0;
+        e.workflow_ticket=song_ui_ticket();if(!phone_events_push(&e))queue_failed();
+    }
 #endif
     uint64_t route=step_native_ticket();
     int pad_route=step_native_pad_route(route);

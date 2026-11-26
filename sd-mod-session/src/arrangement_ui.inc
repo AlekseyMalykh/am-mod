@@ -80,6 +80,20 @@ static void arrange_add_seq_slot(int slot){
     arrange_tick();repaint(screen);
 }
 static void arrange_add_seq(void){arrange_add_seq_slot(-1);}
+extern int step_native_browser_bank(int) __attribute__((weak));
+static int arrange_pending_seq=-1,arrange_pending_notes;
+static void arrange_pad(unsigned pad,int shifted){
+    (void)shifted;
+    if(!atomic_load(&arrangement_active)||pad>=16)return;
+    if(arrange_editing||(arrange_menu&&arrange_menu!=5)){repaint(screen);return;}
+    int bank=step_native_browser_bank?step_native_browser_bank(-1):0;if(bank<0||bank>7)bank=0;
+    int seq=bank*16+(int)pad;
+    if(seq>=ARRANGE_SLOT){say("Seq 128 is used by Arrange playback");repaint(screen);return;}
+    struct song_ref r;unsigned count=0;int64_t len=0;const char*key=NULL;int map[128];
+    int got=step_native_read_seq&&song_ref_any(&r)?step_native_read_seq(r.sequencer,seq,arrange_seq_notes,8192,&count,&len,&key,map):-1;
+    if(got!=seq&&got!=-2){char m[48];snprintf(m,sizeof m,"Seq %02d is empty",seq+1);say(m);repaint(screen);return;}
+    arrange_pending_seq=seq;arrange_pending_notes=got==-2?8192:(int)count;arrange_menu=5;repaint(screen);
+}
 /* B3 New on an empty place: menu 4 lists sequences that have notes, then Empty pattern. */
 static int arrange_new_slots[128],arrange_new_notes[128],arrange_new_count,arrange_new_current=-1;
 static void arrange_new_open(void){
@@ -315,7 +329,10 @@ static int arrange_button(unsigned code,int shifted){
     if(code==B1&&shifted){arrange_close();say("Sequential Song");repaint(screen);return 1;}
     if(code==B3&&shifted&&!arrange_editing){arrange_menu=arrange_menu?0:1;arrange_pick=0;arrange_data_held=0;repaint(screen);return 1;}
     if(code==0x52&&now_ms()<arrange_play_forward_until){arrange_forwarded|=1u;return 0;} /* our injected Play goes to the stock Song */
-    if(code==0x52&&!shifted){if(arrange_play_state)say("Arrange is playing");else arrange_play_start();repaint(screen);return 1;}
+    if(code==0x52&&!shifted){
+        if(arrange_play_state){unsigned tr=step_native_transport_state?step_native_transport_state():0;
+            if((tr&3u)!=3u&&arrange_play_state!=1){report("ARRANGE_PLAY stale state cleared");arrange_play_stop(0);}}
+        if(arrange_play_state)say("Arrange is playing");else arrange_play_start();repaint(screen);return 1;}
     if(code==0x51&&arrange_play_state==1){arrange_play_stop(0);say("Arrange playback cancelled");repaint(screen);return 1;}
     if(code==0x51&&arrange_play_state==2){arrange_play_state=3;arrange_play_deadline=now_ms()+2000;arrange_forwarded|=2u;return 0;} /* stock Stop, restore when stopped */
     if(code==0x50){say("Arrange record not connected yet");return 1;}
@@ -343,6 +360,7 @@ static int arrange_button(unsigned code,int shifted){
                 int ok=pt_arr_add_clip(t.id,(unsigned)arrange_pick,arrange_cursor,e.length,&id);if(ok){arrange_selected=id;arrange_menu=0;}arrange_result(ok);
             }
         }else if(arrange_menu==3){int ok=pt_arr_remove(arrange_selected);if(ok){arrange_selected=0;arrange_menu=0;}arrange_result(ok);}
+        else if(arrange_menu==5){int s=arrange_pending_seq;arrange_menu=0;arrange_pending_seq=-1;if(s>=0)arrange_add_seq_slot(s);}
         else if(arrange_menu==4){if(arrange_pick<arrange_new_count){arrange_menu=0;arrange_add_seq_slot(arrange_new_slots[arrange_pick]);}else{arrange_menu=0;arrange_new_pattern();}}
         else if(arrange_selected)arrange_begin_edit();
         else{struct pt_arr_clip c;if(arrange_target(&c)&&!arrange_range)arrange_edit_pattern();else if(arrange_range)arrange_new_pattern();else{arrange_new_open();if(!arrange_new_count){arrange_menu=0;arrange_new_pattern();}}}
@@ -389,8 +407,12 @@ static void arrange_paint(void*g){
     struct pt_arr_clip under;int have_under=arrange_target(&under);
     colour(g,0xffffffffu);text(g,atomic_load(&export_shift)?"Song":arrange_editing?"Cancel":"Back",0,4,106,25,13);
     text(g,arrange_editing?"":arrange_menu?"Close":arrange_range?"Range On":"Range",107,4,106,25,13);colour(g,0xffffc247u);text(g,arrange_editing?"Apply":atomic_load(&export_shift)?"Actions":arrange_menu==3?"Delete":arrange_menu?"Choose":arrange_selected?"Edit":have_under&&!arrange_range?"Open":"New",214,4,106,25,13);
-    text_at(g,arrange_menu==1?"Arrange / Actions":arrange_menu==2?"Insert pattern":arrange_menu==4?"New block":a.read_only?"Arrange / read only":"Song / Arrange",6,34,arrange_menu?236:308,23,17,0x21);
+    text_at(g,arrange_menu==1?"Arrange / Actions":arrange_menu==2?"Insert pattern":arrange_menu==4?"New block":arrange_menu==5?"Add sequence":a.read_only?"Arrange / read only":"Song / Arrange",6,34,arrange_menu?236:308,23,17,0x21);
     if(arrange_menu==3){colour(g,0xffffffffu);text(g,"Delete selected block?",8,93,304,27,18);text(g,"Pattern stays in the library",8,126,304,22,13);}
+    else if(arrange_menu==5){char m[64];struct pt_arr_track t;
+        colour(g,0xffffffffu);snprintf(m,sizeof m,"Add Seq %02d here?",arrange_pending_seq+1);text(g,m,8,86,304,27,18);
+        snprintf(m,sizeof m,"%d notes, live / q %.2f / %s",arrange_pending_notes,1.+arrange_cursor/960.,pt_arr_track_at((unsigned)arrange_row,&t)?t.name:"new track");text(g,m,8,118,304,22,13);
+        colour(g,0xffffc247u);text(g,"Click or B3: add / B1: cancel / pad: other seq",8,146,304,22,12);}
     else if(arrange_menu){int n=arrange_menu==1?ARRANGE_ACTIONS:arrange_menu==4?arrange_new_count+1:(int)pt_count(),first=ui_list_first(arrange_pick,n,6);
         char position[32];snprintf(position,sizeof position,"%d / %d",n?arrange_pick+1:0,n);colour(g,0xffaaaaaau);text_at(g,position,245,36,67,20,12,0x22);
         for(int i=first;i<n&&i<first+6;++i){char label[80];if(arrange_menu==1)snprintf(label,sizeof label,"%s",arrange_actions[i]);
