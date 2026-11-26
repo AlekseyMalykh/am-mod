@@ -55,6 +55,7 @@ static uint64_t arrange_play_ready_at; /* the audio thread picks up the rewritte
 static int arrange_loop,arrange_roll_loop,arrange_play_looping; /* lane / block editor; independent */
 static uint64_t arrange_editor_clip;
 extern void step_native_set_render_range(int64_t,int64_t) __attribute__((weak));
+extern void step_native_set_sequencer(void*) __attribute__((weak));
 static int arrange_clip(uint64_t,struct pt_arr_clip*);static int arrange_target(struct pt_arr_clip*);
 static int64_t arrange_song_tick(int64_t tick){return arrange_play_from+(arrange_play_to>arrange_play_from?tick%(arrange_play_to-arrange_play_from):tick);}
 static int arrange_loop_lit(void){return atomic_load(&arrangement_editor)?arrange_roll_loop:arrange_loop;}
@@ -154,6 +155,28 @@ static void arrange_play_stop(int inject_stop){
     if(inject_stop&&(arrange_play_state==2||arrange_play_state==3)&&phone_native_inject_button){phone_native_inject_button(0x51,1);phone_native_inject_button(0x51,0);}
     arrange_play_state=0;arrange_was_running=0;arrange_play_from=arrange_play_to=0;arrange_play_looping=0;if(step_native_set_render_from)step_native_set_render_from(0);
     arrange_song_restore();
+}
+/* Shift+B1: the arrangement into Seq 128, Song = [Seq 128 x1], then the stock Song Export menu.
+ * The user's Song comes back once the export flow is idle again. */
+static int arrange_export_pending;static uint64_t arrange_export_quiet;
+static int arrange_export_begin(void){
+    if(arrange_play_state){say("Stop playback before Export");return 0;}
+    struct song_ref r;if(!song_ref_any(&r)){say("Song unavailable");return 0;}
+    if(r.count>512){say("Song has too many steps");return 0;}
+    if(!step_native_render_arrangement_slot){say("Export unavailable in this build");return 0;}
+    arrange_sync_links(r.sequencer);
+    if(step_native_set_render_from)step_native_set_render_from(0);
+    char msg[96];int rr=step_native_render_arrangement_slot(r.sequencer,ARRANGE_SLOT,1,msg,sizeof msg);
+    if(rr<0){say(msg);return 0;}
+    arrange_saved_count=r.count;arrange_saved_row=r.row;arrange_saved_song=r.song;arrange_saved_sequencer=r.sequencer;arrange_saved_epoch=pt_epoch();
+    for(int i=0;i<r.count;++i)step_at(&r,i,&arrange_saved_seq[i],&arrange_saved_rep[i]);
+    void *ctx;FN(0x19a0b50,void(*)(void**,void*))(&ctx,r.sequencer);
+    FN(0x19a3a40,void(*)(void**,void*))(&ctx,r.song);
+    FN(0x19a0b50,void(*)(void**,void*))(&ctx,r.sequencer);
+    FN(0x19a2d20,void(*)(void**,void*,long,int,int))(&ctx,r.song,0L,ARRANGE_SLOT,1);
+    arrange_export_pending=1;arrange_export_quiet=0;
+    {char m[128];snprintf(m,sizeof m,"ARRANGE_EXPORT prepared saved=%d %s",arrange_saved_count,msg);report(m);}
+    return 1;
 }
 static void arrange_play_start(int64_t from){
     struct song_ref r;
@@ -300,7 +323,7 @@ static void arrange_edit_pattern(void){
     struct pt_arr_clip c;struct pt_entry p;
     if(!arrange_target(&c)){say("Choose a block to edit");return;}
     arrange_editor_clip=c.id;
-    {int i=pt_pattern_index(c.pattern);struct song_ref r;if(i>=0&&pt_link_seq((unsigned)i)>=0&&song_ref_any(&r))arrange_sync_links(r.sequencer);}
+    {int i=pt_pattern_index(c.pattern);struct song_ref r;if(song_ref_any(&r)){if(step_native_set_sequencer)step_native_set_sequencer(r.sequencer);if(i>=0&&pt_link_seq((unsigned)i)>=0)arrange_sync_links(r.sequencer);}}
     int index=pt_pattern_index(c.pattern);
     if(index<0||!pt_info((unsigned)index,&p)){say("Pattern unavailable");return;}
     int64_t phase=c.offset;
@@ -334,7 +357,7 @@ static void arrange_begin_edit(void){
     say("Preview: DATA time / Fader track / K3 length");repaint(screen);
 }
 static void arrange_release(unsigned code){
-    if(code==0x07){arrange_ss_held=0;return;}
+    if(code==0x0b){arrange_ss_held=0;return;}
     if(code!=0x6f||!arrange_data_held)return;
     arrange_data_held=0;
     if(!arrange_data_moved){struct pt_arr_clip c;arrange_range=0;arrange_multi_count=0;if(arrange_selected)arrange_selected=0;else if(arrange_target(&c))arrange_selected=c.id;}
@@ -396,7 +419,9 @@ static int arrange_button(unsigned code,int shifted){
         repaint(screen);return 1;}
     if(in_editor&&code!=0x52&&code!=0x51){step_pattern_button(code,1,shifted);arrange_tick();repaint(screen);return 1;}
     if(in_editor&&shifted){step_pattern_button(code,1,shifted);arrange_tick();repaint(screen);return 1;}
-    if(code==B1&&shifted){arrange_close();say("Sequential Song");repaint(screen);return 1;}
+    if(code==B1&&shifted){
+        if(arrange_export_begin()){arrange_close();atomic_store(&export_choice,0u);atomic_store(&export_menu_active,1u);say("Export the arrangement: choose");}
+        repaint(screen);return 1;}
     if(code==B3&&shifted&&!arrange_editing){arrange_menu=arrange_menu?0:1;arrange_pick=0;arrange_data_held=0;repaint(screen);return 1;}
     if(code==0x52&&now_ms()<arrange_play_forward_until){arrange_forwarded|=1u;return 0;} /* our injected Play goes to the stock Song */
     if(code==0x52){
@@ -425,7 +450,7 @@ static int arrange_button(unsigned code,int shifted){
         else{int ok=pt_arr_remove(c.id);if(ok&&arrange_selected==c.id)arrange_selected=0;arrange_result(ok);}
         return 1;
     }
-    if(code==0x07){arrange_ss_held=1;return 1;} /* Sample Select held: DATA scrolls time, fader scrolls tracks */
+    if(code==0x0b){arrange_ss_held=1;return 1;} /* Note Repeat held: DATA scrolls time, fader scrolls tracks */
     if(code==0x6f&&shifted&&!arrange_menu){
         if(arrange_multi_count>1)say("Open one block at a time");
         else{struct pt_arr_clip c;if(arrange_multi_count==1&&arrange_clip(arrange_multi[0],&c))arrange_selected=c.id;
@@ -495,7 +520,7 @@ static void arrange_paint(void*g){
     struct pt_arrangement a;if(!pt_arr_info(&a))return;
     colour(g,0xff000000u);rect(g,0,0,320,240);
     struct pt_arr_clip under;int have_under=arrange_target(&under);
-    colour(g,0xffffffffu);text(g,atomic_load(&export_shift)?"Song":arrange_editing?"Cancel":"Back",0,4,106,25,13);
+    colour(g,0xffffffffu);text(g,atomic_load(&export_shift)?"Export":arrange_editing?"Cancel":"Back",0,4,106,25,13);
     text(g,arrange_editing?"":arrange_menu?"Close":arrange_range?"Range On":"Range",107,4,106,25,13);colour(g,0xffffc247u);text(g,arrange_editing?"Apply":atomic_load(&export_shift)?"Actions":arrange_menu==3||arrange_menu==6?"Delete":arrange_menu?"Choose":arrange_selected?"Edit":have_under&&!arrange_range?"Open":"New",214,4,106,25,13);
     text_at(g,arrange_menu==1?"Arrange / Actions":arrange_menu==2?"Insert pattern":arrange_menu==4?"New block":arrange_menu==5?"Add sequence":arrange_menu==6?"Delete track":a.read_only?"Arrange / read only":"Song / Arrange",6,34,arrange_menu?236:308,23,17,0x21);
     if(arrange_menu==3){colour(g,0xffffffffu);text(g,"Delete selected block?",8,93,304,27,18);text(g,"Pattern stays in the library",8,126,304,22,13);}

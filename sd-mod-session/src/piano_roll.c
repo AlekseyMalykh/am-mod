@@ -170,7 +170,8 @@ int pr_apply(struct piano_roll*p){
  if(p->pending_commit)return fail(p,"Waiting for native history");
  if(!p->plan.title||(!p->plan.removed_count&&!p->plan.added_count))return fail(p,"No event changes");
  if(p->plan.revision!=p->revision)return fail(p,"Events changed: retry selection");
- if(!p->ops.commit||!p->ops.commit(p->ops.user,&p->plan))return fail(p,"Native edit refused; refresh and retry");
+ p->error[0]=0;
+ if(!p->ops.commit||!p->ops.commit(p->ops.user,&p->plan)){char m[96];snprintf(m,sizeof m,"%s",p->error[0]?p->error:"Native edit refused; refresh and retry");return fail(p,m);}
  /* Native snapshot will be read back before another operation. */
  p->pending_commit=1;p->selection_after_count=p->plan.added_count;pr_cancel(p);return 1;
 }

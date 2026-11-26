@@ -454,6 +454,8 @@ static uint64_t mixer_pad_pairs[16], mixer_button_pairs[112];
 static unsigned mixer_native_pads, mixer_mode_forwarded;
 static unsigned char mixer_native_buttons[112];
 static _Alignas(8) unsigned char mixer_entry_down[40];
+/* Where the Mixer was opened from: 0 Sample, 1 Seq, 2 Song (Arrange). B1 goes back there. */
+static int mixer_origin;static _Alignas(8) unsigned char mixer_entry_up[40];static int mixer_entry_up_ok;
 
 static int mixer_ui_blocked(void)
 {
@@ -916,6 +918,14 @@ static void mixer_pad_ui(const struct phone_event *e, struct mixer_control *cont
     if (!current) return;
     if (e->kind == PHONE_MIXER_ENTRY || (e->pad == 8 && !e->down && mixer_entry.held)) {
         int ready = mixer_session_status(mixer_ui_session) == 1 && !atomic_load(&mixer_input_fault);
+        if (e->down && !mixer_control_active(control)) {
+#ifdef MPC_SONG_UI
+            mixer_origin = song_ui_active() ? 2 : music_ui_sequence_visible() ? 1 : 0;
+#else
+            mixer_origin = music_ui_sequence_visible() ? 1 : 0;
+#endif
+        }
+        if (!e->down && e->up) {memcpy(mixer_entry_up,raw,sizeof(raw));mixer_entry_up_ok=1;}
         enum mixer_entry_action action = mixer_entry_pad(&mixer_entry,e->pad,e->down,
             e->when_ms,e->generation,1,ready,mixer_ui_blocked());
         if (e->down && action == MIXER_ENTRY_CONSUME) memcpy(mixer_entry_down,raw,sizeof(raw));
@@ -964,10 +974,22 @@ static void mixer_button_ui(struct phone_event *e, struct mixer_control *control
         forward_buttons(e->native);
     }
     if (mixer_control_exit_requested(control)) {
-        /* B1 on the Mixer page: leave to Sample with a stock Sample press. */
+        /* B1 on the Mixer page: back to where it was opened (Sample, Seq or Song via Shift+Pad 12). */
         _Alignas(8) unsigned char sample[16];memcpy(sample,e->native,16);
-        sample[8]=0x06;sample[9]=1;forward_buttons(sample);
-        sample[9]=0;forward_buttons(sample);
+        if (mixer_origin == 2 && mixer_entry_up_ok) {
+            _Alignas(8) unsigned char down[40],up[40];
+            memcpy(down,mixer_entry_down,40);memcpy(up,mixer_entry_up,40);down[8]=11;up[8]=11;
+            fprintf(stderr,"MIXER_RETURN song shift+pad12\n");
+            sample[8]=0x31;sample[9]=1;forward_buttons(sample);
+            mixer_forward_pad(down);mixer_forward_pad(up);
+            sample[8]=0x31;sample[9]=0;forward_buttons(sample);
+        } else {
+            sample[8]=mixer_origin == 1 ? 0x07 : 0x06;
+            fprintf(stderr,"MIXER_RETURN %s\n",mixer_origin == 1 ? "seq" : "sample");
+            sample[9]=1;forward_buttons(sample);
+            sample[9]=0;forward_buttons(sample);
+        }
+        mixer_origin = 0;
     }
     if (was_open && !mixer_control_active(control)) note_native_repaint_sample();
 }

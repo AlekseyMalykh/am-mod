@@ -1420,6 +1420,41 @@ int step_native_render_arrangement(int confirm,char*msg,unsigned msg_size)
 }
 /* Arrange playback slot: render into sequence `slot` of `sequencer` (the Song screen's
  * sequencer), found by index; its clip for the Program track must already exist. */
+/* Seq block in the block editor: the edit goes into the stock sequence itself (one native Undo). */
+static void *arrange_sequencer;
+void step_native_set_sequencer(void *sequencer){arrange_sequencer=sequencer;}
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+static int same_note(const struct step_event*a,const struct step_event*b)
+{ return a->time==b->time&&(a->type&~0x100u)==(b->type&~0x100u)&&!memcmp(a->data,b->data,37); }
+static struct step_event link_removed[PR_MAX_EVENTS];static unsigned char link_used[PR_MAX_EVENTS];
+static int step_native_edit_seq(int slot,const struct pr_plan*plan,char*msg,unsigned msg_size)
+{
+    if(!plan||plan->removed_count>PR_MAX_EVENTS){snprintf(msg,msg_size,"Edit too large");return 0;}
+    if(atomic_load(&clock_recording)){snprintf(msg,msg_size,"Stop recording first");return 0;}
+    void *c=core_step_controller();
+    void *things=c?FIELD(c,0x248,void*):NULL,*track=things?FIELD(things,0x368,void*):NULL;
+    if(!c||!track||!arrange_sequencer||slot<0||slot>=128){snprintf(msg,msg_size,"Sequence unavailable");return 0;}
+    void *seq=FN(0x2909be0,void*(*)(void*,int))(arrange_sequencer,slot);
+    if(!seq||FIELD(seq,0,uintptr_t)!=base+0x6ecdff0){snprintf(msg,msg_size,"Seq %d unavailable",slot+1);return 0;}
+    void *list=FN(0x2957ae0,void*(*)(void*,void*,int))(seq,track,0);
+    if(!list){snprintf(msg,msg_size,"Seq %d is empty: record a note into it once",slot+1);return 0;}
+    unsigned found=0;memset(link_used,0,plan->removed_count);
+    {void *end=(char*)list+0x68,*node=FIELD(list,0x78,void*);unsigned budget=65536;
+     while(node&&node!=end&&budget--&&found<plan->removed_count){const struct step_event*e=(void*)((char*)node+0x20);
+        if(musical(e))for(unsigned j=0;j<plan->removed_count;++j)if(!link_used[j]&&same_note(e,&plan->removed[j])){link_used[j]=1;link_removed[found++]=*e;break;}
+        node=FN(0xb51738,void*(*)(void*))(node);}}
+    if(found!=plan->removed_count){snprintf(msg,msg_size,"Seq %d changed: reopen the block",slot+1);return 0;}
+    void *old_c=controller,*old_s=sequence,*old_e=event_list;int64_t old_l=length;
+    controller=c;sequence=seq;event_list=list;length=FN(0x29571f0,int64_t(*)(void*))(seq);
+    struct add_context ac={0};ac.bulk=1;ac.bulk_removed=link_removed;ac.bulk_removed_count=found;
+    ac.bulk_added=plan->added;ac.bulk_added_count=plan->added_count;ac.bulk_title=plan->title?plan->title:"Edit Seq block";
+    int ok=run_set_command(&ac);
+    controller=old_c;sequence=old_s;event_list=old_e;length=old_l;
+    {char text[96];snprintf(text,sizeof text,"ARRANGE_SEQ_EDIT seq=%d removed=%u added=%u ok=%d",slot+1,found,plan->added_count,ok);report(text);}
+    if(!ok)snprintf(msg,msg_size,"Native edit refused");
+    return ok;
+}
+#endif
 /* Arrange v2 stage 2: copy a stock sequence's musical notes for a live Seq block.
  * slot<0 reads the current sequence. Returns the sequence index, -1 unavailable, -2 too many. */
 int step_native_read_seq(void *sequencer,int slot,struct step_event*out,unsigned cap,unsigned*count,int64_t*len,const char**key,int pad_note[128])

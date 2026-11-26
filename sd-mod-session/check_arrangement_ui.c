@@ -101,9 +101,9 @@ int main(int argc,char**argv){
     phase="Play/Record held locally; Stop stays native; Shift B1 toggles Arrange";
     press(0x52,0);press(0x50,0);assert(!song_ui_owns(PHONE_BUTTON,0x51,0,1));
     assert(ops==original_ops&&step_count==original_steps&&!memcmp(source,steps,sizeof steps));
-    uint64_t old_ticket=song_ui_ticket();press(B1,1);assert(!atomic_load(&arrangement_active));
+    uint64_t old_ticket=song_ui_ticket();press(B1,0);assert(!atomic_load(&arrangement_active));
     transport_state=3;press(B1,1);assert(!atomic_load(&arrangement_active)&&!atomic_load(&export_menu_active));transport_state=2;
-    press(B1,1);assert(atomic_load(&arrangement_active));press(B1,1);assert(!atomic_load(&arrangement_active));
+    press(B1,1);assert(atomic_load(&arrangement_active));press(B1,0);assert(!atomic_load(&arrangement_active));
     unsigned char stale[16]={0};stale[8]=K1;stale[9]=127;
     assert(song_ui_control_ticket(stale,0,old_ticket)&&ops==original_ops);
     stale[8]=B1;stale[9]=1;assert(song_ui_button_ticket(stale,0,old_ticket)&&!atomic_load(&export_menu_active));

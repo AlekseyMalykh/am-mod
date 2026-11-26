@@ -173,7 +173,14 @@ static int roll_encode(void *user,const struct pr_note*n,struct step_event*out){
 }
 static int roll_commit(void *user,const struct pr_plan *plan){
 #ifdef MPC_PATTERN_TOOLS_TRIAL
- if(roll_pattern_index>=0){(void)user;return pt_commit((unsigned)roll_pattern_index,plan);}
+ if(roll_pattern_index>=0){(void)user;
+  int link=pt_link_seq((unsigned)roll_pattern_index);
+  if(link>=0){ /* Seq block: write into the sequence, then refresh the block from it */
+   char msg[80];if(!step_native_edit_seq(link,plan,msg,sizeof msg)){snprintf(roll.error,sizeof roll.error,"%s",msg);return 0;}
+   static struct step_event fresh[8192];unsigned n=0;int64_t len=0;const char*key=NULL;int map[128];
+   if(step_native_read_seq(arrange_sequencer,link,fresh,8192,&n,&len,&key,map)==link)pt_link_sync((unsigned)roll_pattern_index,fresh,n,len,key,map);
+   return 1;}
+  return pt_commit((unsigned)roll_pattern_index,plan);}
 #endif
  (void)user;
  if(!atomic_load(&piano_active)||roll_owner!=event_list||(step_native_transport_state()&4))return 0;

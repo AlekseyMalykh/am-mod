@@ -188,7 +188,7 @@ static unsigned button_bit(unsigned code)
     if(code==0x09)return 2048u;
     if(code==0x23)return 4096u;
     if(code==0x2b)return 8192u;
-    if(code==0x07)return 16384u;
+    if(code==0x0b)return 16384u;
     if(code==0x4a)return 32768u;
 #endif
     return code==B2?1u:code==B3?2u:code==PLUS?4u:code==MINUS?8u:code==B1?16u:0u;
@@ -314,8 +314,8 @@ int song_ui_owns(unsigned kind,unsigned code,int shift,int down)
     if(!down) return (atomic_load(&owned_buttons)&bit)!=0;
 #ifdef MPC_PATTERN_TOOLS_TRIAL
     if(atomic_load(&shown)&&atomic_load(&arrangement_active)){
-        if(code==0x07&&atomic_load(&arrangement_editor))return 0;
-        if(bit>=256u&&code!=0x6f&&code!=0x09&&code!=0x07&&code!=0x4a&&!atomic_load(&arrangement_editor))return 0;
+        if(code==0x0b&&atomic_load(&arrangement_editor))return 0;
+        if(bit>=256u&&code!=0x6f&&code!=0x09&&code!=0x0b&&code!=0x4a&&!atomic_load(&arrangement_editor))return 0;
         atomic_fetch_or(&owned_buttons,bit);return 1;
     }
     if(bit>=32u)return 0;
@@ -969,11 +969,20 @@ void song_ui_tick(void)
 #ifdef MPC_PATTERN_TOOLS_TRIAL
     /* Leaving Song while Arrange plays (Mixer etc.): keep playing and keep Arrange for the return. */
     if(!v){
-        if(atomic_load(&arrangement_active)&&!atomic_load(&arrangement_editor)&&(arrange_play_state||arrange_detached)){
-            if(!arrange_detached){arrange_detached=1;report("ARRANGE_PLAY detached: playback continues off the Song screen");}
+        if(atomic_load(&arrangement_active)&&!atomic_load(&arrangement_editor)){
+            if(!arrange_detached){arrange_detached=1;report("ARRANGE detached: kept for the return to Song");}
             if(arrange_play_state)arrange_play_tick();
         }else{arrange_detached=0;arrange_close();}
     }else{if(arrange_detached){arrange_detached=0;report("ARRANGE_PLAY attached");}if(atomic_load(&arrangement_active))arrange_tick();}
+#endif
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+    if(arrange_export_pending){ /* restore the user's Song after the Arrange export */
+        int busy=!v||atomic_load(&export_menu_active)||export_route_stage||exporting||atomic_load(&stems_name_stage)||atomic_load(&stems_modal_visible)||
+            (step_native_transport_state&&(step_native_transport_state()&1u));
+        if(busy)arrange_export_quiet=0;
+        else if(!arrange_export_quiet)arrange_export_quiet=now_ms();
+        else if(now_ms()-arrange_export_quiet>800){arrange_export_pending=0;arrange_song_restore();report("ARRANGE_EXPORT restored");arrange_open();}
+    }
 #endif
     unsigned shift=atomic_load(&export_shift);
     /* Log transitions only. If the Export screen is visible but this
