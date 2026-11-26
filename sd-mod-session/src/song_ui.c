@@ -301,7 +301,7 @@ int song_ui_owns(unsigned kind,unsigned code,int shift,int down)
     if(!down) return (atomic_load(&owned_buttons)&bit)!=0;
 #ifdef MPC_PATTERN_TOOLS_TRIAL
     if(atomic_load(&shown)&&atomic_load(&arrangement_active)){
-        if(bit>=256u&&code!=0x6f&&!atomic_load(&arrangement_editor))return 0;
+        if(bit>=256u&&code!=0x6f&&code!=0x09&&!atomic_load(&arrangement_editor))return 0;
         atomic_fetch_or(&owned_buttons,bit);return 1;
     }
     if(bit>=32u)return 0;

@@ -1441,7 +1441,7 @@ int step_native_read_seq(void *sequencer,int slot,struct step_event*out,unsigned
         if(node!=end)return -1;}
     *count=n;
     int index=FIELD(seq,0x480,int);
-    {char text[96];snprintf(text,sizeof text,"ARRANGE_READ_SEQ seq=%d notes=%u len=%lld",index+1,n,(long long)*len);report(text);}
+    if(n||slot<0){char text[96];snprintf(text,sizeof text,"ARRANGE_READ_SEQ seq=%d notes=%u len=%lld",index+1,n,(long long)*len);report(text);}
     return index;
 }
 int step_native_render_arrangement_slot(void *sequencer,int slot,int confirm,char*msg,unsigned msg_size)
