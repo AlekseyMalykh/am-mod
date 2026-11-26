@@ -11,6 +11,8 @@ struct NativeDestination {
     std::string program_key;
     std::int64_t sequence_ticks=0;
     bool transport_valid=false,playing=false,recording=false;
+    /* Render into the one project Program: match routes by pad, not by Program key. */
+    bool any_program=false;
     std::array<int,128>pad_to_note,note_to_pad;
     NativeDestination(){pad_to_note.fill(-1);note_to_pad.fill(-1);}
 };

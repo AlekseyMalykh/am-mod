@@ -277,6 +277,7 @@ extern "C" int am_arrange_render(const char*program_key,const int pad_to_note[12
         PreparedArrangement prepared;if(!pt_prepare_song(prepared))return 0;
         NativeDestination d;d.project_epoch=prepared.project_epoch;d.routing_revision=1;d.destination_revision=1;
         d.program_key=program_key;d.sequence_ticks=prepared.length;d.transport_valid=true;d.playing=transport_running!=0;
+        d.any_program=true;
         int owners[128];for(int&o:owners)o=-1;
         for(unsigned pad=0;pad<128;++pad){int note=pad_to_note[pad];d.pad_to_note[pad]=note>=0&&note<128?note:-1;
             if(note>=0&&note<128)owners[note]=owners[note]==-1?(int)pad:-2;}
