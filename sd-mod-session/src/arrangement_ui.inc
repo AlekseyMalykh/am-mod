@@ -49,7 +49,7 @@ static int arrange_forwarded_release(unsigned code){
     arrange_forwarded&=~bit;return 1;
 }
 static uint64_t arrange_play_deadline,arrange_play_confirm_until;
-static int arrange_was_running,arrange_play_retries,arrange_ss_held;
+static int arrange_was_running,arrange_play_retries,arrange_ss_held,arrange_detached;
 static int64_t arrange_play_from;
 extern void step_native_set_render_from(int64_t) __attribute__((weak));
 static uint64_t arrange_play_retry_at;static int64_t arrange_play_end,arrange_play_last_tick;

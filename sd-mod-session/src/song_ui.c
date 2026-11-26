@@ -961,7 +961,13 @@ void song_ui_tick(void)
     int v=visible(screen);
     int exporting=visible(export_screen);
 #ifdef MPC_PATTERN_TOOLS_TRIAL
-    if(!v)arrange_close();else if(atomic_load(&arrangement_active))arrange_tick();
+    /* Leaving Song while Arrange plays (Mixer etc.): keep playing and keep Arrange for the return. */
+    if(!v){
+        if(atomic_load(&arrangement_active)&&!atomic_load(&arrangement_editor)&&(arrange_play_state||arrange_detached)){
+            if(!arrange_detached){arrange_detached=1;report("ARRANGE_PLAY detached: playback continues off the Song screen");}
+            if(arrange_play_state)arrange_play_tick();
+        }else{arrange_detached=0;arrange_close();}
+    }else{if(arrange_detached){arrange_detached=0;report("ARRANGE_PLAY attached");}if(atomic_load(&arrangement_active))arrange_tick();}
 #endif
     unsigned shift=atomic_load(&export_shift);
     /* Log transitions only. If the Export screen is visible but this
