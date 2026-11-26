@@ -3,6 +3,7 @@
 #include "pattern_library.h"
 #include <atomic>
 #include <algorithm>
+#include <array>
 #include <cstdio>
 #include <cstring>
 #include <exception>
@@ -119,6 +120,7 @@ extern "C" int pt_encode(unsigned index,const pr_note*n,step_event*out){
     *out=e;return 1;
 }
 extern "C" int pt_commit(unsigned index,const pr_plan*plan){if(!plan||plan->removed_count>PR_MAX_EVENTS||plan->added_count>PR_MAX_EVENTS||(!plan->removed&&plan->removed_count)||(!plan->added&&plan->added_count))return 0;return edit([&](Library&l){
+    if(index<l.entries.size()&&l.entries[index].link>=0)throw std::runtime_error("Seq block: edit in Seq or Select pads");
     std::vector<step_event>removed,added;if(plan->removed_count)removed.assign(plan->removed,plan->removed+plan->removed_count);if(plan->added_count)added.assign(plan->added,plan->added+plan->added_count);
     return l.edit(index,plan->revision,removed,added,getter());
 });}
@@ -178,6 +180,12 @@ extern "C" int pt_arr_separate(uint64_t id,uint64_t pattern,uint64_t receipt,con
    if(notes[i].selected>1||notes[i].sound!=int(p.routes()[e.route].pad)||std::memcmp(&notes[i].event,&e.native,sizeof e.native))return Result::stale;
    selection.push_back((unsigned char)notes[i].selected);selected+=notes[i].selected;
   }
+  const int link=s.library.entries[index].link;auto mask=s.library.entries[index].mask;
+  if(link>=0&&selected){ /* Seq block: a selected note selects its whole pad row. */
+   std::array<unsigned char,16>rows{};for(unsigned i=0;i<count;++i)if(selection[i]){unsigned pad=p.routes()[p.events()[i].route].pad;rows[pad>>3]|=(unsigned char)(1u<<(pad&7));}
+   selected=0;for(unsigned i=0;i<count;++i){unsigned pad=p.routes()[p.events()[i].route].pad;selection[i]=(rows[pad>>3]>>(pad&7))&1;selected+=selection[i];}
+   for(unsigned b=0;b<16;++b)mask[b]|=rows[b];
+  }
   if(!selected)return Result::invalid;
   unsigned needed=copy||selected==count?1:2;
   if(s.song.tracks.size()>=arrangement_track_limit||
@@ -189,7 +197,8 @@ extern "C" int pt_arr_separate(uint64_t id,uint64_t pattern,uint64_t receipt,con
   bool muted=s.song.tracks[row_index].muted,solo=s.song.tracks[row_index].solo;
   Id extracted=pattern,remainder=0;
   {auto result=s.library.subset(index,selection,false,getter(),extracted);if(result!=Result::ok)return result;}
-  if(!copy&&selected!=count){auto result=s.library.subset(index,selection,true,getter(),remainder);if(result!=Result::ok)return result;}
+  if(!copy&&selected!=count){auto result=s.library.subset(index,selection,true,getter(),remainder);if(result!=Result::ok)return result;
+   if(link>=0){auto&rest=s.library.entries.back();rest.link=link;rest.mask=mask;char name[24];std::snprintf(name,sizeof name,"Seq %02d",link+1);rest.name=name;}}
   Id row=0;auto result=s.song.add_track("Part "+std::to_string(s.song.tracks.size()+1),s.library,row);if(result!=Result::ok)return result;
   std::rotate(s.song.tracks.begin()+row_index+1,s.song.tracks.end()-1,s.song.tracks.end());
   if(muted||solo){result=s.song.track_state(row,muted,solo,s.library);if(result!=Result::ok)return result;}
@@ -203,6 +212,67 @@ extern "C" int pt_arr_separate(uint64_t id,uint64_t pattern,uint64_t receipt,con
   return result;
  });if(ok)*out=created;return ok;
 }
+namespace {
+/* Seq block content: the stock sequence's notes on the current Program, minus muted pads. */
+Result link_pattern(Id id,std::uint64_t revision,const std::array<unsigned char,16>&mask,const step_event*ev,unsigned n,
+                    std::int64_t length,const char*key,const int pad_note[128],Pattern&out){
+    if((!ev&&n)||!key||!key[0]||std::strlen(key)>=128||!pad_note||length<=0||length>library_tick_limit)return Result::invalid;
+    if(n>max_events)return Result::limit;
+    std::vector<Route>routes;int route_of[128];for(int&r:route_of)r=-1;
+    for(unsigned pad=0;pad<128;++pad){int note=pad_note[pad];if(note<0||note>127||route_of[note]>=0)continue;
+        Route r;r.program_key=key;r.pad=pad;r.source_note=(unsigned)note;route_of[note]=(int)routes.size();routes.push_back(r);}
+    if(routes.empty())return Result::unsupported;
+    std::vector<PatternEvent>events;events.reserve(n);
+    for(unsigned i=0;i<n;++i){step_event e=ev[i];e.type&=~0x100u;if((e.type&255)!=3||e.time<0||e.time>=length)continue;
+        unsigned note=e.data[32];if(note>127||route_of[note]<0)continue;
+        unsigned pad=routes[route_of[note]].pad;if((mask[pad>>3]>>(pad&7))&1)continue;
+        am_midi_event v{};if(!am_midi_event_copy(&e,getter(),AM_MIDI_EVENT_NOTE_ON,&v)||v.source_note!=note||v.duration<0)continue;
+        PatternEvent p;p.id=events.size()+1;p.native=e;p.route=(unsigned)route_of[note];events.push_back(p);}
+    std::stable_sort(events.begin(),events.end(),[](const PatternEvent&a,const PatternEvent&b){return a.native.time<b.native.time;});
+    return Pattern::restore(id,0,revision,length,routes,events,getter(),out);
+}
+bool same_pattern(const Pattern&a,const Pattern&b){
+    if(a.length()!=b.length()||a.routes().size()!=b.routes().size()||a.events().size()!=b.events().size())return false;
+    for(std::size_t i=0;i<a.routes().size();++i){const auto&x=a.routes()[i],&y=b.routes()[i];if(x.program_key!=y.program_key||x.pad!=y.pad||x.source_note!=y.source_note)return false;}
+    for(std::size_t i=0;i<a.events().size();++i){const auto&x=a.events()[i].native,&y=b.events()[i].native;
+        if(x.time!=y.time||(x.type&~0x100u)!=(y.type&~0x100u)||std::memcmp(x.data,y.data,37)||a.events()[i].route!=b.events()[i].route)return false;}
+    return true;
+}
+}
+extern "C" int pt_link_seq(unsigned index){try{auto s=snapshot();return index<s->library.entries.size()?s->library.entries[index].link:-1;}catch(...){return -1;}}
+extern "C" int pt_arr_add_link(uint64_t track,int64_t start,int seq,const step_event*ev,unsigned n,int64_t length,const char*key,const int pad_note[128],uint64_t*out){
+ if(!out||seq<0||seq>=128||start<0)return 0;
+ Id created=0;
+ int ok=edit_state([&](State&s){
+  if(s.library.entries.size()>=library_limit||s.library.next==UINT64_MAX||s.library.revision==UINT64_MAX)return Result::limit;
+  LibraryEntry entry;entry.link=seq;char name[24];std::snprintf(name,sizeof name,"Seq %02d",seq+1);entry.name=name;
+  auto result=link_pattern(s.library.next,1,entry.mask,ev,n,length,key,pad_note,entry.pattern);if(result!=Result::ok)return result;
+  std::size_t total=entry.pattern.events().size();for(const auto&e:s.library.entries)total+=e.pattern.events().size();if(total>max_events)return Result::limit;
+  Id pattern=s.library.next;s.library.entries.push_back(std::move(entry));++s.library.next;++s.library.revision;
+  if(length>library_tick_limit-start)return Result::limit;
+  if(start+length>s.song.length){result=s.song.song_length(start+length,s.library);if(result!=Result::ok)return result;}
+  Id row=track;if(!row){result=s.song.add_track("Track "+std::to_string(s.song.tracks.size()+1),s.library,row);if(result!=Result::ok)return result;}
+  result=s.song.add_clip(row,pattern,start,length,0,s.library,created);if(result==Result::ok)s.arr_mode=1;return result;
+ });if(ok)*out=created;return ok;
+}
+/* Refresh one Seq block from its stock sequence. Not an Undo step. 2 unchanged, 1 updated, 0 refused. */
+extern "C" int pt_link_sync(unsigned index,const step_event*ev,unsigned n,int64_t length,const char*key,const int pad_note[128]){try{
+    auto old=snapshot();if(old->mode==2||old->arr_mode==2)throw std::runtime_error("Newer song data: read only");
+    if(index>=old->library.entries.size()||old->library.entries[index].link<0)throw std::runtime_error("Not a Seq block");
+    const auto&entry=old->library.entries[index];Pattern value;
+    auto result=link_pattern(entry.pattern.id(),entry.pattern.revision()+1,entry.mask,ev,n,length,key,pad_note,value);
+    if(result!=Result::ok)throw std::runtime_error(message(result));
+    if(same_pattern(value,entry.pattern))return 2;
+    std::size_t total=value.events().size();for(unsigned i=0;i<old->library.entries.size();++i)if(i!=index)total+=old->library.entries[i].pattern.events().size();
+    if(total>max_events)throw std::runtime_error("Pattern library limit");
+    auto next=std::make_shared<State>(*old);Id id=entry.pattern.id();next->library.entries[index].pattern=std::move(value);++next->library.revision;
+    bool moved=false;for(auto&c:next->song.clips)if(c.pattern==id&&c.offset>=length){c.offset=0;moved=true;}
+    if(moved)++next->song.revision;
+    if(next->song.validate(next->library)!=Result::ok)throw std::runtime_error("Seq block no longer fits");
+    std::lock_guard<std::mutex>lock(mutex);if(current!=old)throw std::runtime_error("Project changed: retry");
+    if(serial.load()==UINT64_MAX)throw std::runtime_error("Pattern receipt exhausted");
+    current=std::move(next);serial.fetch_add(1);error[0]=0;return 1;
+}catch(const std::bad_alloc&){set_error("Not enough memory for patterns");return 0;}catch(const std::exception&e){set_error(e.what());return 0;}catch(...){set_error("Seq block refresh failed");return 0;}}
 namespace am_pattern {
 int pt_prepare_song(PreparedArrangement&out){try{auto generation=epoch.load();if(expected_epoch&&expected_epoch!=generation)throw std::runtime_error("Project changed: reopen Patterns");auto s=snapshot();if(s->mode==2||s->arr_mode==2)throw std::runtime_error("Newer song data: read only");
     PreparedArrangement prepared;auto result=prepare_arrangement(s->song,s->library,generation,prepared);if(result!=Result::ok)throw std::runtime_error(message(result));

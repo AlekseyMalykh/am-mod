@@ -56,6 +56,10 @@ int pt_pattern_assigned(unsigned index);
  * copy=1 leaves the original clip intact. One history transaction. */
 int pt_arr_separate(uint64_t clip,uint64_t pattern,uint64_t serial,
     const struct pr_note*,unsigned count,int copy,uint64_t*result_clip);
+/* Live Seq blocks (Arrange v2 stage 2). UI owner. Events are copied stock notes. */
+int pt_link_seq(unsigned index);
+int pt_arr_add_link(uint64_t track,int64_t start,int seq,const struct step_event*,unsigned,int64_t length,const char*key,const int pad_note[128],uint64_t*clip);
+int pt_link_sync(unsigned index,const struct step_event*,unsigned,int64_t length,const char*key,const int pad_note[128]);
 const char*pt_error(void);
 void pt_archive_save(void*,void*,void(*)(void*,void*));
 void pt_archive_load(void*,void*,void(*)(void*,void*));

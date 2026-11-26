@@ -1414,6 +1414,36 @@ int step_native_render_arrangement(int confirm,char*msg,unsigned msg_size)
 }
 /* Arrange playback slot: render into sequence `slot` of `sequencer` (the Song screen's
  * sequencer), found by index; its clip for the Program track must already exist. */
+/* Arrange v2 stage 2: copy a stock sequence's musical notes for a live Seq block.
+ * slot<0 reads the current sequence. Returns the sequence index, -1 unavailable, -2 too many. */
+int step_native_read_seq(void *sequencer,int slot,struct step_event*out,unsigned cap,unsigned*count,int64_t*len,const char**key,int pad_note[128])
+{
+    if(!out||!count||!len||!key||!pad_note||!on_ui())return -1;
+    *count=0;*len=0;*key=NULL;
+    void *c=core_step_controller();
+    void *things=c?FIELD(c,0x248,void*):NULL,*track=things?FIELD(things,0x368,void*):NULL;
+    void *program=things?FIELD(things,0xb8,void*):NULL;
+    if(!c||!things||!track||!program)return -1;
+    void *seq=NULL,*list=NULL;
+    if(slot<0){seq=FIELD(things,0x1c8,void*);void *clip=FIELD(things,0x3d0,void*);list=clip?(char*)clip+0x688:NULL;}
+    else{if(!sequencer||slot>=128)return -1;seq=FN(0x2909be0,void*(*)(void*,int))(sequencer,slot);
+        if(seq&&FIELD(seq,0,uintptr_t)==base+0x6ecdff0)list=FN(0x2957ae0,void*(*)(void*,void*,int))(seq,track,0);else seq=NULL;}
+    if(!seq)return -1;
+    const char *k=FIELD(program,0xdc8,const char*);
+    if(!k||!k[0]||strnlen(k,128)>=128)return -1;
+    *key=k;*len=FN(0x29571f0,int64_t(*)(void*))(seq);
+    for(unsigned pad=0;pad<128;++pad)pad_note[pad]=FN(0x157f800,int(*)(void*,int))(c,(int)pad);
+    unsigned n=0;
+    if(list){void *end=(char*)list+0x68,*node=FIELD(list,0x78,void*);unsigned budget=65536;
+        while(node&&node!=end&&budget--){const struct step_event*e=(void*)((char*)node+0x20);
+            if(musical(e)){if(n>=cap)return -2;out[n++]=*e;}
+            node=FN(0xb51738,void*(*)(void*))(node);}
+        if(node!=end)return -1;}
+    *count=n;
+    int index=FIELD(seq,0x480,int);
+    {char text[96];snprintf(text,sizeof text,"ARRANGE_READ_SEQ seq=%d notes=%u len=%lld",index+1,n,(long long)*len);report(text);}
+    return index;
+}
 int step_native_render_arrangement_slot(void *sequencer,int slot,int confirm,char*msg,unsigned msg_size)
 {
     if(!msg||!msg_size)return -1;

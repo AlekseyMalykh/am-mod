@@ -1,10 +1,12 @@
 #ifndef AM_PATTERN_LIBRARY_H
 #define AM_PATTERN_LIBRARY_H
 #include "pattern_model.h"
+#include <array>
 namespace am_pattern {
 constexpr unsigned library_limit=32;
 constexpr std::int64_t library_tick_limit=INT64_C(960)*128*64;
-struct LibraryEntry {Pattern pattern;std::string name;bool part=false;};
+/* link>=0: a live Sequence block mirroring stock Seq link+1; mask bit = muted pad. */
+struct LibraryEntry {Pattern pattern;std::string name;bool part=false;int link=-1;std::array<unsigned char,16>mask{};};
 struct Library {
     Id next=1;std::uint64_t revision=1;std::vector<LibraryEntry>entries;
     Result split(std::shared_ptr<const Snapshot>,const std::vector<Id>*,SplitBy,am_midi_choice_get);

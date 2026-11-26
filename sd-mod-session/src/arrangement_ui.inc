@@ -14,7 +14,7 @@ static int64_t arrange_edit_cursor,arrange_edit_left;
 static const int64_t arrange_grids[]={240,480,960,1920,3840};
 static const char*const arrange_actions[]={"Add track","Insert pattern","Copy block","Paste block",
     "Move selected here","Extend one cycle","Trim end to cursor","Join next block",
-    "Mute track","Solo track","Delete block","Song +16 beats","Song -16 beats","Open pattern","New empty pattern","Create variation","Render to current seq"};
+    "Mute track","Solo track","Delete block","Song +16 beats","Song -16 beats","Open pattern","New empty pattern","Create variation","Render to current seq","Add current seq"};
 /* Stage 1 of Arrange v2: whole song into the current stock sequence (one Undo). */
 extern int step_native_render_arrangement(int,char*,unsigned) __attribute__((weak));
 static uint64_t arrange_render_confirm_until;
@@ -39,6 +39,43 @@ static int arrange_forwarded_release(unsigned code){
 }
 static uint64_t arrange_play_deadline,arrange_play_confirm_until;
 static int arrange_was_running;
+/* ---- Arrange v2 stage 2: live Seq blocks. Refreshed from the stock sequence before
+ * Play and before opening the block, so a re-recorded sequence sounds in Arrange. ---- */
+extern int step_native_read_seq(void*,int,struct step_event*,unsigned,unsigned*,int64_t*,const char**,int[128]) __attribute__((weak));
+static struct step_event arrange_seq_notes[8192];
+static int arrange_sync_links(void*sequencer){
+    if(!step_native_read_seq)return 0;
+    int changed=0;unsigned n=pt_count();
+    for(unsigned i=0;i<n;++i){int seq=pt_link_seq(i);if(seq<0)continue;
+        unsigned count=0;int64_t len=0;const char*key=NULL;int map[128];
+        int got=step_native_read_seq(sequencer,seq,arrange_seq_notes,8192,&count,&len,&key,map);
+        char m[128];
+        if(got!=seq){snprintf(m,sizeof m,"ARRANGE_LINK seq=%d unreadable r=%d",seq+1,got);report(m);continue;}
+        int r=pt_link_sync(i,arrange_seq_notes,count,len,key,map);
+        snprintf(m,sizeof m,"ARRANGE_LINK seq=%d notes=%u len=%lld r=%d %s",seq+1,count,(long long)len,r,r?"":pt_error());report(m);
+        changed+=r==1;
+    }
+    return changed;
+}
+static void arrange_add_seq(void){
+    struct pt_arrangement a;struct pt_arr_track t;uint64_t id=0;
+    if(!pt_arr_info(&a)||a.read_only){say("Arrangement is read only");return;}
+    if(!step_native_read_seq){say("Seq blocks unavailable in this build");return;}
+    unsigned count=0;int64_t len=0;const char*key=NULL;int map[128];
+    int seq=step_native_read_seq(NULL,-1,arrange_seq_notes,8192,&count,&len,&key,map);
+    if(seq==-2){say("Sequence has too many notes");return;}
+    if(seq<0||len<=0){say("No current sequence");return;}
+    if(seq==ARRANGE_SLOT){say("Seq 128 is used by Arrange playback");return;}
+    uint64_t track=pt_arr_track_at((unsigned)arrange_row,&t)?t.id:0;
+    int ok=pt_arr_add_link(track,arrange_cursor,seq,arrange_seq_notes,count,len,key,map,&id);
+    if(!ok&&track)ok=pt_arr_add_link(0,arrange_cursor,seq,arrange_seq_notes,count,len,key,map,&id);
+    if(!ok){say(pt_error()[0]?pt_error():"Seq block unavailable");return;}
+    if(!track||!pt_arr_track_at((unsigned)arrange_row,&t)||t.id!=track){struct pt_arrangement b;if(pt_arr_info(&b)&&b.tracks)arrange_row=(int)b.tracks-1;}
+    arrange_selected=id;arrange_menu=0;
+    if(arrange_cursor+len>arrange_left+arrange_span)arrange_left=arrange_cursor;
+    {char m[64];snprintf(m,sizeof m,"Seq %02d added: %u notes, live",seq+1,count);say(m);}
+    arrange_tick();repaint(screen);
+}
 static int arrange_song_alive(void*sequencer,void*song){
     if(!sequencer||!song)return 0;
     if(FIELD(sequencer,0x1270,void*)==song)return 1;
@@ -73,9 +110,10 @@ static void arrange_play_start(void){
             screen!=NULL,ctl!=NULL,sq!=NULL,sq?FIELD(sq,0xb38,int):-9,sq?FIELD(sq,0x126c,unsigned):0u,sq?FIELD(sq,0x1270,void*)!=NULL:0);
         report(m);say("Song unavailable");return;}
     if(r.count>512){say("Song has too many steps");return;}
+    arrange_sync_links(r.sequencer);
     if(!step_native_render_arrangement_slot||!phone_native_inject_button){say("Playback unavailable in this build");return;}
     uint64_t now=now_ms();
-    char msg[96];int rr=step_native_render_arrangement_slot(r.sequencer,ARRANGE_SLOT,arrange_play_confirm_until&&now<arrange_play_confirm_until,msg,sizeof msg);
+    char msg[96];int rr=step_native_render_arrangement_slot(r.sequencer,ARRANGE_SLOT,1,msg,sizeof msg); /* service slot: always overwrite */
     arrange_play_confirm_until=rr==-2?now+6000:0;
     if(rr<0){say(msg);return;}
     /* Save the user's steps, then swap in the single Arrange step. */
@@ -177,6 +215,7 @@ static void arrange_separated(uint64_t id){
 static void arrange_edit_pattern(void){
     struct pt_arr_clip c;struct pt_entry p;
     if(!arrange_target(&c)){say("Choose a block to edit");return;}
+    {int i=pt_pattern_index(c.pattern);struct song_ref r;if(i>=0&&pt_link_seq((unsigned)i)>=0&&song_ref_any(&r))arrange_sync_links(r.sequencer);}
     int index=pt_pattern_index(c.pattern);
     if(index<0||!pt_info((unsigned)index,&p)){say("Pattern unavailable");return;}
     int64_t phase=c.offset;
@@ -232,6 +271,7 @@ static void arrange_execute(void){
     else if(arrange_pick==10){if(!have_clip){say("Select a block first");return;}arrange_selected=c.id;arrange_menu=3;return;}
     else if(arrange_pick==13){arrange_edit_pattern();return;}
     else if(arrange_pick==14){arrange_new_pattern();return;}
+    else if(arrange_pick==17){arrange_add_seq();return;}
     else if(arrange_pick==15){if(!have_clip){say("Choose a block first");return;}ok=pt_arr_variation(c.id);}
     else if(arrange_pick==16){
         if(!step_native_render_arrangement){say("Render unavailable in this build");return;}

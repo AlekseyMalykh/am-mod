@@ -47,6 +47,7 @@ int step_native_insert_pad_note_at(unsigned pad,int64_t tick,uintptr_t current_s
 /* Arrange: whole song into the current sequence (UI, stopped). >=0 notes, -1 error, -2 needs confirm. */
 int step_native_render_arrangement(int confirm,char*msg,unsigned msg_size);
 int step_native_render_arrangement_slot(void*sequencer,int slot,int confirm,char*msg,unsigned msg_size);
+int step_native_read_seq(void*sequencer,int slot,struct step_event*out,unsigned cap,unsigned*count,int64_t*len,const char**key,int pad_note[128]);
 int step_native_bank_or_last(void); /* last valid bank (0 before the first). */
 int step_native_browser_bank(int bank); /* UI only; -1 reads, 0..7 selects bank. */
 int step_native_active(void);

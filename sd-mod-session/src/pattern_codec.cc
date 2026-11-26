@@ -19,9 +19,11 @@ struct Reader {
 std::uint32_t checksum(const std::string&s){std::uint32_t h=2166136261u;for(unsigned char c:s)h=(h^c)*16777619u;return h;}
 }
 std::string library_encode(const Library&library){
+    bool v2=false;for(const auto&entry:library.entries)if(entry.link>=0)v2=true;
     Writer w;w.number(library.next,8);w.number(library.revision,8);w.number(library.entries.size(),1);
     for(const auto&entry:library.entries){const auto&p=entry.pattern;
         w.number(p.id(),8);w.number(p.parent(),8);w.number(p.revision(),8);w.number(std::uint64_t(p.length()),8);w.number(entry.part,1);w.text(entry.name,63);
+        if(v2){if(entry.link<-1||entry.link>127)throw std::runtime_error("Pattern link");w.number(std::uint64_t(entry.link+1),1);for(unsigned char m:entry.mask)w.number(m,1);}
         w.number(p.routes().size(),2);for(const auto&r:p.routes()){w.text(r.program_key,127);w.number(r.pad,1);w.number(r.source_note,1);w.number(r.mixer_bus+2,1);}
         w.number(p.events().size(),4);for(const auto&e:p.events()){
             w.number(e.id,8);w.number(e.source_snapshot,8);w.number(e.source_event,8);w.number(e.route,2);
@@ -30,11 +32,12 @@ std::string library_encode(const Library&library){
         }
     }
     if(w.bytes.size()>byte_limit)throw std::runtime_error("Pattern archive limit");
-    w.number(checksum(w.bytes),4);std::string result="AMP1 ";result.reserve(6+w.bytes.size()*2);
+    w.number(checksum(w.bytes),4);std::string result=v2?"AMS1 ":"AMP1 ";result.reserve(6+w.bytes.size()*2);
     const char hex[]="0123456789abcdef";for(unsigned char c:w.bytes){result+=hex[c>>4];result+=hex[c&15];}result+='\n';return result;
 }
 Result library_decode(const std::string&text,am_midi_choice_get get,Library&out){
-    if(text.compare(0,5,"AMP1 "))return Result::unsupported;
+    bool v2=!text.compare(0,5,"AMS1 ");
+    if(!v2&&text.compare(0,5,"AMP1 "))return Result::unsupported;
     if(text.size()<6||(text.size()-6)%2||text.size()>6+2*(byte_limit+4)||text.back()!='\n')return Result::invalid;
     try{
         auto digit=[](unsigned char c)->int{if(c>='0'&&c<='9')return c-'0';if(c>='a'&&c<='f')return c-'a'+10;return -1;};
@@ -50,7 +53,8 @@ Result library_decode(const std::string&text,am_midi_choice_get get,Library&out)
             auto id=r.number(8),parent=r.number(8),revision=r.number(8),length=r.number(8);auto part=r.number(1);
             if(!id||id>=value.next||parent>=value.next||!ids.insert(id).second||part>1||length>INT64_MAX)return Result::invalid;
             if(length>std::uint64_t(library_tick_limit))return Result::unsupported;
-            LibraryEntry entry;entry.part=part;entry.name=r.text(63);std::vector<Route>routes;auto nr=r.number(2);if(nr>max_routes)return Result::limit;
+            LibraryEntry entry;entry.part=part;entry.name=r.text(63);
+            if(v2){auto link=r.number(1);if(link>128)return Result::invalid;entry.link=int(link)-1;for(auto&m:entry.mask)m=(unsigned char)r.number(1);}std::vector<Route>routes;auto nr=r.number(2);if(nr>max_routes)return Result::limit;
             for(unsigned j=0;j<nr;++j){Route route;route.program_key=r.text(127);route.pad=r.number(1);route.source_note=r.number(1);route.mixer_bus=int(r.number(1))-2;routes.push_back(std::move(route));}
             /* This editor's Sound rows have one Program catalog. Preserve a
              * future multi-Program entry opaquely rather than misroute edits. */
