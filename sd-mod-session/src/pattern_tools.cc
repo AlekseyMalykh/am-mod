@@ -138,6 +138,31 @@ extern "C" int pt_arr_resize(uint64_t id,int64_t length){return arrange([&](Arra
 extern "C" int pt_arr_cut(uint64_t id,int64_t cursor,uint64_t*out){if(!out)return 0;Id right=0;int ok=arrange([&](Arrangement&a,const Library&l){return a.cut_clip(id,cursor,l,right);});if(ok)*out=right;return ok;}
 extern "C" int pt_arr_join(uint64_t first,uint64_t second){return arrange([&](Arrangement&a,const Library&l){return a.join_clips(first,second,l);});}
 extern "C" int pt_arr_remove(uint64_t id){return arrange([&](Arrangement&a,const Library&l){return a.erase_clip(id,l);});}
+extern "C" int pt_arr_remove_track(uint64_t id){return arrange([&](Arrangement&a,const Library&l){return a.erase_track(id,l);});}
+/* Several blocks in one Undo step. mode 0 move by (dt,drow), 1 copy by (dt,drow), 2 delete. */
+extern "C" int pt_arr_multi(const uint64_t*ids,unsigned n,int64_t dt,int drow,int mode){
+ if(!ids||!n||n>arrangement_clip_limit||mode<0||mode>2)return 0;
+ return edit_state([&](State&s){
+  auto&a=s.song;std::vector<Id>order;for(const auto&t:a.tracks)order.push_back(t.id);
+  auto row_of=[&](Id track){for(unsigned i=0;i<order.size();++i)if(order[i]==track)return (int)i;return -1;};
+  std::vector<ArrangementClip>added;std::int64_t end=a.length;
+  for(unsigned k=0;k<n;++k){
+   auto it=std::find_if(a.clips.begin(),a.clips.end(),[&](const ArrangementClip&c){return c.id==ids[k];});if(it==a.clips.end())return Result::stale;
+   if(mode==2){a.clips.erase(it);continue;}
+   int row=row_of(it->track)+drow;if(row<0||row>=(int)order.size())throw std::runtime_error("No track there");
+   if(it->start+dt<0)throw std::runtime_error("Before song start");
+   ArrangementClip c=*it;c.track=order[row];c.start+=dt;if(c.length>library_tick_limit-c.start)return Result::limit;
+   if(c.start+c.length>end)end=c.start+c.length;
+   if(mode==0)*it=c;else{if(a.clips.size()+added.size()>=arrangement_clip_limit||!a.next||a.next==UINT64_MAX)return Result::limit;c.id=a.next++;added.push_back(c);}
+  }
+  for(auto&c:added)a.clips.push_back(c);
+  if(end>a.length){if(end>library_tick_limit)return Result::limit;a.length=end;}
+  if(a.revision==UINT64_MAX)return Result::limit;
+  ++a.revision;
+  if(a.validate(s.library)!=Result::ok)throw std::runtime_error("Blocks overlap there");
+  s.arr_mode=1;return Result::ok;
+ });
+}
 extern "C" int pt_arr_track_state(uint64_t id,int muted,int solo){if((muted!=0&&muted!=1)||(solo!=0&&solo!=1))return 0;return arrange([&](Arrangement&a,const Library&l){return a.track_state(id,muted!=0,solo!=0,l);});}
 extern "C" int pt_arr_length(int64_t length){return arrange([&](Arrangement&a,const Library&l){return a.song_length(length,l);});}
 extern "C" int pt_pattern_assigned(unsigned index){try{auto s=snapshot();if(index>=s->library.entries.size())return 0;const auto&r=s->library.entries[index].pattern.routes();if(r.empty())return 0;for(const auto&t:r)if(t.program_key==unassigned_program_key)return 0;return 1;}catch(...){return 0;}}

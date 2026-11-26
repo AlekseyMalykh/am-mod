@@ -242,6 +242,7 @@ static _Atomic unsigned bank_pad_owned;
 #endif
 static _Atomic unsigned native_shift_requested,native_mute_mode;
 static _Atomic unsigned tail_layout,tail_pads,stop_requested;
+int phone_native_stop_held(void){return atomic_load(&stop_requested)!=0;}
 #ifdef MPC_PAD_MIDI_RECORDING_TRIAL
 static _Atomic unsigned synth_record_stop_serial;
 #endif

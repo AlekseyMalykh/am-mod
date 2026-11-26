@@ -43,6 +43,8 @@ int pt_arr_resize(uint64_t,int64_t);
 int pt_arr_cut(uint64_t,int64_t,uint64_t*);
 int pt_arr_join(uint64_t,uint64_t);
 int pt_arr_remove(uint64_t);
+int pt_arr_remove_track(uint64_t);
+int pt_arr_multi(const uint64_t*ids,unsigned n,int64_t dt,int drow,int mode);
 int pt_arr_track_state(uint64_t,int,int);
 int pt_arr_length(int64_t);
 /* One Store/history transaction. track=0 creates a track; template=0 makes

@@ -12,13 +12,20 @@ static uint64_t arrange_edit_revision;
 static int arrange_edit_row;
 static int64_t arrange_edit_cursor,arrange_edit_left;
 static const int64_t arrange_grids[]={240,480,960,1920,3840};
-static const char*const arrange_actions[]={"Add track","Insert pattern","Copy block","Paste block",
-    "Move selected here","Extend one cycle","Trim end to cursor","Join next block",
-    "Mute track","Solo track","Delete block","Song +16 beats","Song -16 beats","Open pattern","New empty pattern","Create variation","Render to current seq","Add current seq"};
+/* Labels by action id; arrange_order is the grouped display order (Add / Block / Track / Song). */
+static const char*const arrange_actions[]={"Track: add","Add: pattern from library","Block: copy","Block: paste at cursor",
+    "Block: move selection here","Block: extend one cycle","Block: trim end to cursor","Block: join next block",
+    "Track: mute","Track: solo","Block: delete","Song: +4 bars","Song: -4 bars","Block: open in Piano Roll","Add: empty pattern","Block: make variation","Song: render to current seq","Add: current sequence","Track: delete"};
+static const int arrange_order[]={17,14,1, 13,2,3,4,5,6,7,15,10, 0,8,9,18, 11,12,16};
+#define ARRANGE_ORDER_COUNT ((int)(sizeof arrange_order/sizeof *arrange_order))
+static uint64_t arrange_multi[512];static unsigned arrange_multi_count;static int arrange_anchor_row;
+static int arrange_is_multi(uint64_t id){for(unsigned i=0;i<arrange_multi_count;++i)if(arrange_multi[i]==id)return 1;return 0;}
+static void arrange_bbt(int64_t t,char*out,size_t n){if(t<0)t=0;snprintf(out,n,"%lld.%lld",(long long)(t/3840+1),(long long)(t%3840/960+1));}
+extern int phone_native_stop_held(void) __attribute__((weak));
 /* Stage 1 of Arrange v2: whole song into the current stock sequence (one Undo). */
 extern int step_native_render_arrangement(int,char*,unsigned) __attribute__((weak));
 static uint64_t arrange_render_confirm_until;
-#define ARRANGE_ACTIONS ((int)(sizeof arrange_actions/sizeof *arrange_actions))
+#define ARRANGE_ACTIONS ARRANGE_ORDER_COUNT
 /* ---- Arrange v2 stage 1b: Play/Stop through the stock Song transport ----
  * Play renders the whole arrangement into the Arrange slot (Seq 128), temporarily
  * replaces the current Song's steps with [Seq 128 x1] using the same native chain
@@ -301,7 +308,14 @@ static void arrange_begin_edit(void){
 static void arrange_release(unsigned code){
     if(code!=0x6f||!arrange_data_held)return;
     arrange_data_held=0;
-    if(!arrange_data_moved){struct pt_arr_clip c;arrange_range=0;if(arrange_selected)arrange_selected=0;else if(arrange_target(&c))arrange_selected=c.id;}
+    if(!arrange_data_moved){struct pt_arr_clip c;arrange_range=0;arrange_multi_count=0;if(arrange_selected)arrange_selected=0;else if(arrange_target(&c))arrange_selected=c.id;}
+    else{struct pt_arrangement a;int r0=arrange_anchor_row<arrange_row?arrange_anchor_row:arrange_row,r1=arrange_anchor_row<arrange_row?arrange_row:arrange_anchor_row;
+        int64_t t0=arrange_anchor<arrange_cursor?arrange_anchor:arrange_cursor,t1=(arrange_anchor>arrange_cursor?arrange_anchor:arrange_cursor)+arrange_grid;
+        arrange_multi_count=0;
+        if(pt_arr_info(&a))for(unsigned j=0;j<a.clips&&arrange_multi_count<512;++j){struct pt_arr_clip c;if(!pt_arr_clip_at(j,&c)||c.start>=t1||c.start+c.length<=t0)continue;
+            for(int r=r0;r<=r1;++r){struct pt_arr_track t;if(pt_arr_track_at((unsigned)r,&t)&&t.id==c.track){arrange_multi[arrange_multi_count++]=c.id;break;}}}
+        if(arrange_multi_count){char m[80];arrange_range=0;arrange_selected=0;snprintf(m,sizeof m,"%u blocks: move cursor, Actions > move here / Erase",arrange_multi_count);say(m);}
+    }
     arrange_data_moved=0;repaint(screen);
 }
 static void arrange_execute(void){
@@ -309,6 +323,14 @@ static void arrange_execute(void){
     if(!pt_arr_info(&a))return;
     int have_track=pt_arr_track_at((unsigned)arrange_row,&t),have_clip=arrange_target(&c),ok=0;
     uint64_t id=0;
+    int display=arrange_pick;arrange_pick=display>=0&&display<ARRANGE_ORDER_COUNT?arrange_order[display]:-1;
+    if(arrange_pick==4&&arrange_multi_count){arrange_pick=display;
+        int64_t first=-1;int top=1<<30;for(unsigned i=0;i<arrange_multi_count;++i){struct pt_arr_clip m;if(!arrange_clip(arrange_multi[i],&m))continue;if(first<0||m.start<first)first=m.start;
+            for(unsigned r=0;r<a.tracks;++r){struct pt_arr_track rt;if(pt_arr_track_at(r,&rt)&&rt.id==m.track&&(int)r<top)top=(int)r;}}
+        ok=first>=0&&pt_arr_multi(arrange_multi,arrange_multi_count,arrange_cursor-first,arrange_row-top,0);
+        if(ok)arrange_menu=0;
+        arrange_result(ok);return;}
+    if(arrange_pick==18){arrange_pick=display;if(!have_track){say("No track here");return;}arrange_menu=6;return;}
     if(arrange_pick==0){char name[32];snprintf(name,sizeof name,"Track %u",a.tracks+1);ok=pt_arr_add_track(name,&id);if(ok)arrange_row=(int)a.tracks;}
     else if(arrange_pick==1){if(!have_track){say("Add a track first");return;}if(!pt_count()){say("Create Parts in Events > Piano Roll");return;}arrange_menu=2;arrange_pick=0;return;}
     else if(arrange_pick==2){if(!have_clip){say("No block to copy");return;}arrange_clipboard=c;arrange_menu=0;say("Copied; move cursor, Actions > Paste");return;}
@@ -331,6 +353,7 @@ static void arrange_execute(void){
         say(msg);if(r>=0)arrange_menu=0;return;
     }
     else ok=pt_arr_length(a.length+(arrange_pick==11?15360:-15360));
+    arrange_pick=display;
     if(ok)arrange_menu=0;
     arrange_result(ok);
 }
@@ -351,11 +374,16 @@ static int arrange_button(unsigned code,int shifted){
     if(code==0x51&&arrange_play_state==2){arrange_play_state=3;arrange_play_deadline=now_ms()+2000;arrange_forwarded|=2u;return 0;} /* stock Stop, restore when stopped */
     if(code==0x50){say("Arrange record not connected yet");return 1;}
     if((code==PLUS||code==MINUS)&&shifted){arrange_editing=0;arrange_result(pt_history(code==MINUS?-1:1));return 1;}
-    if(code==B1){if(arrange_editing){arrange_editing=0;arrange_row=arrange_edit_row;arrange_cursor=arrange_edit_cursor;arrange_left=arrange_edit_left;say("Block edit cancelled");}else if(arrange_menu)arrange_menu=0;else if(arrange_selected||arrange_range){arrange_selected=0;arrange_range=0;}else{arrange_close();say("Sequential Song");}arrange_data_held=0;repaint(screen);return 1;}
+    if(code==B1){if(arrange_editing){arrange_editing=0;arrange_row=arrange_edit_row;arrange_cursor=arrange_edit_cursor;arrange_left=arrange_edit_left;say("Block edit cancelled");}else if(arrange_menu)arrange_menu=0;else if(arrange_selected||arrange_range||arrange_multi_count){arrange_selected=0;arrange_range=0;arrange_multi_count=0;}else{arrange_close();say("Sequential Song");}arrange_data_held=0;repaint(screen);return 1;}
     if(arrange_editing){if(code==B3){int ok=pt_arr_edit_clip(arrange_draft.id,arrange_draft.track,arrange_draft.start,arrange_draft.length,arrange_edit_revision);if(ok){arrange_editing=0;arrange_new_length=arrange_draft.length;}arrange_result(ok);}return 1;}
     if(code==0x6f&&arrange_menu){code=B3;shifted=0;} /* encoder click chooses */
     if(code==0x09){ /* Erase deletes the block; Shift+Erase copies it right after itself */
         struct pt_arr_clip c;if(arrange_menu){repaint(screen);return 1;}
+        if(arrange_multi_count){int ok;
+            if(shifted){int64_t first=-1,last=0;for(unsigned i=0;i<arrange_multi_count;++i){struct pt_arr_clip m;if(arrange_clip(arrange_multi[i],&m)){if(first<0||m.start<first)first=m.start;if(m.start+m.length>last)last=m.start+m.length;}}
+                ok=first>=0&&pt_arr_multi(arrange_multi,arrange_multi_count,last-first,0,1);if(ok){arrange_cursor=last;arrange_multi_count=0;}}
+            else{ok=pt_arr_multi(arrange_multi,arrange_multi_count,0,0,2);if(ok)arrange_multi_count=0;}
+            arrange_selected=0;arrange_result(ok);return 1;}
         if(!arrange_target(&c)){say("No block here");repaint(screen);return 1;}
         if(shifted){uint64_t id=0;int ok=pt_arr_copy(c.id,c.track,c.start+c.length,&id);
             if(!ok){struct pt_arrangement b;if(pt_arr_info(&b)&&c.start+2*c.length>b.length&&pt_arr_length(c.start+2*c.length))ok=pt_arr_copy(c.id,c.track,c.start+c.length,&id);}
@@ -364,21 +392,22 @@ static int arrange_button(unsigned code,int shifted){
         else{int ok=pt_arr_remove(c.id);if(ok&&arrange_selected==c.id)arrange_selected=0;arrange_result(ok);}
         return 1;
     }
-    if(code==0x6f&&!arrange_menu){arrange_data_held=1;arrange_data_moved=0;arrange_anchor=arrange_cursor;return 1;}
-    if(code==B2){if(arrange_menu)arrange_menu=0;else{arrange_range=!arrange_range;arrange_anchor=arrange_cursor;arrange_selected=0;}repaint(screen);return 1;}
+    if(code==0x6f&&!arrange_menu){arrange_data_held=1;arrange_data_moved=0;arrange_anchor=arrange_cursor;arrange_anchor_row=arrange_row;return 1;}
+    if(code==B2){if(arrange_menu)arrange_menu=0;else{arrange_range=!arrange_range;arrange_anchor=arrange_cursor;arrange_anchor_row=arrange_row;arrange_selected=0;arrange_multi_count=0;}repaint(screen);return 1;}
     if(code==0x4b){if(!arrange_menu)arrange_cut();repaint(screen);return 1;}
     if(code==B3){
-        if(arrange_menu==1)arrange_execute();
+        if(arrange_menu==1){int keep=arrange_pick;arrange_execute();if(arrange_menu==1)arrange_pick=keep;}
         else if(arrange_menu==2){struct pt_arr_track t;struct pt_entry e;uint64_t id=0;
             if(pt_arr_track_at((unsigned)arrange_row,&t)&&pt_info((unsigned)arrange_pick,&e)){
                 int ok=pt_arr_add_clip(t.id,(unsigned)arrange_pick,arrange_cursor,e.length,&id);if(ok){arrange_selected=id;arrange_menu=0;}arrange_result(ok);
             }
         }else if(arrange_menu==3){int ok=pt_arr_remove(arrange_selected);if(ok){arrange_selected=0;arrange_menu=0;}arrange_result(ok);}
+        else if(arrange_menu==6){struct pt_arr_track t;int ok=pt_arr_track_at((unsigned)arrange_row,&t)&&pt_arr_remove_track(t.id);if(ok){arrange_menu=0;arrange_selected=0;arrange_multi_count=0;if(arrange_row>0)--arrange_row;}arrange_result(ok);}
         else if(arrange_menu==5){int s=arrange_pending_seq;arrange_menu=0;arrange_pending_seq=-1;if(s>=0)arrange_add_seq_slot(s);}
         else if(arrange_menu==4){if(arrange_pick<arrange_new_count){arrange_menu=0;arrange_add_seq_slot(arrange_new_slots[arrange_pick]);}else{arrange_menu=0;arrange_new_pattern();}}
         else if(arrange_selected)arrange_begin_edit();
         else{struct pt_arr_clip c;if(arrange_target(&c)&&!arrange_range)arrange_edit_pattern();else if(arrange_range)arrange_new_pattern();else{arrange_new_open();if(!arrange_new_count){arrange_menu=0;arrange_new_pattern();}}}
-    }else if(!arrange_menu&&(code==PLUS||code==MINUS))arrange_row+=code==PLUS?1:-1;
+    }else if(!arrange_menu&&(code==PLUS||code==MINUS)){arrange_row+=code==PLUS?1:-1;if(arrange_data_held){arrange_data_moved=1;arrange_range=1;arrange_selected=0;}}
     arrange_tick();repaint(screen);return 1;
 }
 static int arrange_control(unsigned cc,unsigned value,int shifted){
@@ -403,6 +432,10 @@ static int arrange_control(unsigned cc,unsigned value,int shifted){
         if(n){if(cc==DATA_ENCODER)arrange_pick=arrange_clamp(arrange_pick+delta,0,n-1);else if(cc==0x14)arrange_pick=ui_list_fader(value,n-1);else if(cc==K1)arrange_pick=(int)value*(n-1)/127;}
     }else if(cc==DATA_ENCODER){
         if(shifted){int n=delta>0?delta:-delta;if(n>8)n=8;while(n--){if(delta>0&&arrange_span>960)arrange_span/=2;else if(delta<0&&arrange_span<a.length)arrange_span*=2;}if(arrange_span<960)arrange_span=960;}
+        else if(phone_native_stop_held&&phone_native_stop_held()&&delta){
+            if(delta<0){arrange_cursor=0;arrange_left=0;}
+            else{int64_t end=0;for(unsigned j=0;j<a.clips;++j){struct pt_arr_clip c;if(pt_arr_clip_at(j,&c)&&c.start+c.length>end)end=c.start+c.length;}
+                arrange_cursor=end?end:a.length;if(arrange_cursor>arrange_left+arrange_span)arrange_left=arrange_cursor-arrange_span/2;}}
         else arrange_cursor+=(int64_t)delta*arrange_grid;
     }else if(cc==0x14){if(shifted)arrange_rows=6-(int)value*3/127;else arrange_row=ui_list_fader(value,(int)a.tracks-1);}
     else if(cc==0x10){int relative=arrange_row-arrange_top;arrange_top=(int)value*(a.tracks>(unsigned)arrange_rows?(int)a.tracks-arrange_rows:0)/127;arrange_row=arrange_top+relative;}
@@ -420,16 +453,21 @@ static void arrange_paint(void*g){
     colour(g,0xff000000u);rect(g,0,0,320,240);
     struct pt_arr_clip under;int have_under=arrange_target(&under);
     colour(g,0xffffffffu);text(g,atomic_load(&export_shift)?"Song":arrange_editing?"Cancel":"Back",0,4,106,25,13);
-    text(g,arrange_editing?"":arrange_menu?"Close":arrange_range?"Range On":"Range",107,4,106,25,13);colour(g,0xffffc247u);text(g,arrange_editing?"Apply":atomic_load(&export_shift)?"Actions":arrange_menu==3?"Delete":arrange_menu?"Choose":arrange_selected?"Edit":have_under&&!arrange_range?"Open":"New",214,4,106,25,13);
-    text_at(g,arrange_menu==1?"Arrange / Actions":arrange_menu==2?"Insert pattern":arrange_menu==4?"New block":arrange_menu==5?"Add sequence":a.read_only?"Arrange / read only":"Song / Arrange",6,34,arrange_menu?236:308,23,17,0x21);
+    text(g,arrange_editing?"":arrange_menu?"Close":arrange_range?"Range On":"Range",107,4,106,25,13);colour(g,0xffffc247u);text(g,arrange_editing?"Apply":atomic_load(&export_shift)?"Actions":arrange_menu==3||arrange_menu==6?"Delete":arrange_menu?"Choose":arrange_selected?"Edit":have_under&&!arrange_range?"Open":"New",214,4,106,25,13);
+    text_at(g,arrange_menu==1?"Arrange / Actions":arrange_menu==2?"Insert pattern":arrange_menu==4?"New block":arrange_menu==5?"Add sequence":arrange_menu==6?"Delete track":a.read_only?"Arrange / read only":"Song / Arrange",6,34,arrange_menu?236:308,23,17,0x21);
     if(arrange_menu==3){colour(g,0xffffffffu);text(g,"Delete selected block?",8,93,304,27,18);text(g,"Pattern stays in the library",8,126,304,22,13);}
+    else if(arrange_menu==6){char m[64];struct pt_arr_track t={0};unsigned n=0;
+        if(pt_arr_track_at((unsigned)arrange_row,&t))for(unsigned j=0;j<a.clips;++j){struct pt_arr_clip c;if(pt_arr_clip_at(j,&c)&&c.track==t.id)++n;}
+        colour(g,0xffffffffu);snprintf(m,sizeof m,"Delete %.20s?",t.name);text(g,m,8,86,304,27,18);
+        snprintf(m,sizeof m,"%u blocks go with it / Undo: Shift -",n);text(g,m,8,118,304,22,13);
+        colour(g,0xffffc247u);text(g,"Click or B3: delete / B1: cancel",8,146,304,22,12);}
     else if(arrange_menu==5){char m[64];struct pt_arr_track t;
         colour(g,0xffffffffu);snprintf(m,sizeof m,"Add Seq %02d here?",arrange_pending_seq+1);text(g,m,8,86,304,27,18);
-        snprintf(m,sizeof m,"%d notes, live / q %.2f / %s",arrange_pending_notes,1.+arrange_cursor/960.,pt_arr_track_at((unsigned)arrange_row,&t)?t.name:"new track");text(g,m,8,118,304,22,13);
+        char at[24];arrange_bbt(arrange_cursor,at,sizeof at);snprintf(m,sizeof m,"%d notes, live / bar %s / %.16s",arrange_pending_notes,at,pt_arr_track_at((unsigned)arrange_row,&t)?t.name:"new track");text(g,m,8,118,304,22,13);
         colour(g,0xffffc247u);text(g,"Click or B3: add / B1: cancel / pad: other seq",8,146,304,22,12);}
     else if(arrange_menu){int n=arrange_menu==1?ARRANGE_ACTIONS:arrange_menu==4?arrange_new_count+1:(int)pt_count(),first=ui_list_first(arrange_pick,n,6);
         char position[32];snprintf(position,sizeof position,"%d / %d",n?arrange_pick+1:0,n);colour(g,0xffaaaaaau);text_at(g,position,245,36,67,20,12,0x22);
-        for(int i=first;i<n&&i<first+6;++i){char label[80];if(arrange_menu==1)snprintf(label,sizeof label,"%s",arrange_actions[i]);
+        for(int i=first;i<n&&i<first+6;++i){char label[80];if(arrange_menu==1)snprintf(label,sizeof label,"%s",arrange_actions[arrange_order[i]]);
             else if(arrange_menu==4){if(i<arrange_new_count)snprintf(label,sizeof label,"Seq %02d%s / %d notes, live",arrange_new_slots[i]+1,arrange_new_slots[i]==arrange_new_current?" (current)":"",arrange_new_notes[i]);else snprintf(label,sizeof label,"Empty pattern");}
             else{struct pt_entry e;if(!pt_info((unsigned)i,&e))continue;snprintf(label,sizeof label,"%.40s / %lld q",e.name,(long long)(e.length/960));}
             int y=62+(i-first)*22;if(i==arrange_pick){colour(g,0xff303030u);rect(g,6,y,302,22);}colour(g,i==arrange_pick?0xffffc247u:0xffffffffu);text_at(g,label,11,y,294,22,13,0x21);
@@ -443,12 +481,12 @@ static void arrange_paint(void*g){
             for(unsigned j=0;j<a.clips;++j){struct pt_arr_clip c;if(!pt_arr_clip_at(j,&c))continue;if(arrange_editing&&c.id==arrange_draft.id)c=arrange_draft;if(c.track!=t.id||c.start>=arrange_left+arrange_span||c.start+c.length<=arrange_left)continue;
                 int x=c.start<arrange_left?72:arrange_x(c.start),end=c.start+c.length>arrange_left+arrange_span?312:arrange_x(c.start+c.length);if(end<=x)end=x+1;
                 colour(g,c.muted||t.muted?0xff333333u:0xff344451u);rect(g,x,y+2,end-x,h-5);
-                colour(g,c.id==arrange_selected?0xffffc247u:0xff71c1e8u);rect(g,x,y+2,end-x,2);
+                colour(g,c.id==arrange_selected||arrange_is_multi(c.id)?0xffffc247u:0xff71c1e8u);rect(g,x,y+2,end-x,arrange_is_multi(c.id)?h-5:2);
                 struct pt_entry e;int p=pt_pattern_index(c.pattern);if(end-x>24&&p>=0&&pt_info((unsigned)p,&e)){colour(g,0xffffffffu);text_at(g,e.name,x+2,y+5,end-x-3,h-9,11,0x21);}
             }
-            if(arrange_range&&index==(unsigned)arrange_row){int64_t left=arrange_anchor<arrange_cursor?arrange_anchor:arrange_cursor,right=(arrange_anchor>arrange_cursor?arrange_anchor:arrange_cursor)+arrange_grid;int x=left<arrange_left?72:arrange_x(left),end=right>arrange_left+arrange_span?312:arrange_x(right);if(end>x&&x<312&&end>72){colour(g,0xffffc247u);rect(g,x,y,end-x,1);rect(g,x,y+h-2,end-x,1);}}
+            if(arrange_range&&(int)index>=(arrange_anchor_row<arrange_row?arrange_anchor_row:arrange_row)&&(int)index<=(arrange_anchor_row<arrange_row?arrange_row:arrange_anchor_row)){int64_t left=arrange_anchor<arrange_cursor?arrange_anchor:arrange_cursor,right=(arrange_anchor>arrange_cursor?arrange_anchor:arrange_cursor)+arrange_grid;int x=left<arrange_left?72:arrange_x(left),end=right>arrange_left+arrange_span?312:arrange_x(right);if(end>x&&x<312&&end>72){colour(g,0xffffc247u);rect(g,x,y,end-x,1);rect(g,x,y+h-2,end-x,1);}}
         }
-        for(int i=0;i<=4;++i){int x=72+60*i;char beat[24];snprintf(beat,sizeof beat,"%lldq",(long long)((arrange_left+arrange_span*i/4)/960+1));colour(g,0xff777777u);text_at(g,beat,x<290?x:283,59,34,14,10,0x21);colour(g,0xff444444u);rect(g,x,75,1,121);}
+        for(int i=0;i<=4;++i){int x=72+60*i;char beat[24];arrange_bbt(arrange_left+arrange_span*i/4,beat,sizeof beat);colour(g,0xff777777u);text_at(g,beat,x<290?x:283,59,34,14,10,0x21);colour(g,0xff444444u);rect(g,x,75,1,121);}
         if(arrange_cursor>=arrange_left&&arrange_cursor<=arrange_left+arrange_span){colour(g,0xffffc247u);rect(g,arrange_x(arrange_cursor),73,1,124);}
         if(arrange_play_state==2&&step_native_clock_ticks){unsigned run=0;int64_t tick=step_native_clock_ticks(NULL,&run);
             if(run&&a.length>0){tick%=a.length;if(tick>=arrange_left&&tick<=arrange_left+arrange_span){colour(g,0xffffffffu);rect(g,arrange_x(tick),73,2,124);}}}
@@ -456,13 +494,15 @@ static void arrange_paint(void*g){
         int offset,thumb=ui_list_thumb(arrange_top,(int)a.tracks,arrange_rows,120,&offset);
         colour(g,0xff303030u);rect(g,315,76,2,120);colour(g,0xffffc247u);rect(g,315,76+offset,2,thumb);
     }
-    char status[96];snprintf(status,sizeof status,"q %.2f / Grid %.2f / %u blocks",1.+arrange_cursor/960.,arrange_grid/960.,a.clips);
+    char now_at[24];arrange_bbt(arrange_cursor,now_at,sizeof now_at);
+    char status[96];snprintf(status,sizeof status,"Bar %s / Grid %.2f beat / %u blocks",now_at,arrange_grid/960.,a.clips);
+    if(arrange_multi_count)snprintf(status,sizeof status,"Bar %s / %u blocks selected",now_at,arrange_multi_count);
     struct pt_arr_clip selected_clip;struct pt_entry selected_pattern;
     if(!arrange_menu&&arrange_target(&selected_clip)){
         int index=pt_pattern_index(selected_clip.pattern);
-        if(index>=0&&pt_info((unsigned)index,&selected_pattern))snprintf(status,sizeof status,"q %.2f / Block %.2fq / Pattern %.2fq",1.+arrange_cursor/960.,selected_clip.length/960.,selected_pattern.length/960.);
+        if(index>=0&&pt_info((unsigned)index,&selected_pattern))snprintf(status,sizeof status,"Bar %s / Block %.2f bars / Pattern %.2f bars",now_at,selected_clip.length/3840.,selected_pattern.length/3840.);
     }
-    if(arrange_editing)snprintf(status,sizeof status,"Preview q %.2f / Length %.2fq",1.+arrange_draft.start/960.,arrange_draft.length/960.);
+    if(arrange_editing){char s[24];arrange_bbt(arrange_draft.start,s,sizeof s);snprintf(status,sizeof status,"Preview bar %s / Length %.2f bars",s,arrange_draft.length/3840.);}
     colour(g,0xffaaaaaau);text_at(g,arrange_menu?"DATA / Fader: choose":status,6,199,308,15,11,0x21);
     colour(g,0xffffc247u);text_at(g,toast_until&&now_ms()<toast_until?toast:arrange_menu?"B1 Back / B3 or click: Choose":"B3 New / Erase del / Shift+Erase copy",6,215,308,19,11,0x21);
 }

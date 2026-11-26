@@ -10,7 +10,7 @@ int step_pattern_open(uint64_t id,int64_t phase,void(*redraw)(void)){
  pr_reset(&roll);roll_actions=roll_editing=roll_action=roll_data_held=roll_data_moved=0;
  roll_erase_held=roll_erase_used=0;roll_row_confirm=-1;pattern_saved_bank=browse_bank;roll_pad_page=browse_bank=0;
  roll_patterns_state=0;roll_patterns_epoch=pt_epoch();roll_pattern_index=index;
- pattern_host_id=id;pattern_host_clip=pattern_split_result=0;pattern_separated=NULL;pattern_rows_held=pattern_rows_used=0;roll_pattern_serial=0;pattern_redraw=redraw;pattern_host=1;roll_owner=NULL;
+ pattern_host_id=id;pattern_host_clip=pattern_split_result=0;roll_song_valid=0;pattern_separated=NULL;pattern_rows_held=pattern_rows_used=0;roll_pattern_serial=0;pattern_redraw=redraw;pattern_host=1;roll_owner=NULL;
  message[0]=0;pt_expect_epoch(roll_patterns_epoch);atomic_store(&piano_active,1);
  if(!roll_refresh(1)){roll_close();return 0;}
  pr_view_layer(&roll,PR_PADS,roll.rows[0]);pr_cursor(&roll,phase%entry.length,0);
@@ -27,7 +27,8 @@ int step_pattern_open_clip(uint64_t id,int64_t phase,void(*redraw)(void),void(*s
  if(!separated||!pt_arr_clip_by_id(id,&clip)||pt_serial()!=receipt)return 0;
  if(!step_pattern_open(clip.pattern,phase,redraw))return 0;
  if(pt_serial()!=receipt){roll_close();return 0;}
- pattern_host_clip=id;pattern_separated=separated;return 1;
+ pattern_host_clip=id;pattern_separated=separated;
+ roll_song_valid=1;roll_song_start=clip.start;roll_song_length=clip.length;roll_song_offset=clip.offset;return 1;
 }
 static void pattern_separate_selection(int copy){
  if(!pattern_host||!pattern_host_clip||!pattern_separated){say("Open a Song block to separate events");return;}
@@ -67,8 +68,11 @@ int step_pattern_button(unsigned code,int down,int shifted){
  if(pattern_host)repaint();
  return 1;
 }
+extern int phone_native_stop_held(void) __attribute__((weak));
 int step_pattern_control(unsigned cc,unsigned value,int shifted){
  if(!step_pattern_active()||value>127)return 1;
+ if(cc==0x64&&value!=64&&phone_native_stop_held&&phone_native_stop_held()&&!roll_editing&&!roll_actions){ /* Stop + DATA: start / end */
+  int64_t grid=pr_grid_ticks(roll.grid);pr_cursor(&roll,value>64?0:(roll.length>grid?roll.length-grid:0),roll.cursor_row);repaint();return 1;}
  shift=shifted;roll_control(cc,value,shifted);return 1;
 }
 int step_pattern_pad(unsigned pad,int shifted){

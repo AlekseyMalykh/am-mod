@@ -26,6 +26,7 @@ struct Arrangement {
     Result cut_clip(Id,std::int64_t,const Library&,Id&);
     Result join_clips(Id,Id,const Library&);
     Result erase_clip(Id,const Library&);
+    Result erase_track(Id,const Library&);
     Result track_state(Id,bool,bool,const Library&);
     Result clip_state(Id,bool,const Library&);
     Result song_length(std::int64_t,const Library&);

@@ -11,7 +11,15 @@ static void *roll_owner;
 static int roll_reference_note=-1;
 static uint64_t roll_tune_lights;
 static int roll_pad_rows[16],roll_pad_page,roll_audition=-1;
-static int roll_pattern_insert_pending; /* pattern editor: pad chose a row, click/B3 adds the event */
+static int roll_pattern_insert_pending;
+/* Song block shown in the pattern editor: song time = song_start + (local - offset) in the first cycle. */
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+static int roll_song_valid;static int64_t roll_song_start,roll_song_length,roll_song_offset;
+static int roll_song_local(int64_t song,int64_t*local){
+ if(!roll_song_valid||roll.length<=0||song<roll_song_start||song>=roll_song_start+roll_song_length)return 0;
+ *local=(roll_song_offset+(song-roll_song_start))%roll.length;return 1;}
+static int64_t roll_song_time(int64_t local){return roll_song_valid?roll_song_start-roll_song_offset+local:local;}
+#endif /* pattern editor: pad chose a row, click/B3 adds the event */
 static unsigned roll_input_held;
 static int roll_data_held,roll_data_moved; /* DATA held: encoder + fader draw a selection area */
 static void roll_data_begin_move(void){if(roll_data_held&&!roll_data_moved){roll.anchor_tick=roll.cursor_tick;roll.anchor_row=roll.cursor_row;roll.range=1;roll_data_moved=1;}}
@@ -549,9 +557,15 @@ static void roll_pad_up(unsigned pad){if(pad<16&&(roll_input_held&(1u<<pad))){wo
 #define ROLL_DIM .22f /* pads with events elsewhere; pads at the cursor are brighter, selected ones white */
 static int roll_show_transport(void){
 #ifdef MPC_PATTERN_TOOLS_TRIAL
- if(roll_pattern_index>=0)return 0;
+ if(roll_pattern_index>=0){int64_t l;return was_playing&&roll_song_local(play_tick,&l);}
 #endif
  return was_playing;
+}
+static int64_t roll_transport_tick(void){
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+ int64_t l;if(roll_pattern_index>=0&&roll_song_local(play_tick,&l))return l;
+#endif
+ return play_tick;
 }
 static void roll_palette(void){
  if(!atomic_load(&piano_active))return;
@@ -577,7 +591,7 @@ static void roll_palette(void){
     if(roll.notes[i].selected&&(roll.layer==PR_PADS?roll.notes[i].sound:pr_note_row(&roll,roll.notes+i))==value){near_chosen=1;break;}
 #endif
    if(roll_show_transport())for(unsigned i=0;i<roll.count;++i){const struct pr_note *n=roll.notes+i;int row=roll.layer==PR_PADS?n->sound:pr_note_row(&roll,n);
-    if(row==value&&!(n->event.type&0x200)&&play_tick>=n->event.time&&play_tick<n->event.time+FIELD(&n->event,0x28,int64_t)){playing=1;break;}}
+    if(row==value&&!(n->event.type&0x200)&&roll_transport_tick()>=n->event.time&&roll_transport_tick()<n->event.time+FIELD(&n->event,0x28,int64_t)){playing=1;break;}}
   }
   atomic_store(&lights[pad],playing?pad_light(PAD_PLAYHEAD,.95f):near_chosen?pad_light(0xffffffu,1.f):selected?pad_selection_light(hue?hue:PAD_SELECT,brightness,phase):pad_light(hue,brightness));
  }
@@ -661,7 +675,7 @@ static void roll_paint(void*g){
  for(int64_t t=(roll.left/beat)*beat;t<=roll.left+roll.span;t+=beat){int x=roll_x(t);if(x<70||x>=310)continue;
   struct bbt pos;
 #ifdef MPC_PATTERN_TOOLS_TRIAL
-  if(roll_pattern_index>=0){pos.bar=(int)(t/3840);pos.beat=(int)(t%3840/960);pos.tick=(int)(t%960);}else
+  if(roll_pattern_index>=0){int64_t s=roll_song_time(t);if(s<0)s=0;pos.bar=(int)(s/3840);pos.beat=(int)(s%3840/960);pos.tick=(int)(s%960);}else
 #endif
   pos=position(t);
   colour(g,pos.beat==0&&!pos.tick?0xffa0a0a0:0xff505050);rect(g,x,70,1,120);
@@ -670,7 +684,7 @@ static void roll_paint(void*g){
  {   /* Cursor position (bar.beat.tick) above the row names, same musical counting as the ruler. */
   struct bbt cur;int64_t t=roll.cursor_tick<0?0:roll.cursor_tick;
 #ifdef MPC_PATTERN_TOOLS_TRIAL
-  if(roll_pattern_index>=0){cur.bar=(int)(t/3840);cur.beat=(int)(t%3840/960);cur.tick=(int)(t%960);}else
+  if(roll_pattern_index>=0){int64_t s=roll_song_time(t);if(s<0)s=0;cur.bar=(int)(s/3840);cur.beat=(int)(s%3840/960);cur.tick=(int)(s%960);}else
 #endif
   cur=position(t);
   char stamp[48];snprintf(stamp,sizeof(stamp),"%d.%d.%03d",cur.bar+1,cur.beat+1,cur.tick);
@@ -712,7 +726,7 @@ static void roll_paint(void*g){
   roll_rect(g,x,y,right-x>2?right-x:2,2,AMBER);roll_rect(g,x,y+roll.row_height-5,right-x>2?right-x:2,2,AMBER);
  }
  int x=roll_x(roll.cursor_tick);roll_rect(g,x,70,1,120,AMBER);
- if(roll_show_transport()){x=roll_x(play_tick);roll_rect(g,x,70,1,120,WHITE);}
+ if(roll_show_transport()){x=roll_x(roll_transport_tick());roll_rect(g,x,70,1,120,WHITE);}
  if(roll.range){int xa=roll_x(roll.anchor_tick),xb=roll_x(roll.cursor_tick);if(xa>xb){int t=xa;xa=xb;xb=t;}
   int ya=roll_y(roll.anchor_row),yb=roll_y(roll.cursor_row);if(ya>yb){int t=ya;ya=yb;yb=t;}
   roll_rect(g,xa,ya,xb-xa+1,1,AMBER);roll_rect(g,xa,yb+roll.row_height-1,xb-xa+1,1,AMBER);

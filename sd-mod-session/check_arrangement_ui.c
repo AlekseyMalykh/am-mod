@@ -38,7 +38,7 @@ static void press(unsigned code,int shifted){
     assert(!song_ui_owns(PHONE_BUTTON,code,0,0));
 }
 static void turn(unsigned cc,unsigned value,int shifted){unsigned char e[16]={0};e[8]=(unsigned char)cc;e[9]=(unsigned char)value;assert(song_ui_owns(PHONE_CONTROLLER,cc,shifted,1));assert(song_ui_control_at(e,shifted));}
-static void action(unsigned pick){press(B3,1);assert(arrange_menu==1);if(pick)turn(DATA_ENCODER,pick,0);press(B3,0);}
+static void action(unsigned id){press(B3,1);assert(arrange_menu==1);unsigned pick=0;while(pick<(unsigned)ARRANGE_ORDER_COUNT&&arrange_order[pick]!=(int)id)++pick;assert(pick<(unsigned)ARRANGE_ORDER_COUNT);if(pick)turn(DATA_ENCODER,pick,0);press(B3,0);}
 static void shot(void){paint(screen_obj,(void*)0x10);}
 int main(int argc,char**argv){
     assert(argc==3);assert(!sequential_main(2,argv));
@@ -95,7 +95,7 @@ int main(int argc,char**argv){
     int previous_pick=0;for(unsigned value=127;value>0;--value){turn(0x14,value,0);assert(arrange_pick>=previous_pick);previous_pick=arrange_pick;}
     turn(0x14,0,0);assert(arrange_pick==ARRANGE_ACTIONS-1);drawn_menu_rows=0;shot();assert(drawn_menu_rows==6&&thumb_y+thumb_h==194);
     turn(K1,0,0);assert(arrange_pick==0);turn(K1,127,0);assert(arrange_pick==ARRANGE_ACTIONS-1);
-    press(B1,0);press(B3,1);turn(DATA_ENCODER,1,0);press(B3,0);assert(arrange_menu==2);shot();press(B1,0);
+    press(B1,0);action(1);assert(arrange_menu==2);shot();press(B1,0);
     fclose(draw_trace);draw_trace=timeline_trace;
     puts("PASS screen navigation: fader up selects top, down selects bottom; zoom up increases row size; full menu viewport and scrollbar ends, knobs retain direction");
     phase="Play/Record held locally; Stop stays native; Shift B1 toggles Arrange";
