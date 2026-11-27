@@ -957,6 +957,22 @@ static void mixer_pad_ui(const struct phone_event *e, struct mixer_control *cont
     }
 }
 
+/* Stock screen navigation, as the Shift-pad menu does it: app(+0x71e3dc8)+240 is the
+ * navigation controller (vptr 0x6d8bee8, ctor 14add30), its +48 the screen manager;
+ * 1c0e5c0(manager,id) shows a screen. SongScreen id 0x20ac (registered 15b111c, shown by
+ * the menu lambda 14aa5e0). Validated before use; UI thread only. */
+static int native_show_screen(int id)
+{
+    void *app=(void*)(base+0x71e3dc8);
+    if(FIELD(app,0,uintptr_t)!=base+0x6e07288){fprintf(stderr,"NATIVE_SCREEN app vptr mismatch\n");return 0;}
+    void *ctl=FIELD(app,240,void*);
+    if(!ctl||FIELD(ctl,0,uintptr_t)!=base+0x6d8bee8){fprintf(stderr,"NATIVE_SCREEN controller mismatch %p\n",ctl);return 0;}
+    void *mgr=FIELD(ctl,48,void*);
+    if(!mgr){fprintf(stderr,"NATIVE_SCREEN manager missing\n");return 0;}
+    fprintf(stderr,"NATIVE_SCREEN show id=%#x current=%#x\n",id,FIELD(mgr,216,unsigned));
+    FN(0x1c0e5c0,void(*)(void*,int))(mgr,id);
+    return 1;
+}
 static void mixer_button_ui(struct phone_event *e, struct mixer_control *control, int suppress)
 {
     unsigned code = e->native[8];
@@ -983,7 +999,9 @@ static void mixer_button_ui(struct phone_event *e, struct mixer_control *control
     if (mixer_control_exit_requested(control)) {
         /* B1 on the Mixer page: back to where it was opened (Sample, Seq or Song via Shift+Pad 12). */
         _Alignas(8) unsigned char sample[16];memcpy(sample,e->native,16);
-        if (mixer_origin == 2 && atomic_load(&pad_template_ok)) {
+        if (mixer_origin == 2 && native_show_screen(0x20ac)) {
+            fprintf(stderr,"MIXER_RETURN song (native screen)\n");
+        } else if (mixer_origin == 2 && atomic_load(&pad_template_ok)) {
             _Alignas(8) unsigned char down[40],up[40];
             memcpy(down,pad_template_down,40);memcpy(up,pad_template_up,40);down[8]=11;up[8]=11;
             if ((down[16]&0xe0u)==0x80u) down[17]=43; /* MIDI note of PAD 12 */
