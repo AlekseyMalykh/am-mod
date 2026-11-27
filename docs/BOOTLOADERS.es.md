@@ -1,4 +1,4 @@
-# Menús de arranque y salida al cargador (r30d)
+# Menús de arranque y salida al cargador (r31a)
 
 [README](../README.es.md) · [Instalación](INSTALL.es.md) · [English](BOOTLOADERS.md) · [Русский](BOOTLOADERS.ru.md)
 
@@ -15,7 +15,7 @@ Am MOD ejecuta una copia de la aplicación desde la tarjeta SD y nunca flashea e
 | mpc-boot-thingy | `autorun/apps/am-mod/autorun/` con `boot.entry` en la carpeta superior | elige **AM Mod** | vuelve al firmware original |
 | **SampleBoot** (pxcm) | `autorun/mods/AM-Mod/` con `sampleboot.inplace` | elige **Am MOD** en el menú de SampleBoot | **vuelve al menú de SampleBoot** |
 
-El instalador 1.5.1 detecta la disposición y escribe en la carpeta correcta. Nunca sustituye la carpeta `autorun` raíz del menú de arranque. Usa exFAT y una etiqueta de volumen ASCII.
+El instalador 1.6.0 detecta la disposición y escribe en la carpeta correcta. Nunca sustituye la carpeta `autorun` raíz del menú de arranque. Usa exFAT y una etiqueta de volumen ASCII.
 
 ## Salir al cargador
 
@@ -26,6 +26,8 @@ El instalador 1.5.1 detecta la disposición y escribe en la carpeta correcta. Nu
 5. Si la tarjeta contiene el menú D.S.B, Am MOD marca este arranque como **correcto** en el archivo de estado de D.S.B (no se cuenta ningún fallo y el mod no se inicia de nuevo automáticamente) y **reinicia en el menú de D.S.B**. Elige otro sistema, o Am MOD otra vez.
 6. Si la tarjeta tiene SampleBoot, Am MOD reinicia y SampleBoot muestra su menú (no guarda ninguna elección, basta reiniciar).
 7. Si no hay menú de arranque, el MPC arranca el firmware original.
+
+El **botón de encendido** ofrece la misma salida desde r31a: su diálogo tiene **B1 Cancel, B2 Bootloader, B3 Power off**; B2 y B3 guardan antes la copia del proyecto y, si falla, el mod sigue encendido.
 
 Apagar y encender funciona como siempre; Exit to bootloader es la forma rápida de cambiar de sistema sin tocar el botón de encendido. **Idea de arranque rápido:** elige AM Mod una vez para que la tarjeta lo inicie directamente y usa Exit to bootloader cuando quieras otro sistema.
 
@@ -39,7 +41,7 @@ Diagnóstico que se escribe en `autorun/os/AM-Mod/` de la tarjeta (se sobrescrib
 |---|---|
 | `dsb-boot.log` | diario de arranque de D.S.B (en el dispositivo solo vive en RAM; se copia para ti) |
 | `dsb-state-fix.log` | lo que vio e hizo la corrección de estado |
-| `MPC_MOD_EVENTS.txt`, `MPC_MOD_CONSOLE.txt`, `MPC_CLONE_TRIAL.txt` | los registros propios del mod |
+| `Logs/MPC_MOD_EVENTS.txt`, `Logs/MPC_MOD_CONSOLE.txt`, `Logs/MPC_CLONE_TRIAL.txt` (subcarpeta `Logs/` desde r31a) | los registros propios del mod |
 
 Al informar de un problema de arranque, adjunta estos archivos e indica el menú de arranque y su versión.
 

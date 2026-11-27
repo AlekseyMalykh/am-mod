@@ -1,6 +1,6 @@
-# Known limitations and status — r30d-beta4
+# Known limitations and status — r31a
 
-> **r30d-beta4:** beta status. Compatibility with other mods and boot menus (Stock, SampQOL, D.S.B, SampleBoot, mpc-boot-thingy) requires testing; a tester reported a freeze when launching from SampleBoot. New in this beta and pending hardware checks: synth modules/takeover, Input ROUTE, Piano Roll area selection, exit to bootloader. Sample Record To Seq may not play the recorded take in the sequence. Known open items: stock Save overwrite warning for same-named projects; "Original location unknown" after a project was last edited under another mod; Pad Bank knob reset not on every native screen.
+> **r31a:** Arrange (Song → Shift+B1) is a beta feature; see the open items below. The mod journals moved to `Logs/` in the mod folder. Compatibility with D.S.B and SampleBoot was checked on a physical MPC in r30d; other mods and boot menus still need wider testing. Known open items: stock Save overwrite warning for same-named projects; "Original location unknown" after a project was last edited under another mod; Pad Bank knob reset not on every native screen.
 
 Updated **17 November 2026**. [Release notes](RELEASE_NOTES-r30b.md) · [USB guide](USB_GUIDE.md) · [Feedback](FEEDBACK.md).
 
@@ -93,6 +93,11 @@ Special thanks to **Leusha** for careful, detailed testing: BUG-01…BUG-07 and 
 ## USB transfer mode is unavailable while the mod runs
 Am MOD runs the application in an isolated copy that has no access to raw storage devices, so the MPC's USB transfer mode does not expose the SD card to a computer. Use a card reader to copy files. To get USB transfer back, power off, remove the `autorun` folder from the SD card and start the MPC again: it boots as stock. Projects and samples are not affected. (Found by a tester; the cause is derived from the code, not yet confirmed on hardware.)
 
-## Open in r30d-beta4
+## Open in r31a
+
+- **Arrange is beta.** No Mixer while Song or Arrange plays (Knob FX shows *Stop playback to open the Mixer*); no recording into the arrangement and no named sections yet; very long songs (more than 128 bars) are not supported yet; a block cannot be opened while the song plays; Seq 128 is Arrange's service slot and may stay the current sequence afterwards; stock firmware and older Am MOD versions may drop Arrange data when re-saving a project. [Arrange guide](ARRANGE_GUIDE.md).
+- **Pending device check in r31a:** the final package, the move of the journals to `Logs/` (start scripts changed) and the experimental Synth Keys recording.
+
+## Open since r30d-beta4
 
 - **D.S.B remembers no "last started" system:** the mod resets `last=` in D.S.B's state on every start on purpose, so a normal Am MOD session is not counted as a crash. D.S.B therefore does not offer the last system first.

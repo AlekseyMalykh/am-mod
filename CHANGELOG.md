@@ -1,5 +1,23 @@
 # Changelog
 
+## r31a — Arrange (beta)
+
+New on top of r30d-beta4. Details: [release notes](docs/RELEASE_NOTES-r31a.md), [Arrange guide](docs/ARRANGE_GUIDE.md).
+
+- **Arrange (beta)** in the Song screen (Song → Shift+B1): free lanes, live Seq blocks and patterns; add a sequence from its pad; DATA-click and multi-row rectangle selection; Note Repeat + DATA / fader moves a block or a selection with a live preview; Erase / Shift+Erase delete / copy; Chop; grouped Actions menu (Add / Block / Track / Song) with track delete and rename; Play / Stop through the stock Song transport, Shift+Play from the cursor, stop at the end of the last block; Loop button for range / selection / block / song (lit); edits while playing are re-rendered and heard; block colours from the sequence, centred names, bar grid that scrolls and zooms with the blocks, bar.beat cursor, Stop+DATA start / end; Shift+B1 exports the arrangement through the stock Song Export (mixdown, stems) and restores the Song steps.
+- **Piano Roll in a block:** song bars and block range in the header, playhead and Shift+B2 Follow, sample names on the rows, Shift+pads row selection, Shift+Erase copy / paste with a clipboard kept between blocks, Erase on release, Note Repeat move, pad + click / B3 insert, Seq blocks edited in place with the stock Undo / Redo.
+- **Rename** patterns and Arrange tracks with the Mod text input (pad letters lit, K1 Pads / Encoder indicator).
+- **Logs/** subfolder for the mod journals (`MPC_CLONE_TRIAL.txt`, `MPC_MOD_EVENTS.txt`, `MPC_MOD_CONSOLE.txt`, `MPC_MOD_ENTRY.txt`, `MPC_CLONE_ALREADY_ATTEMPTED.txt`); old copies beside the mod files are removed at the first start. Installer 1.6.0 collects both locations.
+- Mixer entry is refused while Song or Arrange plays on the Song screen (the stock SongScreen cannot be re-entered during playback).
+- Power-button dialog: B1 Cancel, B2 Bootloader, B3 Power off, with a project copy saved first.
+- Rear input: independent Rear L / R monitor, pan and level; Rear monitoring through the stock path to the Mixer Master; Sample Record Shift+B2 Routing removed.
+- To Seq: exact start position, several waiting notes, no take before Play.
+- Sequential Song repeats fixed in the native playback list.
+- SD Card Access under SampleBoot: binding release / restore fixed.
+- Sample Swap replacement target pinned; Screen Mirror streams more frames.
+- Experimental Synth Keys recording (Mixer → Synth → 16 Levels → Shift+Seq Record).
+- Boot screen and About show r31a. Documentation rewritten (EN / RU / ES) with new Arrange and Mixer pictures.
+
 ## r30d-beta4 — beta
 
 Fixes on top of r30d-beta3:

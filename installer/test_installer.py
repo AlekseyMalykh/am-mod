@@ -125,6 +125,17 @@ class InstallerTest(unittest.TestCase):
         self.assertEqual(before, {str(p.relative_to(self.card)): p.read_bytes()
                                  for p in self.card.rglob("*") if p.is_file()})
 
+    def test_diagnostics_collect_logs_subfolder_and_old_location(self):
+        logs = self.card / "autorun" / "mods" / "AM-Mod" / "Logs"
+        logs.mkdir(parents=True)
+        (logs / "MPC_CLONE_TRIAL.txt").write_text("new layout")
+        (logs.parent / "MPC_MOD_EVENTS.txt").write_text("old layout")
+        (logs / "private.txt").write_text("private")
+        files, _ = m.diagnostic_files(self.card_obj())
+        self.assertEqual(files["sd/autorun/mods/AM-Mod/Logs/MPC_CLONE_TRIAL.txt"], b"new layout")
+        self.assertEqual(files["sd/autorun/mods/AM-Mod/MPC_MOD_EVENTS.txt"], b"old layout")
+        self.assertFalse(any(name.endswith("private.txt") for name in files))
+
     def test_diagnostics_bound_large_logs_and_handle_missing_card(self):
         autorun = self.card / "autorun"
         autorun.mkdir()

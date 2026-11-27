@@ -579,6 +579,13 @@ static int arrange_control(unsigned cc,unsigned value,int shifted){
     repaint(screen);return 1;
 }
 static int arrange_x(int64_t tick){return 72+(int)((tick-arrange_left)*240/arrange_span);}
+/* Grid on bar lines (beats when zoomed in): it scrolls and zooms with the blocks. */
+static int64_t arrange_grid_step(void){int64_t step=3840;while(arrange_span/step>8)step*=2;return step;}
+static void arrange_grid_lines(void*g,int y,int h){
+    int64_t step=arrange_grid_step(),fine=arrange_span<=4*3840?960:0;
+    if(fine)for(int64_t t=(arrange_left+fine-1)/fine*fine;t<=arrange_left+arrange_span;t+=fine){if(t%step==0)continue;int x=arrange_x(t);if(x>=72&&x<312){colour(g,0xff222222u);rect(g,x,y,1,h);}}
+    for(int64_t t=(arrange_left+step-1)/step*step;t<=arrange_left+arrange_span;t+=step){int x=arrange_x(t);if(x>=72&&x<312){colour(g,0xff3a3a3au);rect(g,x,y,1,h);}}
+}
 static void arrange_paint(void*g){
     arrange_tick();if(!atomic_load(&arrangement_active))return;
     if(atomic_load(&arrangement_editor)&&step_pattern_paint(g,atomic_load(&export_shift)))return;
@@ -618,6 +625,7 @@ static void arrange_paint(void*g){
         int h=120/arrange_rows;
         for(int i=0;i<arrange_rows;++i){unsigned index=(unsigned)(arrange_top+i);struct pt_arr_track t;if(!pt_arr_track_at(index,&t))break;int y=76+i*h;
             colour(g,index==(unsigned)arrange_row?0xff252525u:0xff101010u);rect(g,0,y,312,h-1);
+            arrange_grid_lines(g,y,h-1);
             char name[48];snprintf(name,sizeof name,"%s%.7s",t.muted?"M ":t.solo?"S ":"",t.name);colour(g,index==(unsigned)arrange_row?0xffffc247u:0xffffffffu);text_at(g,name,3,y,66,h-1,11,0x21);
             for(unsigned j=0;j<a.clips;++j){struct pt_arr_clip c;if(!pt_arr_clip_at(j,&c))continue;if(arrange_editing&&c.id==arrange_draft.id)c=arrange_draft;
                 if(arrange_nr_multi&&arrange_is_multi(c.id)){struct pt_arr_track nt;int ti=arrange_track_index(c.track)+arrange_nr_drow;c.start+=arrange_nr_dt;if(ti>=0&&pt_arr_track_at((unsigned)ti,&nt))c.track=nt.id;} /* preview of the Note Repeat move */
@@ -641,13 +649,9 @@ static void arrange_paint(void*g){
                 if(r1<=arrange_top+arrange_rows-1)rect(g,x,y1-1,end-x,2);
                 if(left>=arrange_left)rect(g,x,y0,2,y1-y0+1);
                 if(right<=arrange_left+arrange_span)rect(g,end-2,y0,2,y1-y0+1);}}
-        { /* Grid on bar lines (beats when zoomed in), so it scrolls and zooms with the blocks */
-            int64_t step=3840;while(arrange_span/step>8)step*=2;
-            int64_t fine=arrange_span<=4*3840?960:0;
-            if(fine)for(int64_t t=(arrange_left+fine-1)/fine*fine;t<=arrange_left+arrange_span;t+=fine){if(t%step==0)continue;int x=arrange_x(t);if(x>=72&&x<312){colour(g,0xff262626u);rect(g,x,75,1,121);}}
-            int last_label=-100;
+        { /* Bar labels; the grid lines themselves are drawn under the blocks of each row */
+            int64_t step=arrange_grid_step();int last_label=-100;
             for(int64_t t=(arrange_left+step-1)/step*step;t<=arrange_left+arrange_span;t+=step){int x=arrange_x(t);if(x<72||x>=312)continue;
-                colour(g,0xff444444u);rect(g,x,75,1,121);
                 if(x-last_label>=36&&x<=290){char beat[24];arrange_bbt(t,beat,sizeof beat);colour(g,0xff777777u);text_at(g,beat,x,59,34,14,10,0x21);last_label=x;}}
         }
         if(arrange_cursor>=arrange_left&&arrange_cursor<=arrange_left+arrange_span){colour(g,0xffffc247u);rect(g,arrange_x(arrange_cursor),73,1,124);}

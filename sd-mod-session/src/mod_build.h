@@ -2,7 +2,7 @@
 #define AM_MOD_BUILD_H
 /* Shared by native About, the DRM boot helper and the in-app splash. */
 #ifndef AM_MOD_VERSION
-#define AM_MOD_VERSION "r30d-beta4"
+#define AM_MOD_VERSION "r31a"
 #endif
 #define AM_MOD_SPLASH_VERSION "Version " AM_MOD_VERSION
 #define AM_MOD_REPO_LABEL "github.com/AlekseyMalykh/am-mod"

@@ -1,4 +1,4 @@
-# Boot menus and exit to the bootloader (r30d)
+# Boot menus and exit to the bootloader (r31a)
 
 [README](../README.md) · [Installation](INSTALL.md) · [Русский](BOOTLOADERS.ru.md) · [Español](BOOTLOADERS.es.md)
 
@@ -15,7 +15,7 @@ Am MOD runs an application copy from the SD card; it never flashes the MPC. It s
 | mpc-boot-thingy | `autorun/apps/am-mod/autorun/` with `boot.entry` in the parent | choose **AM Mod** | returns to stock firmware |
 | **SampleBoot** (pxcm) | `autorun/mods/AM-Mod/` with `sampleboot.inplace` | choose **Am MOD** in the SampleBoot menu | **returns to the SampleBoot menu** |
 
-The installer 1.5.1 detects the layout and writes to the right folder. It never replaces the boot menu's root `autorun` folder. Use exFAT and an ASCII volume label.
+The installer 1.6.0 detects the layout and writes to the right folder. It never replaces the boot menu's root `autorun` folder. Use exFAT and an ASCII volume label.
 
 ## Exit to bootloader
 
@@ -26,6 +26,8 @@ The installer 1.5.1 detects the layout and writes to the right folder. It never 
 5. If the card contains the D.S.B menu, Am MOD marks this start as **healthy** in D.S.B's state file (no crash is counted and the mod is not started again automatically) and **reboots into the D.S.B menu**. Pick another system, or Am MOD again.
 6. If the card has SampleBoot, Am MOD reboots and SampleBoot shows its menu (it keeps no remembered choice, so a reboot is enough).
 7. If there is no boot menu, the MPC starts the stock firmware.
+
+The **power button** offers the same exit since r31a: its dialog has **B1 Cancel, B2 Bootloader, B3 Power off**; B2 and B3 save the project copy first, and if that fails the mod stays on.
 
 Power off/on works as before; Exit to bootloader is the quick way to switch systems without touching the power button. **Fast boot idea:** choose AM Mod once so the card starts it directly, and use Exit to bootloader whenever you want another system.
 
@@ -39,7 +41,7 @@ Diagnostics written to `autorun/os/AM-Mod/` on the card (they are overwritten ea
 |---|---|
 | `dsb-boot.log` | D.S.B's boot journal (RAM only on the device, copied for you) |
 | `dsb-state-fix.log` | what the state fix saw and did |
-| `MPC_MOD_EVENTS.txt`, `MPC_MOD_CONSOLE.txt`, `MPC_CLONE_TRIAL.txt` | the mod's own logs |
+| `Logs/MPC_MOD_EVENTS.txt`, `Logs/MPC_MOD_CONSOLE.txt`, `Logs/MPC_CLONE_TRIAL.txt` | the mod's own logs (in the `Logs/` subfolder since r31a) |
 
 When you report a boot problem, attach these files and name the boot menu and its version.
 

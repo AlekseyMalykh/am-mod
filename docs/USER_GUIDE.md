@@ -1,4 +1,4 @@
-# Am MOD r30d user guide
+# Am MOD r31a user guide
 
 [README](../README.md) · [USB](USB_GUIDE.md) · [Русский](USER_GUIDE.ru.md)
 
@@ -114,3 +114,7 @@ On MIDI Input, **B3 Mode** cycles **Drum map → Channels → Selected pad** wit
 ## Synth, Input and Piano Roll (r30d)
 
 Full details: [Synth guide](SYNTH_GUIDE.md). Mixer pad 13 opens the synth; Loop + pad (13–16, 9) or + / − picks a module, DATA flips pages, Shift+K edits the hidden parameter. K1 on Keys is Transpose16, Shift+K1 is Layout. Shift+Sample opens Input ROUTE from any screen. In Piano Roll hold DATA, turn the encoder and move the fader to select an area. **Mod Settings → About → Exit to bootloader** saves a project copy and returns to the D.S.B menu (or stock); see [Boot menus](BOOTLOADERS.md).
+
+## Arrange (r31a, beta)
+
+**Song → Shift+B1** opens Arrange: free lanes with live Seq blocks and your own patterns. Tap a sequence pad to add it at the cursor, hold Note Repeat + DATA / fader to move blocks, Play / Shift+Play / Loop, Shift+B3 for Actions (including rename), Shift+B1 to export the arrangement. Open a block (B3) to edit it in the Piano Roll with a song playhead, Follow (Shift+B2), Shift+pads row selection and Shift+Erase copy / paste. The Mixer does not open while Song or Arrange plays. Full instructions: [Arrange guide](ARRANGE_GUIDE.md).

@@ -1,4 +1,4 @@
-# Guía de usuario de Am MOD r30d
+# Guía de usuario de Am MOD r31a
 
 [README](../README.es.md) · [USB](USB_GUIDE.md) · [English](USER_GUIDE.md) · [Русский](USER_GUIDE.ru.md)
 
@@ -17,3 +17,7 @@ Detalles: [guía del sintetizador](SYNTH_GUIDE.es.md). El pad 13 del mezclador a
 ## Otras funciones
 
 Mute+B3 / Mute+B2: modo mute de secuencias / borrar mutes locales. Mantén Stop y pulsa Chop: afinador. Step Edit → Events/Steps → Knob FX: Piano Roll (B1 vuelve). Shift+Pad8 → B2: Map / Log MIDI. Browser → Shift+B1 / Shift+B2: Sample Swap / importar programas. Shift+Pad16 → Mod Settings: modo, audio USB, paleta, pantalla.
+
+## Arrange (r31a, beta)
+
+**Song → Shift+B1** abre Arrange: pistas libres con bloques Seq en vivo y tus propios patrones. Toca un pad de secuencia para añadirla en el cursor, mantén Note Repeat + DATA / fader para mover bloques, Play / Shift+Play / Loop, Shift+B3 para Actions (incluido renombrar), Shift+B1 para exportar el arreglo. Abre un bloque (B3) para editarlo en el Piano Roll con el cursor de la canción, Follow (Shift+B2), selección de filas con Shift+pads y copiar / pegar con Shift+Erase. El mezclador no se abre mientras suena Song o Arrange. Instrucciones completas: [guía de Arrange](ARRANGE_GUIDE.es.md).

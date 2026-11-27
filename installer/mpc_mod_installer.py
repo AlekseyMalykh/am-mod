@@ -44,7 +44,7 @@ import webbrowser
 import zipfile
 from pathlib import Path, PurePosixPath
 
-__version__ = "1.5.1"
+__version__ = "1.6.0"
 REPO = "AlekseyMalykh/am-mod"
 GITHUB_URL = f"https://github.com/{REPO}"
 VERSION_FILE = "MPC_MOD_VERSION.json"
@@ -281,11 +281,13 @@ def latest_release(log=print) -> Package:
 
 
 # Only launcher diagnostics and installer metadata are collected.
-# The journals live next to the mod: in autorun/ on a plain card, in its own folder under a boot menu.
+# The journals live in the mod folder (autorun/ on a plain card, its own folder under a boot menu), in Logs/ since r31a.
 _JOURNALS = ("MPC_MOD_EVENTS.txt", "MPC_MOD_ENTRY.txt", "MPC_CLONE_TRIAL.txt", "MPC_CLONE_ALREADY_ATTEMPTED.txt")
 DIAGNOSTIC_FILES = (
     (VERSION_FILE,)
-    + tuple(f"{d}/{n}" for d in (AUTORUN, DSB_DIR, SAMPLEBOOT_DIR, APP_DIR + "/autorun") for n in _JOURNALS)
+    # r31a+ keeps the journals in a Logs/ subfolder; earlier releases wrote them beside the mod files.
+    + tuple(f"{d}/{sub}{n}" for d in (AUTORUN, DSB_DIR, SAMPLEBOOT_DIR, APP_DIR + "/autorun")
+            for sub in ("Logs/", "") for n in _JOURNALS)
     + ("autorun/sampleboot/last-boot.log",)
 )
 MAX_LOG = 2 << 20
