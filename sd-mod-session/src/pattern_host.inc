@@ -7,7 +7,7 @@ int step_pattern_open(uint64_t id,int64_t phase,void(*redraw)(void)){
  if(!(transport&2u)||(transport&5u))return 0;
  int index=pt_pattern_index(id);struct pt_entry entry;
  if(index<0||!pt_info((unsigned)index,&entry)||entry.count>PR_MAX_EVENTS||!roll_allocate())return 0;
- pr_reset(&roll);roll_actions=roll_editing=roll_action=roll_data_held=roll_data_moved=0;
+ pr_reset_view(&roll);roll_actions=roll_editing=roll_action=roll_data_held=roll_data_moved=0;
  roll_erase_held=roll_erase_used=0;roll_row_confirm=-1;pattern_saved_bank=browse_bank;roll_pad_page=browse_bank=0;
  roll_patterns_state=0;roll_patterns_epoch=pt_epoch();roll_pattern_index=index;
  pattern_host_id=id;pattern_host_clip=pattern_split_result=0;roll_song_valid=0;pattern_separated=NULL;pattern_rows_held=pattern_rows_used=0;roll_pattern_serial=0;pattern_redraw=redraw;pattern_host=1;roll_owner=NULL;
@@ -52,12 +52,17 @@ int step_pattern_button(unsigned code,int down,int shifted){
  if(!down){
   if(code==0x0b&&roll_editing){int result=roll.plan.removed_count?pr_apply(&roll):1;roll_editing=0;roll_error(result,"Event edit applied; Undo / Redo available");return 1;}
   if(code==0x6f)roll_data_release(shifted);
+  if(code==0x09)roll_erase_release();
   if(code==0x0d&&pattern_rows_held){int used=pattern_rows_used;pattern_rows_held=pattern_rows_used=0;if(!used)roll_button(code,0);repaint();}
   return 1;
  }
  if(code==BUTTON_PLAY||code==BUTTON_RECORD){say("Arrange playback/record not connected");return 1;}
  if(code==0x0b){if(!roll_editing&&!roll_actions){roll_edit_start();if(roll_editing)say("Note Repeat held: DATA time / Fader row, release applies");}repaint();return 1;}
- if(code==0x0d&&shifted){say("Follow needs Arrange playback");return 1;}
+ if(code==0x0d&&shifted){roll.follow=!roll.follow;say(roll.follow?"Follow on":"Follow off");repaint();return 1;}
+ if(code==0x09&&shifted&&!roll_editing&&!roll_actions){ /* Shift+Erase: copy the selection, or paste at the cursor */
+  if(pr_selected(&roll))roll_error(pr_copy(&roll),"Copied: move cursor (or open another block), Shift+Erase pastes");
+  else roll_error(pr_paste(&roll),"Pasted; Undo / Redo available");
+  repaint();return 1;}
  if(pattern_rows_held&&code!=0x0d)pattern_rows_used=1;
  if(code==0x0e&&!shifted&&pattern_rows_held&&pattern_host_clip&&!roll_editing&&!roll_actions&&!roll_row_pending()){pattern_separate_selection(0);if(!pattern_finish_separate())repaint();return 1;}
  if(code==0x0d&&!shifted&&!roll_editing&&!roll_actions&&!roll_row_pending()){pattern_rows_held=1;pattern_rows_used=0;say("Hold B2 + pads: toggle complete rows");repaint();return 1;}
@@ -79,13 +84,14 @@ int step_pattern_control(unsigned cc,unsigned value,int shifted){
 }
 int step_pattern_pad(unsigned pad,int shifted){
  if(step_pattern_active()&&pad<16){
-  if(pattern_rows_held&&!roll_editing&&!roll_actions){
-   pattern_rows_used=1;int value=roll.layer==PR_PADS?browse_bank*16+(int)pad:roll_pad_rows[pad];
+  if((pattern_rows_held||shifted)&&!roll_editing&&!roll_actions){ /* B2 held or Shift + pads: toggle complete rows */
+   if(pattern_rows_held)pattern_rows_used=1;
+   int value=roll.layer==PR_PADS?browse_bank*16+(int)pad:roll_pad_rows[pad];
    if(value<0){say("No event row on this pad");return 1;}
    roll_pad(pad,0);int any=0,enable=0;
    for(unsigned i=0;i<roll.count;++i)if((roll.layer==PR_PADS?roll.notes[i].sound:pr_note_row(&roll,roll.notes+i))==value){++any;if(!roll.notes[i].selected)enable=1;}
    for(unsigned i=0;i<roll.count;++i)if((roll.layer==PR_PADS?roll.notes[i].sound:pr_note_row(&roll,roll.notes+i))==value)roll.notes[i].selected=enable;
-   roll.range=0;pr_cancel(&roll);say(any?"B3 Separate / release B2 to edit notes":"This row has no events");
+   roll.range=0;pr_cancel(&roll);say(!any?"This row has no events":shifted?"Rows selected: Shift+Erase copy / Note Repeat move":"B3 Separate / release B2 to edit notes");
   }else roll_pad(pad,shifted);
   repaint();
  }
@@ -96,6 +102,8 @@ int step_pattern_paint(void*g,int shifted){
  shift=shifted;
  if(message[0]&&milliseconds()>=message_until)message[0]=0;
  {struct pt_entry e;if(!roll_editing&&!roll_actions&&roll_pattern_index>=0&&pt_info((unsigned)roll_pattern_index,&e)&&e.revision!=roll.revision)roll_refresh(1);} /* Seq block changed (native Undo) */
+ /* The stock step tick does not run under this host: take the song clock here. */
+ was_playing=atomic_load(&clock_valid)&&atomic_load(&clock_running);play_tick=(int64_t)atomic_load(&clock_tick);if(play_tick<0){play_tick=0;was_playing=0;}
  if(roll_show_transport())pr_follow(&roll,roll_transport_tick(),1); /* Follow while the song plays inside this block */
  roll_paint(g);return 1;
 }

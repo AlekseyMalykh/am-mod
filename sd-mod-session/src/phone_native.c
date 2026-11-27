@@ -963,8 +963,8 @@ static void mixer_pad_ui(const struct phone_event *e, struct mixer_control *cont
  * the menu lambda 14aa5e0). Validated before use; UI thread only. */
 static int native_show_screen(int id)
 {
-    void *app=(void*)(base+0x71e3dc8);
-    if(FIELD(app,0,uintptr_t)!=base+0x6e07288){fprintf(stderr,"NATIVE_SCREEN app vptr mismatch\n");return 0;}
+    void *app=FIELD((void*)(base+0x71e3dc8),0,void*); /* global App* (loaded with a null check by the stock code) */
+    if(!app||FIELD(app,0,uintptr_t)!=base+0x6e07288){fprintf(stderr,"NATIVE_SCREEN app mismatch app=%p vptr=%#lx\n",app,app?(unsigned long)(FIELD(app,0,uintptr_t)-base):0ul);return 0;}
     void *ctl=FIELD(app,240,void*);
     if(!ctl||FIELD(ctl,0,uintptr_t)!=base+0x6d8bee8){fprintf(stderr,"NATIVE_SCREEN controller mismatch %p\n",ctl);return 0;}
     void *mgr=FIELD(ctl,48,void*);
@@ -2714,7 +2714,7 @@ static void buttons(void *event)
     if(!atomic_load(&button_template_ready)&&native_code<112){memcpy(button_template,event,16);atomic_store(&button_template_ready,1);}
     /* r27q-fix6 diagnostic: physical button codes (Sample/Seq/... are not
      * mapped in the repo yet), with the 16 Levels/Chop state, 300 presses. */
-    {static unsigned logged;if(native_down&&logged<300){++logged;unsigned on=0,mode=0,origin=0;music_lighting_levels_state(&on,&mode,&origin);
+    {static unsigned logged;if(native_down&&logged<1500){++logged;unsigned on=0,mode=0,origin=0;music_lighting_levels_state(&on,&mode,&origin);
         fprintf(stderr,"BUTTON_DOWN code=%02x levels=%u/%u\n",native_code,on,mode);}}
     if(native_code==0x0e&&(atomic_load(&step_confirm_waiting)||(!native_down&&atomic_load(&step_confirm_forwarded)))){
         if(queue_native(event,PHONE_BUTTON))return;

@@ -19,6 +19,7 @@ static const char*const arrange_actions[]={"Track: add","Add: pattern from libra
 static const int arrange_order[]={17,14,1, 13,2,3,4,5,6,7,15,10, 0,8,9,18, 11,12,16};
 #define ARRANGE_ORDER_COUNT ((int)(sizeof arrange_order/sizeof *arrange_order))
 static uint64_t arrange_multi[512];static unsigned arrange_multi_count;static int arrange_anchor_row;
+static int arrange_track_index(uint64_t track){struct pt_arrangement a;if(!pt_arr_info(&a))return -1;for(unsigned i=0;i<a.tracks;++i){struct pt_arr_track t;if(pt_arr_track_at(i,&t)&&t.id==track)return (int)i;}return -1;}
 static int arrange_is_multi(uint64_t id){for(unsigned i=0;i<arrange_multi_count;++i)if(arrange_multi[i]==id)return 1;return 0;}
 static uint32_t arrange_block_rgb(uint64_t pattern){
     int p=pt_pattern_index(pattern),s=p>=0?pt_link_seq((unsigned)p):-1;
@@ -59,11 +60,11 @@ static int arrange_loop,arrange_roll_loop,arrange_play_looping; /* lane / block 
 static uint64_t arrange_editor_clip;
 extern void step_native_set_render_range(int64_t,int64_t) __attribute__((weak));
 extern void step_native_set_sequencer(void*) __attribute__((weak));
-static int arrange_clip(uint64_t,struct pt_arr_clip*);static int arrange_target(struct pt_arr_clip*);
+static void arrange_live_update(void);static int arrange_clip(uint64_t,struct pt_arr_clip*);static int arrange_target(struct pt_arr_clip*);
 static int64_t arrange_song_tick(int64_t tick){return arrange_play_from+(arrange_play_to>arrange_play_from?tick%(arrange_play_to-arrange_play_from):tick);}
 static int arrange_loop_lit(void){return atomic_load(&arrangement_editor)?arrange_roll_loop:arrange_loop;}
 extern void step_native_set_render_from(int64_t) __attribute__((weak));
-static uint64_t arrange_play_retry_at;static int64_t arrange_play_end,arrange_play_last_tick;
+static uint64_t arrange_play_retry_at,arrange_live_serial;static int64_t arrange_play_end,arrange_play_last_tick;
 /* ---- Arrange v2 stage 2: live Seq blocks. Refreshed from the stock sequence before
  * Play and before opening the block, so a re-recorded sequence sounds in Arrange. ---- */
 extern int64_t step_native_clock_ticks(uint64_t*,unsigned*) __attribute__((weak));
@@ -234,10 +235,11 @@ static void arrange_play_tick(void){
             arrange_play_state=2;arrange_was_running=0;arrange_play_deadline=now_ms()+3000;
             arrange_play_retries=2;arrange_play_retry_at=now_ms()+600;arrange_play_last_tick=-1;
             {struct pt_arrangement a;arrange_play_end=0;if(pt_arr_info(&a))for(unsigned j=0;j<a.clips;++j){struct pt_arr_clip c;if(pt_arr_clip_at(j,&c)&&!c.muted&&c.start+c.length>arrange_play_end)arrange_play_end=c.start+c.length;}}
-            report("ARRANGE_PLAY started");say("Arrange playing (Stop to return)");
+            arrange_live_serial=pt_serial();report("ARRANGE_PLAY started");say("Arrange playing (Stop to return)");
         }else if(now_ms()>arrange_play_deadline){report("ARRANGE_PLAY swap timeout");say("Playback failed: song not ready");arrange_play_stop(0);}
     }else if(arrange_play_state==2){
         if(running)arrange_was_running=1;
+        if(pt_serial()!=arrange_live_serial){arrange_live_serial=pt_serial();arrange_live_update();} /* edits while playing are heard */
         /* The stock Song sometimes ignores the first injected Play: press it again. */
         if(!running&&!arrange_was_running&&arrange_play_retries>0&&now_ms()>=arrange_play_retry_at&&phone_native_inject_button){
             --arrange_play_retries;arrange_play_retry_at=now_ms()+600;arrange_play_deadline=now_ms()+3000;
@@ -306,6 +308,14 @@ static void arrange_tick(void){
     if(arrange_row>=arrange_top+arrange_rows)arrange_top=arrange_row-arrange_rows+1;
     arrange_top=arrange_clamp(arrange_top,0,a.tracks>(unsigned)arrange_rows?(int)a.tracks-arrange_rows:0);
     struct pt_arr_clip c;if(arrange_selected&&!arrange_clip(arrange_selected,&c))arrange_selected=0;
+}
+/* An edit while Arrange plays: render Seq 128 again so the change is heard from now on. */
+static void arrange_live_update(void){
+    if(arrange_play_state!=2||!step_native_render_arrangement_slot)return;
+    struct song_ref r;if(!song_ref_any(&r))return;
+    char msg[96];int rr=step_native_render_arrangement_slot(r.sequencer,ARRANGE_SLOT,1,msg,sizeof msg);
+    struct pt_arrangement a;arrange_play_end=0;if(pt_arr_info(&a))for(unsigned j=0;j<a.clips;++j){struct pt_arr_clip c;if(pt_arr_clip_at(j,&c)&&!c.muted&&c.start+c.length>arrange_play_end)arrange_play_end=c.start+c.length;}
+    {char m[128];snprintf(m,sizeof m,"ARRANGE_PLAY live render r=%d %s",rr,msg);report(m);}
 }
 static void arrange_result(int ok){say(ok?"Arrangement updated; save project":pt_error()[0]?pt_error():"Block operation unavailable");arrange_tick();repaint(screen);}
 static void arrange_cut(void){
@@ -516,7 +526,7 @@ static int arrange_control(unsigned cc,unsigned value,int shifted){
         if(cc==DATA_ENCODER){arrange_nr_dt+=(int64_t)delta*arrange_grid;if(arrange_nr_first+arrange_nr_dt<0)arrange_nr_dt=-arrange_nr_first;}
         else arrange_nr_drow=ui_list_fader(value,(int)a.tracks-1)-arrange_nr_top;
         {char m[80],s[24];arrange_bbt(arrange_nr_first+arrange_nr_dt,s,sizeof s);snprintf(m,sizeof m,"Move to bar %s, %+d tracks: release",s,arrange_nr_drow);say(m);}
-        return 1;}
+        repaint(screen);return 1;}
     if(arrange_ss_held&&!arrange_menu&&(cc==DATA_ENCODER||cc==0x14)){
         if(cc==DATA_ENCODER){arrange_left+=(int64_t)delta*(arrange_span/8>0?arrange_span/8:960);if(arrange_left<0)arrange_left=0;if(arrange_left>a.length-arrange_span)arrange_left=a.length-arrange_span>0?a.length-arrange_span:0;}
         else{int max=a.tracks>(unsigned)arrange_rows?(int)a.tracks-arrange_rows:0;arrange_top=max-(int)value*max/127;}
@@ -572,7 +582,9 @@ static void arrange_paint(void*g){
         for(int i=0;i<arrange_rows;++i){unsigned index=(unsigned)(arrange_top+i);struct pt_arr_track t;if(!pt_arr_track_at(index,&t))break;int y=76+i*h;
             colour(g,index==(unsigned)arrange_row?0xff252525u:0xff101010u);rect(g,0,y,312,h-1);
             char name[48];snprintf(name,sizeof name,"%s%.7s",t.muted?"M ":t.solo?"S ":"",t.name);colour(g,index==(unsigned)arrange_row?0xffffc247u:0xffffffffu);text_at(g,name,3,y,66,h-1,11,0x21);
-            for(unsigned j=0;j<a.clips;++j){struct pt_arr_clip c;if(!pt_arr_clip_at(j,&c))continue;if(arrange_editing&&c.id==arrange_draft.id)c=arrange_draft;if(c.track!=t.id||c.start>=arrange_left+arrange_span||c.start+c.length<=arrange_left)continue;
+            for(unsigned j=0;j<a.clips;++j){struct pt_arr_clip c;if(!pt_arr_clip_at(j,&c))continue;if(arrange_editing&&c.id==arrange_draft.id)c=arrange_draft;
+                if(arrange_nr_multi&&arrange_is_multi(c.id)){struct pt_arr_track nt;int ti=arrange_track_index(c.track)+arrange_nr_drow;c.start+=arrange_nr_dt;if(ti>=0&&pt_arr_track_at((unsigned)ti,&nt))c.track=nt.id;} /* preview of the Note Repeat move */
+                if(c.track!=t.id||c.start>=arrange_left+arrange_span||c.start+c.length<=arrange_left)continue;
                 int x=c.start<arrange_left?72:arrange_x(c.start),end=c.start+c.length>arrange_left+arrange_span?312:arrange_x(c.start+c.length);if(end<=x)end=x+1;
                 uint32_t rgb=c.muted||t.muted?0x555555u:arrange_block_rgb(c.pattern);
                 uint32_t fill=((rgb>>16&255)/5)<<16|((rgb>>8&255)/5)<<8|(rgb&255)/5;
