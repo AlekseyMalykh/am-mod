@@ -456,6 +456,9 @@ static unsigned char mixer_native_buttons[112];
 static _Alignas(8) unsigned char mixer_entry_down[40];
 /* Where the Mixer was opened from: 0 Sample, 1 Seq, 2 Song (Arrange). B1 goes back there. */
 static int mixer_origin,mixer_origin_seen;static uint64_t mixer_origin_at;
+static int mixer_song_playing(void);
+extern void song_ui_toast(const char*) __attribute__((weak));
+extern int song_ui_name_light(unsigned,uint64_t*) __attribute__((weak));
 /* Last real pad press/release, the template for the injected Shift+Pad 12 (Song). */
 static _Alignas(8) unsigned char pad_template_down[40],pad_template_up[40];static _Atomic int pad_template_ok;
 
@@ -936,7 +939,8 @@ static void mixer_pad_ui(const struct phone_event *e, struct mixer_control *cont
         enum mixer_entry_action action = mixer_entry_pad(&mixer_entry,e->pad,e->down,
             e->when_ms,e->generation,1,ready,mixer_ui_blocked());
         if (e->down && action == MIXER_ENTRY_CONSUME) memcpy(mixer_entry_down,raw,sizeof(raw));
-        if (action == MIXER_ENTRY_OPEN && mixer_control_open(control,ready,0)) {
+        if (action == MIXER_ENTRY_OPEN && mixer_song_playing()) {if (song_ui_toast) song_ui_toast("Stop playback to open the Mixer");}
+        else if (action == MIXER_ENTRY_OPEN && mixer_control_open(control,ready,0)) {
             int bank = step_native_browser_bank(-1);
             if (bank >= 0 && bank < 8)
                 mixer_control_presence(control,0,0,(unsigned)bank);
@@ -957,26 +961,16 @@ static void mixer_pad_ui(const struct phone_event *e, struct mixer_control *cont
     }
 }
 
-/* SongScreen entry guard (vtable slot 0x6d7d060 -> 1523ec0) refuses "Stop Seq playback to enter
- * Song Mode" while the transport runs. Mixer B1 back to Song/Arrange keeps playing: for a short
- * window after our own request the guard answers yes; otherwise the stock check runs. */
-static _Atomic uint64_t song_enter_allow_until;
-static int song_enter_guard(void *self)
+/* Song/Arrange playing on the Song screen: the stock SongScreen refuses re-entry while the
+ * transport runs ("Stop Seq playback to enter Song Mode"), so B1 could not come back.
+ * Until that is solved the Mixer does not open from a playing Song. */
+static int mixer_song_playing(void)
 {
-    if (now_ms() < atomic_load(&song_enter_allow_until)) {fprintf(stderr,"SONG_ENTER guard bypassed (playing)\n");return 1;}
-    return FN(0x1523ec0,int(*)(void*))(self);
-}
-static int install_song_enter_guard(void)
-{
-    static int done;
-    if (done) return done > 0;
-    uintptr_t *slot = (uintptr_t*)(base+0x6d7d060);
-    if (*slot != base+0x1523ec0) {done = -1;fprintf(stderr,"SONG_ENTER guard slot mismatch %#lx\n",(unsigned long)(*slot-base));return 0;}
-    void *page = (void*)((uintptr_t)slot&~(uintptr_t)4095);
-    if (mprotect(page,4096,PROT_READ|PROT_WRITE)) {done = -1;return 0;}
-    *slot = (uintptr_t)song_enter_guard;
-    if (mprotect(page,4096,PROT_READ)) _exit(121);
-    done = 1;fprintf(stderr,"SONG_ENTER guard installed\n");return 1;
+#ifdef MPC_SONG_UI
+    return song_ui_active() && (step_native_transport_state()&1u);
+#else
+    return 0;
+#endif
 }
 /* Stock screen navigation, as the Shift-pad menu does it: app(+0x71e3dc8)+240 is the
  * navigation controller (vptr 0x6d8bee8, ctor 14add30), its +48 the screen manager;
@@ -1020,7 +1014,6 @@ static void mixer_button_ui(struct phone_event *e, struct mixer_control *control
     if (mixer_control_exit_requested(control)) {
         /* B1 on the Mixer page: back to where it was opened (Sample, Seq or Song via Shift+Pad 12). */
         _Alignas(8) unsigned char sample[16];memcpy(sample,e->native,16);
-        if (mixer_origin == 2 && install_song_enter_guard()) atomic_store(&song_enter_allow_until,now_ms()+1500);
         if (mixer_origin == 2 && native_show_screen(0x20ac)) {
             fprintf(stderr,"MIXER_RETURN song (native screen)\n");
         } else if (mixer_origin == 2 && atomic_load(&pad_template_ok)) {
@@ -1108,6 +1101,11 @@ static int mixer_dispatch(struct phone_event *e)
         if(e->kind==PHONE_MIXER_CC)shift=e->down!=0;
         else if(e->kind==PHONE_MIXER_BUTTON&&e->down)shift=e->up!=0;
         mixer_control_button(control,MIXER_SHIFT,shift,mixer_control_ticket(control));
+    }
+    if (e->kind == PHONE_MIXER_ENTRY && e->pad == 0xffu && mixer_song_playing()) {
+        if (song_ui_toast) song_ui_toast("Stop playback to open the Mixer");
+        fprintf(stderr,"MIXER_ENTRY refused: Song playing\n");
+        atomic_store(&mixer_pending,0);mixer_publish_route();return 1;
     }
     if (e->kind == PHONE_MIXER_ENTRY && e->pad == 0xffu) {
         /* PAD FX + KNOB FX: open now on Sample; elsewhere press stock Sample
@@ -3685,6 +3683,11 @@ static void rgb(void *s,uint32_t colour,unsigned pad)
         if(step_pattern_light(pad,&palette_colour)){
             send_pad_rgb(s,FN(0x23b00c0,uint32_t(*)(const uint64_t*))(&palette_colour),pad);return;
         }
+#ifdef MPC_SONG_UI
+        if(song_ui_name_light&&song_ui_name_light(pad,&palette_colour)){
+            send_pad_rgb(s,FN(0x23b00c0,uint32_t(*)(const uint64_t*))(&palette_colour),pad);return;
+        }
+#endif
 #endif
 #ifdef MPC_KNOB_RESET
         if((knob_reset_ticket()&2)&&atomic_load(&pad_bank_held_long)){ORIG(H_RGB,void(*)(void*,uint32_t,unsigned))(s,colour,pad);return;}
@@ -3945,6 +3948,9 @@ static void send_step_lights(void)
         if (music_ui_transfer_light(i,&light) || music_ui_palette_light(i,&light) || settings_pad_light(i,&light) ||
 #ifdef MPC_PATTERN_TOOLS_TRIAL
             step_pattern_light(i,&light) ||
+#endif
+#ifdef MPC_SONG_UI
+            (song_ui_name_light&&song_ui_name_light(i,&light)) ||
 #endif
             synth_keys_light(i,&light) ||
 

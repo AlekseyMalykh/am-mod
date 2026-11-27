@@ -24,6 +24,8 @@ int song_ui_control_ticket(void *event,int shift,uint64_t ticket);
 int song_ui_button_ticket(void *event,int shift,uint64_t ticket);
 #ifdef MPC_PATTERN_TOOLS_TRIAL
 int song_ui_pattern_pads(void);
+void song_ui_toast(const char*); /* UI owner: short message on the Song screen */
+int song_ui_name_light(unsigned pad,uint64_t*light); /* RGB thread: Arrange rename pad colours */
 int song_ui_arrange_lane(void); /* numeric producer snapshot, no GUI access */
 void song_ui_pattern_pad(unsigned pad,int shift,uint64_t ticket); /* UI owner */
 #endif

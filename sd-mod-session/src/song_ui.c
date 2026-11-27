@@ -398,6 +398,18 @@ static int fits(const struct song_ref *r,int extra_bars)
 static void say(const char *m)
 { snprintf(toast,sizeof(toast),"%s",m); toast_until=now_ms()+1500; repaint(screen); report(m); }
 
+void song_ui_toast(const char*m){if(m&&atomic_load(&shown))say(m);}
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+static _Atomic uint64_t arrange_name_lights[16];
+#endif
+int song_ui_name_light(unsigned pad,uint64_t*light){
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+    if(pad>=16||!light||!atomic_load(&arrange_naming)||!atomic_load(&shown))return 0;
+    *light=atomic_load(&arrange_name_lights[pad]);return 1;
+#else
+    (void)pad;(void)light;return 0;
+#endif
+}
 static void trace(const char*what,const struct song_ref*r,int a,int b)
 { char m[96]; snprintf(m,sizeof(m),"%s row=%d count=%d a=%d b=%d",what,r->row,r->count,a,b); report(m); }
 static void set_repeats(const struct song_ref *r,int step,int repeats)

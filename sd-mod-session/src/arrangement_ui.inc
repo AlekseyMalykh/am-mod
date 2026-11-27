@@ -589,6 +589,9 @@ static void arrange_paint(void*g){
     text(g,arrange_menu==7?"Delete":arrange_editing?"":arrange_menu?"Close":arrange_range?"Range On":"Range",107,4,106,25,13);colour(g,0xffffc247u);text(g,arrange_menu==7?"Save":arrange_editing?"Apply":atomic_load(&export_shift)?"Actions":arrange_menu==3||arrange_menu==6?"Delete":arrange_menu?"Choose":arrange_selected?"Edit":have_under&&!arrange_range?"Open":"New",214,4,106,25,13);
     text_at(g,arrange_menu==1?"Arrange / Actions":arrange_menu==2?"Insert pattern":arrange_menu==4?"New block":arrange_menu==5?"Add sequence":arrange_menu==6?"Delete track":arrange_menu==7?(arrange_name_kind==1?"Rename pattern":"Rename track"):a.read_only?"Arrange / read only":"Song / Arrange",6,34,arrange_menu?236:308,23,17,0x21);
     if(arrange_menu==7){char view[160];phone_view(&arrange_name,22,view,sizeof view);
+        for(unsigned i=0;i<16;++i)atomic_store(&arrange_name_lights[i],phone_light(&arrange_name,i+1)); /* pad letters, as in the Mixer rename */
+        {int pads=arrange_name.enabled;colour(g,pads?0xffffc247u:0xff303030u);rect(g,230,58,82,22); /* K1 = input type, highlighted like the Mixer */
+         colour(g,pads?0xff000000u:0xffffffffu);text(g,pads?"K1: Pads":"K1: Encoder",230,58,82,22,12);}
         colour(g,0xff303030u);rect(g,8,84,304,34);colour(g,0xffffffffu);text_at(g,view,14,84,292,34,18,0x21);
         colour(g,0xffaaaaaau);text(g,arrange_name.enabled?"Pads: letters (tap again = next, Shift = caps)":"DATA: letter / Shift+DATA: cursor",8,124,304,20,12);
         text(g,"Erase / B2: delete / click, +/-: cursor / K1: pads",8,144,304,20,12);
@@ -638,7 +641,15 @@ static void arrange_paint(void*g){
                 if(r1<=arrange_top+arrange_rows-1)rect(g,x,y1-1,end-x,2);
                 if(left>=arrange_left)rect(g,x,y0,2,y1-y0+1);
                 if(right<=arrange_left+arrange_span)rect(g,end-2,y0,2,y1-y0+1);}}
-        for(int i=0;i<=4;++i){int x=72+60*i;char beat[24];arrange_bbt(arrange_left+arrange_span*i/4,beat,sizeof beat);colour(g,0xff777777u);text_at(g,beat,x<290?x:283,59,34,14,10,0x21);colour(g,0xff444444u);rect(g,x,75,1,121);}
+        { /* Grid on bar lines (beats when zoomed in), so it scrolls and zooms with the blocks */
+            int64_t step=3840;while(arrange_span/step>8)step*=2;
+            int64_t fine=arrange_span<=4*3840?960:0;
+            if(fine)for(int64_t t=(arrange_left+fine-1)/fine*fine;t<=arrange_left+arrange_span;t+=fine){if(t%step==0)continue;int x=arrange_x(t);if(x>=72&&x<312){colour(g,0xff262626u);rect(g,x,75,1,121);}}
+            int last_label=-100;
+            for(int64_t t=(arrange_left+step-1)/step*step;t<=arrange_left+arrange_span;t+=step){int x=arrange_x(t);if(x<72||x>=312)continue;
+                colour(g,0xff444444u);rect(g,x,75,1,121);
+                if(x-last_label>=36&&x<=290){char beat[24];arrange_bbt(t,beat,sizeof beat);colour(g,0xff777777u);text_at(g,beat,x,59,34,14,10,0x21);last_label=x;}}
+        }
         if(arrange_cursor>=arrange_left&&arrange_cursor<=arrange_left+arrange_span){colour(g,0xffffc247u);rect(g,arrange_x(arrange_cursor),73,1,124);}
         if(arrange_play_state==2&&step_native_clock_ticks){unsigned run=0;int64_t tick=step_native_clock_ticks(NULL,&run);
             if(run&&a.length>0){tick=arrange_song_tick(tick)%a.length;if(tick>=arrange_left&&tick<=arrange_left+arrange_span){colour(g,0xffffffffu);rect(g,arrange_x(tick),73,2,124);}}}
