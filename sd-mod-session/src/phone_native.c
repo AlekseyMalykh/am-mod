@@ -455,7 +455,9 @@ static unsigned mixer_native_pads, mixer_mode_forwarded;
 static unsigned char mixer_native_buttons[112];
 static _Alignas(8) unsigned char mixer_entry_down[40];
 /* Where the Mixer was opened from: 0 Sample, 1 Seq, 2 Song (Arrange). B1 goes back there. */
-static int mixer_origin;static _Alignas(8) unsigned char mixer_entry_up[40];static int mixer_entry_up_ok;
+static int mixer_origin,mixer_origin_seen;static uint64_t mixer_origin_at;
+/* Last real pad press/release, the template for the injected Shift+Pad 12 (Song). */
+static _Alignas(8) unsigned char pad_template_down[40],pad_template_up[40];static _Atomic int pad_template_ok;
 
 static int mixer_ui_blocked(void)
 {
@@ -882,6 +884,19 @@ static void mixer_tick_ui(void)
     uint64_t now = now_ms();
     mixer_control_view(control,now,&before);
     mixer_session_ui_tick(mixer_ui_session);
+    { /* Remember the screen the Mixer is opened from; Sample shown in between (Knob FX route) does not count for 1.5 s. */
+        uint64_t t = now_ms();
+        if (!was_open) {
+#ifdef MPC_SONG_UI
+            if (song_ui_active()) {mixer_origin_seen = 2; mixer_origin_at = t;} else
+#endif
+            if (music_ui_sequence_visible()) {mixer_origin_seen = 1; mixer_origin_at = t;}
+            else if (t - mixer_origin_at > 1500) mixer_origin_seen = 0;
+        }
+        static int open_before;int open_now = mixer_control_active(control);
+        if (open_now && !open_before) {mixer_origin = mixer_origin_seen;fprintf(stderr,"MIXER_ORIGIN %d\n",mixer_origin);}
+        open_before = open_now;
+    }
     int ready = mixer_session_status(mixer_ui_session) == 1;
     int blocked = mixer_ui_blocked();
     if (!ready || blocked) mixer_close_ui();
@@ -918,14 +933,6 @@ static void mixer_pad_ui(const struct phone_event *e, struct mixer_control *cont
     if (!current) return;
     if (e->kind == PHONE_MIXER_ENTRY || (e->pad == 8 && !e->down && mixer_entry.held)) {
         int ready = mixer_session_status(mixer_ui_session) == 1 && !atomic_load(&mixer_input_fault);
-        if (e->down && !mixer_control_active(control)) {
-#ifdef MPC_SONG_UI
-            mixer_origin = song_ui_active() ? 2 : music_ui_sequence_visible() ? 1 : 0;
-#else
-            mixer_origin = music_ui_sequence_visible() ? 1 : 0;
-#endif
-        }
-        if (!e->down && e->up) {memcpy(mixer_entry_up,raw,sizeof(raw));mixer_entry_up_ok=1;}
         enum mixer_entry_action action = mixer_entry_pad(&mixer_entry,e->pad,e->down,
             e->when_ms,e->generation,1,ready,mixer_ui_blocked());
         if (e->down && action == MIXER_ENTRY_CONSUME) memcpy(mixer_entry_down,raw,sizeof(raw));
@@ -976,9 +983,11 @@ static void mixer_button_ui(struct phone_event *e, struct mixer_control *control
     if (mixer_control_exit_requested(control)) {
         /* B1 on the Mixer page: back to where it was opened (Sample, Seq or Song via Shift+Pad 12). */
         _Alignas(8) unsigned char sample[16];memcpy(sample,e->native,16);
-        if (mixer_origin == 2 && mixer_entry_up_ok) {
+        if (mixer_origin == 2 && atomic_load(&pad_template_ok)) {
             _Alignas(8) unsigned char down[40],up[40];
-            memcpy(down,mixer_entry_down,40);memcpy(up,mixer_entry_up,40);down[8]=11;up[8]=11;
+            memcpy(down,pad_template_down,40);memcpy(up,pad_template_up,40);down[8]=11;up[8]=11;
+            if ((down[16]&0xe0u)==0x80u) down[17]=43; /* MIDI note of PAD 12 */
+            if ((up[16]&0xe0u)==0x80u) up[17]=43;
             fprintf(stderr,"MIXER_RETURN song shift+pad12\n");
             sample[8]=0x31;sample[9]=1;forward_buttons(sample);
             mixer_forward_pad(down);mixer_forward_pad(up);
@@ -2861,6 +2870,8 @@ static void pad_event(void *event)
             if(mb<0&&step_native_bank_or_last)mb=step_native_bank_or_last();
             if(mb>=0&&mb<8)am_midi_ui_pad_hit((unsigned)mb*16+pad);}}
     int up = FN(0xddff20,int(*)(void*,int))(msg,1);
+    if (down) memcpy(pad_template_down,event,40);
+    if (up) {memcpy(pad_template_up,event,40);atomic_store(&pad_template_ok,1);}
 #if defined(MPC_SONG_UI) && defined(MPC_PATTERN_TOOLS_TRIAL)
     /* A captured Pattern pad never started a voice. Its release belongs here
      * even if the user has since opened a different native instrument. */

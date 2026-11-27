@@ -50,11 +50,13 @@ int step_pattern_button(unsigned code,int down,int shifted){
  if(!step_pattern_active())return 1;
  shift=shifted;
  if(!down){
+  if(code==0x0b&&roll_editing){int result=roll.plan.removed_count?pr_apply(&roll):1;roll_editing=0;roll_error(result,"Event edit applied; Undo / Redo available");return 1;}
   if(code==0x6f)roll_data_release(shifted);
   if(code==0x0d&&pattern_rows_held){int used=pattern_rows_used;pattern_rows_held=pattern_rows_used=0;if(!used)roll_button(code,0);repaint();}
   return 1;
  }
  if(code==BUTTON_PLAY||code==BUTTON_RECORD){say("Arrange playback/record not connected");return 1;}
+ if(code==0x0b){if(!roll_editing&&!roll_actions){roll_edit_start();if(roll_editing)say("Note Repeat held: DATA time / Fader row, release applies");}repaint();return 1;}
  if(code==0x0d&&shifted){say("Follow needs Arrange playback");return 1;}
  if(pattern_rows_held&&code!=0x0d)pattern_rows_used=1;
  if(code==0x0e&&!shifted&&pattern_rows_held&&pattern_host_clip&&!roll_editing&&!roll_actions&&!roll_row_pending()){pattern_separate_selection(0);if(!pattern_finish_separate())repaint();return 1;}
@@ -93,6 +95,7 @@ int step_pattern_paint(void*g,int shifted){
  if(!step_pattern_active())return 0;
  shift=shifted;
  if(message[0]&&milliseconds()>=message_until)message[0]=0;
+ {struct pt_entry e;if(!roll_editing&&!roll_actions&&roll_pattern_index>=0&&pt_info((unsigned)roll_pattern_index,&e)&&e.revision!=roll.revision)roll_refresh(1);} /* Seq block changed (native Undo) */
  if(roll_show_transport())pr_follow(&roll,roll_transport_tick(),1); /* Follow while the song plays inside this block */
  roll_paint(g);return 1;
 }

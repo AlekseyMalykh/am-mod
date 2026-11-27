@@ -42,14 +42,17 @@ static int arrange_play_state; /* 0 idle, 1 waiting for swapped song, 2 playing,
 static int arrange_saved_seq[512],arrange_saved_rep[512],arrange_saved_count=-1,arrange_saved_row;
 static void *arrange_saved_song,*arrange_saved_sequencer;static uint64_t arrange_saved_epoch;
 static uint64_t arrange_play_forward_until; /* our injected Play passes to the stock Song */
-static unsigned arrange_forwarded; /* 1 Play, 2 Stop: press forwarded, let its release through too */
+static unsigned arrange_forwarded; /* 1 Play, 2 Stop, 4 Minus, 8 Plus: press forwarded, let its release through too */
+static uint64_t arrange_undo_forward_until,arrange_resync_at;
 static int arrange_forwarded_release(unsigned code){
-    unsigned bit=code==0x52?1u:code==0x51?2u:0u;
+    unsigned bit=code==0x52?1u:code==0x51?2u:code==MINUS?4u:code==PLUS?8u:0u;
     if(!bit||!(arrange_forwarded&bit))return 0;
     arrange_forwarded&=~bit;return 1;
 }
 static uint64_t arrange_play_deadline,arrange_play_confirm_until;
 static int arrange_was_running,arrange_play_retries,arrange_ss_held,arrange_detached;
+/* Note Repeat held = move: one block through the Edit preview, several blocks by (dt, drow) on release. */
+static int arrange_nr_edit,arrange_nr_multi,arrange_nr_drow,arrange_nr_top;static int64_t arrange_nr_dt,arrange_nr_first;
 static int64_t arrange_play_from,arrange_play_to;
 static uint64_t arrange_play_ready_at; /* the audio thread picks up the rewritten Seq 128 a little later */
 static int arrange_loop,arrange_roll_loop,arrange_play_looping; /* lane / block editor; independent */
@@ -159,6 +162,7 @@ static void arrange_play_stop(int inject_stop){
 /* Shift+B1: the arrangement into Seq 128, Song = [Seq 128 x1], then the stock Song Export menu.
  * The user's Song comes back once the export flow is idle again. */
 static int arrange_export_pending;static uint64_t arrange_export_quiet;
+static int arrange_export_active(void){return arrange_export_pending;}
 static int arrange_export_begin(void){
     if(arrange_play_state){say("Stop playback before Export");return 0;}
     struct song_ref r;if(!song_ref_any(&r)){say("Song unavailable");return 0;}
@@ -286,6 +290,7 @@ static int arrange_target(struct pt_arr_clip*out){
 }
 static void arrange_tick(void){
     if(arrange_play_state)arrange_play_tick();
+    if(arrange_resync_at&&now_ms()>=arrange_resync_at){struct song_ref r;arrange_resync_at=0;if(song_ref_any(&r))arrange_sync_links(r.sequencer);repaint(screen);}
     if(arrange_epoch!=pt_epoch()){arrange_new_length=3840;arrange_close();say("Project changed: reopen Arrange");repaint(screen);return;}
     struct pt_arrangement a;if(!pt_arr_info(&a)){arrange_close();return;}
     if(atomic_load(&arrangement_editor)&&(!step_pattern_active||!step_pattern_active())){
@@ -357,7 +362,10 @@ static void arrange_begin_edit(void){
     say("Preview: DATA time / Fader track / K3 length");repaint(screen);
 }
 static void arrange_release(unsigned code){
-    if(code==0x0b){arrange_ss_held=0;return;}
+    if(code==0x0b){arrange_ss_held=0;
+        if(arrange_nr_edit){arrange_nr_edit=0;if(arrange_editing){int ok=pt_arr_edit_clip(arrange_draft.id,arrange_draft.track,arrange_draft.start,arrange_draft.length,arrange_edit_revision);if(ok){arrange_editing=0;arrange_new_length=arrange_draft.length;}arrange_result(ok);}}
+        else if(arrange_nr_multi){arrange_nr_multi=0;if(arrange_nr_dt||arrange_nr_drow){int ok=pt_arr_multi(arrange_multi,arrange_multi_count,arrange_nr_dt,arrange_nr_drow,0);arrange_result(ok);}else repaint(screen);}
+        return;}
     if(code!=0x6f||!arrange_data_held)return;
     arrange_data_held=0;
     if(!arrange_data_moved){struct pt_arr_clip c;arrange_range=0;arrange_multi_count=0;if(arrange_selected)arrange_selected=0;else if(arrange_target(&c))arrange_selected=c.id;}
@@ -413,6 +421,12 @@ static int arrange_button(unsigned code,int shifted){
     arrange_tick();if(!atomic_load(&arrangement_active))return 1;
     pt_expect_epoch(arrange_epoch);
     int in_editor=atomic_load(&arrangement_editor);
+    /* Injected Shift -/+ for a Seq block: the native Undo/Redo owns that edit. */
+    if((code==MINUS||code==PLUS)&&now_ms()<arrange_undo_forward_until){arrange_forwarded|=code==MINUS?4u:8u;arrange_resync_at=now_ms()+250;return 0;}
+    if(in_editor&&shifted&&(code==MINUS||code==PLUS)&&phone_native_inject_button){struct pt_arr_clip c;int i;
+        if(arrange_clip(arrange_editor_clip,&c)&&(i=pt_pattern_index(c.pattern))>=0&&pt_link_seq((unsigned)i)>=0){
+            arrange_undo_forward_until=now_ms()+400;phone_native_inject_button(code,1);phone_native_inject_button(code,0);
+            say(code==MINUS?"Undo (sequence)":"Redo (sequence)");return 1;}}
     if(code==0x4a&&!shifted){int*l=in_editor?&arrange_roll_loop:&arrange_loop;*l=!*l;
         say(*l?(in_editor?"Block loop on: Play loops this block":"Loop on: range / selection / block / song"):"Loop off");
         if(arrange_play_state)say(*l?"Loop applies from the next Play":"Loop off from the next Play");
@@ -450,7 +464,14 @@ static int arrange_button(unsigned code,int shifted){
         else{int ok=pt_arr_remove(c.id);if(ok&&arrange_selected==c.id)arrange_selected=0;arrange_result(ok);}
         return 1;
     }
-    if(code==0x0b){arrange_ss_held=1;return 1;} /* Note Repeat held: DATA scrolls time, fader scrolls tracks */
+    if(code==0x0b){ /* Note Repeat held: move the selection (DATA time / fader track), release applies */
+        arrange_ss_held=1;arrange_nr_edit=arrange_nr_multi=0;arrange_nr_dt=0;arrange_nr_drow=0;
+        if(arrange_multi_count){struct pt_arrangement a;pt_arr_info(&a);arrange_nr_first=-1;arrange_nr_top=1<<30;
+            for(unsigned i=0;i<arrange_multi_count;++i){struct pt_arr_clip m;if(!arrange_clip(arrange_multi[i],&m))continue;if(arrange_nr_first<0||m.start<arrange_nr_first)arrange_nr_first=m.start;
+                for(unsigned r=0;r<a.tracks;++r){struct pt_arr_track rt;if(pt_arr_track_at(r,&rt)&&rt.id==m.track&&(int)r<arrange_nr_top)arrange_nr_top=(int)r;}}
+            arrange_nr_multi=1;say("Move: DATA time / Fader track, release applies");}
+        else{struct pt_arr_clip c;if(arrange_target(&c)){arrange_begin_edit();arrange_nr_edit=arrange_editing;}}
+        repaint(screen);return 1;}
     if(code==0x6f&&shifted&&!arrange_menu){
         if(arrange_multi_count>1)say("Open one block at a time");
         else{struct pt_arr_clip c;if(arrange_multi_count==1&&arrange_clip(arrange_multi[0],&c))arrange_selected=c.id;
@@ -491,6 +512,11 @@ static int arrange_control(unsigned cc,unsigned value,int shifted){
         if(arrange_cursor>arrange_left+arrange_span)arrange_left=arrange_cursor-arrange_span;
         repaint(screen);return 1;
     }
+    if(arrange_nr_multi&&(cc==DATA_ENCODER||cc==0x14)){
+        if(cc==DATA_ENCODER){arrange_nr_dt+=(int64_t)delta*arrange_grid;if(arrange_nr_first+arrange_nr_dt<0)arrange_nr_dt=-arrange_nr_first;}
+        else arrange_nr_drow=ui_list_fader(value,(int)a.tracks-1)-arrange_nr_top;
+        {char m[80],s[24];arrange_bbt(arrange_nr_first+arrange_nr_dt,s,sizeof s);snprintf(m,sizeof m,"Move to bar %s, %+d tracks: release",s,arrange_nr_drow);say(m);}
+        return 1;}
     if(arrange_ss_held&&!arrange_menu&&(cc==DATA_ENCODER||cc==0x14)){
         if(cc==DATA_ENCODER){arrange_left+=(int64_t)delta*(arrange_span/8>0?arrange_span/8:960);if(arrange_left<0)arrange_left=0;if(arrange_left>a.length-arrange_span)arrange_left=a.length-arrange_span>0?a.length-arrange_span:0;}
         else{int max=a.tracks>(unsigned)arrange_rows?(int)a.tracks-arrange_rows:0;arrange_top=max-(int)value*max/127;}

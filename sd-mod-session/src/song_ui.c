@@ -131,8 +131,12 @@ static unsigned export_items(void){
 static unsigned export_kind(unsigned index){
     unsigned audio=audio_export_items();return index<audio?index:4+index-audio;
 }
+#ifdef MPC_PATTERN_TOOLS_TRIAL
+static int arrange_export_active(void);
+#endif
 static unsigned song_menu_items(void){
 #ifdef MPC_PATTERN_TOOLS_TRIAL
+    if(arrange_export_active())return export_items();
     return export_items()+1;
 #else
     return export_items();
@@ -314,7 +318,6 @@ int song_ui_owns(unsigned kind,unsigned code,int shift,int down)
     if(!down) return (atomic_load(&owned_buttons)&bit)!=0;
 #ifdef MPC_PATTERN_TOOLS_TRIAL
     if(atomic_load(&shown)&&atomic_load(&arrangement_active)){
-        if(code==0x0b&&atomic_load(&arrangement_editor))return 0;
         if(bit>=256u&&code!=0x6f&&code!=0x09&&code!=0x0b&&code!=0x4a&&!atomic_load(&arrangement_editor))return 0;
         atomic_fetch_or(&owned_buttons,bit);return 1;
     }
