@@ -1485,12 +1485,18 @@ int step_native_read_seq(void *sequencer,int slot,struct step_event*out,unsigned
     if(n||slot<0){char text[96];snprintf(text,sizeof text,"ARRANGE_READ_SEQ seq=%d notes=%u len=%lld",index+1,n,(long long)*len);report(text);}
     return index;
 }
+static int render_live; /* Arrange edit while Seq 128 plays: the stock sequencer accepts event edits during playback */
+int step_native_render_arrangement_live(void *sequencer,int slot,char*msg,unsigned msg_size)
+{
+    if(atomic_load(&clock_recording)){if(msg&&msg_size)snprintf(msg,msg_size,"Recording: not now");return -1;}
+    render_live=1;int r=step_native_render_arrangement_slot(sequencer,slot,1,msg,msg_size);render_live=0;return r;
+}
 int step_native_render_arrangement_slot(void *sequencer,int slot,int confirm,char*msg,unsigned msg_size)
 {
     if(!msg||!msg_size)return -1;
     msg[0]=0;
     if(!on_ui()){snprintf(msg,msg_size,"Arrange render: wrong thread");return -1;}
-    if(atomic_load(&clock_running)||atomic_load(&clock_recording)){snprintf(msg,msg_size,"Stop transport first");return -1;}
+    if((atomic_load(&clock_running)&&!render_live)||atomic_load(&clock_recording)){snprintf(msg,msg_size,"Stop transport first");return -1;}
     void *c=core_step_controller();
     void *things=c?FIELD(c,0x248,void*):NULL,*track=things?FIELD(things,0x368,void*):NULL;
     if(!c||!things||!track||!sequencer||slot<0||slot>=128){snprintf(msg,msg_size,"Arrange slot unavailable");return -1;}

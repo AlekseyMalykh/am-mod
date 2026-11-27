@@ -47,6 +47,7 @@ int step_native_insert_pad_note_at(unsigned pad,int64_t tick,uintptr_t current_s
 /* Arrange: whole song into the current sequence (UI, stopped). >=0 notes, -1 error, -2 needs confirm. */
 int step_native_render_arrangement(int confirm,char*msg,unsigned msg_size);
 int step_native_render_arrangement_slot(void*sequencer,int slot,int confirm,char*msg,unsigned msg_size);
+int step_native_render_arrangement_live(void*sequencer,int slot,char*msg,unsigned msg_size);
 void step_native_set_render_from(int64_t from);
 void step_native_set_render_range(int64_t from,int64_t to);
 void step_native_set_sequencer(void *sequencer);

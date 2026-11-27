@@ -40,6 +40,7 @@ static uint64_t arrange_render_confirm_until;
  * playback or leaving Arrange restore the user's steps and row. UI thread only. */
 #define ARRANGE_SLOT 127
 extern int step_native_render_arrangement_slot(void*,int,int,char*,unsigned) __attribute__((weak));
+extern int step_native_render_arrangement_live(void*,int,char*,unsigned) __attribute__((weak));
 extern void phone_native_inject_button(unsigned,unsigned) __attribute__((weak));
 static int arrange_play_state; /* 0 idle, 1 waiting for swapped song, 2 playing, 3 stopping */
 static int arrange_saved_seq[512],arrange_saved_rep[512],arrange_saved_count=-1,arrange_saved_row;
@@ -314,9 +315,9 @@ static void arrange_tick(void){
 }
 /* An edit while Arrange plays: render Seq 128 again so the change is heard from now on. */
 static void arrange_live_update(void){
-    if(arrange_play_state!=2||!step_native_render_arrangement_slot)return;
+    if(arrange_play_state!=2||!step_native_render_arrangement_live)return;
     struct song_ref r;if(!song_ref_any(&r))return;
-    char msg[96];int rr=step_native_render_arrangement_slot(r.sequencer,ARRANGE_SLOT,1,msg,sizeof msg);
+    char msg[96];int rr=step_native_render_arrangement_live(r.sequencer,ARRANGE_SLOT,msg,sizeof msg);
     struct pt_arrangement a;arrange_play_end=0;if(pt_arr_info(&a))for(unsigned j=0;j<a.clips;++j){struct pt_arr_clip c;if(pt_arr_clip_at(j,&c)&&!c.muted&&c.start+c.length>arrange_play_end)arrange_play_end=c.start+c.length;}
     {char m[128];snprintf(m,sizeof m,"ARRANGE_PLAY live render r=%d %s",rr,msg);report(m);}
 }
