@@ -30,6 +30,7 @@ extern int internal_storage_enabled(void) __attribute__((weak));
 extern unsigned step_native_transport_state(void) __attribute__((weak));
 static _Atomic unsigned arrangement_active;
 static _Atomic unsigned arrangement_editor;
+static _Atomic unsigned arrange_naming; /* Arrange rename: pads type letters */
 static void arrange_open(void),arrange_close(void),arrange_paint(void*),arrange_tick(void);
 static int arrange_button(unsigned,int),arrange_control(unsigned,unsigned,int),arrange_forwarded_release(unsigned);
 static void arrange_release(unsigned);
@@ -284,7 +285,7 @@ int song_ui_pads_active(void){
 }
 #ifdef MPC_PATTERN_TOOLS_TRIAL
 /* Arrange owns the pads: in the block editor they play/choose rows, on the lane they choose a sequence. */
-int song_ui_pattern_pads(void){return atomic_load(&shown)&&atomic_load(&arrangement_active)&&atomic_load(&arrangement_editor);}
+int song_ui_pattern_pads(void){return atomic_load(&shown)&&atomic_load(&arrangement_active)&&(atomic_load(&arrangement_editor)||atomic_load(&arrange_naming));}
 /* Arrange lane: the pad still selects the sequence natively; Arrange also asks to add it. */
 /* Loop LED while Arrange is on screen: lane and block editor have separate loops. */
 static int arrange_loop_lit(void);

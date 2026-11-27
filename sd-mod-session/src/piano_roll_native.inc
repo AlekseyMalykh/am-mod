@@ -702,7 +702,15 @@ static void roll_paint(void*g){
  }
  for(int row=roll.top;row<roll.row_count&&row<roll.top+roll.rows_visible;++row){int y=roll_y(row);if(y<70)continue;
   colour(g,0xff303030);rect(g,0,y,310,1);char label[64];int value=roll.rows[row];
-  if(roll.layer==PR_PADS){unsigned flags=roll_categories(value);pad_name(value,pad);snprintf(label,sizeof(label),"%s%s%s",pad,flags&2?" L":"",flags&1?" C":"");}
+  if(roll.layer==PR_PADS){unsigned flags=roll_categories(value);pad_name(value,pad);
+   /* Pad + the start of its sample name (cached: the program is read at most once a second per pad). */
+   static char sample_cache[128][12];static uint64_t sample_at[128];const char*sn="";
+   if(value>=0&&value<128){uint64_t now=milliseconds();if(!sample_at[value]||now-sample_at[value]>1000){char full[513];strcpy(full,"Empty");
+     /* Pattern host has no own native screen: read the program only through readable, aligned pointers. */
+     uintptr_t things=0,program=0;
+     if(controller&&!((uintptr_t)controller&7)&&safe_word((uintptr_t)controller+0x248,&things)&&things&&!(things&7)&&safe_word(things+0xb8,&program)&&program&&!(program&7)&&safe_word(program,&program))read_sample_for_pad(value,full);
+     snprintf(sample_cache[value],sizeof sample_cache[value],"%.11s",strcmp(full,"Empty")?full:"");sample_at[value]=now?now:1;}sn=sample_cache[value];}
+   snprintf(label,sizeof(label),"%s%s%.7s%s%s",pad,sn[0]?" ":"",sn,flags&2?" L":"",flags&1?" C":"");}
   else if(roll.layer==PR_TUNE){int pc=(roll_reference_note+value-120)%12;if(pc<0)pc+=12;snprintf(label,sizeof(label),"%s %+d",music_note_names[pc],value-120);}
   else snprintf(label,sizeof(label),"C%03d",value+1);
   int muted_pad=roll.layer==PR_PADS?value:roll.sound;

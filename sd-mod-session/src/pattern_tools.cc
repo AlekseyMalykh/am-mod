@@ -163,6 +163,9 @@ extern "C" int pt_arr_multi(const uint64_t*ids,unsigned n,int64_t dt,int drow,in
   s.arr_mode=1;return Result::ok;
  });
 }
+static bool name_ok(const char*name,std::size_t max){if(!name||!*name)return false;std::size_t n=::strnlen(name,max+1);if(n>max)return false;for(std::size_t i=0;i<n;++i)if((unsigned char)name[i]<32)return false;return true;}
+extern "C" int pt_rename(uint64_t pattern,const char*name){if(!name_ok(name,63)){set_error("Name: 1-63 characters");return 0;}std::string value(name);return edit_state([&](State&s){for(auto&e:s.library.entries)if(e.pattern.id()==pattern){e.name=value;++s.library.revision;return Result::ok;}return Result::invalid;});}
+extern "C" int pt_arr_rename_track(uint64_t track,const char*name){if(!name_ok(name,31)){set_error("Track name: 1-31 characters");return 0;}std::string value(name);return edit_state([&](State&s){for(auto&t:s.song.tracks)if(t.id==track){t.name=value;++s.song.revision;s.arr_mode=1;return Result::ok;}return Result::invalid;});}
 extern "C" int pt_arr_track_state(uint64_t id,int muted,int solo){if((muted!=0&&muted!=1)||(solo!=0&&solo!=1))return 0;return arrange([&](Arrangement&a,const Library&l){return a.track_state(id,muted!=0,solo!=0,l);});}
 extern "C" int pt_arr_length(int64_t length){return arrange([&](Arrangement&a,const Library&l){return a.song_length(length,l);});}
 extern "C" int pt_pattern_assigned(unsigned index){try{auto s=snapshot();if(index>=s->library.entries.size())return 0;const auto&r=s->library.entries[index].pattern.routes();if(r.empty())return 0;for(const auto&t:r)if(t.program_key==unassigned_program_key)return 0;return 1;}catch(...){return 0;}}

@@ -957,6 +957,27 @@ static void mixer_pad_ui(const struct phone_event *e, struct mixer_control *cont
     }
 }
 
+/* SongScreen entry guard (vtable slot 0x6d7d060 -> 1523ec0) refuses "Stop Seq playback to enter
+ * Song Mode" while the transport runs. Mixer B1 back to Song/Arrange keeps playing: for a short
+ * window after our own request the guard answers yes; otherwise the stock check runs. */
+static _Atomic uint64_t song_enter_allow_until;
+static int song_enter_guard(void *self)
+{
+    if (now_ms() < atomic_load(&song_enter_allow_until)) {fprintf(stderr,"SONG_ENTER guard bypassed (playing)\n");return 1;}
+    return FN(0x1523ec0,int(*)(void*))(self);
+}
+static int install_song_enter_guard(void)
+{
+    static int done;
+    if (done) return done > 0;
+    uintptr_t *slot = (uintptr_t*)(base+0x6d7d060);
+    if (*slot != base+0x1523ec0) {done = -1;fprintf(stderr,"SONG_ENTER guard slot mismatch %#lx\n",(unsigned long)(*slot-base));return 0;}
+    void *page = (void*)((uintptr_t)slot&~(uintptr_t)4095);
+    if (mprotect(page,4096,PROT_READ|PROT_WRITE)) {done = -1;return 0;}
+    *slot = (uintptr_t)song_enter_guard;
+    if (mprotect(page,4096,PROT_READ)) _exit(121);
+    done = 1;fprintf(stderr,"SONG_ENTER guard installed\n");return 1;
+}
 /* Stock screen navigation, as the Shift-pad menu does it: app(+0x71e3dc8)+240 is the
  * navigation controller (vptr 0x6d8bee8, ctor 14add30), its +48 the screen manager;
  * 1c0e5c0(manager,id) shows a screen. SongScreen id 0x20ac (registered 15b111c, shown by
@@ -999,6 +1020,7 @@ static void mixer_button_ui(struct phone_event *e, struct mixer_control *control
     if (mixer_control_exit_requested(control)) {
         /* B1 on the Mixer page: back to where it was opened (Sample, Seq or Song via Shift+Pad 12). */
         _Alignas(8) unsigned char sample[16];memcpy(sample,e->native,16);
+        if (mixer_origin == 2 && install_song_enter_guard()) atomic_store(&song_enter_allow_until,now_ms()+1500);
         if (mixer_origin == 2 && native_show_screen(0x20ac)) {
             fprintf(stderr,"MIXER_RETURN song (native screen)\n");
         } else if (mixer_origin == 2 && atomic_load(&pad_template_ok)) {

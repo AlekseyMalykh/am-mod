@@ -1,6 +1,8 @@
 /* SongScreen UI owner only. Producer sees arrangement_active, never these
  * values or native pointers. Timeline units are quarter-note beats (960). */
 #include "ui_list_geometry.h"
+#include "phone_input.h"
+static struct phone_input arrange_name;static int arrange_name_kind;static uint64_t arrange_name_target; /* menu 7: 1 pattern, 2 track */
 static uint64_t arrange_epoch,arrange_selected;
 static struct pt_arr_clip arrange_clipboard;
 static int arrange_row,arrange_top,arrange_rows=4,arrange_menu,arrange_pick;
@@ -15,8 +17,8 @@ static const int64_t arrange_grids[]={240,480,960,1920,3840};
 /* Labels by action id; arrange_order is the grouped display order (Add / Block / Track / Song). */
 static const char*const arrange_actions[]={"Track: add","Add: pattern from library","Block: copy","Block: paste at cursor",
     "Block: move selection here","Block: extend one cycle","Block: trim end to cursor","Block: join next block",
-    "Track: mute","Track: solo","Block: delete","Song: +4 bars","Song: -4 bars","Block: open in Piano Roll","Add: empty pattern","Block: make variation","Song: render to current seq","Add: current sequence","Track: delete"};
-static const int arrange_order[]={17,14,1, 13,2,3,4,5,6,7,15,10, 0,8,9,18, 11,12,16};
+    "Track: mute","Track: solo","Block: delete","Song: +4 bars","Song: -4 bars","Block: open in Piano Roll","Add: empty pattern","Block: make variation","Song: render to current seq","Add: current sequence","Track: delete","Block: rename pattern","Track: rename"};
+static const int arrange_order[]={17,14,1, 13,19,2,3,4,5,6,7,15,10, 0,20,8,9,18, 11,12,16};
 #define ARRANGE_ORDER_COUNT ((int)(sizeof arrange_order/sizeof *arrange_order))
 static uint64_t arrange_multi[512];static unsigned arrange_multi_count;static int arrange_anchor_row;
 static int arrange_track_index(uint64_t track){struct pt_arrangement a;if(!pt_arr_info(&a))return -1;for(unsigned i=0;i<a.tracks;++i){struct pt_arr_track t;if(pt_arr_track_at(i,&t)&&t.id==track)return (int)i;}return -1;}
@@ -109,8 +111,8 @@ static void arrange_add_seq(void){arrange_add_seq_slot(-1);}
 extern int step_native_browser_bank(int) __attribute__((weak));
 static int arrange_pending_seq=-1,arrange_pending_notes;
 static void arrange_pad(unsigned pad,int shifted){
-    (void)shifted;
     if(!atomic_load(&arrangement_active)||pad>=16)return;
+    if(arrange_menu==7){uint64_t t=now_ms();arrange_name.shift=shifted;phone_pad(&arrange_name,pad+1,1,t);phone_pad(&arrange_name,pad+1,0,t);repaint(screen);return;}
     if(arrange_editing||(arrange_menu&&arrange_menu!=5)){repaint(screen);return;}
     int bank=step_native_browser_bank?step_native_browser_bank(-1):0;if(bank<0||bank>7)bank=0;
     int seq=bank*16+(int)pad;
@@ -265,7 +267,7 @@ static void arrange_close(void){
     if(arrange_play_state)arrange_play_stop(1);
     if(atomic_exchange(&arrangement_editor,0)&&step_pattern_close)step_pattern_close();
     if(atomic_exchange(&arrangement_active,0))atomic_fetch_add(&input_epoch,1);
-    arrange_menu=0;arrange_selected=0;memset(&arrange_clipboard,0,sizeof arrange_clipboard);
+    arrange_menu=0;arrange_selected=0;memset(&arrange_clipboard,0,sizeof arrange_clipboard);atomic_store(&arrange_naming,0);
     arrange_range=arrange_data_held=arrange_data_moved=arrange_editing=0;
 }
 static void arrange_open(void){
@@ -292,6 +294,7 @@ static int arrange_target(struct pt_arr_clip*out){
 }
 static void arrange_tick(void){
     if(arrange_play_state)arrange_play_tick();
+    if(arrange_menu==7&&phone_tick(&arrange_name,now_ms()))repaint(screen);
     if(arrange_resync_at&&now_ms()>=arrange_resync_at){struct song_ref r;arrange_resync_at=0;if(song_ref_any(&r))arrange_sync_links(r.sequencer);repaint(screen);}
     if(arrange_epoch!=pt_epoch()){arrange_new_length=3840;arrange_close();say("Project changed: reopen Arrange");repaint(screen);return;}
     struct pt_arrangement a;if(!pt_arr_info(&a)){arrange_close();return;}
@@ -388,6 +391,18 @@ static void arrange_release(unsigned code){
     }
     arrange_data_moved=0;repaint(screen);
 }
+static void arrange_name_begin(int kind,uint64_t target,const char*current){
+    phone_init(&arrange_name,kind==1?63:31);
+    if(!phone_sync(&arrange_name,current?current:"",current?strlen(current):0)){say("Name unavailable");return;}
+    phone_enable(&arrange_name,1);arrange_name_kind=kind;arrange_name_target=target;arrange_menu=7;atomic_store(&arrange_naming,1);
+    say("Pads: letters / DATA: cursor / B3: save");}
+static void arrange_name_end(void){arrange_menu=0;arrange_name_kind=0;atomic_store(&arrange_naming,0);}
+static void arrange_name_save(void){
+    phone_commit(&arrange_name);char text[96];
+    if(!phone_utf8(&arrange_name,text,sizeof text)||!text[0]){say("Name required");return;}
+    int ok=arrange_name_kind==1?pt_rename(arrange_name_target,text):pt_arr_rename_track(arrange_name_target,text);
+    if(ok)arrange_name_end();
+    arrange_result(ok);}
 static void arrange_execute(void){
     struct pt_arrangement a;struct pt_arr_track t;struct pt_arr_clip c;
     if(!pt_arr_info(&a))return;
@@ -401,6 +416,8 @@ static void arrange_execute(void){
         if(ok)arrange_menu=0;
         arrange_result(ok);return;}
     if(arrange_pick==18){arrange_pick=display;if(!have_track){say("No track here");return;}arrange_menu=6;return;}
+    if(arrange_pick==19){arrange_pick=display;struct pt_entry e;int p=have_clip?pt_pattern_index(c.pattern):-1;if(p<0||!pt_info((unsigned)p,&e)){say("Select a block first");return;}arrange_name_begin(1,c.pattern,e.name);return;}
+    if(arrange_pick==20){arrange_pick=display;if(!have_track){say("No track here");return;}arrange_name_begin(2,t.id,t.name);return;}
     if(arrange_pick==0){char name[32];snprintf(name,sizeof name,"Track %u",a.tracks+1);ok=pt_arr_add_track(name,&id);if(ok)arrange_row=(int)a.tracks;}
     else if(arrange_pick==1){if(!have_track){say("Add a track first");return;}if(!pt_count()){say("Create Parts in Events > Piano Roll");return;}arrange_menu=2;arrange_pick=0;return;}
     else if(arrange_pick==2){if(!have_clip){say("No block to copy");return;}arrange_clipboard=c;arrange_menu=0;say("Copied; move cursor, Actions > Paste");return;}
@@ -443,6 +460,13 @@ static int arrange_button(unsigned code,int shifted){
         repaint(screen);return 1;}
     if(in_editor&&code!=0x52&&code!=0x51){step_pattern_button(code,1,shifted);arrange_tick();repaint(screen);return 1;}
     if(in_editor&&shifted){step_pattern_button(code,1,shifted);arrange_tick();repaint(screen);return 1;}
+    if(arrange_menu==7){ /* rename: the Mod text input (pads multi-tap, DATA cursor / letter) */
+        if(code==B1){arrange_name_end();say("Rename cancelled");}
+        else if(code==B3)arrange_name_save();
+        else if(code==0x09||code==B2)phone_delete(&arrange_name,!arrange_name.enabled&&arrange_name.cursor<arrange_name.length);
+        else if(code==0x6f||code==PLUS)phone_move(&arrange_name,1);
+        else if(code==MINUS)phone_move(&arrange_name,-1);
+        repaint(screen);return 1;}
     if(code==B1&&shifted){
         if(arrange_export_begin()){arrange_close();atomic_store(&export_choice,0u);atomic_store(&export_menu_active,1u);say("Export the arrangement: choose");}
         repaint(screen);return 1;}
@@ -510,6 +534,10 @@ static int arrange_control(unsigned cc,unsigned value,int shifted){
     struct pt_arrangement a;if(!pt_arr_info(&a))return 1;
     if(atomic_load(&arrangement_editor)){step_pattern_control(cc,value,shifted);arrange_tick();return 1;}
     int delta=value>64?(int)value-128:value==64?0:(int)value;
+    if(arrange_menu==7){
+        if(cc==K1){if(arrange_name.enabled!=(value>=64))phone_enable(&arrange_name,value>=64);}
+        else if(cc==DATA_ENCODER&&delta){if(arrange_name.enabled||shifted)phone_move(&arrange_name,delta);else phone_turn_character(&arrange_name,delta);}
+        repaint(screen);return 1;}
     if(arrange_editing){
         if(cc==DATA_ENCODER)arrange_draft.start+=(int64_t)delta*(shifted?1:arrange_grid);
         else if(cc==0x10)arrange_draft.start=(int64_t)value*(a.length-arrange_draft.length)/127;
@@ -556,10 +584,15 @@ static void arrange_paint(void*g){
     struct pt_arrangement a;if(!pt_arr_info(&a))return;
     colour(g,0xff000000u);rect(g,0,0,320,240);
     struct pt_arr_clip under;int have_under=arrange_target(&under);
-    colour(g,0xffffffffu);text(g,atomic_load(&export_shift)?"Export":arrange_editing?"Cancel":"Back",0,4,106,25,13);
-    text(g,arrange_editing?"":arrange_menu?"Close":arrange_range?"Range On":"Range",107,4,106,25,13);colour(g,0xffffc247u);text(g,arrange_editing?"Apply":atomic_load(&export_shift)?"Actions":arrange_menu==3||arrange_menu==6?"Delete":arrange_menu?"Choose":arrange_selected?"Edit":have_under&&!arrange_range?"Open":"New",214,4,106,25,13);
-    text_at(g,arrange_menu==1?"Arrange / Actions":arrange_menu==2?"Insert pattern":arrange_menu==4?"New block":arrange_menu==5?"Add sequence":arrange_menu==6?"Delete track":a.read_only?"Arrange / read only":"Song / Arrange",6,34,arrange_menu?236:308,23,17,0x21);
-    if(arrange_menu==3){colour(g,0xffffffffu);text(g,"Delete selected block?",8,93,304,27,18);text(g,"Pattern stays in the library",8,126,304,22,13);}
+    colour(g,0xffffffffu);text(g,arrange_menu==7||arrange_editing?"Cancel":atomic_load(&export_shift)?"Export":"Back",0,4,106,25,13);
+    text(g,arrange_menu==7?"Delete":arrange_editing?"":arrange_menu?"Close":arrange_range?"Range On":"Range",107,4,106,25,13);colour(g,0xffffc247u);text(g,arrange_menu==7?"Save":arrange_editing?"Apply":atomic_load(&export_shift)?"Actions":arrange_menu==3||arrange_menu==6?"Delete":arrange_menu?"Choose":arrange_selected?"Edit":have_under&&!arrange_range?"Open":"New",214,4,106,25,13);
+    text_at(g,arrange_menu==1?"Arrange / Actions":arrange_menu==2?"Insert pattern":arrange_menu==4?"New block":arrange_menu==5?"Add sequence":arrange_menu==6?"Delete track":arrange_menu==7?(arrange_name_kind==1?"Rename pattern":"Rename track"):a.read_only?"Arrange / read only":"Song / Arrange",6,34,arrange_menu?236:308,23,17,0x21);
+    if(arrange_menu==7){char view[160];phone_view(&arrange_name,22,view,sizeof view);
+        colour(g,0xff303030u);rect(g,8,84,304,34);colour(g,0xffffffffu);text_at(g,view,14,84,292,34,18,0x21);
+        colour(g,0xffaaaaaau);text(g,arrange_name.enabled?"Pads: letters (tap again = next, Shift = caps)":"DATA: letter / Shift+DATA: cursor",8,124,304,20,12);
+        text(g,"Erase / B2: delete / click, +/-: cursor / K1: pads",8,144,304,20,12);
+        colour(g,0xffffc247u);text(g,"B3: save / B1: cancel",8,166,304,20,12);}
+    else if(arrange_menu==3){colour(g,0xffffffffu);text(g,"Delete selected block?",8,93,304,27,18);text(g,"Pattern stays in the library",8,126,304,22,13);}
     else if(arrange_menu==6){char m[64];struct pt_arr_track t={0};unsigned n=0;
         if(pt_arr_track_at((unsigned)arrange_row,&t))for(unsigned j=0;j<a.clips;++j){struct pt_arr_clip c;if(pt_arr_clip_at(j,&c)&&c.track==t.id)++n;}
         colour(g,0xffffffffu);snprintf(m,sizeof m,"Delete %.20s?",t.name);text(g,m,8,86,304,27,18);
@@ -621,6 +654,6 @@ static void arrange_paint(void*g){
         if(index>=0&&pt_info((unsigned)index,&selected_pattern))snprintf(status,sizeof status,"Bar %s / Block %.2f bars / Pattern %.2f bars",now_at,selected_clip.length/3840.,selected_pattern.length/3840.);
     }
     if(arrange_editing){char s[24];arrange_bbt(arrange_draft.start,s,sizeof s);snprintf(status,sizeof status,"Preview bar %s / Length %.2f bars",s,arrange_draft.length/3840.);}
-    colour(g,0xffaaaaaau);text_at(g,arrange_menu?"DATA / Fader: choose":status,6,199,308,15,11,0x21);
-    colour(g,0xffffc247u);text_at(g,toast_until&&now_ms()<toast_until?toast:arrange_menu?"B1 Back / B3 or click: Choose":"B3 New / Erase del / Shift+Erase copy",6,215,308,19,11,0x21);
+    colour(g,0xffaaaaaau);text_at(g,arrange_menu==7?"":arrange_menu?"DATA / Fader: choose":status,6,199,308,15,11,0x21);
+    colour(g,0xffffc247u);text_at(g,toast_until&&now_ms()<toast_until?toast:arrange_menu==7?"Rename: Mod text input":arrange_menu?"B1 Back / B3 or click: Choose":"B3 New / Erase del / Shift+Erase copy",6,215,308,19,11,0x21);
 }

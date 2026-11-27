@@ -5,7 +5,7 @@ p=argparse.ArgumentParser();p.add_argument('--stock',required=True);a=p.parse_ar
 R=Path(__file__).resolve().parent;O=R/'build/arrangement-ui';O.mkdir(parents=True,exist_ok=True)
 stock=Path(a.stock);sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
 assert sha(stock)=='b6584cba76e416e432ad202509099d34373dc2c3d6a8fb625f5678bf0193b508'
-core=['src/pattern_tools.cc','src/arrangement.cc','src/arrangement_codec.cc','src/arrangement_native_plan.cc','src/pattern_model.cc','src/pattern_library.cc','src/pattern_codec.cc','src/piano_roll.c','src/midi_event.c']
+core=['src/pattern_tools.cc','src/arrangement.cc','src/arrangement_codec.cc','src/arrangement_native_plan.cc','src/pattern_model.cc','src/pattern_library.cc','src/pattern_codec.cc','src/piano_roll.c','src/midi_event.c','src/phone_input.c']
 core+=['src/arrangement_native_material.cc']
 tracked=core+['src/song_ui.c','src/song_ui.h','src/arrangement_ui.inc','src/pattern_tools.h','src/arrangement.h','src/arrangement_native_plan.h','src/pattern_model.h','src/pattern_library.h','src/piano_roll.h','src/step_native.h','src/midi_event.h','src/phone_events.h','src/music_settings.h','src/startup_project.h','src/mixer_stems.h','src/phone_native.c','build_mixer_r27r.py','build/phone_hooks.h','check_arrangement_ui.c','check_song_ui.c','check_fx_native.c','verify_arrangement_ui.py']
 tracked+=['src/ui_list_geometry.h']
@@ -24,7 +24,7 @@ for name,flags in [('normal',[]),('ubsan',['-fsanitize=undefined','-static-libub
     (O/(name+'.log')).write_text(result.stdout+result.stderr);print(result.stdout+result.stderr,flush=True);result.check_returncode();assert 'PASS Arrange UI:' in result.stdout and 'PASS Arrange direct workflow:' in result.stdout;checks.append(name)
 # Baseline Song hooks retain the existing suite with the trial flag absent.
 for name,flags in [('baseline',[]),('baseline-ubsan',['-fsanitize=undefined','-static-libubsan','-fno-sanitize-recover=all'])]:
-    target=O/name;run(['aarch64-linux-gnu-gcc','-std=c11','-O1','-g','-Wall','-Wextra','-Werror',*flags,'check_song_ui.c','-pthread','-ldl','-lm','-o',str(target)])
+    target=O/name;run(['aarch64-linux-gnu-gcc','-std=c11','-O1','-g','-Wall','-Wextra','-Werror',*flags,'check_song_ui.c','src/phone_input.c','-pthread','-ldl','-lm','-o',str(target)])
     result=subprocess.run(['qemu-aarch64','-L',sysroot,str(target),str(stock)],cwd=R,capture_output=True,text=True,timeout=90)
     (O/(name+'.log')).write_text(result.stdout+result.stderr);result.check_returncode();assert 'PASS Song UI:' in result.stdout;checks.append(name)
 tree=ast.parse((R/'build_mixer_r27r.py').read_text());common=next(ast.literal_eval(n.value) for n in tree.body if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='common' for t in n.targets))
